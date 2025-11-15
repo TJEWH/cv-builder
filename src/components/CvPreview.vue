@@ -16,7 +16,7 @@ const blocksSide = ref(props.state.orderSide || ['skills','languages','certs','h
 // DnD helpers for block arrays
 const drag = { src:null, list:null };
 const onDragStart = (list, idx, e)=>{ drag.src=idx; drag.list=list; e.dataTransfer.effectAllowed='move'; };
-const onDrop = (list, idx, e)=>{
+const onDrop = (list, idx)=>{
   if(drag.list!==list || drag.src===null) return;
   const a = list.value;
   const [it] = a.splice(drag.src,1);

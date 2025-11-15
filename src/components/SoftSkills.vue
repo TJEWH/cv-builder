@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive } from 'vue';
+import { reactive } from 'vue';
 
 const props = defineProps({
   modelValue: { type: Array, required: true }, // [{label,desc,refs:[]}]
