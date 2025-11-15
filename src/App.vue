@@ -78,6 +78,6 @@ const showPreview = ref(true);
       <FormBuilder :state="state" :onSave="saveDebounced" />
     </div>
 
-    <FloatingPreview v-if="showPreview" ref="floating" url="/preview.html" :initialScale="0.4" />
+    <FloatingPreview v-if="showPreview" ref="floating" url="/preview.html" :initialScale="0.35" />
   </div>
 </template>
