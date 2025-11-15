@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "disabled": [],
+  "design": {
+    "h1": "22pt",
+    "h2": "12pt",
+    "h3": "10pt",
+    "bullets": "10.5pt",
+    "ink": "#111827",
+    "accent": "#0f66d0",
+    "bg": "#ffffff",
+    "headerbg": "#ffffff",
+    "sidebarbg": "#ffffff",
+    "fontBody": "Inter",
+    "fontHead": "Inter",
+    "hstyle": "clean",
+    "radius": "10px",
+    "headerRadius": "12px",
+    "headerPadYmm": 12,
+    "lang": "de"
+  },
+  "header": {
+    "name": "Alex Muster",
+    "location": "Berlin, DE",
+    "role": "Software Engineer",
+    "email": "alex@example.com",
+    "phone": "+49 123 456789",
+    "website": "https://alexmuster.dev",
+    "linkedin": "https://linkedin.com/in/alexmuster"
+  },
+  "about": { "text": "Software Engineer mit Fokus auf sauberen Code, Performance und DX. Erfahrung in Backend/Cloud & Frontend." },
+  "experience": {
+    "job": [
+      {
+        "title": "Senior Software Engineer",
+        "company": "Acme GmbH",
+        "place": "Berlin",
+        "start": "2021",
+        "end": "heute",
+        "bullets": ["Skalierung von X", "Einführung CI/CD", "Mentoring"]
+      }
+    ],
+    "personal": [
+      {
+        "title": "Hackathon XYZ",
+        "sub": "1. Platz – Team von 4",
+        "place": "Dortmund",
+        "start": "2024/03",
+        "end": "2024/03",
+        "desc": "Prototyp einer ML-App, 48h Sprint …"
+      }
+    ]
+  },
+  "education": [
+    { "title": "M.Sc. Informatik", "sub": "TU München", "place": "München", "start": "2017", "end": "2020", "desc": "KI, Softwarearchitektur" }
+  ],
+  "projects": [
+    { "title": "Open Source Tool – repo/name", "place": "Remote", "start": "2025", "end": "2025", "desc": "CLI-Tool zur …" }
+  ],
+  "skills": {
+    "langs": ["Python", "TypeScript", "Go"],
+    "tools": ["React", "Docker", "Kubernetes"],
+    "methods": ["System Design", "TDD", "CI/CD"]
+  },
+  "languages": [
+    { "name": "Deutsch", "level": "Muttersprache" },
+    { "name": "Englisch", "level": "C1" }
+  ],
+  "certs": [
+    { "name": "AWS Solutions Architect", "year": "2023" }
+  ],
+  "hobbies": { "music": "Electronic music • Ableton Live • Releases on Bandcamp" },
+  "custom": [
+    { "title": "Konferenzen", "place": "Köln", "start": "2023", "end": "2025", "bullets": ["Sprecher auf JSConf", "Mitorganisator lokaler Meetup-Reihe"] }
+  ],
+  "softskills": [
+    { "label": "Analytisches Denken", "desc": "", "refs": [] },
+    { "label": "Anpassungsfähigkeit", "desc": "", "refs": [] },
+    { "label": "Kritisches Denken", "desc": "", "refs": [] },
+    { "label": "Kreative Problemlösung", "desc": "", "refs": [] },
+    { "label": "Kommunikationsstärke", "desc": "", "refs": [] },
+    { "label": "Emotionale Intelligenz", "desc": "", "refs": [] },
+    { "label": "Teamfähigkeit", "desc": "", "refs": [] },
+    { "label": "Digitale Kompetenz", "desc": "", "refs": [] },
+    { "label": "Entrepreneurship", "desc": "", "refs": [] }
+  ]
+}
