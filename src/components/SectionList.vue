@@ -33,7 +33,7 @@ const removeAt = (i) => items.value.splice(i,1);
     </div>
 
     <div class="items">
-      <div class="item-row" v-for="(row, i) in items" :key="i">
+      <div class="item-row" v-for="(i) in items" :key="i">
         <div v-if="schema.some(s=>s.type!=='textarea')" :class="['row', schema.length===2?'row-2':'', schema.length===3?'row-3':'']">
           <label v-for="f in schema.filter(s=>s.type!=='textarea')" :key="f.key">
             {{ f.label }}
