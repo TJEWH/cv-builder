@@ -45,12 +45,10 @@ const doImport = async (e)=>{
     <header>
       <strong>CV-Formular</strong>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button type="button" class="btn btn--primary" @click="$emit('add-custom')">Neue Sektion</button>
-        <button type="button" class="btn btn--success" @click="$emit('apply')">In CV übernehmen</button>
-        <button type="button" class="btn btn--primary" @click="doExport">JSON exportieren</button>
         <label class="btn btn--warning" style="cursor:pointer">
           JSON laden<input type="file" accept="application/json" style="display:none" @change="doImport"/>
         </label>
+        <button type="button" class="btn btn--primary" @click="doExport">JSON exportieren</button>
       </div>
     </header>
 
