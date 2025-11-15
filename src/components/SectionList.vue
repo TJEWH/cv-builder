@@ -15,6 +15,11 @@ const add = () => {
   const o = {};
   props.schema.forEach(f => { o[f.key] = f.type === 'number' ? 0 : ''; });
   items.value.push(o);
+
+  requestAnimationFrame(()=>{
+    const el = root.value?.querySelector('.item-row:last-of-type');
+    el?.scrollIntoView({ behavior:'smooth', block:'center' });
+  });
 };
 const removeAt = (i) => items.value.splice(i,1);
 </script>

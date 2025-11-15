@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive } from 'vue';
+import { computed, reactive, nextTick } from 'vue';
 import SectionList from './SectionList.vue';
 import SoftSkills from './SoftSkills.vue';
 import DesignPanel from './DesignPanel.vue';
@@ -37,6 +37,12 @@ const doImport = async (e)=>{
   const f = e.target.files?.[0]; if(!f) return;
   try { const data = await importJSON(f); Object.assign(props.state, data); }
   finally { e.target.value=''; props.onSave?.(); }
+};
+
+const addCustom = async ()=>{
+  props.state.custom.push({ title:'', place:'', start:'', end:'', bullets:'' });
+  await nextTick();
+  document.querySelector('[data-section="custom"] .item-row:last-of-type')?.scrollIntoView({behavior:'smooth', block:'center'});
 };
 </script>
 
@@ -91,7 +97,7 @@ const doImport = async (e)=>{
         <label>Text<textarea v-model="state.about.text" placeholder="Kurzprofil in 2–4 Sätzen: Wirkung, Stärken, Tech-Stack …"></textarea></label>
       </section>
 
-      <!-- Experience job (mit Start/Ende/Ort) -->
+      <!-- Experience job -->
       <SectionList
           title="Berufserfahrung"
           sectionKey="exp-job"
@@ -242,6 +248,10 @@ const doImport = async (e)=>{
         ]"
           addLabel="Eintrag hinzufügen"
       />
+
+      <div style="display:flex;justify-content:flex-end">
+        <button type="button" class="btn btn--success" @click="addCustom">Neue Sektion</button>
+      </div>
 
       <!-- Softskills -->
       <section class="section-group" data-section="softskills" :class="{collapsed:collapsed.soft}">
