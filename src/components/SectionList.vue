@@ -1,4 +1,6 @@
 <script setup>
+import { ref } from 'vue';
+
 const props = defineProps({
   title: String,
   sectionKey: String,
@@ -6,10 +8,13 @@ const props = defineProps({
   schema: { type: Array, required: true }, // [{label,key,type,placeholder,options?}]
   addLabel: { type: String, default: 'Eintrag hinzufügen' },
   toggleable: { type: Boolean, default: true },
-  disabled: { type: Boolean, default: false } // zeigt, ob Sektion ausgeblendet ist
+  disabled: { type: Boolean, default: false } // ausgeblendet (gelber Hintergrund)
 });
 const emit = defineEmits(['update:modelValue','toggle-section']);
 const items = defineModel({ default: [] });
+
+const root = ref(null);
+const toggleCollapse = () => { root.value?.classList.toggle('collapsed'); };
 
 const add = () => {
   const o = {};
@@ -25,9 +30,9 @@ const removeAt = (i) => items.value.splice(i,1);
 </script>
 
 <template>
-  <section class="section-group" :data-section="sectionKey" :class="{disabled}">
+  <section ref="root" class="section-group" :data-section="sectionKey" :class="{disabled}">
     <div class="section-head">
-      <button class="caret mini" type="button" @click="$el.parentElement.classList.toggle('collapsed')">▾</button>
+      <button class="caret mini" type="button" @click="toggleCollapse">▾</button>
       <h3>{{ title }}</h3>
       <div style="margin-left:auto;display:flex;gap:6px">
         <button v-if="addLabel" type="button" class="mini btn--success" @click="add">{{ addLabel }}</button>
@@ -38,7 +43,7 @@ const removeAt = (i) => items.value.splice(i,1);
     </div>
 
     <div class="items">
-      <div class="item-row" v-for="(i) in items" :key="i">
+      <div class="item-row" v-for="(row, i) in items" :key="i">
         <div v-if="schema.some(s=>s.type!=='textarea')" :class="['row', schema.length===2?'row-2':'', schema.length===3?'row-3':'']">
           <label v-for="f in schema.filter(s=>s.type!=='textarea')" :key="f.key">
             {{ f.label }}
