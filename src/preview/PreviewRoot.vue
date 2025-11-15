@@ -1,7 +1,9 @@
 <script setup>
-import { reactive, onMounted, watch } from 'vue';
+import { reactive, onMounted, watch, ref } from 'vue';
 import CvPreview from '../components/CvPreview.vue';
 import { STORAGE_KEY } from '../composables/useStorage';
+
+const isEmbedded = ref(false);
 
 const state = reactive({
   version: 1, disabled: [],
@@ -67,15 +69,69 @@ function loadInitial(){
 }
 
 onMounted(()=>{
+  // erkenne iframe ODER ?embed=1
+  try {
+    const params = new URLSearchParams(location.search);
+    isEmbedded.value = (window.self !== window.top) || params.has('embed');
+  } catch {
+    isEmbedded.value = true;
+  }
+
   loadInitial();
   window.addEventListener('storage', (e)=>{ if(e.key===STORAGE_KEY && e.newValue){ try{ mergeIn(JSON.parse(e.newValue)); }catch{} }});
-  try{ const bc = new BroadcastChannel('cv-sync'); bc.onmessage = (ev)=>{ if(ev?.data?.type==='update'){ mergeIn(ev.data.data); } if(ev?.data?.type==='print'){ window.print(); } }; }catch{}
+  try{
+    const bc = new BroadcastChannel('cv-sync');
+    bc.onmessage = (ev)=>{
+      if(ev?.data?.type==='update'){ mergeIn(ev.data.data); }
+      if(ev?.data?.type==='print'){ window.print(); }
+    };
+  }catch{}
   if (location.hash === '#print'){ setTimeout(()=> window.print(), 200); }
 });
 
 watch(()=>state.design, applyDesign, {deep:true});
+
+const doPrint = ()=> window.print();
 </script>
 
 <template>
+  <!-- Toolbar nur außerhalb vom iframe -->
+  <div v-if="!isEmbedded" class="pv-toolbar">
+    <button class="pv-btn" @click="doPrint">PDF exportieren</button>
+  </div>
+
   <CvPreview :state="state" />
 </template>
+
+<style>
+
+#preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.pv-toolbar{
+  position: fixed;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  background: #0a0f14;
+  color: #9be8c7;
+  border: 1px dashed #134e4a;
+  border-radius: 8px;
+  padding: 6px 10px;
+  box-shadow: 0 8px 20px rgba(0,0,0,.35);
+}
+.pv-btn{
+  cursor: pointer;
+  padding: 6px 10px;
+  background: #061017;
+  color: #9be8c7;
+  border: 1px dashed #0f766e;
+  border-radius: 6px;
+}
+.pv-btn:hover{ background:#0a1c26 }
+@media print{ .pv-toolbar{ display:none !important } }
+</style>

@@ -59,7 +59,9 @@ onMounted(async ()=>{
 onBeforeUnmount(()=>{ try{ bc?.close(); }catch{} });
 
 const floating = ref(null);
-const printPDF = ()=> floating.value?.openPrint?.();
+const openPreviewTab = () => {
+  window.open('/preview.html', '_blank', 'noopener');
+};
 
 const showPreview = ref(true);
 </script>
@@ -68,7 +70,7 @@ const showPreview = ref(true);
   <div>
     <div class="toolbar">
       <span class="note">{{ status }}</span>
-      <button class="btn btn--primary" type="button" @click="printPDF">Als PDF exportieren</button>
+      <button class="btn btn--primary" type="button" @click="openPreviewTab">Dokument anzeigen</button>
       <button class="btn" :class="[showPreview?'btn--danger':'btn--success']" type="button" @click="showPreview=!showPreview">
         {{ showPreview ? 'Preview ausblenden' : 'Preview anzeigen' }}
       </button>
@@ -78,6 +80,6 @@ const showPreview = ref(true);
       <FormBuilder :state="state" :onSave="saveDebounced" />
     </div>
 
-    <FloatingPreview v-if="showPreview" ref="floating" url="/preview.html" :initialScale="0.35" />
+    <FloatingPreview v-if="showPreview" ref="floating" url="/preview.html?embed=1" :initialScale="0.35" />
   </div>
 </template>
