@@ -1,6 +1,6 @@
 <script setup>
 import { reactive, watch, onMounted, ref, onBeforeUnmount } from 'vue';
-import { debounce, loadLocal, saveLocal } from './composables/useStorage';
+import { debounce, loadLocal, saveLocal, readBackup } from './composables/useStorage';
 import FormBuilder from './components/FormBuilder.vue';
 import FloatingPreview from './components/FloatingPreview.vue';
 
@@ -18,7 +18,7 @@ const state = reactive({
   education: [],
   projects: [],
   skills: { langs:[], tools:[], methods:[], langsString:'', toolsString:'', methodsString:'' },
-  languages: [], // [{name, level:'C1'|'Muttersprache'|...}]
+  languages: [],
   certs: [],
   hobbies: { music:'' },
   custom: [],
@@ -49,19 +49,33 @@ watch(state, ()=>{ status.value='Bearbeitung…'; saveDebounced(); },{deep:true}
 
 onMounted(async ()=>{
   try { bc = new BroadcastChannel('cv-sync'); } catch {}
+
   const cached = loadLocal();
-  if (cached){ Object.assign(state, { ...state, ...cached }); status.value='Letzte Session geladen'; }
-  else {
-    try{ const res = await fetch('/cv-defaults.json',{cache:'no-store'}); Object.assign(state, { ...state, ...(await res.json()) }); status.value='Defaults geladen'; }
-    catch{ status.value='Defaults fehlgeschlagen – leere Vorlage'; }
+  if (cached){
+    Object.assign(state, { ...state, ...cached });
+    status.value='Letzte Session geladen';
+  } else {
+    const mode = getBackupMode();
+    const backup = await readBackup(mode);
+    if (backup){
+      Object.assign(state, { ...state, ...backup });
+      saveLocal(state);
+      status.value = (mode==='file' && !fsApiAvailable()) ? 'Backup (Browser) geladen (Datei-Modus nicht verfügbar)' :
+          (mode==='file' ? 'Backup-Datei geladen' : 'Backup (Browser) geladen');
+    } else {
+      try{
+        const res = await fetch('/cv-defaults.json',{cache:'no-store'});
+        Object.assign(state, { ...state, ...(await res.json()) });
+        status.value='Defaults geladen';
+      }catch{
+        status.value='Defaults fehlgeschlagen – leere Vorlage';
+      }
+    }
   }
 });
 onBeforeUnmount(()=>{ try{ bc?.close(); }catch{} });
 
-const floating = ref(null);
-const openPreviewTab = () => {
-  window.open('/preview.html', '_blank', 'noopener');
-};
+const openPreviewTab = () => window.open('/preview.html', '_blank', 'noopener');
 
 const showPreview = ref(true);
 </script>
@@ -70,7 +84,7 @@ const showPreview = ref(true);
   <div>
     <div class="toolbar">
       <span class="note">{{ status }}</span>
-      <button class="btn btn--primary" type="button" @click="openPreviewTab">Dokument anzeigen</button>
+      <button class="btn btn--primary" type="button" @click="openPreviewTab">Als PDF exportieren</button>
       <button class="btn" :class="[showPreview?'btn--danger':'btn--success']" type="button" @click="showPreview=!showPreview">
         {{ showPreview ? 'Preview ausblenden' : 'Preview anzeigen' }}
       </button>
@@ -80,6 +94,6 @@ const showPreview = ref(true);
       <FormBuilder :state="state" :onSave="saveDebounced" />
     </div>
 
-    <FloatingPreview v-if="showPreview" ref="floating" url="/preview.html?embed=1" :initialScale="0.35" />
+    <FloatingPreview v-if="showPreview" url="/preview.html?embed=1" :initialScale="0.35" />
   </div>
 </template>

@@ -39,8 +39,14 @@ body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f1
 
 /* ==== Builder: Retro CLI Look ==== */
 .builder{width:210mm;max-width:210mm;background:#0a0f14;border:1px solid #0f766e;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.35); color:#d1fae5}
-.builder header{display:flex;justify-content:space-between;gap:8px;padding:10px;border-bottom:1px dashed #115e59}
-.builder .body{padding:10px;display:grid;gap:10px}
+.builder header{
+    display: flex;
+    padding: 10px;
+    border-bottom: 1px dashed #115e59;
+    align-items: flex-end;
+    flex-direction: column;
+}
+.builder .body{padding:10px;display:grid;gap:10px;background:#113c34;}
 .section-group{border:1px dashed #113c34;border-radius:10px;padding:10px;background:#07131b}
 .section-group.collapsed .items,
 .section-group.collapsed > label,

@@ -1,11 +1,17 @@
 <script setup>
-import { computed, reactive, nextTick } from 'vue';
+import {computed, reactive, nextTick, ref, watch} from 'vue';
 import SectionList from './SectionList.vue';
 import SoftSkills from './SoftSkills.vue';
 import DesignPanel from './DesignPanel.vue';
-import { exportJSON, importJSON } from '../composables/useStorage';
+import {
+  saveLocal, writeBackup, loadBackupIntoLocal,
+  getBackupMode, setBackupMode
+} from '../composables/useStorage';
 
-const props = defineProps({ state: { type: Object, required: true }, onSave: { type: Function, default: () => {} } });
+const props = defineProps({
+  state: { type: Object, required: true },
+  onSave: { type: Function, default: () => {} }
+});
 
 const disabled = computed({
   get: ()=> props.state.disabled,
@@ -20,6 +26,12 @@ const toggleDisabled = (key)=>{
 
 const collapsed = reactive({ header:false, about:false, skills:false, hobbies:false, soft:false });
 
+// Toggle: Speicherort (Browser ↔ Projekt)
+const useProjectFile = ref(getBackupMode() === 'file')
+watch(useProjectFile, (v) => setBackupMode(v ? 'file' : 'browser'))
+
+const backupMsg = ref('')
+
 const refsOptions = computed(()=>{
   const opts = [];
   const add = (id,label)=> opts.push({id,label});
@@ -31,30 +43,80 @@ const refsOptions = computed(()=>{
   return opts;
 });
 
-// JSON import/export
-const doExport = ()=> exportJSON(props.state, 'cv-session.json');
-const doImport = async (e)=>{
-  const f = e.target.files?.[0]; if(!f) return;
-  try { const data = await importJSON(f); Object.assign(props.state, data); }
-  finally { e.target.value=''; props.onSave?.(); }
-};
+// JSON Export => Backup je nach Modus
+const doExport = async () => {
+  const snapshot = JSON.parse(JSON.stringify(props.state))
+  saveLocal(snapshot)
+  const res = await writeBackup(snapshot) // nutzt den gesetzten Modus intern
+  if (res?.ok) {
+    backupMsg.value =
+        res.where === 'server' ? 'Gespeichert im Projekt (Dev-Server).' :
+            res.where === 'file'   ? 'Gespeichert in Projektdatei (FS-API).' :
+                res.where === 'opfs'   ? 'Gespeichert im Browser-OPFS.' :
+                    'Gespeichert in LocalStorage.'
+  } else {
+    backupMsg.value = 'Backup fehlgeschlagen.'
+  }
+}
 
-const addCustom = async ()=>{
-  props.state.custom.push({ title:'', place:'', start:'', end:'', bullets:'' });
-  await nextTick();
-  document.querySelector('[data-section="custom"] .item-row:last-of-type')?.scrollIntoView({behavior:'smooth', block:'center'});
-};
+const doImport = async () => {
+  const r = await loadBackupIntoLocal() // nutzt den gesetzten Modus intern
+  if (r.ok && r.data) {
+    Object.assign(props.state, { ...props.state, ...r.data })
+    props.onSave?.()
+    backupMsg.value = 'Backup geladen.'
+  } else {
+    backupMsg.value = 'Kein Backup gefunden.'
+  }
+}
+
+// Neue Custom-Sektion unten anhängen (damit sie direkt sichtbar ist)
+const addCustom = async () => {
+  props.state.custom.push({ title:'', place:'', start:'', end:'', bullets:'' })
+  await nextTick()
+  document.querySelector('[data-section="custom"] .item-row:last-of-type')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+// Tastatursteuerung für Toggle
+const onToggleKey = (e) => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault()
+    useProjectFile.value = !useProjectFile.value
+  }
+}
 </script>
 
 <template>
   <form class="builder builder--cli" @submit.prevent>
     <header>
-      <strong>CV-Formular</strong>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <label class="btn btn--warning" style="cursor:pointer">
-          JSON laden<input type="file" accept="application/json" style="display:none" @change="doImport"/>
-        </label>
-        <button type="button" class="btn btn--primary" @click="doExport">JSON exportieren</button>
+      <!--<strong>CV-Formular</strong> -->
+      <div class="header-actions">
+        <!-- TOGGLE: Speicherort -->
+        <div class="toggle-field">
+          <span class="toggle-caption">Speicherort:</span>
+
+          <button
+              type="button"
+              class="toggle"
+              role="switch"
+              :aria-checked="useProjectFile ? 'true' : 'false'"
+              :class="{ 'is-on': useProjectFile }"
+              @click="useProjectFile = !useProjectFile"
+              @keydown="onToggleKey"
+              aria-label="Speicherort umschalten"
+          >
+            <span class="toggle-track">
+              <span class="toggle-label left">Browser</span>
+              <span class="toggle-label right">Projekt</span>
+              <span class="toggle-thumb"></span>
+            </span>
+          </button>
+        </div>
+
+        <button type="button" class="btn btn--warning" @click="doImport">Laden</button>
+        <button type="button" class="btn btn--primary" @click="doExport">Speichern</button>
+        <span class="note" v-if="backupMsg">{{ backupMsg }}</span>
       </div>
     </header>
 
@@ -264,3 +326,44 @@ const addCustom = async ()=>{
     </div>
   </form>
 </template>
+
+<style scoped>
+.header-actions{
+  display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+}
+
+/* Toggle */
+.toggle-field{ display:flex; align-items:center; gap:8px; }
+.toggle-caption{ font-size:12px; color: var(--muted); }
+
+.toggle{
+  border:0; background:transparent; padding:0; cursor:pointer; outline:none;
+}
+.toggle-track{
+  position:relative; display:inline-flex; align-items:center; justify-content:space-around;
+  width: 120px; height: 36px; border-radius:999px;
+  background: #0c131a; border:1px solid var(--border);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
+}
+.toggle-label{ font-size:11px; opacity:.75; color:#cbd5e1; z-index:1; user-select:none; }
+.toggle-thumb{
+  position:absolute; top:2px; left:2px;
+  width: 58px; height: 30px; border-radius:999px;
+  background:linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.02));
+  border:1px solid rgba(255,255,255,.12);
+  transition: transform .18s ease;
+}
+
+/* Zustände / Farben (retro CLI + Signalfarben) */
+.toggle:not(.is-on) .toggle-track{
+  background: linear-gradient(180deg, rgba(99,102,241,.22), rgba(59,130,246,.14));
+  border-color: rgba(59,130,246,.45);
+}
+.toggle.is-on .toggle-track{
+  background: linear-gradient(180deg, rgba(34,197,94,.25), rgba(16,185,129,.15));
+  border-color: rgba(16,185,129,.45);
+}
+.toggle.is-on .toggle-thumb{ transform: translateX(56px); }
+
+.note {position: absolute; left: 17%;}
+</style>
