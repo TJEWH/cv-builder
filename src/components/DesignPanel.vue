@@ -1,5 +1,5 @@
 <script setup>
-import { computed, watch, onMounted } from 'vue';
+import { computed, ref, watch, onMounted } from 'vue';
 
 const props = defineProps({ modelValue: { type:Object, required:true } });
 const emit  = defineEmits(['update:modelValue']);
@@ -12,7 +12,12 @@ const design = computed({
 const bodyFonts = ['Inter','Source Sans 3','IBM Plex Sans','Work Sans','Nunito Sans','Rubik','Merriweather Sans','Hind'];
 const headFonts = ['Inter','Montserrat','Poppins','Raleway','Space Grotesk','Playfair Display','Bitter','Merriweather'];
 const hStyles   = ['clean','underline','leftbar','pill','stripe'];
-const langs     = ['de','en'];
+
+const collapsed = ref(false);
+
+function toggleCollapse() {
+  collapsed.value = !collapsed.value;
+}
 
 function ensureFontLink(id, family){
   const elId = `gf-${id}`;
@@ -59,9 +64,9 @@ const pick = (p)=>{ Object.assign(design.value, {ink:p.ink, accent:p.accent, bg:
 </script>
 
 <template>
-  <section class="section-group">
+  <section class="section-group" :class="{ collapsed: collapsed }">
     <div class="section-head">
-      <button class="caret mini" type="button" @click="$el.parentElement.classList.toggle('collapsed')">▾</button>
+      <button class="caret mini" type="button" @click="toggleCollapse">▾</button>
       <h3>Design</h3>
     </div>
 
@@ -136,3 +141,9 @@ const pick = (p)=>{ Object.assign(design.value, {ink:p.ink, accent:p.accent, bg:
     </div>
   </section>
 </template>
+
+<style scoped>
+.section-group.collapsed > *:not(.section-head) {
+  display: none;
+}
+</style>
