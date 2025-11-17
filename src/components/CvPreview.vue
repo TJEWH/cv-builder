@@ -138,28 +138,30 @@ const showExperience = computed(()=>{
       </div>
 
       <!-- Sidebar -->
-      <aside class="sidebar" id="cv_side" :style="{background:'var(--sidebar-bg)', padding:'6mm', borderRadius:'6px'}">
+      <aside class="sidebar" id="cv_side" :style="{background:'var(--sidebar-bg)', padding:'6mm', borderRadius:'10px'}">
         <section v-for="(key, i) in blocksSide" :key="key" class="section cv-block"
                  draggable="true"
                  @dragstart="onDragStart(blocksSide, i, $event)"
                  @dragover.prevent
                  @drop="onDrop(blocksSide, i, $event)"
                  :class="{'is-hidden':
-                   (key==='skills'    && (!hasText(state.skills.langs?.join('')) && !hasText(state.skills.tools?.join('')) && !hasText(state.skills.methods?.join('')))) ||
-                   (key==='languages' && (isDisabled('languages') || !hasAny(state.languages))) ||
-                   (key==='certs'     && (isDisabled('certs')     || !hasAny(state.certs))) ||
-                   (key==='hobbies'   && (!hasText(state.hobbies.music)))
+                   (key==='skills'    && (isDisabled('skills') || skillsEmpty)) ||
+                   (key==='languages' && (isDisabled('languages') || !Array.isArray(state.languages) || !state.languages.length)) ||
+                   (key==='certs'     && (isDisabled('certs')     || !Array.isArray(state.certs)     || !state.certs.length)) ||
+                   (key==='hobbies'   && (isDisabled('hobbies')   || !Array.isArray(state.hobbies)   || !state.hobbies.length))
                  }">
+          <!-- SKILLS -->
           <template v-if="key==='skills'">
-            <h2>Fähigkeiten</h2>
-            <div class="tags" id="cv_skill_langs">
-              <span class="tag" v-for="(t,i) in (state.skills.langs||[])" :key="i">{{ t }}</span>
-            </div>
-            <div class="tags" style="margin-top:4mm">
-              <span class="tag" v-for="(t,i) in (state.skills.tools||[]) " :key="i">{{ t }}</span>
-            </div>
-            <div class="tags" style="margin-top:4mm">
-              <span class="tag" v-for="(t,i) in (state.skills.methods||[])" :key="i">{{ t }}</span>
+            <h2>{{ t('skillsTitle') }}</h2>
+            <div v-for="(grp,i) in state.skills" :key="i" style="margin-top:4mm">
+              <h3 class="small">{{ grp.title }}</h3>
+              <div class="tags">
+                <span
+                    v-for="(tg,ti) in (String(grp.tags||'').split(',').map(x=>x.trim()).filter(Boolean))"
+                    :key="ti"
+                    class="tag"
+                >{{ tg }}</span>
+              </div>
             </div>
           </template>
 
@@ -178,10 +180,16 @@ const showExperience = computed(()=>{
             <ul><li v-for="(c,i) in state.certs" :key="i">{{ [c.name,c.year].filter(Boolean).join(', ') }}</li></ul>
           </template>
 
-          <template v-else-if="key==='hobbies'">
-            <h2>Hobbys</h2>
-            <p class="small">{{ state.hobbies.music }}</p>
-          </template>
+          <!-- HOBBIES --><template v-else-if="key==='hobbies'">
+          <h2>{{ t('hobbiesTitle') }}</h2>
+          <ul class="lang-list">
+            <li v-for="(h,i) in state.hobbies" :key="i">
+              <strong>{{ h.name }}</strong>
+              <span v-if="h.details"> — {{ h.details }}</span>
+            </li>
+          </ul>
+        </template>
+
         </section>
       </aside>
     </section>

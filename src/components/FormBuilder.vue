@@ -231,25 +231,20 @@ const onToggleKey = (e) => {
       />
 
       <!-- Skills -->
-      <section class="section-group" data-section="skills" :class="[{disabled:isHidden('skills')},{collapsed:collapsed.skills}]">
-        <div class="section-head">
-          <button class="caret mini" type="button" @click="collapsed.skills=!collapsed.skills">▾</button>
-          <h3>Fähigkeiten</h3>
-          <div style="margin-left:auto">
-            <button class="mini" :class="[isHidden('skills')?'btn--success':'btn--danger']" type="button" @click="toggleDisabled('skills')">
-              {{ isHidden('skills') ? 'Einblenden' : 'Ausblenden' }}
-            </button>
-          </div>
-        </div>
-        <div class="grid-3">
-          <label>Programmiersprachen<input type="text" v-model="(state.skills.langsString)" placeholder="Python, TypeScript, Go"
-                                           @input="state.skills.langs = (state.skills.langsString||'').split(',').map(s=>s.trim()).filter(Boolean)"/></label>
-          <label>Frameworks & Tools<input type="text" v-model="(state.skills.toolsString)" placeholder="React, Docker, Kubernetes"
-                                          @input="state.skills.tools = (state.skills.toolsString||'').split(',').map(s=>s.trim()).filter(Boolean)"/></label>
-          <label>Methoden & Architektur<input type="text" v-model="(state.skills.methodsString)" placeholder="System Design, TDD, CI/CD"
-                                              @input="state.skills.methods = (state.skills.methodsString||'').split(',').map(s=>s.trim()).filter(Boolean)"/></label>
-        </div>
-      </section>
+      <SectionList
+          :title="t('skillsTitle')"
+          :lang="langRef"
+          sectionKey="skills"
+          v-model="state.skills"
+          :schema="[
+            {label:t('category'), key:'title', type:'text', placeholder:t('programmingLanguages')},
+            {label:t('entryCSV'), key:'tags', type:'text', placeholder:'Python, TypeScript, Go'}
+          ]"
+          :disabled="isHidden('skills')"
+          @toggle-section="toggleDisabled('skills')"
+          :addLabel="t('addSkillType')"
+          toggle-style="icon"
+      />
 
       <!-- Languages: CEFR -->
       <SectionList
@@ -280,21 +275,20 @@ const onToggleKey = (e) => {
       />
 
       <!-- Hobbies -->
-      <section class="section-group" data-section="hobbies" :class="[{disabled:isHidden('hobbies')},{collapsed:collapsed.hobbies}]">
-        <div class="section-head">
-          <button class="caret mini" type="button" @click="collapsed.hobbies=!collapsed.hobbies">▾</button>
-          <h3>Hobbys</h3>
-          <div style="margin-left:auto">
-            <button class="mini" :class="[isHidden('hobbies')?'btn--success':'btn--danger']" type="button" @click="toggleDisabled('hobbies')">
-              {{ isHidden('hobbies') ? 'Einblenden' : 'Ausblenden' }}
-            </button>
-          </div>
-        </div>
-        <label>Musik produzieren – Details<input type="text" v-model="state.hobbies.music" placeholder="Genres, DAW, Releases …"/></label>
-      </section>
-
-      <!-- Design -->
-      <DesignPanel v-model="state.design" />
+      <SectionList
+          :title="t('hobbiesTitle')"
+          :lang="langRef"
+          sectionKey="hobbies"
+          v-model="state.hobbies"
+          :schema="[
+            {label: 'Hobby',   key:'name',    type:'text', placeholder:'Music Production'},
+            {label: 'Details', key:'details', type:'text', placeholder:'Genres, DAW, Releases …'}
+          ]"
+          :addLabel="(langRef==='de'?'Hobby hinzufügen':'Add hobby')"
+          :disabled="isHidden('hobbies')"
+          @toggle-section="toggleDisabled('hobbies')"
+          toggle-style="icon"
+      />
 
       <!-- Custom -->
       <SectionList

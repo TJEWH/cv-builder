@@ -17,10 +17,16 @@ const state = reactive({
   experience: { job:[], personal:[] },
   education: [],
   projects: [],
-  skills: { langs:[], tools:[], methods:[], langsString:'', toolsString:'', methodsString:'' },
+  skills: [
+    { title: 'Programmiersprachen',     tags: 'Python, TypeScript, Go' },
+    { title: 'Frameworks',              tags: 'React, Docker, Kubernetes' },
+    { title: 'Methoden',                tags: '' },
+  ],
   languages: [],
   certs: [],
-  hobbies: { music:'' },
+  hobbies: [
+    { name: 'Musik', details: '' }
+  ],
   custom: [],
   softskills: [
     {label:'Analytisches Denken', desc:'', refs:[]},

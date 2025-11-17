@@ -13,9 +13,9 @@ const state = reactive({
   about: { text:'' },
   experience: { job:[], personal:[] },
   education: [], projects: [],
-  skills: { langs:[], tools:[], methods:[] },
+  skills: [],
   languages: [], certs: [],
-  hobbies: { music:'' }, custom: [], softskills: [],
+  hobbies: [], custom: [], softskills: [],
   orderMain: ['about','experience','education','projects','custom'],
   orderSide: ['skills','languages','certs','hobbies']
 });
