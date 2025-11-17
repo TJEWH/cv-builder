@@ -42,12 +42,12 @@ body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f1
 .builder header{
     display: flex;
     padding: 10px;
-    border-bottom: 1px dashed #115e59;
+    border-bottom: 1px solid #115e59;
     align-items: flex-end;
     flex-direction: column;
 }
-.builder .body{padding:10px;display:grid;gap:10px;background:#113c34;}
-.section-group{border:1px dashed #113c34;border-radius:10px;padding:10px;background:#07131b}
+.builder .body{padding:10px;display:grid;gap:10px;background:#113c34;border-radius: 0 0 10px 10px;}
+.section-group{border:1px solid #113c34;border-radius:10px;padding:10px;background:#07131b}
 .section-group.collapsed .items,
 .section-group.collapsed > label,
 .section-group.collapsed > .grid-2,
@@ -56,7 +56,7 @@ body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f1
 .section-group.disabled{background:#2a2106;border-color:#a16207} /* GELB für ausgeblendet */
 .section-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
 .section-head h3{margin:0;color:#9be8c7;letter-spacing:.4px}
-.mini{padding:4px 7px;border:1px dashed #134e4a;border-radius:6px;background:#061017;color:#9be8c7;cursor:pointer}
+.mini{padding:4px 7px;border:1px solid #134e4a;border-radius:6px;background:#061017;color:#9be8c7;cursor:pointer}
 .mini:hover{background:#0a1c26}
 label{color:#78d1b8;font-size:10pt}
 input,textarea,select{width:100%;padding:8px;border:1px solid #0b3740;border-radius:8px;background:#06141f;color:#e2ffe9;caret-color:#27f3a2;outline:none}
@@ -66,11 +66,11 @@ textarea{min-height:64px}
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .items{display:grid;gap:8px}
-.item-row{border:1px dashed #134e4a;border-radius:8px;padding:8px;background:#061017}
+.item-row{border:1px solid #134e4a;border-radius:8px;padding:8px;background:#061017}
 .row{display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px}
 .row-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
-.caret{width:18px;height:18px;display:inline-grid;place-items:center;border:1px dashed #134e4a;border-radius:4px;color:#9be8c7;background:#061017}
+.caret{width:18px;height:18px;display:inline-grid;place-items:center;border:1px solid #134e4a;border-radius:4px;color:#9be8c7;background:#061017}
 .section-group.collapsed .caret{transform:rotate(-90deg)}
 
 /* ==== Rendered CV ==== */
@@ -113,7 +113,7 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--muted);text-transform
 .fill{height:100%;background:var(--accent);width:var(--level,50%)}
 .cv-block{position:relative}
 .cv-block[draggable="true"] .drag-handle{display:none}
-.drag-over{outline:2px dashed var(--accent);outline-offset:2px}
+.drag-over{outline:2px solid var(--accent);outline-offset:2px}
 .hidden,.is-hidden{display:none!important}
 
 /* Headings Styles */

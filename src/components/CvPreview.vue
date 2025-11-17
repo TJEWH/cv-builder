@@ -218,3 +218,12 @@ function formatMeta({ start, end, place }){
     </section>
   </div>
 </template>
+
+<style scoped>
+.lang-list{
+  margin:0; padding-left:16px;
+}
+.lang-list li{
+  margin: 2px 0;
+}
+</style>

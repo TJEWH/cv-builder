@@ -11,8 +11,8 @@ const state = reactive({
   lang: 'de',
   design: {
     h1:'22pt', h2:'12pt', h3:'10pt', bullets:'10.5pt',
-    ink:'#111827', accent:'#0f66d0', bg:'#ffffff', headerbg:'#ffffff', sidebarbg:'#ffffff',
-    fontBody:'Inter', fontHead:'Inter', hstyle:'clean', radius:'10px', headerRadius:'12px', headerPadYmm:12, lang:'de'
+    ink:'#111827', accent:'#0f66d0', bg:'#ffffff', headerbg:'#CE9048', sidebarbg:'#CE9048',
+    fontBody:'Inter', fontHead:'Inter', hstyle:'clean', radius:'10px',
   },
   header: { name:'', location:'', role:'', email:'', phone:'', website:'', linkedin:'' },
   about: { text:'' },
