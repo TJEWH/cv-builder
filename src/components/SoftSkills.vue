@@ -1,33 +1,83 @@
 <script setup>
-import { reactive } from 'vue';
+import { computed, reactive } from 'vue'
 
 const props = defineProps({
-  modelValue: { type: Array, required: true }, // [{label,desc,refs:[]}]
-  options: { type: Array, default: ()=>[] }     // [{id,label}]
-});
-const emit = defineEmits(['update:modelValue']);
-const skills = defineModel({ default: [] });
+  modelValue: { type: Array, required: true }, // [{label, desc, refs:[]}]
+  options: { type: Array, default: () => [] }  // [{id,label}]
+})
+const emit = defineEmits(['update:modelValue'])
 
-const open = reactive({}); // collapse state pro index
+/* Robust v-model-Bridge (kein defineModel nötig) */
+const skills = computed({
+  get: () => Array.isArray(props.modelValue) ? props.modelValue : [],
+  set: (v) => emit('update:modelValue', Array.isArray(v) ? v : [])
+})
 
-const toggleRef = (idx, refId)=>{
-  const arr = skills.value[idx].refs ?? (skills.value[idx].refs = []);
-  const i = arr.indexOf(refId);
-  if(i>=0) arr.splice(i,1); else arr.push(refId);
-};
+/* Collapse-State je Zeile */
+const open = reactive({})
 
-const covered = (idx)=> (skills.value[idx]?.refs?.length||0) > 0;
-const rowClass = (idx, refId)=> (skills.value[idx]?.refs||[]).includes(refId) ? 'skill-row selected' : 'skill-row';
+const ensureRow = (idx) => {
+  if (!skills.value[idx]) {
+    const arr = skills.value.slice()
+    arr[idx] = { label: '', desc: '', refs: [] }
+    skills.value = arr
+  } else if (!Array.isArray(skills.value[idx].refs)) {
+    const arr = skills.value.slice()
+    arr[idx] = { ...arr[idx], refs: [] }
+    skills.value = arr
+  }
+}
+
+const addSkill = () => {
+  const arr = skills.value.slice()
+  arr.push({ label: '', desc: '', refs: [] })
+  skills.value = arr
+}
+
+const removeSkill = (idx) => {
+  const arr = skills.value.slice()
+  arr.splice(idx, 1)
+  skills.value = arr
+}
+
+const toggleRef = (idx, refId) => {
+  ensureRow(idx)
+  const row = { ...skills.value[idx] }
+  const refs = Array.isArray(row.refs) ? row.refs.slice() : []
+  const i = refs.indexOf(refId)
+  if (i >= 0) refs.splice(i, 1)
+  else refs.push(refId)
+  row.refs = refs
+
+  const arr = skills.value.slice()
+  arr[idx] = row
+  skills.value = arr
+}
+
+const covered = (idx) => (skills.value[idx]?.refs?.length || 0) > 0
+const rowClass = (idx, refId) =>
+    (skills.value[idx]?.refs || []).includes(refId) ? 'skill-row selected' : 'skill-row'
 </script>
 
 <template>
   <div class="items">
-    <div class="item-row" v-for="(s, idx) in skills" :key="idx" :style="{borderColor: covered(idx)?'var(--valid)':'var(--invalid)'}">
-      <div class="section-head" style="margin:0 0 6px;gap:8px">
-        <button class="caret mini" type="button" @click="open[idx]=!open[idx]">▾</button>
+    <!-- Falls leer: Add-CTA -->
+    <div v-if="!skills.length" class="item-row empty" style="margin:8px 0;">
+      <button type="button" class="mini btn btn--success" @click="addSkill">+ Soft Skill hinzufügen</button>
+    </div>
+
+    <div
+        class="item-row"
+        v-for="(s, idx) in skills"
+        :key="idx"
+        :style="{border:'1px solid', borderColor: covered(idx)?'var(--valid, #22c55e)':'var(--invalid, #ef4444)', borderRadius:'8px', padding:'8px', margin:'8px 0'}"
+    >
+      <div class="section-head" style="margin:0 0 6px;gap:8px; display:flex; align-items:center">
+        <button class="caret mini" type="button" @click="open[idx] = !open[idx]">▾</button>
         <label style="flex:1">Soft Skill
-          <input type="text" v-model="s.label" placeholder="Communications"/>
+          <input type="text" v-model="s.label" placeholder="Communication" />
         </label>
+        <button class="mini btn btn--danger" type="button" title="Entfernen" @click="removeSkill(idx)">✕</button>
       </div>
 
       <div class="skill-boxes" v-show="open[idx] !== false || !covered(idx)">
@@ -37,8 +87,18 @@ const rowClass = (idx, refId)=> (skills.value[idx]?.refs||[]).includes(refId) ? 
             tabindex="0"
             @click="toggleRef(idx,o.id)"
             @keydown.prevent.space.enter="toggleRef(idx,o.id)"
-        >• {{ o.label }}</div>
+            style="padding:6px 8px; border:1px dashed var(--border,#334155); border-radius:6px; margin:4px 0; cursor:pointer"
+        >
+          • {{ o.label }}
+        </div>
+        <div v-if="!options.length" class="small" style="opacity:.7; margin-top:4px">
+          (Keine Referenz-Items verfügbar – füge Einträge in Erfahrung/Ausbildung/Projekte/Custom hinzu.)
+        </div>
       </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end; gap:8px; margin-top:8px">
+      <button type="button" class="btn btn--success mini" @click="addSkill">+ Soft Skill</button>
     </div>
   </div>
 </template>

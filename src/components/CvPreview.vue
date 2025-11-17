@@ -166,7 +166,7 @@ function formatMeta({ start, end, place }){
                  @dragover.prevent
                  @drop="onDrop(blocksSide, i, $event)"
                  :class="{'is-hidden':
-                   (key==='skills'    && (isDisabled('skills') || skillsEmpty)) ||
+                   (key==='skills'    && (isDisabled('skills'))) ||
                    (key==='languages' && (isDisabled('languages') || !Array.isArray(state.languages) || !state.languages.length)) ||
                    (key==='certs'     && (isDisabled('certs')     || !Array.isArray(state.certs)     || !state.certs.length)) ||
                    (key==='hobbies'   && (isDisabled('hobbies')   || !Array.isArray(state.hobbies)   || !state.hobbies.length))

@@ -34,7 +34,7 @@ const onDragMove = (e) => {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const w = scaledW.value + 2;
-  const h = scaledH.value + 36;
+  //const h = scaledH.value + 36;
   pos.value.x = Math.min(Math.max(dragStart.x0 + dx, -w + margin), vw - margin);
   pos.value.y = Math.min(Math.max(dragStart.y0 + dy, -margin), vh - margin);
 };
