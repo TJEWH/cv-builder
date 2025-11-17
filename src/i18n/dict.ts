@@ -1,43 +1,51 @@
 // Zentralisiertes Dictionary nach Item-Keys (nicht nach Sprache gruppiert)
 export const dict = {
-    openPdf: {de: 'PDF öffnen', en: 'open PDF'},
-    showPreview: {de: 'Vorschau anzeigen', en: 'show preview'},
-    hidePreview: {de: 'Vorschau ausblenden', en: 'hide preview'},
+    openPdf:            {de: 'PDF öffnen', en: 'open PDF'},
+    showPreview:        {de: 'Vorschau anzeigen', en: 'show preview'},
+    hidePreview:        {de: 'Vorschau ausblenden', en: 'hide preview'},
 
     // Toggles / captions
-    storageCaption: {de: 'Speicherort', en: 'Storage'},
-    browser: {de: 'Browser', en: 'Browser'},
-    project: {de: 'Projekt', en: 'Project'},
-    languageCaption: {de: 'Sprache', en: 'Language'},
-    deShort: {de: 'DE', en: 'DE'},
-    enShort: {de: 'EN', en: 'EN'},
-    german: {de: 'Deutsch', en: 'German'},
-    english: {de: 'Englisch', en: 'English'},
+    storageCaption:     {de: 'Speicherort', en: 'Storage'},
+    browser:            {de: 'Browser', en: 'Browser'},
+    project:            {de: 'Projekt', en: 'Project'},
+    languageCaption:    {de: 'Sprache', en: 'Language'},
+    deShort:            {de: 'DE', en: 'DE'},
+    enShort:            {de: 'EN', en: 'EN'},
+    german:             {de: 'Deutsch', en: 'German'},
+    english:            {de: 'Englisch', en: 'English'},
 
     // Generic buttons / messages
-    load: {de: 'Laden', en: 'Load'},
-    save: {de: 'Speichern', en: 'Save'},
-    newSection: {de: 'Neue Sektion', en: 'New section'},
-    addEntry: {de: 'Eintrag hinzufügen', en: 'Add entry'},
-    addLanguage: {de: 'Sprache hinzufügen', en: 'Add language'},
-    addCert: {de: 'Zertifikat hinzufügen', en: 'Add certificate'},
-    show: {de: 'Einblenden', en: 'Show'},
-    hide: {de: 'Ausblenden', en: 'Hide'},
-    remove: {de: 'Entfernen', en: 'Remove'},
+    load:               {de: 'Laden', en: 'Load'},
+    save:               {de: 'Speichern', en: 'Save'},
+    newSection:         {de: 'Neue Sektion', en: 'New section'},
+    addEntry:           {de: 'Eintrag hinzufügen', en: 'Add entry'},
+    entryCSV:           {de: 'Einträge (komma-getrennt)', en: 'Entries (comma-separated)'},
+    addLanguage:        {de: 'Sprache hinzufügen', en: 'Add language'},
+    addCert:            {de: 'Zertifikat hinzufügen', en: 'Add certificate'},
+    addSkillType:       {de: 'Gruppe hinzufügen', en: 'Add skill type'},
+    show:               {de: 'Einblenden', en: 'Show'},
+    hide:               {de: 'Ausblenden', en: 'Hide'},
+    remove:             {de: 'Entfernen', en: 'Remove'},
 
     // Status messages
-    loading: {de: 'Lädt…', en: 'Loading…'},
-    editing: {de: 'Bearbeiten…', en: 'Editing…'},
-    saved: {de: 'Gesichert', en: 'Saved'},
-    loadedLast: {de: 'Letzte Session geladen', en: 'Loaded last session'},
+    loading:            {de: 'Lädt…', en: 'Loading…'},
+    editing:            {de: 'Bearbeiten…', en: 'Editing…'},
+    saved:              {de: 'Gesichert', en: 'Saved'},
+    loadedLast:         {de: 'Letzte Session geladen', en: 'Loaded last session'},
     backupBrowserFallback: {
         de: 'Backup (Browser) geladen (Datei-Modus nicht verfügbar)',
         en: 'Backup (browser) loaded (file mode not available)'
     },
-    backupBrowser: {de: 'Backup-Datei geladen', en: 'Backup file loaded'},
-    backupProject: {de: 'Projekt-Datei geladen', en: 'Project file loaded'},
-    defaultLoaded: {de: 'Standard-Daten geladen', en: 'Default data loaded'},
-    defaultFailed: {de: 'Standard-Daten konnten nicht geladen werden', en: 'Failed to load default data'},
+    backupBrowser:      {de: 'Backup-Datei geladen', en: 'Backup file loaded'},
+    backupProject:      {de: 'Projekt-Datei geladen', en: 'Project file loaded'},
+    defaultLoaded:      {de: 'Standard-Daten geladen', en: 'Default data loaded'},
+    defaultFailed:      {de: 'Standard-Daten konnten nicht geladen werden', en: 'Failed to load default data'},
+    savedProjectDevSrv: {de: 'Gespeichert im Projekt (Dev-Server).', en: 'Saved to project (dev server).'},
+    savedProjectFsApi:  {de: 'Gespeichert im Projekt (FS-API).', en: 'Saved to project (FS-API).'},
+    savedBrowserOPFS:   {de: 'Im Browser (OPFS) gespeichert.', en: 'Saved in browser (OPFS).'},
+    savedBrowserLs:     {de: 'Im Browser (LocalStorage) gespeichert.', en: 'Saved in browser (LocalStorage).'},
+    saveError:          {de: 'Backup fehlgeschlagen', en: 'Backup failed.'},
+    backupNotFound:     {de: 'Keine Backup-Datei gefunden', en: 'No backup file found'},
 
     // Section titles
     headerTitle:     { de:'Header & Kontakt', en:'Header & Contact' },
@@ -89,6 +97,18 @@ export const dict = {
     languageName:   { de:'Sprache', en:'Language' },
     level:          { de:'Niveau',  en:'Level' },
     level_native:   { de:'Muttersprache', en:'Native' },
+
+    // Placeholder
+    current:            { de:'heute', en:'current' },
+    tasksPH:            { de:'Skalierung von X\nEinführung CI/CD\nMentoring', en:'Scaling X\nIntroduce CI/CD\nMentoring' },
+    customSectionPH:    { de:'Konferenzen / Ehrenamt / …', en:'Conferences / Volunteering / …' },
+    hackathonTitlePH:   { de:'1. Platz – Team von 4', en:'1st place – team of 4' },
+    hackathonDescPH:    { de:'Prototyp einer ML-App, 48h Sprint …', en:'Prototype of an ML app, 48h sprint …' },
+    aboutPH:            { de:'Kurzbeschreibung über mich…', en:'Short description about me…' },
+
+    // Skills
+    category:       { de:'Kategorie', en:'Category' },
+    programmingLanguages:{ de:'Programmiersprachen', en:'Programming Languages' },
 
     // Certs
     certificate:    { de:'Zertifikat', en:'Certificate' },

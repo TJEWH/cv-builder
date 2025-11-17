@@ -1,19 +1,26 @@
 <script setup>
 import { computed, ref } from 'vue';
+import { makeT } from '../i18n/dict.js';
 
 const props = defineProps({
   state: { type: Object, required: true }
 });
+
+const langRef = computed({
+  get: ()=> props.state.lang || 'de',
+  set: v  => (props.state.lang = v)
+});
+const t = makeT(langRef);
 
 const isDisabled = (k) => props.state.disabled.includes(k);
 
 const hasAny = (arr)=> Array.isArray(arr) && arr.length>0;
 const hasText = (s)=> !!(s && String(s).trim());
 
+// Order (drag & drop)
 const blocksMain = ref(props.state.orderMain || ['about','experience','education','projects','custom']);
 const blocksSide = ref(props.state.orderSide || ['skills','languages','certs','hobbies']);
 
-// DnD helpers for block arrays
 const drag = { src:null, list:null };
 const onDragStart = (list, idx, e)=>{ drag.src=idx; drag.list=list; e.dataTransfer.effectAllowed='move'; };
 const onDrop = (list, idx)=>{
@@ -22,15 +29,22 @@ const onDrop = (list, idx)=>{
   const [it] = a.splice(drag.src,1);
   a.splice(idx,0,it);
   drag.src=null; drag.list=null;
-  // persist into state
   if(list===blocksMain) props.state.orderMain=[...a];
   if(list===blocksSide) props.state.orderSide=[...a];
 };
 
 const showExperience = computed(()=>{
   const a = props.state.experience;
-  return !isDisabled('exp-job') && hasAny(a.job) || !isDisabled('exp-personal') && hasAny(a.personal);
+  return (!isDisabled('exp-job') && hasAny(a.job)) || (!isDisabled('exp-personal') && hasAny(a.personal));
 });
+
+function formatMeta({ start, end, place }){
+  const segs = [];
+  const range = [start, end].filter(Boolean).join(t('rangeSep'));
+  if(range) segs.push(range);
+  if(place) segs.push(place);
+  return segs.join(t('dotSep'));
+}
 </script>
 
 <template>
@@ -64,72 +78,79 @@ const showExperience = computed(()=>{
                    (key==='projects'  && (isDisabled('projects')  || !hasAny(state.projects))) ||
                    (key==='custom'    && (!hasAny(state.custom)))
                  }">
+          <!-- ABOUT -->
           <template v-if="key==='about'">
-            <h2>Selbstbeschreibung</h2>
+            <h2>{{ t('aboutTitle') }}</h2>
             <p>{{ state.about.text }}</p>
           </template>
 
+          <!-- EXPERIENCE -->
           <template v-else-if="key==='experience'">
-            <h2>Erfahrung</h2>
-            <h3 class="small">Berufserfahrung</h3>
+            <h2>{{ t('expJobTitle') }}</h2>
+
+            <h3 class="small">{{ t('experienceH3Job') }}</h3>
             <div class="timeline" id="cv_exp_job">
               <article class="item" v-for="(it,idx) in state.experience.job" :key="idx">
                 <div class="item-header">
-                  <div class="item-title" v-html="`${it.title} – <span class='item-sub'>${it.company||''}</span>`"></div>
-                  <div class="item-meta">{{ it.meta }}</div>
+                  <div class="item-title" v-html="`${it.title||''} – <span class='item-sub'>${it.company||''}</span>`"></div>
+                  <div class="item-meta">{{ formatMeta(it) }}</div>
                 </div>
-                <ul>
-                  <li v-for="(b,bi) in (it.bullets||[])" :key="bi">{{ b }}</li>
+                <ul v-if="Array.isArray(it.bullets) && it.bullets.length">
+                  <li v-for="(b,bi) in it.bullets" :key="bi">{{ b }}</li>
                 </ul>
               </article>
             </div>
-            <h3 class="small">Persönliche Erfahrung & Hackathons</h3>
+
+            <h3 class="small" v-if="hasAny(state.experience.personal)">{{ t('experienceH3Personal') }}</h3>
             <div id="cv_exp_personal" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4mm">
               <article class="item" v-for="(it,idx) in state.experience.personal" :key="idx" style="border:1px solid var(--border);border-radius:6px;padding:6px">
                 <div class="item-header">
-                  <div class="item-title" v-html="`${it.title} – <span class='item-sub'>${it.sub||''}</span>`"></div>
-                  <div class="item-meta">{{ it.meta }}</div>
-                </div>
-                <p>{{ it.desc }}</p>
-              </article>
-            </div>
-          </template>
-
-          <template v-else-if="key==='education'">
-            <h2>Ausbildung</h2>
-            <div>
-              <article class="item" v-for="(it, idx) in state.education" :key="idx">
-                <div class="item-header">
-                  <div class="item-title" v-html="`${it.title} – <span class='item-sub'>${it.sub||''}</span>`"></div>
-                  <div class="item-meta">{{ it.meta }}</div>
+                  <div class="item-title" v-html="`${it.title||''} – <span class='item-sub'>${it.sub||''}</span>`"></div>
+                  <div class="item-meta">{{ formatMeta(it) }}</div>
                 </div>
                 <p v-if="it.desc">{{ it.desc }}</p>
               </article>
             </div>
           </template>
 
+          <!-- EDUCATION -->
+          <template v-else-if="key==='education'">
+            <h2>{{ t('educationTitle') }}</h2>
+            <div>
+              <article class="item" v-for="(it, idx) in state.education" :key="idx">
+                <div class="item-header">
+                  <div class="item-title" v-html="`${it.title||''} – <span class='item-sub'>${it.sub||''}</span>`"></div>
+                  <div class="item-meta">{{ formatMeta(it) }}</div>
+                </div>
+                <p v-if="it.desc">{{ it.desc }}</p>
+              </article>
+            </div>
+          </template>
+
+          <!-- PROJECTS -->
           <template v-else-if="key==='projects'">
-            <h2>Projekte & Publikationen</h2>
+            <h2>{{ t('projectsTitle') }}</h2>
             <div>
               <article class="item" v-for="(it, idx) in state.projects" :key="idx">
                 <div class="item-header">
                   <div class="item-title">{{ it.title }}</div>
-                  <div class="item-meta">{{ it.meta }}</div>
+                  <div class="item-meta">{{ formatMeta(it) }}</div>
                 </div>
                 <p v-if="it.desc">{{ it.desc }}</p>
               </article>
             </div>
           </template>
 
+          <!-- CUSTOM -->
           <template v-else-if="key==='custom'">
             <div id="cv_custom">
               <section class="section" v-for="(it, idx) in state.custom" :key="idx">
                 <div class="item-header">
                   <div class="item-title">{{ it.title }}</div>
-                  <div class="item-meta">{{ it.meta }}</div>
+                  <div class="item-meta">{{ formatMeta(it) }}</div>
                 </div>
-                <ul>
-                  <li v-for="(b, bi) in (it.bullets||[])" :key="bi">{{ b }}</li>
+                <ul v-if="Array.isArray(it.bullets) && it.bullets.length">
+                  <li v-for="(b, bi) in it.bullets" :key="bi">{{ b }}</li>
                 </ul>
               </section>
             </div>
@@ -165,18 +186,20 @@ const showExperience = computed(()=>{
             </div>
           </template>
 
+          <!-- LANGUAGES (CEFR text) -->
           <template v-else-if="key==='languages'">
-            <h2>Sprachen</h2>
-            <div class="bars">
-              <div class="bar" v-for="(l,i) in state.languages" :key="i">
-                <span>{{ l.name }} ({{ Math.max(0,Math.min(100,Number(l.level)||0)) }}%)</span>
-                <div class="track"><div class="fill" :style="{width: (Math.max(0,Math.min(100,Number(l.level)||0)) + '%')}"></div></div>
-              </div>
-            </div>
+            <h2>{{ t('languagesTitle') }}</h2>
+            <ul class="lang-list">
+              <li v-for="(l,i) in state.languages" :key="i">
+                <strong>{{ l.name }}</strong>
+                <span>— {{ l.level }}</span>
+              </li>
+            </ul>
           </template>
 
+          <!-- CERTS -->
           <template v-else-if="key==='certs'">
-            <h2>Zertifikate</h2>
+            <h2>{{ t('certsTitle') }}</h2>
             <ul><li v-for="(c,i) in state.certs" :key="i">{{ [c.name,c.year].filter(Boolean).join(', ') }}</li></ul>
           </template>
 

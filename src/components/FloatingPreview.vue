@@ -107,19 +107,17 @@ onMounted(() => {
 </script>
 
 <template>
-  <div
-      class="floating-preview"
-      :class="{ 'is-resizing': resizing }"
-  :style="{ left: pos.x + 'px', top: pos.y + 'px' }"
-  @mousedown.stop
-  >
-  <div class="fp-header" @mousedown="startDrag">
-    <strong>Preview (A4)</strong>
-    <span class="fp-size">{{ Math.round(scale*100) }}%</span>
-    <div class="fp-actions">
-      <button class="mini" type="button" @click="openPrint">PDF</button>
+  <div class="floating-preview" :class="{ 'is-resizing': resizing }"
+      :style="{ left: pos.x + 'px', top: pos.y + 'px' }"
+      @mousedown.stop>
+
+    <div class="fp-header" @mousedown="startDrag">
+      <strong>Preview (A4)</strong>
+      <span class="fp-size">{{ Math.round(scale*100) }}%</span>
+      <div class="fp-actions">
+        <button class="mini" type="button" @click="openPrint">Export</button>
+      </div>
     </div>
-  </div>
 
   <div
       class="fp-body"
@@ -138,7 +136,7 @@ onMounted(() => {
           }"
     ></iframe>
 
-    <div class="fp-resizer" title="Größe ändern (A4 Verhältnis)"
+    <div class="fp-resizer" title="Resize (DIN A4)"
          @mousedown="startResize"
          @pointerdown="startResize"></div>
   </div>
@@ -204,7 +202,7 @@ onMounted(() => {
 /* Fullscreen-Overlay: blockt iFrame-MouseEvents während Resizes */
 </style>
 
-<!-- unscoped für das Overlay -->
+<!-- unscoped for the overlay -->
 <style>
 .fp-global-overlay{
   position: fixed;

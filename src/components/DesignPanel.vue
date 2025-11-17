@@ -41,9 +41,6 @@ const applyCSS = () => {
   root.setProperty('--bg', d.bg);
   root.setProperty('--header-bg', d.headerbg);
   root.setProperty('--sidebar-bg', d.sidebarbg);
-  root.setProperty('--radius', d.radius || '10px');
-  root.setProperty('--header-radius', d.headerRadius || '12px');
-  root.setProperty('--header-padY', (d.headerPadYmm||12) + 'mm');
   ensureFontLink('body', d.fontBody);
   ensureFontLink('head', d.fontHead);
   root.setProperty('--font-body', `${d.fontBody ? `'${d.fontBody}', `:''}ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`);
@@ -71,35 +68,29 @@ const pick = (p)=>{ Object.assign(design.value, {ink:p.ink, accent:p.accent, bg:
     </div>
 
     <div class="grid-3">
-      <label>Überschrift H1 Größe
+      <label>H1 Font Size
         <select v-model="design.h1"><option>18pt</option><option>22pt</option><option>24pt</option><option>26pt</option></select>
       </label>
-      <label>Section H2 Größe
+      <label>H2 Font Size
         <select v-model="design.h2"><option>11pt</option><option>12pt</option><option>13pt</option><option>14pt</option></select>
       </label>
-      <label>Unterüberschrift H3
+      <label>H3 Font Size
         <select v-model="design.h3"><option>9pt</option><option>10pt</option><option>11pt</option><option>12pt</option></select>
       </label>
     </div>
 
     <div class="grid-3" style="margin-top:6px">
-      <label>Bulletgröße
+      <label>Bullet Point Font Size
         <select v-model="design.bullets"><option>9.5pt</option><option>10.5pt</option><option>11pt</option><option>12pt</option></select>
       </label>
-      <label>Textfarbe <input type="color" v-model="design.ink"></label>
-      <label>Akzentfarbe <input type="color" v-model="design.accent"></label>
+      <label>Paragraph Font Color<input type="color" v-model="design.ink"></label>
+      <label>Accent Color<input type="color" v-model="design.accent"></label>
     </div>
 
     <div class="grid-3" style="margin-top:6px">
-      <label>Seitenhintergrund <input type="color" v-model="design.bg"></label>
-      <label>Header-Hintergrund <input type="color" v-model="design.headerbg"></label>
-      <label>Sidebar-Hintergrund <input type="color" v-model="design.sidebarbg"></label>
-    </div>
-
-    <div class="grid-3" style="margin-top:6px">
-      <label>Eckenradius <input type="text" v-model="design.radius" placeholder="6px / 12px / 0.4rem"/></label>
-      <label>Header-Radius <input type="text" v-model="design.headerRadius" placeholder="12px"/></label>
-      <label>Header-Padding (mm) <input type="number" min="4" max="30" v-model.number="design.headerPadYmm"/></label>
+      <label>Page Background<input type="color" v-model="design.bg"></label>
+      <label>Header Background<input type="color" v-model="design.headerbg"></label>
+      <label>Sidebar Background<input type="color" v-model="design.sidebarbg"></label>
     </div>
 
     <div class="grid-3" style="margin-top:6px">
@@ -122,17 +113,8 @@ const pick = (p)=>{ Object.assign(design.value, {ink:p.ink, accent:p.accent, bg:
       </label>
     </div>
 
-    <div class="grid-3" style="margin-top:6px">
-      <label>Sectionsprache
-        <select v-model="design.lang">
-          <option v-for="l in langs" :key="l" :value="l">{{ l==='de'?'Deutsch':'English' }}</option>
-        </select>
-      </label>
-      <div></div><div></div>
-    </div>
-
     <div style="margin-top:6px">
-      <strong style="display:block;margin-bottom:4px">Vorschläge (passende Paletten):</strong>
+      <strong style="display:block;margin-bottom:4px">Templates:</strong>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
         <button v-for="p in palettes" :key="p.name" type="button" class="mini btn--primary" @click="pick(p)">
           <span :style="{display:'inline-block',width:'10px',height:'10px',background:p.accent,borderRadius:'50%',marginRight:'6px',verticalAlign:'-1px'}"></span>{{p.name}}

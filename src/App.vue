@@ -1,12 +1,14 @@
 <script setup>
-import { reactive, watch, onMounted, ref, onBeforeUnmount } from 'vue';
-import { debounce, loadLocal, saveLocal, readBackup } from './composables/useStorage';
+import { computed, reactive, watch, onMounted, ref, onBeforeUnmount } from 'vue';
+import { debounce, loadLocal, saveLocal, readBackup, fsApiAvailable, getBackupMode } from './composables/useStorage';
 import FormBuilder from './components/FormBuilder.vue';
 import FloatingPreview from './components/FloatingPreview.vue';
+import { makeT } from './i18n/dict';
 
 const state = reactive({
   version: 1,
   disabled: [],
+  lang: 'de',
   design: {
     h1:'22pt', h2:'12pt', h3:'10pt', bullets:'10.5pt',
     ink:'#111827', accent:'#0f66d0', bg:'#ffffff', headerbg:'#ffffff', sidebarbg:'#ffffff',
@@ -43,15 +45,23 @@ const state = reactive({
   orderSide: ['skills','languages','certs','hobbies']
 });
 
-const status = ref('lädt…');
+const lang = computed({
+  get: ()=> state.lang ?? 'de',
+  set: v  => { state.lang = v; }
+});
+const t = makeT(lang);
+
+const status = ref(t('loading'));
 let bc;
+
+/* Saving (debounced) */
 const saveDebounced = debounce(()=>{
   const data = JSON.parse(JSON.stringify(state));
   saveLocal(data);
-  status.value='Gespeichert';
+  status.value=t('saved');
   try{ bc?.postMessage({ type:'update', data }); }catch{}
 },250);
-watch(state, ()=>{ status.value='Bearbeitung…'; saveDebounced(); },{deep:true});
+watch(state, ()=>{ status.value=t('editing'); saveDebounced(); },{deep:true});
 
 onMounted(async ()=>{
   try { bc = new BroadcastChannel('cv-sync'); } catch {}
@@ -59,22 +69,22 @@ onMounted(async ()=>{
   const cached = loadLocal();
   if (cached){
     Object.assign(state, { ...state, ...cached });
-    status.value='Letzte Session geladen';
+    status.value=t('loadedLast');
   } else {
     const mode = getBackupMode();
     const backup = await readBackup(mode);
     if (backup){
       Object.assign(state, { ...state, ...backup });
       saveLocal(state);
-      status.value = (mode==='file' && !fsApiAvailable()) ? 'Backup (Browser) geladen (Datei-Modus nicht verfügbar)' :
-          (mode==='file' ? 'Backup-Datei geladen' : 'Backup (Browser) geladen');
+      status.value = (mode==='file' && !fsApiAvailable()) ? t('backupBrowserFallback') :
+          (mode==='file' ? t('backupProject') : t('backupBrowser'));
     } else {
       try{
         const res = await fetch('/cv-defaults.json',{cache:'no-store'});
         Object.assign(state, { ...state, ...(await res.json()) });
-        status.value='Defaults geladen';
+        status.value=t('defaultLoaded');
       }catch{
-        status.value='Defaults fehlgeschlagen – leere Vorlage';
+        status.value=t('defaultFailed');
       }
     }
   }
@@ -89,11 +99,11 @@ const showPreview = ref(true);
 <template>
   <div>
     <div class="toolbar">
-      <span class="note">{{ status }}</span>
-      <button class="btn btn--primary" type="button" @click="openPreviewTab">Als PDF exportieren</button>
+      <button class="btn btn--primary" type="button" @click="openPreviewTab">{{t('openPdf')}}</button>
       <button class="btn" :class="[showPreview?'btn--danger':'btn--success']" type="button" @click="showPreview=!showPreview">
-        {{ showPreview ? 'Preview ausblenden' : 'Preview anzeigen' }}
+        {{ showPreview ? t('hidePreview') : t('showPreview') }}
       </button>
+      <!--<span class="note">{{ status }}</span>-->
     </div>
 
     <div class="workbench">

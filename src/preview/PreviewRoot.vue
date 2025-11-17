@@ -69,7 +69,7 @@ function loadInitial(){
 }
 
 onMounted(()=>{
-  // erkenne iframe ODER ?embed=1
+  // recognize iframe ODER ?embed=1
   try {
     const params = new URLSearchParams(location.search);
     isEmbedded.value = (window.self !== window.top) || params.has('embed');
@@ -95,9 +95,8 @@ const doPrint = ()=> window.print();
 </script>
 
 <template>
-  <!-- Toolbar nur außerhalb vom iframe -->
   <div v-if="!isEmbedded" class="pv-toolbar">
-    <button class="pv-btn" @click="doPrint">PDF exportieren</button>
+    <button class="pv-btn" @click="doPrint">Export</button>
   </div>
 
   <CvPreview :state="state" />

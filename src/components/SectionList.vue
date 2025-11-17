@@ -1,15 +1,24 @@
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
+import { makeT } from '../i18n/dict.js';
 
 const props = defineProps({
   title: String,
   sectionKey: String,
+  lang: { type: String, default: 'de' },
   modelValue: { type: Array, required: true },
   schema: { type: Array, required: true }, // [{label,key,type,placeholder,options?}]
   addLabel: { type: String, default: 'Eintrag hinzufügen' },
   toggleable: { type: Boolean, default: true },
-  disabled: { type: Boolean, default: false } // ausgeblendet (gelber Hintergrund)
+  disabled: { type: Boolean, default: false }
 });
+
+const langRef = computed({
+  get: () => props.lang || 'de',
+  set: v => props.lang = v
+})
+const t = makeT(langRef);
+
 const emit = defineEmits(['update:modelValue','toggle-section']);
 const items = defineModel({ default: [] });
 
@@ -37,7 +46,7 @@ const removeAt = (i) => items.value.splice(i,1);
       <div style="margin-left:auto;display:flex;gap:6px">
         <button v-if="addLabel" type="button" class="mini btn--success" @click="add">{{ addLabel }}</button>
         <button v-if="toggleable" class="mini" :class="[disabled?'btn--success':'btn--danger']" type="button" @click="$emit('toggle-section')">
-          {{ disabled ? 'Einblenden' : 'Ausblenden' }}
+          {{ disabled ? t('show') : t('hide') }}
         </button>
       </div>
     </div>
@@ -63,7 +72,7 @@ const removeAt = (i) => items.value.splice(i,1);
         <label v-for="f in schema.filter(s=>s.type==='textarea')" :key="f.key">
           {{ f.label }}<textarea v-model="items[i][f.key]" :placeholder="f.placeholder||''"></textarea>
         </label>
-        <div><button type="button" class="mini btn--danger" @click="removeAt(i)">Entfernen</button></div>
+        <div><button type="button" class="mini btn--danger" @click="removeAt(i)">{{t('remove')}}</button></div>
       </div>
     </div>
   </section>

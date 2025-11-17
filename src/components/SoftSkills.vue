@@ -26,10 +26,7 @@ const rowClass = (idx, refId)=> (skills.value[idx]?.refs||[]).includes(refId) ? 
       <div class="section-head" style="margin:0 0 6px;gap:8px">
         <button class="caret mini" type="button" @click="open[idx]=!open[idx]">▾</button>
         <label style="flex:1">Soft Skill
-          <input type="text" v-model="s.label" placeholder="Teamfähigkeit"/>
-        </label>
-        <label style="flex:1">Beschreibung (optional)
-          <input type="text" v-model="s.desc" placeholder="Cross-funktionale Zusammenarbeit …"/>
+          <input type="text" v-model="s.label" placeholder="Communications"/>
         </label>
       </div>
 
