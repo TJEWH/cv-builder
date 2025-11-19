@@ -12,6 +12,8 @@ export default {
   'certs': 'certificate',
   'hobbies': 'heart',
   'custom': 'plus-circle',
-  'softskills': 'hands-helping'
+  'softskills': 'hands-helping',
+  'design': 'palette',
+  'backup': 'save'
 };
 

@@ -200,7 +200,14 @@ onMounted(refreshConfigs);
 </script>
 
 <template>
-  <div class="backup-manager">
+  <section class="section-group backup-manager">
+    <div class="section-head">
+      <button class="caret mini" type="button">
+        <font-awesome-icon :icon="['fas','save']" class="section-icon" aria-hidden="true" />
+      </button>
+      <h3>Versioning / Backups</h3>
+    </div>
+
     <!-- Save Location -->
     <div class="toggle-field">
       <span class="toggle-caption">{{ langRef === 'de' ? 'Speicherort' : 'Storage' }}</span>
@@ -244,10 +251,15 @@ onMounted(refreshConfigs);
 
       <span class="note" v-if="backupMsg">{{ backupMsg }}</span>
     </div>
-  </div>
+  </section>
 </template>
 
 <style scoped>
+.section-icon{ margin-right:8px; color:var(--muted); }
+.caret{ display:inline-flex; align-items:center; justify-content:center; width:34px; height:26px; padding:0; }
+.caret .section-icon{ margin:0; }
+
+/* keep previous backup-manager styles */
 .toggle-field{ display:flex; align-items:center; gap:8px; }
 .toggle-caption{ font-size:12px; color: var(--muted); }
 

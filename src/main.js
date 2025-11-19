@@ -18,12 +18,15 @@ import {
   faCertificate,
   faHeart,
   faPlusCircle,
-  faHandsHelping
+  faHandsHelping,
+  faPalette,
+  faSave
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
   faIdBadge, faInfoCircle, faBriefcase, faUser, faGraduationCap,
-  faFolderOpen, faTools, faLanguage, faCertificate, faHeart, faPlusCircle, faHandsHelping
+  faFolderOpen, faTools, faLanguage, faCertificate, faHeart, faPlusCircle, faHandsHelping,
+  faPalette, faSave
 );
 
 const app = createApp(App);
