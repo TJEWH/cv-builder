@@ -493,7 +493,7 @@ const areaCustom = areaModel('custom');
         <!-- Design -->
         <DesignPanel v-model="state.design" />
 
-        <!-- Softskills -->
+        <!-- Softskills temp removal
         <section class="section-group" data-section="softskills" :class="{collapsed:collapsed.soft}">
           <div class="section-head">
             <button class="caret mini" type="button" @click="collapsed.soft=!collapsed.soft">
@@ -503,6 +503,7 @@ const areaCustom = areaModel('custom');
           </div>
           <SoftSkills v-model="state.softskills" :options="refsOptions" />
         </section>
+        -->
       </div>
     </form>
   </div>
