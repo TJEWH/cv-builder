@@ -19,6 +19,9 @@ const langRef = computed({
 })
 const t = makeT(langRef);
 
+// declare emits so Vue doesn't warn when we $emit('toggle-section')
+defineEmits(['update:modelValue','toggle-section']);
+
 const items = defineModel({ default: [] });
 
 const root = ref(null);
