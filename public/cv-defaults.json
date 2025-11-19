@@ -1,6 +1,5 @@
 {
   "version": 1,
-  "disabled": [],
   "design": {
     "h1": "22pt",
     "h2": "12pt",
@@ -19,7 +18,7 @@
     "headerPadYmm": 12,
     "lang": "de"
   },
-  "header": {
+  "contact": {
     "name": "Alex Muster",
     "location": "Berlin, DE",
     "role": "Software Engineer",
@@ -49,13 +48,19 @@
         "end": "2024/03",
         "desc": "Prototyp einer ML-App, 48h Sprint …"
       }
+    ],
+    "projects": [
+      {
+        "title": "Open Source Tool – repo/name",
+        "place": "Remote",
+        "start": "2025",
+        "end": "2025",
+        "desc": "CLI-Tool zur …"
+      }
     ]
   },
   "education": [
     { "title": "M.Sc. Informatik", "sub": "TU München", "place": "München", "start": "2017", "end": "2020", "desc": "KI, Softwarearchitektur" }
-  ],
-  "projects": [
-    { "title": "Open Source Tool – repo/name", "place": "Remote", "start": "2025", "end": "2025", "desc": "CLI-Tool zur …" }
   ],
   "skills": {
     "langs": ["Python", "TypeScript", "Go"],
@@ -73,6 +78,7 @@
   "custom": [
     { "title": "Konferenzen", "place": "Köln", "start": "2023", "end": "2025", "bullets": ["Sprecher auf JSConf", "Mitorganisator lokaler Meetup-Reihe"] }
   ],
+  "disabled": [],
   "softskills": [
     { "label": "Analytisches Denken", "desc": "", "refs": [] },
     { "label": "Anpassungsfähigkeit", "desc": "", "refs": [] },

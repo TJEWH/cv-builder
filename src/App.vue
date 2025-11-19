@@ -16,11 +16,10 @@ const state = reactive({
     ink:'#111827', accent:'#0f66d0', bg:'#ffffff', headerbg:'#CE9048', sidebarbg:'#CE9048',
     fontBody:'Inter', fontHead:'Inter', hstyle:'clean', radius:'10px',
   },
-  header: { name:'', location:'', role:'', email:'', phone:'', website:'', linkedin:'' },
+  contact: { name:'', location:'', role:'', email:'', phone:'', website:'', linkedin:'' },
   about: { text:'' },
-  experience: { job:[], personal:[] },
+  experience: { job:[], projects: [], personal:[] },
   education: [],
-  projects: [],
   skills: [
     { title: 'Programmiersprachen',     tags: 'Python, TypeScript, Go' },
     { title: 'Frameworks',              tags: 'React, Docker, Kubernetes' },
@@ -45,6 +44,8 @@ const state = reactive({
   ],
   orderMain: ['about','experience','education','projects','custom'],
   orderSide: ['skills','languages','certs','hobbies'],
+  includePersonalExp: false,
+  includeProjects: false,
 });
 
 const lang = computed({
@@ -98,7 +99,7 @@ const showPreview = ref(true);
 
 <template>
   <ToolBar v-model:showPreview="showPreview" v-model:lang="lang"/>
-  <FloatingPreview v-if="showPreview" url="/preview.html?embed=1" :initialScale="0.35" />
+  <FloatingPreview v-if="showPreview" url="/preview.html?embed=1" :initialScale="0.25" />
 
   <BackupManager :state="state" :langRef="lang" :onSave="saveDebounced" />
   <FormBuilder :state="state" :onSave="saveDebounced" />
