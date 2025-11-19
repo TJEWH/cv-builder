@@ -5,6 +5,7 @@ import FormBuilder from './components/FormBuilder.vue';
 import FloatingPreview from './components/FloatingPreview.vue';
 import { makeT } from './i18n/dict';
 import ToolBar from "./components/ToolBar.vue";
+import BackupManager from "./components/BackupManager.vue";
 
 const state = reactive({
   version: 1,
@@ -43,7 +44,7 @@ const state = reactive({
     {label:'Entrepreneurship', desc:'', refs:[]}
   ],
   orderMain: ['about','experience','education','projects','custom'],
-  orderSide: ['skills','languages','certs','hobbies']
+  orderSide: ['skills','languages','certs','hobbies'],
 });
 
 const lang = computed({
@@ -99,5 +100,6 @@ const showPreview = ref(true);
   <ToolBar v-model:showPreview="showPreview" v-model:lang="lang"/>
   <FloatingPreview v-if="showPreview" url="/preview.html?embed=1" :initialScale="0.35" />
 
+  <BackupManager :state="state" :langRef="lang" :onSave="saveDebounced" />
   <FormBuilder :state="state" :onSave="saveDebounced" />
 </template>
