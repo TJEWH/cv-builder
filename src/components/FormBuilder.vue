@@ -7,7 +7,8 @@ import { makeT } from '../i18n/dict.js';
 import sectionIcons from '../i18n/sectionIcons.js';
 
 const props = defineProps({
-  state: { type: Object, required: true }
+  state: { type: Object, required: true },
+  onSave: { type: Function, default: null }
 });
 
 const langRef = computed({
@@ -19,9 +20,9 @@ const t = makeT(langRef);
 const refsOptions = computed(()=>{
   const opts = [];
   const add = (id,label)=> opts.push({id,label});
-  props.state.experience.job.forEach((r,i)=> add('exp-job:'+i,  [r.title,r.company].filter(Boolean).join(' – ') || `Entry ${i+1}`));
-  props.state.experience.personal.forEach((r,i)=> add('exp-personal:'+i, [r.title,r.sub].filter(Boolean).join(' – ') || `Entry ${i+1}`));
-  props.state.education.forEach((r,i)=> add('education:'+i,   [r.title,r.sub].filter(Boolean).join(' – ') || `Entry ${i+1}`));
+  props.state.experience.job.forEach((r,i)=> add('exp-job:'+i,  [r.title,r.company].filter(Boolean).join('  ') || `Entry ${i+1}`));
+  props.state.experience.personal.forEach((r,i)=> add('exp-personal:'+i, [r.title,r.sub].filter(Boolean).join('  ') || `Entry ${i+1}`));
+  props.state.education.forEach((r,i)=> add('education:'+i,   [r.title,r.sub].filter(Boolean).join('  ') || `Entry ${i+1}`));
   props.state.projects.forEach((r,i)=> add('projects:'+i,     r.title || `Entry ${i+1}`));
   props.state.custom.forEach((r,i)=> add('custom:'+i,         r.title || `Entry ${i+1}`));
   return opts;
@@ -50,6 +51,117 @@ const addCustom = async () => {
 
 // helper to get icon name for a section
 const getIcon = (key) => sectionIcons[key] || 'folder-open';
+
+/* ===== Section placement & ordering helpers ===== */
+// Ensure sectionPlacement exists on state
+if(!props.state.sectionPlacement) props.state.sectionPlacement = {};
+
+
+// known sections list (keine direkte Verwendung hier, behalte als Kommentar)
+// ['about','experience','education','projects','custom','skills','languages','certs','hobbies','exp-job','exp-personal'];
+
+const previewKeyFor = (key) => {
+  if(!key) return key;
+  if(String(key).startsWith('exp-')) return 'experience';
+  // other mappings could be added here if needed
+  return key;
+};
+
+const currentArea = (key) => {
+  const pKey = previewKeyFor(key);
+  if(props.state.sectionPlacement && props.state.sectionPlacement[pKey]) return props.state.sectionPlacement[pKey];
+  // derive from order arrays
+  if(Array.isArray(props.state.orderMain) && props.state.orderMain.includes(pKey)) return 'body';
+  if(Array.isArray(props.state.orderSide) && props.state.orderSide.includes(pKey)) return 'sidebar';
+  // default to body when not present
+  return 'body';
+};
+
+const setArea = (key, area)=>{
+  const pKey = previewKeyFor(key);
+  // ensure arrays exist
+  if(!Array.isArray(props.state.orderMain)) props.state.orderMain = [];
+  if(!Array.isArray(props.state.orderSide)) props.state.orderSide = [];
+
+  // remove pKey from both arrays fully
+  props.state.orderMain = props.state.orderMain.filter(x=>x!==pKey);
+  props.state.orderSide = props.state.orderSide.filter(x=>x!==pKey);
+
+  if(area==='body'){
+    props.state.orderMain.push(pKey);
+  }else if(area==='sidebar'){
+    props.state.orderSide.push(pKey);
+  }
+
+  // sanitize arrays: unique and exclusive
+  props.state.orderMain = Array.from(new Set(props.state.orderMain.filter(Boolean)));
+  props.state.orderSide = Array.from(new Set(props.state.orderSide.filter(Boolean)));
+  // ensure exclusivity (remove any overlap)
+  props.state.orderSide = props.state.orderSide.filter(x => !props.state.orderMain.includes(x));
+
+  // store placement keyed by preview block key
+  props.state.sectionPlacement = { ...(props.state.sectionPlacement||{}), [pKey]: area };
+
+  console.debug('[FormBuilder] setArea', { key, pKey, area, orderMain: props.state.orderMain, orderSide: props.state.orderSide, sectionPlacement: props.state.sectionPlacement });
+
+  // trigger immediate save/publish if provided (App.vue passes saveDebounced)
+  try{ props.onSave?.(); }catch(e){ console.warn('onSave failed', e); }
+};
+
+const moveInArray = (arr, from, to)=>{
+  if(!Array.isArray(arr)) return arr;
+  if(from<0 || from>=arr.length || to<0 || to>=arr.length) return arr;
+  const copy = arr.slice();
+  const [it] = copy.splice(from,1);
+  copy.splice(to,0,it);
+  return copy;
+};
+
+const moveUp = (key)=>{
+  const pKey = previewKeyFor(key);
+  const area = currentArea(key);
+  const list = area==='body' ? props.state.orderMain : area==='sidebar' ? props.state.orderSide : null;
+  if(!Array.isArray(list)) return;
+  const idx = list.indexOf(pKey);
+  if(idx>0){
+    const updated = moveInArray(list, idx, idx-1);
+    if(area==='body') props.state.orderMain = updated;
+    else props.state.orderSide = updated;
+    console.debug('[FormBuilder] moveUp', { key, pKey, area, orderMain: props.state.orderMain, orderSide: props.state.orderSide });
+    try{ props.onSave?.(); }catch(e){ console.warn('onSave failed', e); }
+  }
+};
+const moveDown = (key)=>{
+  const pKey = previewKeyFor(key);
+  const area = currentArea(key);
+  const list = area==='body' ? props.state.orderMain : area==='sidebar' ? props.state.orderSide : null;
+  if(!Array.isArray(list)) return;
+  const idx = list.indexOf(pKey);
+  if(idx>=0 && idx<list.length-1){
+    const updated = moveInArray(list, idx, idx+1);
+    if(area==='body') props.state.orderMain = updated;
+    else props.state.orderSide = updated;
+    console.debug('[FormBuilder] moveDown', { key, pKey, area, orderMain: props.state.orderMain, orderSide: props.state.orderSide });
+    try{ props.onSave?.(); }catch(e){ console.warn('onSave failed', e); }
+  }
+};
+
+const areaModel = (key) => computed({
+  get: () => currentArea(key),
+  set: (v) => setArea(key, v)
+});
+
+// create stable computed refs for template binding (avoid calling areaModel('x') directly in template)
+const areaAbout = areaModel('about');
+const areaExpJob = areaModel('exp-job');
+const areaExpPersonal = areaModel('exp-personal');
+const areaEducation = areaModel('education');
+const areaProjects = areaModel('projects');
+const areaSkills = areaModel('skills');
+const areaLanguages = areaModel('languages');
+const areaCerts = areaModel('certs');
+const areaHobbies = areaModel('hobbies');
+const areaCustom = areaModel('custom');
 </script>
 
 <template>
@@ -90,7 +202,13 @@ const getIcon = (key) => sectionIcons[key] || 'folder-open';
               <font-awesome-icon :icon="['fas', getIcon('about')]" class="section-icon" aria-hidden="true" />
             </button>
             <h3>{{ t('aboutTitle') }}</h3>
-            <div style="margin-left:auto">
+            <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+              <select v-model="areaAbout">
+                <option value="body">Body</option>
+                <option value="sidebar">Sidebar</option>
+              </select>
+              <button class="mini" type="button" @click="moveUp('about')">▲</button>
+              <button class="mini" type="button" @click="moveDown('about')">▼</button>
               <button class="mini" :class="[isHidden('about')?'btn--success':'btn--danger']" type="button" @click="toggleDisabled('about')">
                 {{ isHidden('about') ? t('show') : t('hide') }}
               </button>
@@ -117,7 +235,18 @@ const getIcon = (key) => sectionIcons[key] || 'folder-open';
             :disabled="isHidden('exp-job')"
             @toggle-section="toggleDisabled('exp-job')"
             toggle-style="icon"
-        />
+        >
+          <template #controls>
+            <div style="display:flex;align-items:center;gap:8px">
+              <select v-model="areaExpJob">
+                <option value="body">Body</option>
+                <option value="sidebar">Sidebar</option>
+              </select>
+              <button class="mini" type="button" @click="moveUp('exp-job')">▲</button>
+              <button class="mini" type="button" @click="moveDown('exp-job')">▼</button>
+            </div>
+          </template>
+        </SectionList>
 
         <!-- Experience personal -->
         <SectionList
@@ -137,7 +266,18 @@ const getIcon = (key) => sectionIcons[key] || 'folder-open';
             :disabled="isHidden('exp-personal')"
             @toggle-section="toggleDisabled('exp-personal')"
             toggle-style="icon"
-        />
+        >
+          <template #controls>
+            <div style="display:flex;align-items:center;gap:8px">
+              <select v-model="areaExpPersonal">
+                <option value="body">Body</option>
+                <option value="sidebar">Sidebar</option>
+              </select>
+              <button class="mini" type="button" @click="moveUp('exp-personal')">▲</button>
+              <button class="mini" type="button" @click="moveDown('exp-personal')">▼</button>
+            </div>
+          </template>
+        </SectionList>
 
         <!-- Education -->
         <SectionList
@@ -147,7 +287,7 @@ const getIcon = (key) => sectionIcons[key] || 'folder-open';
             v-model="state.education"
             :schema="[
             {label:t('degreeTitle'), key:'title', type:'text', placeholder:'M.Sc. Informatik'},
-            {label:t('institution'), key:'sub', type:'text', placeholder:'TU München'},
+            {label:t('institution'), key:'sub', type:'text', placeholder:'TU M\u00fcnchen'},
             {label:t('place'),       key:'place', type:'text', placeholder:'Hamburg'},
             {label:t('start'),       key:'start', type:'text', placeholder:'2017'},
             {label:t('end'),         key:'end', type:'text', placeholder:'2020'},
@@ -157,7 +297,18 @@ const getIcon = (key) => sectionIcons[key] || 'folder-open';
             :disabled="isHidden('education')"
             @toggle-section="toggleDisabled('education')"
             toggle-style="icon"
-        />
+        >
+          <template #controls>
+            <div style="display:flex;align-items:center;gap:8px">
+              <select v-model="areaEducation">
+                <option value="body">Body</option>
+                <option value="sidebar">Sidebar</option>
+              </select>
+              <button class="mini" type="button" @click="moveUp('education')">▲</button>
+              <button class="mini" type="button" @click="moveDown('education')">▼</button>
+            </div>
+          </template>
+        </SectionList>
 
         <!-- Projects -->
         <SectionList
@@ -166,17 +317,28 @@ const getIcon = (key) => sectionIcons[key] || 'folder-open';
             sectionKey="projects"
             v-model="state.projects"
             :schema="[
-            {label:t('projectTitle'), key:'title', type:'text', placeholder:'Open Source Tool – repo/name'},
+            {label:t('projectTitle'), key:'title', type:'text', placeholder:'Open Source Tool - repo/name'},
             {label:t('place'),        key:'place', type:'text', placeholder:'Remote'},
             {label:t('start'),        key:'start', type:'text', placeholder:'2025'},
             {label:t('end'),          key:'end', type:'text', placeholder:'2025'},
-            {label:t('desc'),         key:'desc', type:'textarea', placeholder: 'CLI tool XY …'}
+            {label:t('desc'),         key:'desc', type:'textarea', placeholder: 'CLI tool XY -'}
           ]"
             :addLabel="t('addEntry')"
             :disabled="isHidden('projects')"
             @toggle-section="toggleDisabled('projects')"
             toggle-style="icon"
-        />
+        >
+          <template #controls>
+            <div style="display:flex;align-items:center;gap:8px">
+              <select v-model="areaProjects">
+                <option value="body">Body</option>
+                <option value="sidebar">Sidebar</option>
+              </select>
+              <button class="mini" type="button" @click="moveUp('projects')">▲</button>
+              <button class="mini" type="button" @click="moveDown('projects')">▼</button>
+            </div>
+          </template>
+        </SectionList>
 
         <!-- Skills -->
         <SectionList
@@ -192,7 +354,18 @@ const getIcon = (key) => sectionIcons[key] || 'folder-open';
             @toggle-section="toggleDisabled('skills')"
             :addLabel="t('addSkillType')"
             toggle-style="icon"
-        />
+        >
+          <template #controls>
+            <div style="display:flex;align-items:center;gap:8px">
+              <select v-model="areaSkills">
+                <option value="body">Body</option>
+                <option value="sidebar">Sidebar</option>
+              </select>
+              <button class="mini" type="button" @click="moveUp('skills')">▲</button>
+              <button class="mini" type="button" @click="moveDown('skills')">▼</button>
+            </div>
+          </template>
+        </SectionList>
 
         <!-- Languages: CEFR -->
         <SectionList
@@ -208,7 +381,18 @@ const getIcon = (key) => sectionIcons[key] || 'folder-open';
             :disabled="isHidden('languages')"
             @toggle-section="toggleDisabled('languages')"
             toggle-style="icon"
-        />
+        >
+          <template #controls>
+            <div style="display:flex;align-items:center;gap:8px">
+              <select v-model="areaLanguages">
+                <option value="body">Body</option>
+                <option value="sidebar">Sidebar</option>
+              </select>
+              <button class="mini" type="button" @click="moveUp('languages')">▲</button>
+              <button class="mini" type="button" @click="moveDown('languages')">▼</button>
+            </div>
+          </template>
+        </SectionList>
 
         <!-- Certs -->
         <SectionList
@@ -224,7 +408,18 @@ const getIcon = (key) => sectionIcons[key] || 'folder-open';
             :disabled="isHidden('certs')"
             @toggle-section="toggleDisabled('certs')"
             toggle-style="icon"
-        />
+        >
+          <template #controls>
+            <div style="display:flex;align-items:center;gap:8px">
+              <select v-model="areaCerts">
+                <option value="body">Body</option>
+                <option value="sidebar">Sidebar</option>
+              </select>
+              <button class="mini" type="button" @click="moveUp('certs')">▲</button>
+              <button class="mini" type="button" @click="moveDown('certs')">▼</button>
+            </div>
+          </template>
+        </SectionList>
 
         <!-- Hobbies -->
         <SectionList
@@ -234,13 +429,24 @@ const getIcon = (key) => sectionIcons[key] || 'folder-open';
             v-model="state.hobbies"
             :schema="[
               {label: 'Hobby',   key:'name',    type:'text', placeholder:'Music Production'},
-              {label: 'Details', key:'details', type:'text', placeholder:'Genres, DAW, Releases …'}
+              {label: 'Details', key:'details', type:'text', placeholder:'Genres, DAW, Releases \u2026'}
             ]"
             :addLabel="(langRef==='de'?'Hobby hinzufügen':'Add hobby')"
             :disabled="isHidden('hobbies')"
             @toggle-section="toggleDisabled('hobbies')"
             toggle-style="icon"
-        />
+        >
+          <template #controls>
+            <div style="display:flex;align-items:center;gap:8px">
+              <select v-model="areaHobbies">
+                <option value="body">Body</option>
+                <option value="sidebar">Sidebar</option>
+              </select>
+              <button class="mini" type="button" @click="moveUp('hobbies')">▲</button>
+              <button class="mini" type="button" @click="moveDown('hobbies')">▼</button>
+            </div>
+          </template>
+        </SectionList>
 
         <!-- Custom -->
         <SectionList
@@ -253,17 +459,36 @@ const getIcon = (key) => sectionIcons[key] || 'folder-open';
               {label:t('place'), key:'place', type:'text', placeholder:'Berlin'},
               {label:t('start'), key:'start', type:'text', placeholder:'04.2024'},
               {label:t('end'),   key:'end', type:'text', placeholder:t('current')},
-              {label:t('bulletsLabel'), key:'bullets', type:'textarea', placeholder:'Achievement 1\nAchievement 2\n…'}
+              {label:t('bulletsLabel'), key:'bullets', type:'textarea', placeholder:'Achievement 1\\nAchievement 2\\n...'}
             ]"
             :addLabel="t('addEntry')"
             :disabled="isHidden('custom')"
             @toggle-section="toggleDisabled('custom')"
             toggle-style="icon"
-        />
+        >
+          <template #controls>
+            <div style="display:flex;align-items:center;gap:8px">
+              <select v-model="areaCustom">
+                <option value="body">Body</option>
+                <option value="sidebar">Sidebar</option>
+              </select>
+              <button class="mini" type="button" @click="moveUp('custom')">▲</button>
+              <button class="mini" type="button" @click="moveDown('custom')">▼</button>
+            </div>
+          </template>
+        </SectionList>
 
         <div style="display:flex;justify-content:flex-end">
           <button type="button" class="btn btn--success" @click="addCustom">{{ t('newSection') }}</button>
         </div>
+
+        <!-- DEBUG: visible state for order/placement -->
+        <section class="section-group" style="margin-top:12px;padding:8px;border:1px dashed var(--border);background:rgba(0,0,0,0.02)">
+          <h4 style="margin:0 0 8px 0">Debug: Reihenfolge / Platzierung</h4>
+          <div style="font-size:12px;line-height:1.2;white-space:pre-wrap;">orderMain: {{ JSON.stringify(state.orderMain) }}</div>
+          <div style="font-size:12px;line-height:1.2;white-space:pre-wrap;">orderSide: {{ JSON.stringify(state.orderSide) }}</div>
+          <div style="font-size:12px;line-height:1.2;white-space:pre-wrap;">sectionPlacement: {{ JSON.stringify(state.sectionPlacement) }}</div>
+        </section>
 
         <!-- Design -->
         <DesignPanel v-model="state.design" />
@@ -287,4 +512,5 @@ const getIcon = (key) => sectionIcons[key] || 'folder-open';
 .section-icon{ margin-right:8px; color:var(--muted); }
 .caret{ display:inline-flex; align-items:center; justify-content:center; width:34px; height:26px; padding:0; }
 .caret .section-icon{ margin:0; }
+.section-controls select{ padding:4px 6px; }
 </style>

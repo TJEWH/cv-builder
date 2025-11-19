@@ -51,6 +51,7 @@ const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
       </button>
       <h3>{{ title }}</h3>
       <div style="margin-left:auto;display:flex;gap:6px">
+        <slot name="controls"></slot>
         <button v-if="addLabel" type="button" class="mini btn--success" @click="add">{{ addLabel }}</button>
         <button v-if="toggleable" class="mini" :class="[disabled?'btn--success':'btn--danger']" type="button" @click="$emit('toggle-section')">
           {{ disabled ? t('show') : t('hide') }}
@@ -59,25 +60,25 @@ const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
     </div>
 
     <div class="items">
-      <div class="item-row" v-for="(_, i) in items" :key="i">
+      <div class="item-row" v-for="(item, i) in items" :key="i">
         <div v-if="schema.some(s=>s.type!=='textarea')" :class="['row', schema.length===2?'row-2':'', schema.length===3?'row-3':'']">
           <label v-for="f in schema.filter(s=>s.type!=='textarea')" :key="f.key">
             {{ f.label }}
             <template v-if="f.type==='text'">
-              <input type="text" v-model="items[i][f.key]" :placeholder="f.placeholder||''"/>
+              <input type="text" v-model="item[f.key]" :placeholder="f.placeholder||''"/>
             </template>
             <template v-else-if="f.type==='number'">
-              <input type="number" v-model.number="items[i][f.key]" :placeholder="f.placeholder||''"/>
+              <input type="number" v-model.number="item[f.key]" :placeholder="f.placeholder||''"/>
             </template>
             <template v-else-if="f.type==='select'">
-              <select v-model="items[i][f.key]">
+              <select v-model="item[f.key]">
                 <option v-for="opt in f.options" :key="opt" :value="opt">{{ opt }}</option>
               </select>
             </template>
           </label>
         </div>
         <label v-for="f in schema.filter(s=>s.type==='textarea')" :key="f.key">
-          {{ f.label }}<textarea v-model="items[i][f.key]" :placeholder="f.placeholder||''"></textarea>
+          {{ f.label }}<textarea v-model="item[f.key]" :placeholder="f.placeholder||''"></textarea>
         </label>
         <div><button type="button" class="mini btn--danger" @click="removeAt(i)">{{t('remove')}}</button></div>
       </div>
