@@ -38,8 +38,8 @@ body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f1
 @media (max-width:1200px){ .workbench{ flex-direction:column; align-items:center } }
 
 /* ==== Builder: Retro CLI Look ==== */
-.builder{width:210mm;max-width:210mm;background:#0a0f14;border:1px solid #0f766e;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.35); color:#d1fae5}
-.builder .body{padding:10px;display:grid;gap:10px;background:#113c34;border-radius: 10px;}
+.builder{width:210mm;max-width:210mm;border:1px solid #0f766e;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.35); color:#d1fae5;background:#113c34}
+.builder .body{padding:10px;display:grid;gap:10px;}
 .section-group{border:1px solid #113c34;border-radius:10px;padding:10px;background:#07131b}
 .section-group.collapsed .items,
 .section-group.collapsed > label,
@@ -64,7 +64,7 @@ textarea{min-height:64px}
 .row-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
 .caret{width:18px;height:18px;display:inline-grid;place-items:center;border:1px solid #134e4a;border-radius:4px;color:#9be8c7;background:#061017}
-.section-group.collapsed .caret{transform:rotate(-90deg)}
+.section-group.collapsed .caret{background:#a16207}
 
 /* ==== Rendered CV ==== */
 .page{

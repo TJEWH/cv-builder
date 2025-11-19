@@ -63,7 +63,9 @@ const pick = (p)=>{ Object.assign(design.value, {ink:p.ink, accent:p.accent, bg:
 <template>
   <section class="section-group" :class="{ collapsed: collapsed }">
     <div class="section-head">
-      <button class="caret mini" type="button" @click="toggleCollapse">▾</button>
+      <button class="caret mini" type="button" @click="toggleCollapse">
+        <font-awesome-icon :icon="['fas', 'palette']" class="section-icon" aria-hidden="true" />
+      </button>
       <h3>Design</h3>
     </div>
 
@@ -128,4 +130,7 @@ const pick = (p)=>{ Object.assign(design.value, {ink:p.ink, accent:p.accent, bg:
 .section-group.collapsed > *:not(.section-head) {
   display: none;
 }
+.section-icon{ margin-right:8px; color:var(--muted); }
+.caret{ display:inline-flex; align-items:center; justify-content:center; width:34px; height:26px; padding:0; }
+.caret .section-icon{ margin:0; }
 </style>

@@ -4,6 +4,7 @@ import SectionList from './SectionList.vue';
 import SoftSkills from './SoftSkills.vue';
 import DesignPanel from './DesignPanel.vue';
 import { makeT } from '../i18n/dict.js';
+import sectionIcons from '../i18n/sectionIcons.js';
 
 const props = defineProps({
   state: { type: Object, required: true }
@@ -47,6 +48,8 @@ const addCustom = async () => {
       ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 };
 
+// helper to get icon name for a section
+const getIcon = (key) => sectionIcons[key] || 'folder-open';
 </script>
 
 <template>
@@ -57,7 +60,9 @@ const addCustom = async () => {
         <!-- Header -->
         <section class="section-group" data-section="header" :class="{collapsed:collapsed.header}">
           <div class="section-head">
-            <button class="caret mini" type="button" @click="collapsed.header=!collapsed.header">▾</button>
+            <button class="caret mini" type="button" @click="collapsed.header=!collapsed.header">
+              <font-awesome-icon :icon="['fas', getIcon('header')]" class="section-icon" aria-hidden="true" />
+            </button>
             <h3>{{ t('headerTitle') }}</h3>
           </div>
           <div class="grid-2">
@@ -81,7 +86,9 @@ const addCustom = async () => {
         <!-- About -->
         <section class="section-group" data-section="about" :class="[{disabled:isHidden('about')},{collapsed:collapsed.about}]">
           <div class="section-head">
-            <button class="caret mini" type="button" @click="collapsed.about=!collapsed.about">▾</button>
+            <button class="caret mini" type="button" @click="collapsed.about=!collapsed.about">
+              <font-awesome-icon :icon="['fas', getIcon('about')]" class="section-icon" aria-hidden="true" />
+            </button>
             <h3>{{ t('aboutTitle') }}</h3>
             <div style="margin-left:auto">
               <button class="mini" :class="[isHidden('about')?'btn--success':'btn--danger']" type="button" @click="toggleDisabled('about')">
@@ -264,7 +271,9 @@ const addCustom = async () => {
         <!-- Softskills -->
         <section class="section-group" data-section="softskills" :class="{collapsed:collapsed.soft}">
           <div class="section-head">
-            <button class="caret mini" type="button" @click="collapsed.soft=!collapsed.soft">▾</button>
+            <button class="caret mini" type="button" @click="collapsed.soft=!collapsed.soft">
+              <font-awesome-icon :icon="['fas', getIcon('softskills')]" class="section-icon" aria-hidden="true" />
+            </button>
             <h3>{{ t('softSkillsTitle') }}</h3>
           </div>
           <SoftSkills v-model="state.softskills" :options="refsOptions" />
@@ -275,4 +284,7 @@ const addCustom = async () => {
 </template>
 
 <style scoped>
+.section-icon{ margin-right:8px; color:var(--muted); }
+.caret{ display:inline-flex; align-items:center; justify-content:center; width:34px; height:26px; padding:0; }
+.caret .section-icon{ margin:0; }
 </style>

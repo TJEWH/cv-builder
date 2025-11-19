@@ -1,4 +1,4 @@
-// Zentralisiertes Dictionary nach Item-Keys (nicht nach Sprache gruppiert)
+// Centralized dictionary for language translation (i18n)
 export const dict = {
     openPdf:            {de: 'PDF öffnen', en: 'open PDF'},
     showPreview:        {de: 'Vorschau anzeigen', en: 'show preview'},
@@ -48,10 +48,10 @@ export const dict = {
     backupNotFound:     {de: 'Keine Backup-Datei gefunden', en: 'No backup file found'},
 
     // Section titles
-    headerTitle:     { de:'Header & Kontakt', en:'Header & Contact' },
+    headerTitle:     { de:'Kontakt (Header)', en:'Contact (Header)' },
     aboutTitle:      { de:'Selbstbeschreibung', en:'Profile' },
-    expJobTitle:     { de:'Berufserfahrung', en:'Experience' },
-    expPersonalTitle:{ de:'Persönliche Erfahrung & Hackathons', en:'Personal Experience & Hackathons' },
+    expJobTitle:     { de:'Berufserfahrung', en:'Professional Experience' },
+    expPersonalTitle:{ de:'Persönliche Erfahrung', en:'Personal Experience' },
     educationTitle:  { de:'Ausbildung', en:'Education' },
     projectsTitle:   { de:'Projekte & Publikationen', en:'Projects & Publications' },
     skillsTitle:     { de:'Fähigkeiten', en:'Skills' },
@@ -130,7 +130,7 @@ export const dict = {
 
     // Preview section headings (if you want different wording)
     experienceH3Job:        { de:'Berufserfahrung', en:'Professional Experience' },
-    experienceH3Personal:   { de:'Persönliche Erfahrung & Hackathons', en:'Personal Experience & Hackathons' },
+    experienceH3Personal:   { de:'Persönliche Erfahrung', en:'Personal Experience' },
 
     // Formatting tokens
     dotSep: { de:' · ', en:' · ' },

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { makeT } from '../i18n/dict.js';
+import sectionIcons from '../i18n/sectionIcons.js';
 
 const props = defineProps({
   title: String,
@@ -18,7 +19,9 @@ const langRef = computed({
 })
 const t = makeT(langRef);
 
-const emit = defineEmits(['update:modelValue','toggle-section']);
+// declare emits so Vue doesn't warn when we $emit('toggle-section')
+defineEmits(['update:modelValue','toggle-section']);
+
 const items = defineModel({ default: [] });
 
 const root = ref(null);
@@ -35,12 +38,17 @@ const add = () => {
   });
 };
 const removeAt = (i) => items.value.splice(i,1);
+
+// compute icon name for this section (fallback to 'folder-open')
+const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
 </script>
 
 <template>
   <section ref="root" class="section-group" :data-section="sectionKey" :class="{disabled}">
     <div class="section-head">
-      <button class="caret mini" type="button" @click="toggleCollapse">▾</button>
+      <button class="caret mini" type="button" @click="toggleCollapse">
+        <font-awesome-icon v-if="iconName" :icon="['fas', iconName]" class="section-icon" aria-hidden="true" />
+      </button>
       <h3>{{ title }}</h3>
       <div style="margin-left:auto;display:flex;gap:6px">
         <button v-if="addLabel" type="button" class="mini btn--success" @click="add">{{ addLabel }}</button>
@@ -51,7 +59,7 @@ const removeAt = (i) => items.value.splice(i,1);
     </div>
 
     <div class="items">
-      <div class="item-row" v-for="(row, i) in items" :key="i">
+      <div class="item-row" v-for="(_, i) in items" :key="i">
         <div v-if="schema.some(s=>s.type!=='textarea')" :class="['row', schema.length===2?'row-2':'', schema.length===3?'row-3':'']">
           <label v-for="f in schema.filter(s=>s.type!=='textarea')" :key="f.key">
             {{ f.label }}
@@ -76,3 +84,10 @@ const removeAt = (i) => items.value.splice(i,1);
     </div>
   </section>
 </template>
+
+<style scoped>
+.section-icon{ margin-right:8px; color:var(--muted); }
+/* ensure the icon is centered inside the toggle button */
+.caret{ display:inline-flex; align-items:center; justify-content:center; width:34px; height:26px; padding:0; }
+.caret .section-icon{ margin:0; }
+</style>
