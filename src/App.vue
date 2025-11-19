@@ -4,6 +4,7 @@ import { debounce, loadLocal, saveLocal, readBackup, fsApiAvailable, getBackupMo
 import FormBuilder from './components/FormBuilder.vue';
 import FloatingPreview from './components/FloatingPreview.vue';
 import { makeT } from './i18n/dict';
+import ToolBar from "./components/ToolBar.vue";
 
 const state = reactive({
   version: 1,
@@ -91,25 +92,12 @@ onMounted(async ()=>{
 });
 onBeforeUnmount(()=>{ try{ bc?.close(); }catch{} });
 
-const openPreviewTab = () => window.open('/preview.html', '_blank', 'noopener');
-
 const showPreview = ref(true);
 </script>
 
 <template>
-  <div>
-    <div class="toolbar">
-      <button class="btn btn--primary" type="button" @click="openPreviewTab">{{t('openPdf')}}</button>
-      <button class="btn" :class="[showPreview?'btn--danger':'btn--success']" type="button" @click="showPreview=!showPreview">
-        {{ showPreview ? t('hidePreview') : t('showPreview') }}
-      </button>
-      <!--<span class="note">{{ status }}</span>-->
-    </div>
+  <ToolBar v-model:showPreview="showPreview"/>
+  <FloatingPreview v-if="showPreview" url="/preview.html?embed=1" :initialScale="0.35" />
 
-    <div class="workbench">
-      <FormBuilder :state="state" :onSave="saveDebounced" />
-    </div>
-
-    <FloatingPreview v-if="showPreview" url="/preview.html?embed=1" :initialScale="0.35" />
-  </div>
+  <FormBuilder :state="state" :onSave="saveDebounced" />
 </template>

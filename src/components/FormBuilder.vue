@@ -237,292 +237,294 @@ onMounted(refreshConfigs);
 </script>
 
 <template>
-  <form class="builder builder--cli" @submit.prevent>
-    <header>
-      <div class="header-actions">
-        <!-- Save Location -->
-        <div class="toggle-field">
-          <span class="toggle-caption">{{ t('storageCaption') }}:</span>
-          <button
-              type="button"
-              class="toggle"
-              role="switch"
-              :aria-checked="useProjectFile ? 'true' : 'false'"
-              :class="{ 'is-on': useProjectFile }"
-              @click="useProjectFile = !useProjectFile"
-              aria-label="Toggle storage"
-          >
-            <span class="toggle-track">
-              <span class="toggle-label left">Browser</span>
-              <span class="toggle-label right">Project</span>
-              <span class="toggle-thumb"></span>
-            </span>
-          </button>
-        </div>
-
-        <!-- Language -->
-        <div class="toggle-field">
-          <span class="toggle-caption">{{ t('languageCaption') }}:</span>
-          <button
-              type="button"
-              class="toggle"
-              role="switch"
-              :aria-checked="langRef==='en' ? 'true' : 'false'"
-              :class="{ 'is-on': langRef==='en' }"
-              @click="langRef = (langRef==='de' ? 'en' : 'de')"
-          >
-            <span class="toggle-track">
-              <span class="toggle-label left">DE</span>
-              <span class="toggle-label right">EN</span>
-              <span class="toggle-thumb"></span>
-            </span>
-          </button>
-        </div>
-
-        <!-- Konfigurations-Manager -->
-        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
-          <label class="toggle-caption" style="min-width:max-content">{{ L.config }}:</label>
-          <select v-model="currentId" style="min-width:200px">
-            <option v-if="!configs.length" value="">{{ L.empty }}</option>
-            <option v-for="c in configs" :key="c.id" :value="c.id">
-              {{ c.name }}
-            </option>
-          </select>
-
-          <button type="button" class="btn" @click="loadCurrent">{{ L.load }}</button>
-          <button type="button" class="btn btn--primary" @click="saveCurrent">{{ L.overwrite }}</button>
-          <button type="button" class="btn btn--danger" @click="deleteCurrent">{{ L.remove }}</button>
-
-          <input
-              v-model="newName"
-              :placeholder="L.newNamePH"
-              style="min-width:220px"
-          />
-          <button type="button" class="btn btn--success" @click="saveAs">{{ L.saveAs }}</button>
-
-          <span class="note" v-if="backupMsg">{{ backupMsg }}</span>
-        </div>
-      </div>
-    </header>
-
-    <div class="body">
-      <!-- Header -->
-      <section class="section-group" data-section="header" :class="{collapsed:collapsed.header}">
-        <div class="section-head">
-          <button class="caret mini" type="button" @click="collapsed.header=!collapsed.header">▾</button>
-          <h3>{{ t('headerTitle') }}</h3>
-        </div>
-        <div class="grid-2">
-          <label>{{ t('name') }}<input type="text" v-model="state.header.name" placeholder="Alex Muster"/></label>
-          <label>{{ t('location') }}<input type="text" v-model="state.header.location" placeholder="Berlin, DE"/></label>
-        </div>
-        <div class="grid-2">
-          <label>{{ t('role') }}<input type="text" v-model="state.header.role" placeholder="Software Engineer"/></label>
-          <span></span>
-        </div>
-        <div class="grid-2">
-          <label>{{ t('email') }}<input type="email" v-model="state.header.email" placeholder="alex@example.com"/></label>
-          <label>{{ t('phone') }}<input type="tel" v-model="state.header.phone" placeholder="+49 123 456789"/></label>
-        </div>
-        <div class="grid-2">
-          <label>{{ t('website') }}<input type="url" v-model="state.header.website" placeholder="https://alexmuster.dev"/></label>
-          <label>{{ t('linkedin') }}<input type="url" v-model="state.header.linkedin" placeholder="https://linkedin.com/in/alexmuster"/></label>
-        </div>
-      </section>
-
-      <!-- About -->
-      <section class="section-group" data-section="about" :class="[{disabled:isHidden('about')},{collapsed:collapsed.about}]">
-        <div class="section-head">
-          <button class="caret mini" type="button" @click="collapsed.about=!collapsed.about">▾</button>
-          <h3>{{ t('aboutTitle') }}</h3>
-          <div style="margin-left:auto">
-            <button class="mini" :class="[isHidden('about')?'btn--success':'btn--danger']" type="button" @click="toggleDisabled('about')">
-              {{ isHidden('about') ? t('show') : t('hide') }}
+  <div class="workbench">
+    <form class="builder builder--cli" @submit.prevent>
+      <header>
+        <div class="header-actions">
+          <!-- Save Location -->
+          <div class="toggle-field">
+            <span class="toggle-caption">{{ t('storageCaption') }}:</span>
+            <button
+                type="button"
+                class="toggle"
+                role="switch"
+                :aria-checked="useProjectFile ? 'true' : 'false'"
+                :class="{ 'is-on': useProjectFile }"
+                @click="useProjectFile = !useProjectFile"
+                aria-label="Toggle storage"
+            >
+              <span class="toggle-track">
+                <span class="toggle-label left">Browser</span>
+                <span class="toggle-label right">Project</span>
+                <span class="toggle-thumb"></span>
+              </span>
             </button>
           </div>
+
+          <!-- Language -->
+          <div class="toggle-field">
+            <span class="toggle-caption">{{ t('languageCaption') }}:</span>
+            <button
+                type="button"
+                class="toggle"
+                role="switch"
+                :aria-checked="langRef==='en' ? 'true' : 'false'"
+                :class="{ 'is-on': langRef==='en' }"
+                @click="langRef = (langRef==='de' ? 'en' : 'de')"
+            >
+              <span class="toggle-track">
+                <span class="toggle-label left">DE</span>
+                <span class="toggle-label right">EN</span>
+                <span class="toggle-thumb"></span>
+              </span>
+            </button>
+          </div>
+
+          <!-- Konfigurations-Manager -->
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+            <label class="toggle-caption" style="min-width:max-content">{{ L.config }}:</label>
+            <select v-model="currentId" style="min-width:200px">
+              <option v-if="!configs.length" value="">{{ L.empty }}</option>
+              <option v-for="c in configs" :key="c.id" :value="c.id">
+                {{ c.name }}
+              </option>
+            </select>
+
+            <button type="button" class="btn" @click="loadCurrent">{{ L.load }}</button>
+            <button type="button" class="btn btn--primary" @click="saveCurrent">{{ L.overwrite }}</button>
+            <button type="button" class="btn btn--danger" @click="deleteCurrent">{{ L.remove }}</button>
+
+            <input
+                v-model="newName"
+                :placeholder="L.newNamePH"
+                style="min-width:220px"
+            />
+            <button type="button" class="btn btn--success" @click="saveAs">{{ L.saveAs }}</button>
+
+            <span class="note" v-if="backupMsg">{{ backupMsg }}</span>
+          </div>
         </div>
-        <label>{{ t('aboutTextLabel') }}<textarea v-model="state.about.text" placeholder="Me in a nutshell..."></textarea></label>
-      </section>
+      </header>
 
-      <!-- Experience job -->
-      <SectionList
-          :title="t('expJobTitle')"
-          :lang="langRef"
-          sectionKey="exp-job"
-          v-model="state.experience.job"
-          :schema="[
-          {label:t('position'), key:'title', type:'text', placeholder:'Senior Software Engineer'},
-          {label:t('company'),  key:'company', type:'text', placeholder:'Acme GmbH'},
-          {label:t('place'),    key:'place', type:'text', placeholder:'Berlin'},
-          {label:t('start'),    key:'start', type:'text', placeholder:'05.2021'},
-          {label:t('end'),      key:'end', type:'text', placeholder: t('current')},
-          {label:t('bulletsLabel'), key:'bullets', type:'textarea', placeholder:t('tasks')}
-        ]"
-          :addLabel="t('addEntry')"
-          :disabled="isHidden('exp-job')"
-          @toggle-section="toggleDisabled('exp-job')"
-          toggle-style="icon"
-      />
+      <div class="body">
+        <!-- Header -->
+        <section class="section-group" data-section="header" :class="{collapsed:collapsed.header}">
+          <div class="section-head">
+            <button class="caret mini" type="button" @click="collapsed.header=!collapsed.header">▾</button>
+            <h3>{{ t('headerTitle') }}</h3>
+          </div>
+          <div class="grid-2">
+            <label>{{ t('name') }}<input type="text" v-model="state.header.name" placeholder="Alex Muster"/></label>
+            <label>{{ t('location') }}<input type="text" v-model="state.header.location" placeholder="Berlin, DE"/></label>
+          </div>
+          <div class="grid-2">
+            <label>{{ t('role') }}<input type="text" v-model="state.header.role" placeholder="Software Engineer"/></label>
+            <span></span>
+          </div>
+          <div class="grid-2">
+            <label>{{ t('email') }}<input type="email" v-model="state.header.email" placeholder="alex@example.com"/></label>
+            <label>{{ t('phone') }}<input type="tel" v-model="state.header.phone" placeholder="+49 123 456789"/></label>
+          </div>
+          <div class="grid-2">
+            <label>{{ t('website') }}<input type="url" v-model="state.header.website" placeholder="https://alexmuster.dev"/></label>
+            <label>{{ t('linkedin') }}<input type="url" v-model="state.header.linkedin" placeholder="https://linkedin.com/in/alexmuster"/></label>
+          </div>
+        </section>
 
-      <!-- Experience personal -->
-      <SectionList
-          :title="t('expPersonalTitle')"
-          :lang="langRef"
-          sectionKey="exp-personal"
-          v-model="state.experience.personal"
-          :schema="[
-          {label:t('title'),    key:'title', type:'text', placeholder:'Hackathon XYZ'},
-          {label:t('subtitle'), key:'sub', type:'text', placeholder:t('hackathonTitlePH') },
-          {label:t('place'),    key:'place', type:'text', placeholder:'Hamburg'},
-          {label:t('start'),    key:'start', type:'text', placeholder:'03.2024'},
-          {label:t('end'),      key:'end', type:'text', placeholder:'03.2024'},
-          {label:t('desc'),     key:'desc', type:'textarea', placeholder: t('hackathonPH')}
-        ]"
-          :addLabel="t('addEntry')"
-          :disabled="isHidden('exp-personal')"
-          @toggle-section="toggleDisabled('exp-personal')"
-          toggle-style="icon"
-      />
+        <!-- About -->
+        <section class="section-group" data-section="about" :class="[{disabled:isHidden('about')},{collapsed:collapsed.about}]">
+          <div class="section-head">
+            <button class="caret mini" type="button" @click="collapsed.about=!collapsed.about">▾</button>
+            <h3>{{ t('aboutTitle') }}</h3>
+            <div style="margin-left:auto">
+              <button class="mini" :class="[isHidden('about')?'btn--success':'btn--danger']" type="button" @click="toggleDisabled('about')">
+                {{ isHidden('about') ? t('show') : t('hide') }}
+              </button>
+            </div>
+          </div>
+          <label>{{ t('aboutTextLabel') }}<textarea v-model="state.about.text" placeholder="Me in a nutshell..."></textarea></label>
+        </section>
 
-      <!-- Education -->
-      <SectionList
-          :title="t('educationTitle')"
-          :lang="langRef"
-          sectionKey="education"
-          v-model="state.education"
-          :schema="[
-          {label:t('degreeTitle'), key:'title', type:'text', placeholder:'M.Sc. Informatik'},
-          {label:t('institution'), key:'sub', type:'text', placeholder:'TU München'},
-          {label:t('place'),       key:'place', type:'text', placeholder:'Hamburg'},
-          {label:t('start'),       key:'start', type:'text', placeholder:'2017'},
-          {label:t('end'),         key:'end', type:'text', placeholder:'2020'},
-          {label:t('focus'),       key:'desc', type:'textarea', placeholder:'AI'}
-        ]"
-          :addLabel="t('addEntry')"
-          :disabled="isHidden('education')"
-          @toggle-section="toggleDisabled('education')"
-          toggle-style="icon"
-      />
-
-      <!-- Projects -->
-      <SectionList
-          :title="t('projectsTitle')"
-          :lang="langRef"
-          sectionKey="projects"
-          v-model="state.projects"
-          :schema="[
-          {label:t('projectTitle'), key:'title', type:'text', placeholder:'Open Source Tool – repo/name'},
-          {label:t('place'),        key:'place', type:'text', placeholder:'Remote'},
-          {label:t('start'),        key:'start', type:'text', placeholder:'2025'},
-          {label:t('end'),          key:'end', type:'text', placeholder:'2025'},
-          {label:t('desc'),         key:'desc', type:'textarea', placeholder: 'CLI tool XY …'}
-        ]"
-          :addLabel="t('addEntry')"
-          :disabled="isHidden('projects')"
-          @toggle-section="toggleDisabled('projects')"
-          toggle-style="icon"
-      />
-
-      <!-- Skills -->
-      <SectionList
-          :title="t('skillsTitle')"
-          :lang="langRef"
-          sectionKey="skills"
-          v-model="state.skills"
-          :schema="[
-            {label:t('category'), key:'title', type:'text', placeholder:t('programmingLanguages')},
-            {label:t('entryCSV'), key:'tags', type:'text', placeholder:'Python, TypeScript, Go'}
-          ]"
-          :disabled="isHidden('skills')"
-          @toggle-section="toggleDisabled('skills')"
-          :addLabel="t('addSkillType')"
-          toggle-style="icon"
-      />
-
-      <!-- Languages: CEFR -->
-      <SectionList
-          :title="t('languagesTitle')"
-          :lang="langRef"
-          sectionKey="languages"
-          v-model="state.languages"
-          :schema="[
-            {label:t('languageName'), key:'name', type:'text', placeholder:t('german')},
-            {label:t('level'), key:'level', type:'select', options: [(langRef==='de'?'nativ':'native'),'C2','C1','B2','B1','A2','A1']}
-          ]"
-          :addLabel="t('addLanguage')"
-          :disabled="isHidden('languages')"
-          @toggle-section="toggleDisabled('languages')"
-          toggle-style="icon"
-      />
-
-      <!-- Certs -->
-      <SectionList
-          :title="t('certsTitle')"
-          :lang="langRef"
-          sectionKey="certs"
-          v-model="state.certs"
-          :schema="[
-          {label:t('certificate'), key:'name', type:'text', placeholder:'AWS Solutions Architect'},
-          {label:t('yearShort'),  key:'year', type:'text', placeholder:'2023'}
-        ]"
-          :addLabel="t('addCert')"
-          :disabled="isHidden('certs')"
-          @toggle-section="toggleDisabled('certs')"
-          toggle-style="icon"
-      />
-
-      <!-- Hobbies -->
-      <SectionList
-          :title="t('hobbiesTitle')"
-          :lang="langRef"
-          sectionKey="hobbies"
-          v-model="state.hobbies"
-          :schema="[
-            {label: 'Hobby',   key:'name',    type:'text', placeholder:'Music Production'},
-            {label: 'Details', key:'details', type:'text', placeholder:'Genres, DAW, Releases …'}
-          ]"
-          :addLabel="(langRef==='de'?'Hobby hinzufügen':'Add hobby')"
-          :disabled="isHidden('hobbies')"
-          @toggle-section="toggleDisabled('hobbies')"
-          toggle-style="icon"
-      />
-
-      <!-- Custom -->
-      <SectionList
-          :title="t('customTitle')"
-          :lang="langRef"
-          sectionKey="custom"
-          v-model="state.custom"
+        <!-- Experience job -->
+        <SectionList
+            :title="t('expJobTitle')"
+            :lang="langRef"
+            sectionKey="exp-job"
+            v-model="state.experience.job"
             :schema="[
-            {label:t('title'), key:'title', type:'text', placeholder:t('customSectionPH')},
-            {label:t('place'), key:'place', type:'text', placeholder:'Berlin'},
-            {label:t('start'), key:'start', type:'text', placeholder:'04.2024'},
-            {label:t('end'),   key:'end', type:'text', placeholder:t('current')},
-            {label:t('bulletsLabel'), key:'bullets', type:'textarea', placeholder:'Achievement 1\nAchievement 2\n…'}
+            {label:t('position'), key:'title', type:'text', placeholder:'Senior Software Engineer'},
+            {label:t('company'),  key:'company', type:'text', placeholder:'Acme GmbH'},
+            {label:t('place'),    key:'place', type:'text', placeholder:'Berlin'},
+            {label:t('start'),    key:'start', type:'text', placeholder:'05.2021'},
+            {label:t('end'),      key:'end', type:'text', placeholder: t('current')},
+            {label:t('bulletsLabel'), key:'bullets', type:'textarea', placeholder:t('tasks')}
           ]"
-          :addLabel="t('addEntry')"
-          :disabled="isHidden('custom')"
-          @toggle-section="toggleDisabled('custom')"
-          toggle-style="icon"
-      />
+            :addLabel="t('addEntry')"
+            :disabled="isHidden('exp-job')"
+            @toggle-section="toggleDisabled('exp-job')"
+            toggle-style="icon"
+        />
 
-      <div style="display:flex;justify-content:flex-end">
-        <button type="button" class="btn btn--success" @click="addCustom">{{ t('newSection') }}</button>
-      </div>
+        <!-- Experience personal -->
+        <SectionList
+            :title="t('expPersonalTitle')"
+            :lang="langRef"
+            sectionKey="exp-personal"
+            v-model="state.experience.personal"
+            :schema="[
+            {label:t('title'),    key:'title', type:'text', placeholder:'Hackathon XYZ'},
+            {label:t('subtitle'), key:'sub', type:'text', placeholder:t('hackathonTitlePH') },
+            {label:t('place'),    key:'place', type:'text', placeholder:'Hamburg'},
+            {label:t('start'),    key:'start', type:'text', placeholder:'03.2024'},
+            {label:t('end'),      key:'end', type:'text', placeholder:'03.2024'},
+            {label:t('desc'),     key:'desc', type:'textarea', placeholder: t('hackathonPH')}
+          ]"
+            :addLabel="t('addEntry')"
+            :disabled="isHidden('exp-personal')"
+            @toggle-section="toggleDisabled('exp-personal')"
+            toggle-style="icon"
+        />
 
-      <!-- Design -->
-      <DesignPanel v-model="state.design" />
+        <!-- Education -->
+        <SectionList
+            :title="t('educationTitle')"
+            :lang="langRef"
+            sectionKey="education"
+            v-model="state.education"
+            :schema="[
+            {label:t('degreeTitle'), key:'title', type:'text', placeholder:'M.Sc. Informatik'},
+            {label:t('institution'), key:'sub', type:'text', placeholder:'TU München'},
+            {label:t('place'),       key:'place', type:'text', placeholder:'Hamburg'},
+            {label:t('start'),       key:'start', type:'text', placeholder:'2017'},
+            {label:t('end'),         key:'end', type:'text', placeholder:'2020'},
+            {label:t('focus'),       key:'desc', type:'textarea', placeholder:'AI'}
+          ]"
+            :addLabel="t('addEntry')"
+            :disabled="isHidden('education')"
+            @toggle-section="toggleDisabled('education')"
+            toggle-style="icon"
+        />
 
-      <!-- Softskills -->
-      <section class="section-group" data-section="softskills" :class="{collapsed:collapsed.soft}">
-        <div class="section-head">
-          <button class="caret mini" type="button" @click="collapsed.soft=!collapsed.soft">▾</button>
-          <h3>{{ t('softSkillsTitle') }}</h3>
+        <!-- Projects -->
+        <SectionList
+            :title="t('projectsTitle')"
+            :lang="langRef"
+            sectionKey="projects"
+            v-model="state.projects"
+            :schema="[
+            {label:t('projectTitle'), key:'title', type:'text', placeholder:'Open Source Tool – repo/name'},
+            {label:t('place'),        key:'place', type:'text', placeholder:'Remote'},
+            {label:t('start'),        key:'start', type:'text', placeholder:'2025'},
+            {label:t('end'),          key:'end', type:'text', placeholder:'2025'},
+            {label:t('desc'),         key:'desc', type:'textarea', placeholder: 'CLI tool XY …'}
+          ]"
+            :addLabel="t('addEntry')"
+            :disabled="isHidden('projects')"
+            @toggle-section="toggleDisabled('projects')"
+            toggle-style="icon"
+        />
+
+        <!-- Skills -->
+        <SectionList
+            :title="t('skillsTitle')"
+            :lang="langRef"
+            sectionKey="skills"
+            v-model="state.skills"
+            :schema="[
+              {label:t('category'), key:'title', type:'text', placeholder:t('programmingLanguages')},
+              {label:t('entryCSV'), key:'tags', type:'text', placeholder:'Python, TypeScript, Go'}
+            ]"
+            :disabled="isHidden('skills')"
+            @toggle-section="toggleDisabled('skills')"
+            :addLabel="t('addSkillType')"
+            toggle-style="icon"
+        />
+
+        <!-- Languages: CEFR -->
+        <SectionList
+            :title="t('languagesTitle')"
+            :lang="langRef"
+            sectionKey="languages"
+            v-model="state.languages"
+            :schema="[
+              {label:t('languageName'), key:'name', type:'text', placeholder:t('german')},
+              {label:t('level'), key:'level', type:'select', options: [(langRef==='de'?'nativ':'native'),'C2','C1','B2','B1','A2','A1']}
+            ]"
+            :addLabel="t('addLanguage')"
+            :disabled="isHidden('languages')"
+            @toggle-section="toggleDisabled('languages')"
+            toggle-style="icon"
+        />
+
+        <!-- Certs -->
+        <SectionList
+            :title="t('certsTitle')"
+            :lang="langRef"
+            sectionKey="certs"
+            v-model="state.certs"
+            :schema="[
+            {label:t('certificate'), key:'name', type:'text', placeholder:'AWS Solutions Architect'},
+            {label:t('yearShort'),  key:'year', type:'text', placeholder:'2023'}
+          ]"
+            :addLabel="t('addCert')"
+            :disabled="isHidden('certs')"
+            @toggle-section="toggleDisabled('certs')"
+            toggle-style="icon"
+        />
+
+        <!-- Hobbies -->
+        <SectionList
+            :title="t('hobbiesTitle')"
+            :lang="langRef"
+            sectionKey="hobbies"
+            v-model="state.hobbies"
+            :schema="[
+              {label: 'Hobby',   key:'name',    type:'text', placeholder:'Music Production'},
+              {label: 'Details', key:'details', type:'text', placeholder:'Genres, DAW, Releases …'}
+            ]"
+            :addLabel="(langRef==='de'?'Hobby hinzufügen':'Add hobby')"
+            :disabled="isHidden('hobbies')"
+            @toggle-section="toggleDisabled('hobbies')"
+            toggle-style="icon"
+        />
+
+        <!-- Custom -->
+        <SectionList
+            :title="t('customTitle')"
+            :lang="langRef"
+            sectionKey="custom"
+            v-model="state.custom"
+              :schema="[
+              {label:t('title'), key:'title', type:'text', placeholder:t('customSectionPH')},
+              {label:t('place'), key:'place', type:'text', placeholder:'Berlin'},
+              {label:t('start'), key:'start', type:'text', placeholder:'04.2024'},
+              {label:t('end'),   key:'end', type:'text', placeholder:t('current')},
+              {label:t('bulletsLabel'), key:'bullets', type:'textarea', placeholder:'Achievement 1\nAchievement 2\n…'}
+            ]"
+            :addLabel="t('addEntry')"
+            :disabled="isHidden('custom')"
+            @toggle-section="toggleDisabled('custom')"
+            toggle-style="icon"
+        />
+
+        <div style="display:flex;justify-content:flex-end">
+          <button type="button" class="btn btn--success" @click="addCustom">{{ t('newSection') }}</button>
         </div>
-        <SoftSkills v-model="state.softskills" :options="refsOptions" />
-      </section>
-    </div>
-  </form>
+
+        <!-- Design -->
+        <DesignPanel v-model="state.design" />
+
+        <!-- Softskills -->
+        <section class="section-group" data-section="softskills" :class="{collapsed:collapsed.soft}">
+          <div class="section-head">
+            <button class="caret mini" type="button" @click="collapsed.soft=!collapsed.soft">▾</button>
+            <h3>{{ t('softSkillsTitle') }}</h3>
+          </div>
+          <SoftSkills v-model="state.softskills" :options="refsOptions" />
+        </section>
+      </div>
+    </form>
+  </div>
 </template>
 
 <style scoped>
