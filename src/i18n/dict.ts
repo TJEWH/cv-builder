@@ -132,6 +132,9 @@ export const dict = {
     experienceH3Job:        { de:'Berufserfahrung', en:'Professional Experience' },
     experienceH3Personal:   { de:'Persönliche Erfahrung', en:'Personal Experience' },
 
+    includeProjects:        { de:'Projekte einbinden', en:'include Projects' },
+    includePersonalExp:     { de:'Persönliches einbinden', en:'include Personal' },
+
     // Formatting tokens
     dotSep: { de:' · ', en:' · ' },
     rangeSep:{ de:' – ', en:' – ' },
