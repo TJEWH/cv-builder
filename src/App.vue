@@ -96,7 +96,7 @@ const showPreview = ref(true);
 </script>
 
 <template>
-  <ToolBar v-model:showPreview="showPreview"/>
+  <ToolBar v-model:showPreview="showPreview" v-model:lang="lang"/>
   <FloatingPreview v-if="showPreview" url="/preview.html?embed=1" :initialScale="0.35" />
 
   <FormBuilder :state="state" :onSave="saveDebounced" />

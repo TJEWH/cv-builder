@@ -261,25 +261,6 @@ onMounted(refreshConfigs);
             </button>
           </div>
 
-          <!-- Language -->
-          <div class="toggle-field">
-            <span class="toggle-caption">{{ t('languageCaption') }}:</span>
-            <button
-                type="button"
-                class="toggle"
-                role="switch"
-                :aria-checked="langRef==='en' ? 'true' : 'false'"
-                :class="{ 'is-on': langRef==='en' }"
-                @click="langRef = (langRef==='de' ? 'en' : 'de')"
-            >
-              <span class="toggle-track">
-                <span class="toggle-label left">DE</span>
-                <span class="toggle-label right">EN</span>
-                <span class="toggle-thumb"></span>
-              </span>
-            </button>
-          </div>
-
           <!-- Konfigurations-Manager -->
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
             <label class="toggle-caption" style="min-width:max-content">{{ L.config }}:</label>

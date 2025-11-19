@@ -14,8 +14,7 @@ const props = defineProps({
 });
 
 const langRef = computed({
-  get: () => props.lang || 'de',
-  set: v => props.lang = v
+  get: () => props.lang || 'de'
 })
 const t = makeT(langRef);
 
