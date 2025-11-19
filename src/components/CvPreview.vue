@@ -18,8 +18,8 @@ const hasAny = (arr)=> Array.isArray(arr) && arr.length>0;
 const hasText = (s)=> !!(s && String(s).trim());
 
 // Order gets extracted from formbuilder
-const defaultMain = ['about','experience','education','projects','custom'];
-const defaultSide = ['skills','languages','certs','hobbies'];
+const defaultMain = ['about','education','jobs','addExp','projects','custom'];
+const defaultSide = ['skills','languages','hobbies','certs'];
 
 const blocksMain = computed(()=>{
   // prefer explicit orderMain if provided
@@ -90,15 +90,15 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
   <div class="page" role="document">
     <header class="header">
       <div class="title">
-        <h1 class="name">{{ state.header.name || '-' }}</h1>
-        <p class="role">{{ state.header.role }}</p>
+        <h1 class="name">{{ state.contact.name || '-' }}</h1>
+        <p class="role">{{ state.contact.role }}</p>
       </div>
       <address class="contact">
-        <div>{{ state.header.location }}</div>
-        <div><a :href="state.header.email ? 'mailto:'+state.header.email : '#'">{{ state.header.email }}</a></div>
-        <div>{{ state.header.phone }}</div>
-        <div><a :href="state.header.website || '#'">{{ (state.header.website||'').replace(/^https?:\/\//,'') }}</a></div>
-        <div><a :href="state.header.linkedin || '#'">{{ (state.header.linkedin||'').replace(/^https?:\/\//,'') }}</a></div>
+        <div>{{ state.contact.location }}</div>
+        <div><a :href="state.contact.email ? 'mailto:'+state.contact.email : '#'">{{ state.contact.email }}</a></div>
+        <div>{{ state.contact.phone }}</div>
+        <div><a :href="state.contact.website || '#'">{{ (state.contact.website||'').replace(/^https?:\/\//,'') }}</a></div>
+        <div><a :href="state.contact.linkedin || '#'">{{ (state.contact.linkedin||'').replace(/^https?:\/\//,'') }}</a></div>
       </address>
     </header>
 
@@ -120,7 +120,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
 
             <h3 class="small">{{ t('experienceH3Job') }}</h3>
             <div class="timeline" id="cv_exp_job">
-              <article class="item" v-for="(it,idx) in state.experience.job" :key="idx">
+              <article class="item" v-for="(it,idx) in state.experience.jobs" :key="idx">
                 <div class="item-header">
                   <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.company||''}</span>`"></div>
                   <div class="item-meta">{{ formatMeta(it) }}</div>
@@ -161,7 +161,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
           <template v-else-if="key==='projects'">
             <h2>{{ t('projectsTitle') }}</h2>
             <div>
-              <article class="item" v-for="(it, idx) in state.projects" :key="idx">
+              <article class="item" v-for="(it, idx) in state.experience.projects" :key="idx">
                 <div class="item-header">
                   <div class="item-title">{{ it.title }}</div>
                   <div class="item-meta">{{ formatMeta(it) }}</div>
@@ -252,7 +252,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
             <h2>{{ t('expJobTitle') }}</h2>
             <h3 class="small">{{ t('experienceH3Job') }}</h3>
             <div class="timeline" id="cv_exp_job">
-              <article class="item" v-for="(it,idx) in state.experience.job" :key="idx">
+              <article class="item" v-for="(it,idx) in state.experience.jobs" :key="idx">
                 <div class="item-header">
                   <div class="item-title" v-html="`${it.title||''} \u2013 <span class='item-sub'>${it.company||''}</span>`"></div>
                   <div class="item-meta">{{ formatMeta(it) }}</div>
@@ -276,7 +276,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
           <template v-else-if="key==='projects'">
             <h2>{{ t('projectsTitle') }}</h2>
             <div>
-              <article class="item" v-for="(it, idx) in state.projects" :key="idx">
+              <article class="item" v-for="(it, idx) in state.experience.projects" :key="idx">
                 <div class="item-header">
                   <div class="item-title">{{ it.title }}</div>
                 </div>

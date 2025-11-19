@@ -9,15 +9,20 @@ const state = reactive({
   version: 1, disabled: [],
   design: { h1:'22pt', h2:'12pt', h3:'10pt', bullets:'10.5pt', ink:'#111827', accent:'#0f66d0', bg:'#ffffff', headerbg:'#ffffff', sidebarbg:'#ffffff',
     fontBody:'Inter', fontHead:'Inter', hstyle:'clean', radius:'10px' },
-  header: { name:'', location:'', role:'', email:'', phone:'', website:'', linkedin:'' },
+  contact: { name:'', location:'', role:'', email:'', phone:'', website:'', linkedin:'' },
   about: { text:'' },
-  experience: { job:[], personal:[] },
-  education: [], projects: [],
+  experience: { jobs:[], addExp:[], projects:[] },
+  education: [],
   skills: [],
-  languages: [], certs: [],
-  hobbies: [], custom: [], softskills: [],
-  orderMain: ['about','experience','education','projects','custom'],
-  orderSide: ['skills','languages','certs','hobbies']
+  languages: [],
+  certs: [],
+  hobbies: [],
+  custom: [],
+  softSkills: [],
+  orderMain: ['about','education','jobs','addExp','projects','custom'],
+  orderSide: ['skills','languages','hobbies','certs'],
+  includeAddExp: false,
+  includeProjects: false
 });
 
 function ensureFontLink(id, family){
@@ -54,8 +59,9 @@ function mergeIn(data){
   Object.assign(state, data);
   state.skills = { ...state.skills, ...(data.skills||{}) };
   state.experience = {
-    job: Array.isArray(data?.experience?.job) ? data.experience.job : [],
-    personal: Array.isArray(data?.experience?.personal) ? data.experience.personal : []
+    jobs: Array.isArray(data?.experience?.jobs) ? data.experience.jobs : [],
+    addExp: Array.isArray(data?.experience?.addExp) ? data.experience.addExp : [],
+    projects: Array.isArray(data?.experience?.projects) ? data.experience.projects : []
   };
   applyDesign();
 }

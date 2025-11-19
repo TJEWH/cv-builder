@@ -51,7 +51,7 @@ export const dict = {
     headerTitle:     { de:'Kontakt (Header)', en:'Contact (Header)' },
     aboutTitle:      { de:'Selbstbeschreibung', en:'Profile' },
     expJobTitle:     { de:'Berufserfahrung', en:'Professional Experience' },
-    expPersonalTitle:{ de:'Persönliche Erfahrung', en:'Personal Experience' },
+    expPersonalTitle:{ de:'Weitere Erfahrung', en:'Additional Experience' },
     educationTitle:  { de:'Ausbildung', en:'Education' },
     projectsTitle:   { de:'Projekte & Publikationen', en:'Projects & Publications' },
     skillsTitle:     { de:'Fähigkeiten', en:'Skills' },
@@ -130,11 +130,10 @@ export const dict = {
 
     // Preview section headings (if you want different wording)
     experienceH3Job:        { de:'Berufserfahrung', en:'Professional Experience' },
-    experienceH3Personal:   { de:'Persönliche Erfahrung', en:'Personal Experience' },
+    experienceH3Personal:   { de:'Weitere Erfahrung', en:'Personal Experience' },
 
+    includeAddExp:     { de:'Erfahrung einbinden', en:'include Experience' },
     includeProjects:        { de:'Projekte einbinden', en:'include Projects' },
-    includePersonalExp:     { de:'Persönliches einbinden', en:'include Personal' },
-
     // Formatting tokens
     dotSep: { de:' · ', en:' · ' },
     rangeSep:{ de:' – ', en:' – ' },

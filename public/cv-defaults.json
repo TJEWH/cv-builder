@@ -29,7 +29,7 @@
   },
   "about": { "text": "Software Engineer mit Fokus auf sauberen Code, Performance und DX. Erfahrung in Backend/Cloud & Frontend." },
   "experience": {
-    "job": [
+    "jobs": [
       {
         "title": "Senior Software Engineer",
         "company": "Acme GmbH",
@@ -39,7 +39,7 @@
         "bullets": ["Skalierung von X", "Einführung CI/CD", "Mentoring"]
       }
     ],
-    "personal": [
+    "addExp": [
       {
         "title": "Hackathon XYZ",
         "sub": "1. Platz – Team von 4",
@@ -79,7 +79,7 @@
     { "title": "Konferenzen", "place": "Köln", "start": "2023", "end": "2025", "bullets": ["Sprecher auf JSConf", "Mitorganisator lokaler Meetup-Reihe"] }
   ],
   "disabled": [],
-  "softskills": [
+  "softSkills": [
     { "label": "Analytisches Denken", "desc": "", "refs": [] },
     { "label": "Anpassungsfähigkeit", "desc": "", "refs": [] },
     { "label": "Kritisches Denken", "desc": "", "refs": [] },

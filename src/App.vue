@@ -18,8 +18,8 @@ const state = reactive({
   },
   contact: { name:'', location:'', role:'', email:'', phone:'', website:'', linkedin:'' },
   about: { text:'' },
-  experience: { job:[], projects: [], personal:[] },
   education: [],
+  experience: { jobs:[], addExp:[], projects:[] },
   skills: [
     { title: 'Programmiersprachen',     tags: 'Python, TypeScript, Go' },
     { title: 'Frameworks',              tags: 'React, Docker, Kubernetes' },
@@ -27,11 +27,9 @@ const state = reactive({
   ],
   languages: [],
   certs: [],
-  hobbies: [
-    { name: 'Musik', details: '' }
-  ],
+  hobbies: [ { name: 'Musik', details: '' } ],
   custom: [],
-  softskills: [
+  softSkills: [
     {label:'Analytisches Denken', desc:'', refs:[]},
     {label:'Anpassungsfähigkeit', desc:'', refs:[]},
     {label:'Kritisches Denken', desc:'', refs:[]},
@@ -42,9 +40,9 @@ const state = reactive({
     {label:'Digitale Kompetenz', desc:'', refs:[]},
     {label:'Entrepreneurship', desc:'', refs:[]}
   ],
-  orderMain: ['about','experience','education','projects','custom'],
-  orderSide: ['skills','languages','certs','hobbies'],
-  includePersonalExp: false,
+  orderMain: ['about','education','jobs','addExp','projects','custom'],
+  orderSide: ['skills','languages','hobbies','certs'],
+  includeAddExp: false,
   includeProjects: false,
 });
 

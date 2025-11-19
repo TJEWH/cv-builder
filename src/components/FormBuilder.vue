@@ -20,11 +20,11 @@ const t = makeT(langRef);
 const refsOptions = computed(()=>{
   const opts = [];
   const add = (id,label)=> opts.push({id,label});
-  props.state.experience.job.forEach((r,i)=> add('exp-job:'+i,  [r.title,r.company].filter(Boolean).join('  ') || `Entry ${i+1}`));
-  props.state.experience.personal.forEach((r,i)=> add('exp-personal:'+i, [r.title,r.sub].filter(Boolean).join('  ') || `Entry ${i+1}`));
-  props.state.education.forEach((r,i)=> add('education:'+i,   [r.title,r.sub].filter(Boolean).join('  ') || `Entry ${i+1}`));
-  props.state.projects.forEach((r,i)=> add('projects:'+i,     r.title || `Entry ${i+1}`));
-  props.state.custom.forEach((r,i)=> add('custom:'+i,         r.title || `Entry ${i+1}`));
+  props.state.experience.jobs.forEach((r,i)=> add('jobs:'+i,            [r.title,r.company].filter(Boolean).join('  ') || `Entry ${i+1}`));
+  props.state.experience.addExp.forEach((r,i)=> add('addExp:'+i,        [r.title,r.sub].filter(Boolean).join('  ') || `Entry ${i+1}`));
+  props.state.experience.projects.forEach((r,i)=> add('projects:'+i,    r.title || `Entry ${i+1}`));
+  props.state.education.forEach((r,i)=> add('education:'+i,             [r.title,r.sub].filter(Boolean).join('  ') || `Entry ${i+1}`));
+  props.state.custom.forEach((r,i)=> add('custom:'+i,                   r.title || `Entry ${i+1}`));
   return opts;
 });
 
@@ -39,7 +39,7 @@ const toggleDisabled = (key)=>{
   s.has(key) ? s.delete(key) : s.add(key);
   disabled.value = [...s];
 };
-const collapsed = reactive({ header:false, about:false, skills:false, hobbies:false, soft:false });
+const collapsed = reactive({ contact:false, about:false, skills:false, hobbies:false, soft:false });
 
 /* ===== Add new custom section ===== */
 const addCustom = async () => {
@@ -58,7 +58,7 @@ if(!props.state.sectionPlacement) props.state.sectionPlacement = {};
 
 
 // known sections list (keine direkte Verwendung hier, behalte als Kommentar)
-// ['about','experience','education','projects','custom','skills','languages','certs','hobbies','exp-job','exp-personal'];
+// ['about','jobs','education','projects','custom','skills','languages','certs','hobbies','jobs','addExp'];
 
 const previewKeyFor = (key) => {
   if(!key) return key;
@@ -153,15 +153,15 @@ const areaModel = (key) => computed({
 
 // create stable computed refs for template binding (avoid calling areaModel('x') directly in template)
 const areaAbout = areaModel('about');
-const areaExpJob = areaModel('exp-job');
-const areaExpPersonal = areaModel('exp-personal');
 const areaEducation = areaModel('education');
+const areaExpJob = areaModel('jobs');
+const areaExpPersonal = areaModel('addExp');
 const areaProjects = areaModel('projects');
+const areaCustom = areaModel('custom');
 const areaSkills = areaModel('skills');
 const areaLanguages = areaModel('languages');
-const areaCerts = areaModel('certs');
 const areaHobbies = areaModel('hobbies');
-const areaCustom = areaModel('custom');
+const areaCerts = areaModel('certs');
 </script>
 
 <template>
@@ -178,20 +178,20 @@ const areaCustom = areaModel('custom');
             <h3>{{ t('headerTitle') }}</h3>
           </div>
           <div class="grid-2">
-            <label>{{ t('name') }}<input type="text" v-model="state.header.name" placeholder="Alex Muster"/></label>
-            <label>{{ t('location') }}<input type="text" v-model="state.header.location" placeholder="Berlin, DE"/></label>
+            <label>{{ t('name') }}<input type="text" v-model="state.contact.name" placeholder="Alex Muster"/></label>
+            <label>{{ t('location') }}<input type="text" v-model="state.contact.location" placeholder="Berlin, DE"/></label>
           </div>
           <div class="grid-2">
-            <label>{{ t('role') }}<input type="text" v-model="state.header.role" placeholder="Software Engineer"/></label>
+            <label>{{ t('role') }}<input type="text" v-model="state.contact.role" placeholder="Software Engineer"/></label>
             <span></span>
           </div>
           <div class="grid-2">
-            <label>{{ t('email') }}<input type="email" v-model="state.header.email" placeholder="alex@example.com"/></label>
-            <label>{{ t('phone') }}<input type="tel" v-model="state.header.phone" placeholder="+49 123 456789"/></label>
+            <label>{{ t('email') }}<input type="email" v-model="state.contact.email" placeholder="alex@example.com"/></label>
+            <label>{{ t('phone') }}<input type="tel" v-model="state.contact.phone" placeholder="+49 123 456789"/></label>
           </div>
           <div class="grid-2">
-            <label>{{ t('website') }}<input type="url" v-model="state.header.website" placeholder="https://alexmuster.dev"/></label>
-            <label>{{ t('linkedin') }}<input type="url" v-model="state.header.linkedin" placeholder="https://linkedin.com/in/alexmuster"/></label>
+            <label>{{ t('website') }}<input type="url" v-model="state.contact.website" placeholder="https://alexmuster.dev"/></label>
+            <label>{{ t('linkedin') }}<input type="url" v-model="state.contact.linkedin" placeholder="https://linkedin.com/in/alexmuster"/></label>
           </div>
         </section>
 
@@ -216,68 +216,6 @@ const areaCustom = areaModel('custom');
           </div>
           <label>{{ t('aboutTextLabel') }}<textarea v-model="state.about.text" placeholder="Me in a nutshell..."></textarea></label>
         </section>
-
-        <!-- Experience job -->
-        <SectionList
-            :title="t('expJobTitle')"
-            :lang="langRef"
-            sectionKey="exp-job"
-            v-model="state.experience.job"
-            :schema="[
-            {label:t('position'), key:'title', type:'text', placeholder:'Senior Software Engineer'},
-            {label:t('company'),  key:'company', type:'text', placeholder:'Acme GmbH'},
-            {label:t('place'),    key:'place', type:'text', placeholder:'Berlin'},
-            {label:t('start'),    key:'start', type:'text', placeholder:'05.2021'},
-            {label:t('end'),      key:'end', type:'text', placeholder: t('current')},
-            {label:t('bulletsLabel'), key:'bullets', type:'textarea', placeholder:t('tasks')}
-          ]"
-            :addLabel="t('addEntry')"
-            :disabled="isHidden('exp-job')"
-            @toggle-section="toggleDisabled('exp-job')"
-            toggle-style="icon"
-        >
-          <template #controls>
-            <div style="display:flex;align-items:center;gap:8px">
-              <select v-model="areaExpJob">
-                <option value="body">Body</option>
-                <option value="sidebar">Sidebar</option>
-              </select>
-              <button class="mini" type="button" @click="moveUp('exp-job')">▲</button>
-              <button class="mini" type="button" @click="moveDown('exp-job')">▼</button>
-            </div>
-          </template>
-        </SectionList>
-
-        <!-- Experience personal -->
-        <SectionList
-            :title="t('expPersonalTitle')"
-            :lang="langRef"
-            sectionKey="exp-personal"
-            v-model="state.experience.personal"
-            :schema="[
-            {label:t('title'),    key:'title', type:'text', placeholder:'Hackathon XYZ'},
-            {label:t('subtitle'), key:'sub', type:'text', placeholder:t('hackathonTitlePH') },
-            {label:t('place'),    key:'place', type:'text', placeholder:'Hamburg'},
-            {label:t('start'),    key:'start', type:'text', placeholder:'03.2024'},
-            {label:t('end'),      key:'end', type:'text', placeholder:'03.2024'},
-            {label:t('desc'),     key:'desc', type:'textarea', placeholder: t('hackathonPH')}
-          ]"
-            :addLabel="t('addEntry')"
-            :disabled="isHidden('exp-personal')"
-            @toggle-section="toggleDisabled('exp-personal')"
-            toggle-style="icon"
-        >
-          <template #controls>
-            <div style="display:flex;align-items:center;gap:8px">
-              <select v-model="areaExpPersonal">
-                <option value="body">Body</option>
-                <option value="sidebar">Sidebar</option>
-              </select>
-              <button class="mini" type="button" @click="moveUp('exp-personal')">▲</button>
-              <button class="mini" type="button" @click="moveDown('exp-personal')">▼</button>
-            </div>
-          </template>
-        </SectionList>
 
         <!-- Education -->
         <SectionList
@@ -310,12 +248,78 @@ const areaCustom = areaModel('custom');
           </template>
         </SectionList>
 
+        <!-- Experience job -->
+        <SectionList
+            :title="t('expJobTitle')"
+            :lang="langRef"
+            sectionKey="jobs"
+            v-model="state.experience.jobs"
+            :schema="[
+            {label:t('position'), key:'title', type:'text', placeholder:'Senior Software Engineer'},
+            {label:t('company'),  key:'company', type:'text', placeholder:'Acme GmbH'},
+            {label:t('place'),    key:'place', type:'text', placeholder:'Berlin'},
+            {label:t('start'),    key:'start', type:'text', placeholder:'05.2021'},
+            {label:t('end'),      key:'end', type:'text', placeholder: t('current')},
+            {label:t('bulletsLabel'), key:'bullets', type:'textarea', placeholder:t('tasks')}
+          ]"
+            :addLabel="t('addEntry')"
+            :disabled="isHidden('jobs')"
+            @toggle-section="toggleDisabled('jobs')"
+            toggle-style="icon"
+        >
+          <template #controls>
+            <div style="display:flex;align-items:center;gap:8px">
+              <select v-model="areaExpJob">
+                <option value="body">Body</option>
+                <option value="sidebar">Sidebar</option>
+              </select>
+              <button class="mini" type="button" @click="moveUp('jobs')">▲</button>
+              <button class="mini" type="button" @click="moveDown('jobs')">▼</button>
+            </div>
+            <div class="include-checkboxes" style="display:flex;align-items:center;gap:8px;margin-left:12px">
+              <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" v-model="state.includeProjects" @change="props.onSave?.()"/> {{ t('includeProjects') }}</label>
+              <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" v-model="state.includeAddExp" @change="props.onSave?.()"/> {{ t('includeAddExp') }}</label>
+            </div>
+          </template>
+        </SectionList>
+
+        <!-- Experience personal -->
+        <SectionList
+            :title="t('expPersonalTitle')"
+            :lang="langRef"
+            sectionKey="addExp"
+            v-model="state.experience.addExp"
+            :schema="[
+            {label:t('title'),    key:'title', type:'text', placeholder:'Hackathon XYZ'},
+            {label:t('subtitle'), key:'sub', type:'text', placeholder:t('hackathonTitlePH') },
+            {label:t('place'),    key:'place', type:'text', placeholder:'Hamburg'},
+            {label:t('start'),    key:'start', type:'text', placeholder:'03.2024'},
+            {label:t('end'),      key:'end', type:'text', placeholder:'03.2024'},
+            {label:t('desc'),     key:'desc', type:'textarea', placeholder: t('hackathonPH')}
+          ]"
+            :addLabel="t('addEntry')"
+            :disabled="isHidden('addExp')"
+            @toggle-section="toggleDisabled('addExp')"
+            toggle-style="icon"
+        >
+          <template #controls>
+            <div style="display:flex;align-items:center;gap:8px">
+              <select v-model="areaExpPersonal">
+                <option value="body">Body</option>
+                <option value="sidebar">Sidebar</option>
+              </select>
+              <button class="mini" type="button" @click="moveUp('addExp')">▲</button>
+              <button class="mini" type="button" @click="moveDown('addExp')">▼</button>
+            </div>
+          </template>
+        </SectionList>
+
         <!-- Projects -->
         <SectionList
             :title="t('projectsTitle')"
             :lang="langRef"
             sectionKey="projects"
-            v-model="state.projects"
+            v-model="state.experience.projects"
             :schema="[
             {label:t('projectTitle'), key:'title', type:'text', placeholder:'Open Source Tool - repo/name'},
             {label:t('place'),        key:'place', type:'text', placeholder:'Remote'},
@@ -394,33 +398,6 @@ const areaCustom = areaModel('custom');
           </template>
         </SectionList>
 
-        <!-- Certs -->
-        <SectionList
-            :title="t('certsTitle')"
-            :lang="langRef"
-            sectionKey="certs"
-            v-model="state.certs"
-            :schema="[
-            {label:t('certificate'), key:'name', type:'text', placeholder:'AWS Solutions Architect'},
-            {label:t('yearShort'),  key:'year', type:'text', placeholder:'2023'}
-          ]"
-            :addLabel="t('addCert')"
-            :disabled="isHidden('certs')"
-            @toggle-section="toggleDisabled('certs')"
-            toggle-style="icon"
-        >
-          <template #controls>
-            <div style="display:flex;align-items:center;gap:8px">
-              <select v-model="areaCerts">
-                <option value="body">Body</option>
-                <option value="sidebar">Sidebar</option>
-              </select>
-              <button class="mini" type="button" @click="moveUp('certs')">▲</button>
-              <button class="mini" type="button" @click="moveDown('certs')">▼</button>
-            </div>
-          </template>
-        </SectionList>
-
         <!-- Hobbies -->
         <SectionList
             :title="t('hobbiesTitle')"
@@ -444,6 +421,33 @@ const areaCustom = areaModel('custom');
               </select>
               <button class="mini" type="button" @click="moveUp('hobbies')">▲</button>
               <button class="mini" type="button" @click="moveDown('hobbies')">▼</button>
+            </div>
+          </template>
+        </SectionList>
+
+        <!-- Certs -->
+        <SectionList
+            :title="t('certsTitle')"
+            :lang="langRef"
+            sectionKey="certs"
+            v-model="state.certs"
+            :schema="[
+            {label:t('certificate'), key:'name', type:'text', placeholder:'AWS Solutions Architect'},
+            {label:t('yearShort'),  key:'year', type:'text', placeholder:'2023'}
+          ]"
+            :addLabel="t('addCert')"
+            :disabled="isHidden('certs')"
+            @toggle-section="toggleDisabled('certs')"
+            toggle-style="icon"
+        >
+          <template #controls>
+            <div style="display:flex;align-items:center;gap:8px">
+              <select v-model="areaCerts">
+                <option value="body">Body</option>
+                <option value="sidebar">Sidebar</option>
+              </select>
+              <button class="mini" type="button" @click="moveUp('certs')">▲</button>
+              <button class="mini" type="button" @click="moveDown('certs')">▼</button>
             </div>
           </template>
         </SectionList>
@@ -494,14 +498,14 @@ const areaCustom = areaModel('custom');
         <DesignPanel v-model="state.design" />
 
         <!-- Softskills temp removal
-        <section class="section-group" data-section="softskills" :class="{collapsed:collapsed.soft}">
+        <section class="section-group" data-section="softSkills" :class="{collapsed:collapsed.soft}">
           <div class="section-head">
             <button class="caret mini" type="button" @click="collapsed.soft=!collapsed.soft">
-              <font-awesome-icon :icon="['fas', getIcon('softskills')]" class="section-icon" aria-hidden="true" />
+              <font-awesome-icon :icon="['fas', getIcon('softSkills')]" class="section-icon" aria-hidden="true" />
             </button>
             <h3>{{ t('softSkillsTitle') }}</h3>
           </div>
-          <SoftSkills v-model="state.softskills" :options="refsOptions" />
+          <SoftSkills v-model="state.softSkills" :options="refsOptions" />
         </section>
         -->
       </div>
@@ -514,4 +518,6 @@ const areaCustom = areaModel('custom');
 .caret{ display:inline-flex; align-items:center; justify-content:center; width:34px; height:26px; padding:0; }
 .caret .section-icon{ margin:0; }
 .section-controls select{ padding:4px 6px; }
+
+.include-checkboxes {}
 </style>
