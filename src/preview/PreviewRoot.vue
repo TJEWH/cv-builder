@@ -17,9 +17,9 @@ const state = reactive({
   languages: [],
   certs: [],
   hobbies: [],
-  custom: [],
+  customSections: [],
   softSkills: [],
-  orderMain: ['about','education','jobs','addExp','projects','custom'],
+  orderMain: ['about','education','jobs','addExp','projects'],
   orderSide: ['skills','languages','hobbies','certs'],
 });
 
@@ -57,6 +57,23 @@ function mergeIn(data){
   Object.assign(state, data);
   state.experience = state.experience || { jobs:[], addExp:[], projects:[] };
   state.skills = data.skills ?? state.skills ?? [];
+  // Migrate old custom array to customSections
+  if(Array.isArray(data.custom) && data.custom.length > 0 && !Array.isArray(data.customSections)) {
+    state.customSections = [{
+      id: `custom_${Date.now()}`,
+      name: 'Custom Section',
+      entries: data.custom
+    }];
+    // Update orderMain
+    if(Array.isArray(state.orderMain)) {
+      const idx = state.orderMain.indexOf('custom');
+      if(idx !== -1) {
+        state.orderMain[idx] = state.customSections[0].id;
+      } else {
+        state.orderMain.push(state.customSections[0].id);
+      }
+    }
+  }
   applyDesign();
 }
 

@@ -31,12 +31,48 @@ const toggleDisabled = (key) => {
 };
 
 const addCustom = () => {
-  if(!Array.isArray(props.state.custom)) props.state.custom = [];
-  props.state.custom.push({ title:'', place:'', start:'', end:'', bullets:[] });
+  if(!Array.isArray(props.state.customSections)) props.state.customSections = [];
+  const id = `custom_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  props.state.customSections.push({
+    id,
+    name: langRef.value === 'de' ? 'Neue Section' : 'New Section',
+    entries: []
+  });
+  // Add to orderMain
+  ensureOrderArrays();
+  props.state.orderMain.push(id);
+  try { props.onSave?.(); } catch(e) {}
+};
+
+const deleteCustomSection = (id) => {
+  if(!Array.isArray(props.state.customSections)) return;
+  const idx = props.state.customSections.findIndex(s => s.id === id);
+  if(idx !== -1) {
+    props.state.customSections.splice(idx, 1);
+    // Remove from order arrays
+    ensureOrderArrays();
+    props.state.orderMain = props.state.orderMain.filter(k => k !== id);
+    props.state.orderSide = props.state.orderSide.filter(k => k !== id);
+    // Remove from disabled
+    if(Array.isArray(props.state.disabled)) {
+      props.state.disabled = props.state.disabled.filter(k => k !== id);
+    }
+    try { props.onSave?.(); } catch(e) {}
+  }
+};
+
+const getCustomSection = (id) => {
+  if(!Array.isArray(props.state.customSections)) return null;
+  return props.state.customSections.find(s => s.id === id);
 };
 
 // helper to get icon name for a section
-const getIcon = (key) => sectionIcons[key] || 'folder-open';
+const getIcon = (key) => {
+  // Check if it's a custom section
+  const customSection = getCustomSection(key);
+  if(customSection) return 'folder-open';
+  return sectionIcons[key] || 'folder-open';
+};
 
 /* ===== Section placement & ordering helpers ===== */
 if(!props.state.sectionPlacement) props.state.sectionPlacement = {};
@@ -251,10 +287,13 @@ const getSectionName = (key) => {
     skills: t('skillsTitle'),
     languages: t('languagesTitle'),
     hobbies: t('hobbiesTitle'),
-    certs: t('certsTitle'),
-    custom: t('customTitle')
+    certs: t('certsTitle')
   };
-  return names[key] || key;
+  if(names[key]) return names[key];
+  // Check if it's a custom section
+  const customSection = getCustomSection(key);
+  if(customSection) return customSection.name;
+  return key;
 };
 
 // Computed: Check if draggable based on movementMode
@@ -272,7 +311,6 @@ const areaEducation = areaModel('education');
 const areaExpJob = areaModel('jobs');
 const areaExpPersonal = areaModel('addExp');
 const areaProjects = areaModel('projects');
-const areaCustom = areaModel('custom');
 const areaSkills = areaModel('skills');
 const areaLanguages = areaModel('languages');
 const areaHobbies = areaModel('hobbies');
@@ -434,7 +472,7 @@ const areaCerts = areaModel('certs');
           {label:t('end'),         key:'end', type:'text', placeholder:'2020'},
           {label:t('focus'),       key:'desc', type:'textarea', placeholder:'AI'}
         ]"
-          :addLabel="t('addEntry')"
+          :addLabel="t('add')"
           :disabled="isHidden('education')"
           @toggle-section="toggleDisabled('education')"
           toggle-style="icon"
@@ -469,7 +507,7 @@ const areaCerts = areaModel('certs');
             {label:t('end'),      key:'end', type:'text', placeholder: t('current')},
             {label:t('bulletsLabel'), key:'bullets', type:'textarea', placeholder:t('tasks')}
           ]"
-          :addLabel="t('addEntry')"
+          :addLabel="t('add')"
           :disabled="isHidden('jobs')"
           @toggle-section="toggleDisabled('jobs')"
           toggle-style="icon"
@@ -504,7 +542,7 @@ const areaCerts = areaModel('certs');
             {label:t('end'),      key:'end', type:'text', placeholder:'03.2024'},
             {label:t('desc'),     key:'desc', type:'textarea', placeholder: t('hackathonPH')}
           ]"
-          :addLabel="t('addEntry')"
+          :addLabel="t('add')"
           :disabled="isHidden('addExp')"
           @toggle-section="toggleDisabled('addExp')"
           toggle-style="icon"
@@ -538,7 +576,7 @@ const areaCerts = areaModel('certs');
             {label:t('end'),          key:'end', type:'text', placeholder:'2025'},
             {label:t('desc'),         key:'desc', type:'textarea', placeholder: 'CLI tool XY -'}
           ]"
-          :addLabel="t('addEntry')"
+          :addLabel="t('add')"
           :disabled="isHidden('projects')"
           @toggle-section="toggleDisabled('projects')"
           toggle-style="icon"
@@ -571,7 +609,7 @@ const areaCerts = areaModel('certs');
           ]"
           :disabled="isHidden('skills')"
           @toggle-section="toggleDisabled('skills')"
-          :addLabel="t('addSkillType')"
+          :addLabel="t('add')"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('skills')"
@@ -600,7 +638,7 @@ const areaCerts = areaModel('certs');
             {label:t('languageName'), key:'name', type:'text', placeholder:t('german')},
             {label:t('level'), key:'level', type:'select', options: [(langRef==='de'?'nativ':'native'),'C2','C1','B2','B1','A2','A1']}
           ]"
-          :addLabel="t('addLanguage')"
+          :addLabel="t('add')"
           :disabled="isHidden('languages')"
           @toggle-section="toggleDisabled('languages')"
           toggle-style="icon"
@@ -631,7 +669,7 @@ const areaCerts = areaModel('certs');
             {label: 'Hobby',   key:'name',    type:'text', placeholder:'Music Production'},
             {label: 'Details', key:'details', type:'text', placeholder:'Genres, DAW, Releases \u2026'}
           ]"
-          :addLabel="(langRef==='de'?'Hobby hinzufügen':'Add hobby')"
+          :addLabel="t('add')"
           :disabled="isHidden('hobbies')"
           @toggle-section="toggleDisabled('hobbies')"
           toggle-style="icon"
@@ -662,7 +700,7 @@ const areaCerts = areaModel('certs');
           {label:t('certificate'), key:'name', type:'text', placeholder:'AWS Solutions Architect'},
           {label:t('yearShort'),  key:'year', type:'text', placeholder:'2023'}
         ]"
-          :addLabel="t('addCert')"
+          :addLabel="t('add')"
           :disabled="isHidden('certs')"
           @toggle-section="toggleDisabled('certs')"
           toggle-style="icon"
@@ -683,37 +721,96 @@ const areaCerts = areaModel('certs');
         </template>
       </SectionList>
 
-      <!-- Custom -->
-      <SectionList
-          :title="t('customTitle')"
-          :lang="langRef"
-          sectionKey="custom"
-          v-model="state.custom"
-          :schema="[
-            {label:t('title'), key:'title', type:'text', placeholder:t('customSectionPH')},
-            {label:t('place'), key:'place', type:'text', placeholder:'Berlin'},
-            {label:t('start'), key:'start', type:'text', placeholder:'04.2024'},
-            {label:t('end'),   key:'end', type:'text', placeholder:t('current')},
-            {label:t('bulletsLabel'), key:'bullets', type:'textarea', placeholder:'Achievement 1\\nAchievement 2\\n...'}
-          ]"
-          :addLabel="t('addEntry')"
-          :disabled="isHidden('custom')"
-          @toggle-section="toggleDisabled('custom')"
-          toggle-style="icon"
-      >
-        <template #controls>
-          <div v-if="isButtonMode" style="display:flex;align-items:center;gap:8px">
-            <select v-model="areaCustom">
-              <option value="body">Body</option>
-              <option value="sidebar">Sidebar</option>
-            </select>
-            <button class="mini" type="button" @click="moveUp('custom')">▲</button>
-            <button class="mini" type="button" @click="moveDown('custom')">▼</button>
+      <!-- Custom Sections (dynamisch) -->
+      <template v-if="Array.isArray(state.customSections)">
+        <section
+          v-for="customSection in state.customSections"
+          :key="customSection.id"
+          class="section-group"
+          :data-section="customSection.id"
+          :class="{disabled: isHidden(customSection.id), dragging: isDragging(customSection.id)}"
+          :draggable="isDraggableMode"
+          @dragstart="isDraggableMode ? onDragStart(customSection.id, $event) : null"
+          @dragend="isDraggableMode ? onDragEnd : null"
+        >
+          <div class="section-head">
+            <button class="caret mini" type="button" @click="$event.target.closest('.section-group').classList.toggle('collapsed')">
+              <font-awesome-icon :icon="['fas', 'folder-open']" class="section-icon" aria-hidden="true" />
+            </button>
+            <input
+              type="text"
+              v-model="customSection.name"
+              class="section-name-input"
+              :placeholder="langRef === 'de' ? 'Section Name' : 'Section Name'"
+            />
+            <button
+                class="mini btn--danger"
+                type="button"
+                @click="deleteCustomSection(customSection.id)"
+                :title="langRef === 'de' ? 'Section löschen' : 'Delete section'"
+            >
+              <font-awesome-icon :icon="['fas', 'trash']" />
+            </button>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              <div v-if="isButtonMode" style="display:flex;align-items:center;gap:8px">
+                <select :value="currentArea(customSection.id)" @change="setArea(customSection.id, $event.target.value)">
+                  <option value="body">Body</option>
+                  <option value="sidebar">Sidebar</option>
+                </select>
+                <button class="mini" type="button" @click="moveUp(customSection.id)">▲</button>
+                <button class="mini" type="button" @click="moveDown(customSection.id)">▼</button>
+              </div>
+              <button type="button" class="mini btn--success" @click="customSection.entries.push({title:'', place:'', start:'', end:'', desc:''})">
+                {{ t('add') }}
+              </button>
+              <button
+                class="mini"
+                :class="[isHidden(customSection.id) ? 'btn--success' : 'btn--danger']"
+                type="button"
+                @click="toggleDisabled(customSection.id)"
+              >
+                {{ isHidden(customSection.id) ? t('show') : t('hide') }}
+              </button>
+            </div>
           </div>
-        </template>
-      </SectionList>
 
-      <div style="display:flex;justify-content:center">
+          <div class="items">
+            <div class="item-row" v-for="(entry, idx) in customSection.entries" :key="idx">
+              <div class="row row-3">
+                <label>
+                  {{ t('title') }}
+                  <input type="text" v-model="entry.title" :placeholder="t('customSectionPH')" />
+                </label>
+                <label>
+                  {{ t('place') }}
+                  <input type="text" v-model="entry.place" placeholder="Berlin" />
+                </label>
+                <label>
+                  {{ t('start') }}
+                  <input type="text" v-model="entry.start" placeholder="04.2024" />
+                </label>
+              </div>
+              <div class="row">
+                <label>
+                  {{ t('end') }}
+                  <input type="text" v-model="entry.end" :placeholder="t('current')" />
+                </label>
+              </div>
+              <label>
+                {{ t('desc') }}
+                <textarea v-model="entry.desc" :placeholder="langRef === 'de' ? 'Beschreibung...' : 'Description...'"></textarea>
+              </label>
+              <div>
+                <button type="button" class="mini btn--danger" @click="customSection.entries.splice(idx, 1)">
+                  {{ t('remove') }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </template>
+
+      <div style="display:flex;justify-content:center;margin-top:20px">
         <button type="button" class="btn btn--success" @click="addCustom">{{ t('newSection') }}</button>
       </div>
     </div>
@@ -731,6 +828,29 @@ const areaCerts = areaModel('certs');
   padding: 4px 7px;
   border: 1px solid #134e4a;
   color: #9be8c7;
+}
+
+.section-name-input {
+  background: transparent;
+  border: 1px solid #134e4a;
+  color: #9be8c7;
+  padding: 4px 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 4px;
+  min-width: 200px;
+  transition: all 0.2s ease;
+  width: 30%;
+}
+
+.section-name-input:hover {
+  border-color: #10b981;
+}
+
+.section-name-input:focus {
+  outline: none;
+  border-color: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
 }
 
 /* Drag & Drop styles */

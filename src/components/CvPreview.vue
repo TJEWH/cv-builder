@@ -11,7 +11,7 @@ const hasAny = (arr)=> Array.isArray(arr) && arr.length>0;
 const hasText = (s)=> !!(s && String(s).trim());
 
 // Order gets extracted from formbuilder
-const defaultMain = ['about','education','jobs','addExp','projects','custom'];
+const defaultMain = ['about','education','jobs','addExp','projects'];
 const defaultSide = ['skills','languages','hobbies','certs'];
 
 const blocksMain = computed(()=>{
@@ -21,6 +21,14 @@ const blocksMain = computed(()=>{
   const sideKeys = new Set(Array.isArray(props.state.orderSide) ? props.state.orderSide : []);
   Object.keys(placement).forEach(k=>{ if(placement[k]==='sidebar') sideKeys.add(k); if(placement[k]==='body') sideKeys.delete(k); });
   // allow skills in both areas
+  // Add custom sections that are in orderMain or have body placement
+  if(Array.isArray(props.state.customSections)) {
+    props.state.customSections.forEach(cs => {
+      if(base.includes(cs.id) || placement[cs.id] === 'body') {
+        if(!base.includes(cs.id)) base.push(cs.id);
+      }
+    });
+  }
   return Array.from(new Set(base.filter(k => (k==='skills') ? true : !sideKeys.has(k))));
 });
 
@@ -30,6 +38,14 @@ const blocksSide = computed(()=>{
   Object.keys(placement).forEach(k=>{ if(placement[k]==='sidebar' && !base.includes(k)) base.push(k); });
   const mainKeys = new Set(Array.isArray(props.state.orderMain) ? props.state.orderMain : []);
   Object.keys(placement).forEach(k=>{ if(placement[k]==='body') mainKeys.add(k); if(placement[k]==='sidebar') mainKeys.delete(k); });
+  // Add custom sections that are in orderSide or have sidebar placement
+  if(Array.isArray(props.state.customSections)) {
+    props.state.customSections.forEach(cs => {
+      if(base.includes(cs.id) || placement[cs.id] === 'sidebar') {
+        if(!base.includes(cs.id)) base.push(cs.id);
+      }
+    });
+  }
   return Array.from(new Set(base.filter(k => (k==='skills') ? true : !mainKeys.has(k))));
 });
 
@@ -54,6 +70,12 @@ function formatMeta({ start, end, place }){
   return segs.join(t('dotSep'));
 }
 
+// Helper to get custom section by id
+const getCustomSection = (id) => {
+  if(!Array.isArray(props.state.customSections)) return null;
+  return props.state.customSections.find(cs => cs.id === id);
+};
+
 // Centralized visibility check used by template
 const isHiddenFor = (key) => {
   if(key==='about')           return isDisabled('about') || !hasText(props.state.about?.text);
@@ -61,11 +83,13 @@ const isHiddenFor = (key) => {
   if(key==='jobs')            return !showJobs.value;
   if(key==='addExp')          return !showAddExp.value;
   if(key==='projects')        return !showProjects.value;
-  if(key==='custom')          return isDisabled('custom') || !hasAny(props.state.custom);
   if(key==='skills')          return isDisabled('skills') || !hasAny(props.state.skills);
   if(key==='languages')       return isDisabled('languages') || !hasAny(props.state.languages);
   if(key==='certs')           return isDisabled('certs') || !hasAny(props.state.certs);
   if(key==='hobbies')         return isDisabled('hobbies') || !hasAny(props.state.hobbies);
+  // Check if it's a custom section
+  const customSection = getCustomSection(key);
+  if(customSection) return isDisabled(key) || !hasAny(customSection.entries);
   return false;
 };
 
@@ -163,18 +187,17 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
             </div>
           </template>
 
-          <!-- CUSTOM -->
-          <template v-else-if="key==='custom'">
-            <div id="cv_custom">
-              <section class="section" v-for="(it, idx) in state.custom" :key="idx">
+          <!-- CUSTOM SECTIONS (dynamisch) -->
+          <template v-else-if="getCustomSection(key)">
+            <h2>{{ getCustomSection(key).name }}</h2>
+            <div>
+              <article class="item" v-for="(entry, idx) in getCustomSection(key).entries" :key="idx">
                 <div class="item-header">
-                  <div class="item-title">{{ it.title }}</div>
-                  <div class="item-meta">{{ formatMeta(it) }}</div>
+                  <div class="item-title">{{ entry.title }}</div>
+                  <div class="item-meta">{{ formatMeta(entry) }}</div>
                 </div>
-                <ul v-if="Array.isArray(it.bullets) && it.bullets.length">
-                  <li v-for="(b, bi) in it.bullets" :key="bi">{{ b }}</li>
-                </ul>
-              </section>
+                <p v-if="entry.desc">{{ entry.desc }}</p>
+              </article>
             </div>
           </template>
 
@@ -276,14 +299,17 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
             </div>
           </template>
 
-          <template v-else-if="key==='custom'">
-            <h2>{{ t('customTitle') }}</h2>
-            <div id="cv_custom">
-              <section class="section" v-for="(it, idx) in state.custom" :key="idx">
+          <!-- CUSTOM SECTIONS (dynamisch) -->
+          <template v-else-if="getCustomSection(key)">
+            <h2>{{ getCustomSection(key).name }}</h2>
+            <div>
+              <article class="item" v-for="(entry, idx) in getCustomSection(key).entries" :key="idx">
                 <div class="item-header">
-                  <div class="item-title">{{ it.title }}</div>
+                  <div class="item-title">{{ entry.title }}</div>
+                  <div class="item-meta">{{ formatMeta(entry) }}</div>
                 </div>
-              </section>
+                <p v-if="entry.desc" style="font-size:0.9em;margin-top:2px">{{ entry.desc }}</p>
+              </article>
             </div>
           </template>
 

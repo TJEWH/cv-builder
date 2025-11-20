@@ -9,7 +9,7 @@ const props = defineProps({
   lang: { type: String, default: 'de' },
   modelValue: { type: Array, required: true },
   schema: { type: Array, required: true }, // [{label,key,type,placeholder,options?}]
-  addLabel: { type: String, default: 'Eintrag hinzufügen' },
+  addLabel: { type: String, default: 'Hinzufügen' },
   toggleable: { type: Boolean, default: true },
   disabled: { type: Boolean, default: false },
   draggable: { type: Boolean, default: false },
