@@ -54,6 +54,7 @@ const applyCSS = () => {
   root.setProperty('--sidebar-align', d.sidebarAlign || 'right');
   root.setProperty('--addexp-columns', d.addExpColumns || '2');
   root.setProperty('--bullet-size', d.bullets || '10.5pt');
+  root.setProperty('--bullet-style', d.bulletStyle || 'disc');
 
   // Badge invert logic
   if (d.invertBadge) {
@@ -126,6 +127,18 @@ const pick = (p)=>{
       <label>Bullet Point Font Size: {{ design.bullets }}
         <input type="range" min="8" max="14" step="0.5" :value="parseFloat(design.bullets)" @input="design.bullets = $event.target.value + 'pt'">
       </label>
+      <label>Bullet Point Style
+        <select v-model="design.bulletStyle">
+          <option value="disc">Disc (●)</option>
+          <option value="disclosure-closed">Disclosure (▸)</option>
+          <option value="circle">Circle (○)</option>
+          <option value="square">Square (■)</option>
+        </select>
+      </label>
+      <label></label>
+    </div>
+
+    <div class="grid-3" style="margin-top:6px">
       <label>Body-Font
         <select v-model="design.fontBody">
           <option :value="''">(System)</option>
@@ -138,6 +151,7 @@ const pick = (p)=>{
           <option v-for="f in headFonts" :key="f" :value="f">{{ f }}</option>
         </select>
       </label>
+      <label></label>
     </div>
 
     <!-- Colors -->

@@ -7,7 +7,7 @@ const isEmbedded = ref(false);
 
 const state = reactive({
   version: 1, disabled: [],
-  design: { h1:'22pt', h2:'12pt', h3:'10pt', bullets:'10.5pt', ink:'#111827', accent:'#0f66d0', bg:'#ffffff', headerbg:'#ffffff', sidebarbg:'#ffffff',
+  design: { h1:'22pt', h2:'12pt', h3:'10pt', bullets:'10.5pt', bulletStyle:'disc', ink:'#111827', accent:'#0f66d0', bg:'#ffffff', headerbg:'#ffffff', sidebarbg:'#ffffff',
     fontBody:'Inter', fontHead:'Inter', hstyle:'clean', radius:'10px',
     subtitle:'#0a9c91', graphic:'#4f46e5', dateColor:'#6b7280',
     badgeBorderWidth:'1px', badgeBorderRadius:'6px', invertBadge:false, enableBoxShadow:false,
@@ -66,6 +66,7 @@ function applyDesign(){
   root.setProperty('--sidebar-align', d.sidebarAlign||'right');
   root.setProperty('--addexp-columns', d.addExpColumns||'2');
   root.setProperty('--bullet-size', d.bullets||'10.5pt');
+  root.setProperty('--bullet-style', d.bulletStyle||'disc');
 
   // Badge invert logic
   if (d.invertBadge) {

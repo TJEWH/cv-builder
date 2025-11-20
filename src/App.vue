@@ -14,7 +14,7 @@ const state = reactive({
   disabled: [],
   lang: 'de',
   design: {
-    h1:'22pt', h2:'12pt', h3:'10pt', bullets:'10.5pt',
+    h1:'22pt', h2:'12pt', h3:'10pt', bullets:'10.5pt', bulletStyle:'disc',
     ink:'#111827', accent:'#0f66d0', bg:'#ffffff', headerbg:'#CE9048', sidebarbg:'#CE9048',
     fontBody:'Inter', fontHead:'Inter', hstyle:'clean', radius:'10px',
     subtitle:'#0a9c91', graphic:'#4f46e5', dateColor:'#6b7280',
