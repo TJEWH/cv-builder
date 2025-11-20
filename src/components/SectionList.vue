@@ -14,6 +14,7 @@ const props = defineProps({
   disabled: { type: Boolean, default: false },
   draggable: { type: Boolean, default: false },
   isDragging: { type: Boolean, default: false },
+  isCollapsed: { type: Boolean, default: false }, // External control of collapsed state
   // Props für editierbare Namen
   editableTitle: { type: Boolean, default: false },
   isEditingTitle: { type: Boolean, default: false },
@@ -120,7 +121,7 @@ const setTextareaValue = (item, key, value) => {
     ref="root"
     class="section-group"
     :data-section="sectionKey"
-    :class="{disabled, dragging: isDragging}"
+    :class="{disabled, dragging: isDragging, collapsed: isCollapsed}"
     :draggable="draggable && !shouldPreventDrag"
     @mousedown="onMouseDown"
     @mouseup="onMouseUp"
