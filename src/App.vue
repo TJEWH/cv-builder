@@ -6,6 +6,8 @@ import FloatingPreview from './components/FloatingPreview.vue';
 import { makeT } from './i18n/dict';
 import ToolBar from "./components/ToolBar.vue";
 import BackupManager from "./components/BackupManager.vue";
+import DesignPanel from "./components/DesignPanel.vue";
+import SoftSkills from "./components/SoftSkills.vue";
 
 const state = reactive({
   version: 1,
@@ -97,6 +99,10 @@ const showPreview = ref(true);
   <ToolBar v-model:showPreview="showPreview" v-model:lang="lang"/>
   <FloatingPreview v-if="showPreview" url="/preview.html?embed=1" :initialScale="0.25" />
 
-  <BackupManager :state="state" :langRef="lang" :onSave="saveDebounced" />
-  <FormBuilder :state="state" :onSave="saveDebounced" />
+  <div class="workbench">
+    <BackupManager :state="state" :langRef="lang" :onSave="saveDebounced" />
+    <DesignPanel v-model="state.design" />
+    <FormBuilder :state="state" :onSave="saveDebounced" />
+    <!--<SoftSkills v-model="state.softSkills" :options="refsOptions" />-->
+  </div>
 </template>

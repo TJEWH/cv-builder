@@ -1,8 +1,6 @@
 <script setup>
 import { computed, reactive, nextTick } from 'vue';
 import SectionList from './SectionList.vue';
-import SoftSkills from './SoftSkills.vue';
-import DesignPanel from './DesignPanel.vue';
 import { makeT } from '../i18n/dict.js';
 import sectionIcons from '../i18n/sectionIcons.js';
 
@@ -165,96 +163,95 @@ const areaCerts = areaModel('certs');
 </script>
 
 <template>
-  <div class="workbench">
-    <form class="builder builder--cli" @submit.prevent>
+  <form class="builder builder--cli" @submit.prevent>
 
-      <div class="body">
-        <!-- Header -->
-        <section class="section-group" data-section="header" :class="{collapsed:collapsed.header}">
-          <div class="section-head">
-            <button class="caret mini" type="button" @click="collapsed.header=!collapsed.header">
-              <font-awesome-icon :icon="['fas', getIcon('header')]" class="section-icon" aria-hidden="true" />
+    <div class="body">
+      <!-- Header -->
+      <section class="section-group" data-section="header" :class="{collapsed:collapsed.header}">
+        <div class="section-head">
+          <button class="caret mini" type="button" @click="collapsed.header=!collapsed.header">
+            <font-awesome-icon :icon="['fas', getIcon('header')]" class="section-icon" aria-hidden="true" />
+          </button>
+          <h3>{{ t('headerTitle') }}</h3>
+        </div>
+        <div class="grid-2">
+          <label>{{ t('name') }}<input type="text" v-model="state.contact.name" placeholder="Alex Muster"/></label>
+          <label>{{ t('location') }}<input type="text" v-model="state.contact.location" placeholder="Berlin, DE"/></label>
+        </div>
+        <div class="grid-2">
+          <label>{{ t('role') }}<input type="text" v-model="state.contact.role" placeholder="Software Engineer"/></label>
+          <span></span>
+        </div>
+        <div class="grid-2">
+          <label>{{ t('email') }}<input type="email" v-model="state.contact.email" placeholder="alex@example.com"/></label>
+          <label>{{ t('phone') }}<input type="tel" v-model="state.contact.phone" placeholder="+49 123 456789"/></label>
+        </div>
+        <div class="grid-2">
+          <label>{{ t('website') }}<input type="url" v-model="state.contact.website" placeholder="https://alexmuster.dev"/></label>
+          <label>{{ t('linkedin') }}<input type="url" v-model="state.contact.linkedin" placeholder="https://linkedin.com/in/alexmuster"/></label>
+        </div>
+      </section>
+
+      <!-- About -->
+      <section class="section-group" data-section="about" :class="[{disabled:isHidden('about')},{collapsed:collapsed.about}]">
+        <div class="section-head">
+          <button class="caret mini" type="button" @click="collapsed.about=!collapsed.about">
+            <font-awesome-icon :icon="['fas', getIcon('about')]" class="section-icon" aria-hidden="true" />
+          </button>
+          <h3>{{ t('aboutTitle') }}</h3>
+          <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+            <select v-model="areaAbout">
+              <option value="body">Body</option>
+              <option value="sidebar">Sidebar</option>
+            </select>
+            <button class="mini" type="button" @click="moveUp('about')">▲</button>
+            <button class="mini" type="button" @click="moveDown('about')">▼</button>
+            <button class="mini" :class="[isHidden('about')?'btn--success':'btn--danger']" type="button" @click="toggleDisabled('about')">
+              {{ isHidden('about') ? t('show') : t('hide') }}
             </button>
-            <h3>{{ t('headerTitle') }}</h3>
           </div>
-          <div class="grid-2">
-            <label>{{ t('name') }}<input type="text" v-model="state.contact.name" placeholder="Alex Muster"/></label>
-            <label>{{ t('location') }}<input type="text" v-model="state.contact.location" placeholder="Berlin, DE"/></label>
-          </div>
-          <div class="grid-2">
-            <label>{{ t('role') }}<input type="text" v-model="state.contact.role" placeholder="Software Engineer"/></label>
-            <span></span>
-          </div>
-          <div class="grid-2">
-            <label>{{ t('email') }}<input type="email" v-model="state.contact.email" placeholder="alex@example.com"/></label>
-            <label>{{ t('phone') }}<input type="tel" v-model="state.contact.phone" placeholder="+49 123 456789"/></label>
-          </div>
-          <div class="grid-2">
-            <label>{{ t('website') }}<input type="url" v-model="state.contact.website" placeholder="https://alexmuster.dev"/></label>
-            <label>{{ t('linkedin') }}<input type="url" v-model="state.contact.linkedin" placeholder="https://linkedin.com/in/alexmuster"/></label>
-          </div>
-        </section>
+        </div>
+        <label>{{ t('aboutTextLabel') }}<textarea v-model="state.about.text" placeholder="Me in a nutshell..."></textarea></label>
+      </section>
 
-        <!-- About -->
-        <section class="section-group" data-section="about" :class="[{disabled:isHidden('about')},{collapsed:collapsed.about}]">
-          <div class="section-head">
-            <button class="caret mini" type="button" @click="collapsed.about=!collapsed.about">
-              <font-awesome-icon :icon="['fas', getIcon('about')]" class="section-icon" aria-hidden="true" />
-            </button>
-            <h3>{{ t('aboutTitle') }}</h3>
-            <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-              <select v-model="areaAbout">
-                <option value="body">Body</option>
-                <option value="sidebar">Sidebar</option>
-              </select>
-              <button class="mini" type="button" @click="moveUp('about')">▲</button>
-              <button class="mini" type="button" @click="moveDown('about')">▼</button>
-              <button class="mini" :class="[isHidden('about')?'btn--success':'btn--danger']" type="button" @click="toggleDisabled('about')">
-                {{ isHidden('about') ? t('show') : t('hide') }}
-              </button>
-            </div>
+      <!-- Education -->
+      <SectionList
+          :title="t('educationTitle')"
+          :lang="langRef"
+          sectionKey="education"
+          v-model="state.education"
+          :schema="[
+          {label:t('degreeTitle'), key:'title', type:'text', placeholder:'M.Sc. Informatik'},
+          {label:t('institution'), key:'sub', type:'text', placeholder:'TU M\u00fcnchen'},
+          {label:t('place'),       key:'place', type:'text', placeholder:'Hamburg'},
+          {label:t('start'),       key:'start', type:'text', placeholder:'2017'},
+          {label:t('end'),         key:'end', type:'text', placeholder:'2020'},
+          {label:t('focus'),       key:'desc', type:'textarea', placeholder:'AI'}
+        ]"
+          :addLabel="t('addEntry')"
+          :disabled="isHidden('education')"
+          @toggle-section="toggleDisabled('education')"
+          toggle-style="icon"
+      >
+        <template #controls>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select v-model="areaEducation">
+              <option value="body">Body</option>
+              <option value="sidebar">Sidebar</option>
+            </select>
+            <button class="mini" type="button" @click="moveUp('education')">▲</button>
+            <button class="mini" type="button" @click="moveDown('education')">▼</button>
           </div>
-          <label>{{ t('aboutTextLabel') }}<textarea v-model="state.about.text" placeholder="Me in a nutshell..."></textarea></label>
-        </section>
+        </template>
+      </SectionList>
 
-        <!-- Education -->
-        <SectionList
-            :title="t('educationTitle')"
-            :lang="langRef"
-            sectionKey="education"
-            v-model="state.education"
-            :schema="[
-            {label:t('degreeTitle'), key:'title', type:'text', placeholder:'M.Sc. Informatik'},
-            {label:t('institution'), key:'sub', type:'text', placeholder:'TU M\u00fcnchen'},
-            {label:t('place'),       key:'place', type:'text', placeholder:'Hamburg'},
-            {label:t('start'),       key:'start', type:'text', placeholder:'2017'},
-            {label:t('end'),         key:'end', type:'text', placeholder:'2020'},
-            {label:t('focus'),       key:'desc', type:'textarea', placeholder:'AI'}
-          ]"
-            :addLabel="t('addEntry')"
-            :disabled="isHidden('education')"
-            @toggle-section="toggleDisabled('education')"
-            toggle-style="icon"
-        >
-          <template #controls>
-            <div style="display:flex;align-items:center;gap:8px">
-              <select v-model="areaEducation">
-                <option value="body">Body</option>
-                <option value="sidebar">Sidebar</option>
-              </select>
-              <button class="mini" type="button" @click="moveUp('education')">▲</button>
-              <button class="mini" type="button" @click="moveDown('education')">▼</button>
-            </div>
-          </template>
-        </SectionList>
-
-        <!-- Experience job -->
-        <SectionList
-            :title="t('expJobTitle')"
-            :lang="langRef"
-            sectionKey="jobs"
-            v-model="state.experience.jobs"
-            :schema="[
+      <!-- Experience job -->
+      <SectionList
+          :title="t('expJobTitle')"
+          :lang="langRef"
+          sectionKey="jobs"
+          v-model="state.experience.jobs"
+          :schema="[
             {label:t('position'), key:'title', type:'text', placeholder:'Senior Software Engineer'},
             {label:t('company'),  key:'company', type:'text', placeholder:'Acme GmbH'},
             {label:t('place'),    key:'place', type:'text', placeholder:'Berlin'},
@@ -262,30 +259,30 @@ const areaCerts = areaModel('certs');
             {label:t('end'),      key:'end', type:'text', placeholder: t('current')},
             {label:t('bulletsLabel'), key:'bullets', type:'textarea', placeholder:t('tasks')}
           ]"
-            :addLabel="t('addEntry')"
-            :disabled="isHidden('jobs')"
-            @toggle-section="toggleDisabled('jobs')"
-            toggle-style="icon"
-        >
-          <template #controls>
-            <div style="display:flex;align-items:center;gap:8px">
-              <select v-model="areaExpJob">
-                <option value="body">Body</option>
-                <option value="sidebar">Sidebar</option>
-              </select>
-              <button class="mini" type="button" @click="moveUp('jobs')">▲</button>
-              <button class="mini" type="button" @click="moveDown('jobs')">▼</button>
-            </div>
-          </template>
-        </SectionList>
+          :addLabel="t('addEntry')"
+          :disabled="isHidden('jobs')"
+          @toggle-section="toggleDisabled('jobs')"
+          toggle-style="icon"
+      >
+        <template #controls>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select v-model="areaExpJob">
+              <option value="body">Body</option>
+              <option value="sidebar">Sidebar</option>
+            </select>
+            <button class="mini" type="button" @click="moveUp('jobs')">▲</button>
+            <button class="mini" type="button" @click="moveDown('jobs')">▼</button>
+          </div>
+        </template>
+      </SectionList>
 
-        <!-- Experience personal -->
-        <SectionList
-            :title="t('expPersonalTitle')"
-            :lang="langRef"
-            sectionKey="addExp"
-            v-model="state.experience.addExp"
-            :schema="[
+      <!-- Experience personal -->
+      <SectionList
+          :title="t('expPersonalTitle')"
+          :lang="langRef"
+          sectionKey="addExp"
+          v-model="state.experience.addExp"
+          :schema="[
             {label:t('title'),    key:'title', type:'text', placeholder:'Hackathon XYZ'},
             {label:t('subtitle'), key:'sub', type:'text', placeholder:t('hackathonTitlePH') },
             {label:t('place'),    key:'place', type:'text', placeholder:'Hamburg'},
@@ -293,220 +290,196 @@ const areaCerts = areaModel('certs');
             {label:t('end'),      key:'end', type:'text', placeholder:'03.2024'},
             {label:t('desc'),     key:'desc', type:'textarea', placeholder: t('hackathonPH')}
           ]"
-            :addLabel="t('addEntry')"
-            :disabled="isHidden('addExp')"
-            @toggle-section="toggleDisabled('addExp')"
-            toggle-style="icon"
-        >
-          <template #controls>
-            <div style="display:flex;align-items:center;gap:8px">
-              <select v-model="areaExpPersonal">
-                <option value="body">Body</option>
-                <option value="sidebar">Sidebar</option>
-              </select>
-              <button class="mini" type="button" @click="moveUp('addExp')">▲</button>
-              <button class="mini" type="button" @click="moveDown('addExp')">▼</button>
-            </div>
-          </template>
-        </SectionList>
+          :addLabel="t('addEntry')"
+          :disabled="isHidden('addExp')"
+          @toggle-section="toggleDisabled('addExp')"
+          toggle-style="icon"
+      >
+        <template #controls>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select v-model="areaExpPersonal">
+              <option value="body">Body</option>
+              <option value="sidebar">Sidebar</option>
+            </select>
+            <button class="mini" type="button" @click="moveUp('addExp')">▲</button>
+            <button class="mini" type="button" @click="moveDown('addExp')">▼</button>
+          </div>
+        </template>
+      </SectionList>
 
-        <!-- Projects -->
-        <SectionList
-            :title="t('projectsTitle')"
-            :lang="langRef"
-            sectionKey="projects"
-            v-model="state.experience.projects"
-            :schema="[
+      <!-- Projects -->
+      <SectionList
+          :title="t('projectsTitle')"
+          :lang="langRef"
+          sectionKey="projects"
+          v-model="state.experience.projects"
+          :schema="[
             {label:t('projectTitle'), key:'title', type:'text', placeholder:'Open Source Tool - repo/name'},
             {label:t('place'),        key:'place', type:'text', placeholder:'Remote'},
             {label:t('start'),        key:'start', type:'text', placeholder:'2025'},
             {label:t('end'),          key:'end', type:'text', placeholder:'2025'},
             {label:t('desc'),         key:'desc', type:'textarea', placeholder: 'CLI tool XY -'}
           ]"
-            :addLabel="t('addEntry')"
-            :disabled="isHidden('projects')"
-            @toggle-section="toggleDisabled('projects')"
-            toggle-style="icon"
-        >
-          <template #controls>
-            <div style="display:flex;align-items:center;gap:8px">
-              <select v-model="areaProjects">
-                <option value="body">Body</option>
-                <option value="sidebar">Sidebar</option>
-              </select>
-              <button class="mini" type="button" @click="moveUp('projects')">▲</button>
-              <button class="mini" type="button" @click="moveDown('projects')">▼</button>
-            </div>
-          </template>
-        </SectionList>
-
-        <!-- Skills -->
-        <SectionList
-            :title="t('skillsTitle')"
-            :lang="langRef"
-            sectionKey="skills"
-            v-model="state.skills"
-            :schema="[
-              {label:t('category'), key:'title', type:'text', placeholder:t('programmingLanguages')},
-              {label:t('entryCSV'), key:'tags', type:'text', placeholder:'Python, TypeScript, Go'}
-            ]"
-            :disabled="isHidden('skills')"
-            @toggle-section="toggleDisabled('skills')"
-            :addLabel="t('addSkillType')"
-            toggle-style="icon"
-        >
-          <template #controls>
-            <div style="display:flex;align-items:center;gap:8px">
-              <select v-model="areaSkills">
-                <option value="body">Body</option>
-                <option value="sidebar">Sidebar</option>
-              </select>
-              <button class="mini" type="button" @click="moveUp('skills')">▲</button>
-              <button class="mini" type="button" @click="moveDown('skills')">▼</button>
-            </div>
-          </template>
-        </SectionList>
-
-        <!-- Languages: CEFR -->
-        <SectionList
-            :title="t('languagesTitle')"
-            :lang="langRef"
-            sectionKey="languages"
-            v-model="state.languages"
-            :schema="[
-              {label:t('languageName'), key:'name', type:'text', placeholder:t('german')},
-              {label:t('level'), key:'level', type:'select', options: [(langRef==='de'?'nativ':'native'),'C2','C1','B2','B1','A2','A1']}
-            ]"
-            :addLabel="t('addLanguage')"
-            :disabled="isHidden('languages')"
-            @toggle-section="toggleDisabled('languages')"
-            toggle-style="icon"
-        >
-          <template #controls>
-            <div style="display:flex;align-items:center;gap:8px">
-              <select v-model="areaLanguages">
-                <option value="body">Body</option>
-                <option value="sidebar">Sidebar</option>
-              </select>
-              <button class="mini" type="button" @click="moveUp('languages')">▲</button>
-              <button class="mini" type="button" @click="moveDown('languages')">▼</button>
-            </div>
-          </template>
-        </SectionList>
-
-        <!-- Hobbies -->
-        <SectionList
-            :title="t('hobbiesTitle')"
-            :lang="langRef"
-            sectionKey="hobbies"
-            v-model="state.hobbies"
-            :schema="[
-              {label: 'Hobby',   key:'name',    type:'text', placeholder:'Music Production'},
-              {label: 'Details', key:'details', type:'text', placeholder:'Genres, DAW, Releases \u2026'}
-            ]"
-            :addLabel="(langRef==='de'?'Hobby hinzufügen':'Add hobby')"
-            :disabled="isHidden('hobbies')"
-            @toggle-section="toggleDisabled('hobbies')"
-            toggle-style="icon"
-        >
-          <template #controls>
-            <div style="display:flex;align-items:center;gap:8px">
-              <select v-model="areaHobbies">
-                <option value="body">Body</option>
-                <option value="sidebar">Sidebar</option>
-              </select>
-              <button class="mini" type="button" @click="moveUp('hobbies')">▲</button>
-              <button class="mini" type="button" @click="moveDown('hobbies')">▼</button>
-            </div>
-          </template>
-        </SectionList>
-
-        <!-- Certs -->
-        <SectionList
-            :title="t('certsTitle')"
-            :lang="langRef"
-            sectionKey="certs"
-            v-model="state.certs"
-            :schema="[
-            {label:t('certificate'), key:'name', type:'text', placeholder:'AWS Solutions Architect'},
-            {label:t('yearShort'),  key:'year', type:'text', placeholder:'2023'}
-          ]"
-            :addLabel="t('addCert')"
-            :disabled="isHidden('certs')"
-            @toggle-section="toggleDisabled('certs')"
-            toggle-style="icon"
-        >
-          <template #controls>
-            <div style="display:flex;align-items:center;gap:8px">
-              <select v-model="areaCerts">
-                <option value="body">Body</option>
-                <option value="sidebar">Sidebar</option>
-              </select>
-              <button class="mini" type="button" @click="moveUp('certs')">▲</button>
-              <button class="mini" type="button" @click="moveDown('certs')">▼</button>
-            </div>
-          </template>
-        </SectionList>
-
-        <!-- Custom -->
-        <SectionList
-            :title="t('customTitle')"
-            :lang="langRef"
-            sectionKey="custom"
-            v-model="state.custom"
-              :schema="[
-              {label:t('title'), key:'title', type:'text', placeholder:t('customSectionPH')},
-              {label:t('place'), key:'place', type:'text', placeholder:'Berlin'},
-              {label:t('start'), key:'start', type:'text', placeholder:'04.2024'},
-              {label:t('end'),   key:'end', type:'text', placeholder:t('current')},
-              {label:t('bulletsLabel'), key:'bullets', type:'textarea', placeholder:'Achievement 1\\nAchievement 2\\n...'}
-            ]"
-            :addLabel="t('addEntry')"
-            :disabled="isHidden('custom')"
-            @toggle-section="toggleDisabled('custom')"
-            toggle-style="icon"
-        >
-          <template #controls>
-            <div style="display:flex;align-items:center;gap:8px">
-              <select v-model="areaCustom">
-                <option value="body">Body</option>
-                <option value="sidebar">Sidebar</option>
-              </select>
-              <button class="mini" type="button" @click="moveUp('custom')">▲</button>
-              <button class="mini" type="button" @click="moveDown('custom')">▼</button>
-            </div>
-          </template>
-        </SectionList>
-
-        <div style="display:flex;justify-content:flex-end">
-          <button type="button" class="btn btn--success" @click="addCustom">{{ t('newSection') }}</button>
-        </div>
-
-        <!-- DEBUG: visible state for order/placement -->
-        <section class="section-group" style="margin-top:12px;padding:8px;border:1px dashed var(--border);background:rgba(0,0,0,0.02)">
-          <h4 style="margin:0 0 8px 0">Debug: Reihenfolge / Platzierung</h4>
-          <div style="font-size:12px;line-height:1.2;white-space:pre-wrap;">orderMain: {{ JSON.stringify(state.orderMain) }}</div>
-          <div style="font-size:12px;line-height:1.2;white-space:pre-wrap;">orderSide: {{ JSON.stringify(state.orderSide) }}</div>
-          <div style="font-size:12px;line-height:1.2;white-space:pre-wrap;">sectionPlacement: {{ JSON.stringify(state.sectionPlacement) }}</div>
-        </section>
-
-        <!-- Design -->
-        <DesignPanel v-model="state.design" />
-
-        <!-- Softskills temp removal
-        <section class="section-group" data-section="softSkills" :class="{collapsed:collapsed.soft}">
-          <div class="section-head">
-            <button class="caret mini" type="button" @click="collapsed.soft=!collapsed.soft">
-              <font-awesome-icon :icon="['fas', getIcon('softSkills')]" class="section-icon" aria-hidden="true" />
-            </button>
-            <h3>{{ t('softSkillsTitle') }}</h3>
+          :addLabel="t('addEntry')"
+          :disabled="isHidden('projects')"
+          @toggle-section="toggleDisabled('projects')"
+          toggle-style="icon"
+      >
+        <template #controls>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select v-model="areaProjects">
+              <option value="body">Body</option>
+              <option value="sidebar">Sidebar</option>
+            </select>
+            <button class="mini" type="button" @click="moveUp('projects')">▲</button>
+            <button class="mini" type="button" @click="moveDown('projects')">▼</button>
           </div>
-          <SoftSkills v-model="state.softSkills" :options="refsOptions" />
-        </section>
-        -->
+        </template>
+      </SectionList>
+
+      <!-- Skills -->
+      <SectionList
+          :title="t('skillsTitle')"
+          :lang="langRef"
+          sectionKey="skills"
+          v-model="state.skills"
+          :schema="[
+            {label:t('category'), key:'title', type:'text', placeholder:t('programmingLanguages')},
+            {label:t('entryCSV'), key:'tags', type:'text', placeholder:'Python, TypeScript, Go'}
+          ]"
+          :disabled="isHidden('skills')"
+          @toggle-section="toggleDisabled('skills')"
+          :addLabel="t('addSkillType')"
+          toggle-style="icon"
+      >
+        <template #controls>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select v-model="areaSkills">
+              <option value="body">Body</option>
+              <option value="sidebar">Sidebar</option>
+            </select>
+            <button class="mini" type="button" @click="moveUp('skills')">▲</button>
+            <button class="mini" type="button" @click="moveDown('skills')">▼</button>
+          </div>
+        </template>
+      </SectionList>
+
+      <!-- Languages: CEFR -->
+      <SectionList
+          :title="t('languagesTitle')"
+          :lang="langRef"
+          sectionKey="languages"
+          v-model="state.languages"
+          :schema="[
+            {label:t('languageName'), key:'name', type:'text', placeholder:t('german')},
+            {label:t('level'), key:'level', type:'select', options: [(langRef==='de'?'nativ':'native'),'C2','C1','B2','B1','A2','A1']}
+          ]"
+          :addLabel="t('addLanguage')"
+          :disabled="isHidden('languages')"
+          @toggle-section="toggleDisabled('languages')"
+          toggle-style="icon"
+      >
+        <template #controls>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select v-model="areaLanguages">
+              <option value="body">Body</option>
+              <option value="sidebar">Sidebar</option>
+            </select>
+            <button class="mini" type="button" @click="moveUp('languages')">▲</button>
+            <button class="mini" type="button" @click="moveDown('languages')">▼</button>
+          </div>
+        </template>
+      </SectionList>
+
+      <!-- Hobbies -->
+      <SectionList
+          :title="t('hobbiesTitle')"
+          :lang="langRef"
+          sectionKey="hobbies"
+          v-model="state.hobbies"
+          :schema="[
+            {label: 'Hobby',   key:'name',    type:'text', placeholder:'Music Production'},
+            {label: 'Details', key:'details', type:'text', placeholder:'Genres, DAW, Releases \u2026'}
+          ]"
+          :addLabel="(langRef==='de'?'Hobby hinzufügen':'Add hobby')"
+          :disabled="isHidden('hobbies')"
+          @toggle-section="toggleDisabled('hobbies')"
+          toggle-style="icon"
+      >
+        <template #controls>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select v-model="areaHobbies">
+              <option value="body">Body</option>
+              <option value="sidebar">Sidebar</option>
+            </select>
+            <button class="mini" type="button" @click="moveUp('hobbies')">▲</button>
+            <button class="mini" type="button" @click="moveDown('hobbies')">▼</button>
+          </div>
+        </template>
+      </SectionList>
+
+      <!-- Certs -->
+      <SectionList
+          :title="t('certsTitle')"
+          :lang="langRef"
+          sectionKey="certs"
+          v-model="state.certs"
+          :schema="[
+          {label:t('certificate'), key:'name', type:'text', placeholder:'AWS Solutions Architect'},
+          {label:t('yearShort'),  key:'year', type:'text', placeholder:'2023'}
+        ]"
+          :addLabel="t('addCert')"
+          :disabled="isHidden('certs')"
+          @toggle-section="toggleDisabled('certs')"
+          toggle-style="icon"
+      >
+        <template #controls>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select v-model="areaCerts">
+              <option value="body">Body</option>
+              <option value="sidebar">Sidebar</option>
+            </select>
+            <button class="mini" type="button" @click="moveUp('certs')">▲</button>
+            <button class="mini" type="button" @click="moveDown('certs')">▼</button>
+          </div>
+        </template>
+      </SectionList>
+
+      <!-- Custom -->
+      <SectionList
+          :title="t('customTitle')"
+          :lang="langRef"
+          sectionKey="custom"
+          v-model="state.custom"
+          :schema="[
+            {label:t('title'), key:'title', type:'text', placeholder:t('customSectionPH')},
+            {label:t('place'), key:'place', type:'text', placeholder:'Berlin'},
+            {label:t('start'), key:'start', type:'text', placeholder:'04.2024'},
+            {label:t('end'),   key:'end', type:'text', placeholder:t('current')},
+            {label:t('bulletsLabel'), key:'bullets', type:'textarea', placeholder:'Achievement 1\\nAchievement 2\\n...'}
+          ]"
+          :addLabel="t('addEntry')"
+          :disabled="isHidden('custom')"
+          @toggle-section="toggleDisabled('custom')"
+          toggle-style="icon"
+      >
+        <template #controls>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select v-model="areaCustom">
+              <option value="body">Body</option>
+              <option value="sidebar">Sidebar</option>
+            </select>
+            <button class="mini" type="button" @click="moveUp('custom')">▲</button>
+            <button class="mini" type="button" @click="moveDown('custom')">▼</button>
+          </div>
+        </template>
+      </SectionList>
+
+      <div style="display:flex;justify-content:center">
+        <button type="button" class="btn btn--success" @click="addCustom">{{ t('newSection') }}</button>
       </div>
-    </form>
-  </div>
+    </div>
+  </form>
 </template>
 
 <style scoped>
