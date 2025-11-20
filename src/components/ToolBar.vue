@@ -4,10 +4,11 @@ import { makeT } from '../i18n/dict';
 
 const props = defineProps({
   lang: { type: String, default: 'de' },
-  showPreview: { type: Boolean, required: true }
+  showPreview: { type: Boolean, required: true },
+  sectionMovementMode: { type: String, default: 'drag' } // 'drag' or 'buttons'
 });
 
-const emit = defineEmits(['update:showPreview', 'update:lang']);
+const emit = defineEmits(['update:showPreview', 'update:lang', 'update:sectionMovementMode']);
 
 const langRef = computed({
   get: ()=> props.lang ?? 'de',
@@ -18,6 +19,11 @@ const t = makeT(langRef);
 const preview = computed({
   get: () => props.showPreview,
   set: v => emit('update:showPreview', v)
+});
+
+const movementMode = computed({
+  get: () => props.sectionMovementMode || 'drag',
+  set: v => emit('update:sectionMovementMode', v)
 });
 
 const openPreviewTab = () => window.open('/preview.html', '_blank', 'noopener');
@@ -44,6 +50,28 @@ const openPreviewTab = () => window.open('/preview.html', '_blank', 'noopener');
         <span class="toggle-track">
           <span class="toggle-label left">DE</span>
           <span class="toggle-label right">EN</span>
+          <span class="toggle-thumb"></span>
+        </span>
+      </button>
+    </div>
+
+    <div class="toggle-field">
+      <span class="toggle-caption">{{ langRef === 'de' ? 'Bewegung:' : 'Movement:' }}</span>
+      <button
+          type="button"
+          class="toggle"
+          role="switch"
+          :aria-checked="movementMode==='drag' ? 'true' : 'false'"
+          :class="{ 'is-on': movementMode==='drag' }"
+          @click="movementMode = (movementMode==='buttons' ? 'drag' : 'buttons')"
+      >
+        <span class="toggle-track">
+          <span class="toggle-label left">
+            <font-awesome-icon :icon="['fas', 'arrows-up-down']" style="font-size: 10px;" />
+          </span>
+          <span class="toggle-label right">
+            <font-awesome-icon :icon="['fas', 'hands']" style="font-size: 10px;" />
+          </span>
           <span class="toggle-thumb"></span>
         </span>
       </button>

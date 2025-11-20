@@ -11,7 +11,9 @@ const props = defineProps({
   schema: { type: Array, required: true }, // [{label,key,type,placeholder,options?}]
   addLabel: { type: String, default: 'Eintrag hinzufügen' },
   toggleable: { type: Boolean, default: true },
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  draggable: { type: Boolean, default: false },
+  isDragging: { type: Boolean, default: false }
 });
 
 const langRef = computed({
@@ -20,7 +22,7 @@ const langRef = computed({
 const t = makeT(langRef);
 
 // declare emits so Vue doesn't warn when we $emit('toggle-section')
-defineEmits(['update:modelValue','toggle-section']);
+const emit = defineEmits(['update:modelValue','toggle-section','dragstart','dragend']);
 
 const items = defineModel({ default: [] });
 
@@ -44,7 +46,15 @@ const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
 </script>
 
 <template>
-  <section ref="root" class="section-group" :data-section="sectionKey" :class="{disabled}">
+  <section
+    ref="root"
+    class="section-group"
+    :data-section="sectionKey"
+    :class="{disabled, dragging: isDragging}"
+    :draggable="draggable"
+    @dragstart="emit('dragstart', $event)"
+    @dragend="emit('dragend', $event)"
+  >
     <div class="section-head">
       <button class="caret mini" type="button" @click="toggleCollapse">
         <font-awesome-icon v-if="iconName" :icon="['fas', iconName]" class="section-icon" aria-hidden="true" />
@@ -87,8 +97,22 @@ const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
 </template>
 
 <style scoped>
-.section-icon{ margin-right:8px; color:var(--muted); }
+.section-icon {
+  margin-right: 8px;
+  color: var(--muted);
+}
+
 /* ensure the icon is centered inside the toggle button */
-.caret{ display:inline-flex; align-items:center; justify-content:center; width:34px; height:26px; padding:0; }
-.caret .section-icon{ margin:0; }
+.caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 26px;
+  padding: 0;
+}
+
+.caret .section-icon {
+  margin: 0;
+}
 </style>

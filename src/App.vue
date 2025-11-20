@@ -7,7 +7,7 @@ import { makeT } from './i18n/dict';
 import ToolBar from "./components/ToolBar.vue";
 import BackupManager from "./components/BackupManager.vue";
 import DesignPanel from "./components/DesignPanel.vue";
-import SoftSkills from "./components/SoftSkills.vue";
+//import SoftSkills from "./components/SoftSkills.vue";
 
 const state = reactive({
   version: 1,
@@ -25,22 +25,15 @@ const state = reactive({
   skills: [
     { title: 'Programmiersprachen',     tags: 'Python, TypeScript, Go' },
     { title: 'Frameworks',              tags: 'React, Docker, Kubernetes' },
-    { title: 'Methoden',                tags: '' },
   ],
   languages: [],
   certs: [],
   hobbies: [ { name: 'Musik', details: '' } ],
   custom: [],
   softSkills: [
-    {label:'Analytisches Denken', desc:'', refs:[]},
     {label:'Anpassungsfähigkeit', desc:'', refs:[]},
     {label:'Kritisches Denken', desc:'', refs:[]},
     {label:'Kreative Problemlösung', desc:'', refs:[]},
-    {label:'Kommunikationsstärke', desc:'', refs:[]},
-    {label:'Emotionale Intelligenz', desc:'', refs:[]},
-    {label:'Teamfähigkeit', desc:'', refs:[]},
-    {label:'Digitale Kompetenz', desc:'', refs:[]},
-    {label:'Entrepreneurship', desc:'', refs:[]}
   ],
   orderMain: ['about','education','jobs','addExp','projects','custom'],
   orderSide: ['skills','languages','hobbies','certs'],
@@ -93,16 +86,17 @@ onMounted(async ()=>{
 onBeforeUnmount(()=>{ try{ bc?.close(); }catch{} });
 
 const showPreview = ref(true);
+const sectionMovementMode = ref('drag'); // 'drag' or 'buttons'
 </script>
 
 <template>
-  <ToolBar v-model:showPreview="showPreview" v-model:lang="lang"/>
+  <ToolBar v-model:showPreview="showPreview" v-model:lang="lang" v-model:sectionMovementMode="sectionMovementMode"/>
   <FloatingPreview v-if="showPreview" url="/preview.html?embed=1" :initialScale="0.25" />
 
   <div class="workbench">
     <BackupManager :state="state" :langRef="lang" :onSave="saveDebounced" />
     <DesignPanel v-model="state.design" />
-    <FormBuilder :state="state" :onSave="saveDebounced" />
+    <FormBuilder :state="state" :onSave="saveDebounced" :movementMode="sectionMovementMode" />
     <!--<SoftSkills v-model="state.softSkills" :options="refsOptions" />-->
   </div>
 </template>
