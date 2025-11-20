@@ -203,10 +203,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             </component>
             <div class="timeline" id="cv_exp_job">
               <article class="item" v-for="(it,idx) in state.experience.jobs" :key="idx">
-                <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.company||''}</span>`"></div>
-                  <div class="item-meta">{{ formatMeta(it) }}</div>
-                </div>
+                <div class="item-title">{{ it.title }}</div>
+                <div class="item-sub">{{ it.company }}</div>
+                <div class="item-meta">{{ formatMeta(it) }}</div>
                 <ul v-if="Array.isArray(it.bullets) && it.bullets.length">
                   <li v-for="(b,bi) in it.bullets" :key="bi">{{ b }}</li>
                 </ul>
@@ -218,12 +217,11 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             <component :is="getSectionHeaderSize('addExp')" v-if="!isSectionHeaderHidden('addExp')">
               {{ getSectionDisplayName('addExp') }}
             </component>
-            <div id="cv_exp_personal" style="display:grid;grid-template-columns:repeat(var(--addexp-columns),minmax(0,1fr));gap:4mm">
+            <div id="cv_add_exp" style="display:grid;grid-template-columns:repeat(var(--addexp-columns),minmax(0,1fr));gap:4mm">
               <article class="item addexp-card" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx">
-                <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
-                  <div class="item-meta">{{ formatMeta(it) }}</div>
-                </div>
+                <div class="item-title">{{ it.title }}</div>
+                <div class="item-sub">{{ it.sub }}</div>
+                <div class="item-meta">{{ formatMeta(it) }}</div>
                 <p v-if="it.desc">{{ it.desc }}</p>
               </article>
             </div>
@@ -236,10 +234,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             </component>
             <div>
               <article class="item" v-for="(it, idx) in state.education" :key="idx">
-                <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
-                  <div class="item-meta">{{ formatMeta(it) }}</div>
-                </div>
+                <div class="item-title">{{ it.title }}</div>
+                <div class="item-sub">{{ it.sub }}</div>
+                <div class="item-meta">{{ formatMeta(it) }}</div>
                 <p v-if="it.desc">{{ it.desc }}</p>
               </article>
             </div>
@@ -252,10 +249,8 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             </component>
             <div>
               <article class="item" v-for="(it, idx) in state.experience.projects" :key="idx">
-                <div class="item-header">
-                  <div class="item-title">{{ it.title }}</div>
-                  <div class="item-meta">{{ formatMeta(it) }}</div>
-                </div>
+                <div class="item-title">{{ it.title }}</div>
+                <div class="item-meta">{{ formatMeta(it) }}</div>
                 <p v-if="it.desc">{{ it.desc }}</p>
               </article>
             </div>
@@ -347,10 +342,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             </component>
             <div class="timeline" id="cv_exp_job">
               <article class="item" v-for="(it,idx) in state.experience.jobs" :key="idx">
-                <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.company||''}</span>`"></div>
-                  <div class="item-meta">{{ formatMeta(it) }}</div>
-                </div>
+                <div class="item-title">{{ it.title }}</div>
+                <div class="item-sub">{{ it.company }}</div>
+                <div class="item-meta">{{ formatMeta(it) }}</div>
               </article>
             </div>
           </template>
@@ -360,12 +354,11 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
               {{ getSectionDisplayName('addExp') }}
             </component>
             <div>
-              <article class="item" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx" style="margin-bottom:3mm">
-                <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
-                  <div class="item-meta">{{ formatMeta(it) }}</div>
-                </div>
-                <p v-if="it.desc" style="font-size:0.9em;margin-top:2px">{{ it.desc }}</p>
+              <article class="item" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx">
+                <div class="item-title">{{ it.title }}</div>
+                <div class="item-sub">{{ it.sub }}</div>
+                <div class="item-meta">{{ formatMeta(it) }}</div>
+                <p v-if="it.desc" style="font-size:0.9em">{{ it.desc }}</p>
               </article>
             </div>
           </template>
@@ -376,10 +369,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             </component>
             <div>
               <article class="item" v-for="(it, idx) in state.education" :key="idx">
-                <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
-                  <div class="item-meta">{{ formatMeta(it) }}</div>
-                </div>
+                <div class="item-title">{{ it.title }}</div>
+                <div class="item-sub">{{ it.sub }}</div>
+                <div class="item-meta">{{ formatMeta(it) }}</div>
               </article>
             </div>
           </template>
@@ -390,9 +382,8 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             </component>
             <div>
               <article class="item" v-for="(it, idx) in state.experience.projects" :key="idx">
-                <div class="item-header">
-                  <div class="item-title">{{ it.title }}</div>
-                </div>
+                <div class="item-title">{{ it.title }}</div>
+                <div class="item-meta">{{ formatMeta(it) }}</div>
               </article>
             </div>
           </template>
@@ -502,16 +493,5 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
   opacity: 0.8;
   white-space: nowrap;
   font-weight: 700;
-}
-
-#cv_exp_personal {
-  article.item {
-    border-radius: 15px;
-    padding: 5px 10px;
-
-    p {
-      margin-bottom: 2px;
-    }
-  }
 }
 </style>
