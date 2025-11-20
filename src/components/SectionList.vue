@@ -57,6 +57,39 @@ const removeAt = (i) => items.value.splice(i,1);
 
 // compute icon name for this section (fallback to 'folder-open')
 const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
+
+// Track if drag should be prevented based on mousedown target
+const shouldPreventDrag = ref(false);
+
+// Check mousedown target to determine if drag should be allowed
+const onMouseDown = (event) => {
+  const target = event.target;
+  const tagName = target.tagName;
+
+  // Prevent drag if mousedown is on interactive elements
+  // This allows text selection in inputs/textareas and normal interaction with other controls
+  if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT' || tagName === 'BUTTON') {
+    shouldPreventDrag.value = true;
+    // Don't stop propagation - allow normal interaction (text selection, button clicks, etc.)
+  } else {
+    shouldPreventDrag.value = false;
+  }
+};
+
+// Prevent drag when interacting with input/textarea
+const onDragStart = (event) => {
+  if (shouldPreventDrag.value) {
+    event.preventDefault();
+    event.stopPropagation();
+    return false;
+  }
+  emit('dragstart', event);
+};
+
+// Reset shouldPreventDrag on mouseup to ensure clean state
+const onMouseUp = () => {
+  shouldPreventDrag.value = false;
+};
 </script>
 
 <template>
@@ -65,8 +98,10 @@ const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
     class="section-group"
     :data-section="sectionKey"
     :class="{disabled, dragging: isDragging}"
-    :draggable="draggable"
-    @dragstart="emit('dragstart', $event)"
+    :draggable="draggable && !shouldPreventDrag"
+    @mousedown="onMouseDown"
+    @mouseup="onMouseUp"
+    @dragstart="onDragStart"
     @dragend="emit('dragend', $event)"
   >
     <div class="section-head">

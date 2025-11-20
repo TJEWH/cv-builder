@@ -144,9 +144,9 @@ const isHiddenFor = (key) => {
 // Debug logging to help track why a key is/was not shown
 watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.state.customSections], ([bm, bs, sp, cs])=>{
   try{
-    console.debug('[CvPreview] blocksMain=', bm, 'blocksSide=', bs, 'sectionPlacement=', sp);
-    console.debug('[CvPreview] customSections=', cs);
-    console.debug('[CvPreview] visibleMain=', bm.filter(k=>!isHiddenFor(k)), 'visibleSide=', bs.filter(k=>!isHiddenFor(k)));
+    //console.debug('[CvPreview] blocksMain=', bm, 'blocksSide=', bs, 'sectionPlacement=', sp);
+    //console.debug('[CvPreview] customSections=', cs);
+    //console.debug('[CvPreview] visibleMain=', bm.filter(k=>!isHiddenFor(k)), 'visibleSide=', bs.filter(k=>!isHiddenFor(k)));
   }catch(e){}
 },{deep:true, immediate:true});
 </script>

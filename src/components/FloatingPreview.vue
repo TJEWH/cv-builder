@@ -21,6 +21,13 @@ const dragging = ref(false);
 let dragStart = null;
 
 const startDrag = (e) => {
+  // Prevent drag when interacting with input/textarea
+  const target = e.target;
+  const tagName = target.tagName;
+  if (tagName === 'INPUT' || tagName === 'TEXTAREA') {
+    return;
+  }
+
   dragging.value = true;
   dragStart = { mx: e.clientX, my: e.clientY, x0: pos.value.x, y0: pos.value.y };
   window.addEventListener('mousemove', onDragMove, true);
