@@ -219,7 +219,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
               {{ getSectionDisplayName('addExp') }}
             </component>
             <div id="cv_exp_personal" style="display:grid;grid-template-columns:repeat(var(--addexp-columns),minmax(0,1fr));gap:4mm">
-              <article class="item addexp-card" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx" style="border:var(--item-border-width) solid var(--graphic);border-radius:6px;padding:6px">
+              <article class="item addexp-card" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx">
                 <div class="item-header">
                   <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
                   <div class="item-meta">{{ formatMeta(it) }}</div>
@@ -297,12 +297,12 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             <component :is="getSectionHeaderSize('languages')" v-if="!isSectionHeaderHidden('languages')">
               {{ getSectionDisplayName('languages') }}
             </component>
-            <ul class="lang-list">
-              <li v-for="(l,i) in state.languages" :key="i">
-                <strong>{{ l.name }}</strong>
-                <span>- {{ l.level }}</span>
-              </li>
-            </ul>
+            <div class="language-items">
+              <div class="language-item" v-for="(l,i) in state.languages" :key="i">
+                <span class="language-name">{{ l.name }}</span>
+                <span class="language-level">{{ l.level }}</span>
+              </div>
+            </div>
           </template>
 
           <!-- CERTS (wenn im Main) -->
@@ -433,12 +433,12 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             <component :is="getSectionHeaderSize('languages')" v-if="!isSectionHeaderHidden('languages')">
               {{ getSectionDisplayName('languages') }}
             </component>
-            <ul class="lang-list">
-              <li v-for="(l,i) in state.languages" :key="i">
-                <strong>{{ l.name }}</strong>
-                <span>- {{ l.level }}</span>
-              </li>
-            </ul>
+            <div class="language-items">
+              <div class="language-item" v-for="(l,i) in state.languages" :key="i">
+                <span class="language-name">{{ l.name }}</span>
+                <span class="language-level">{{ l.level }}</span>
+              </div>
+            </div>
           </template>
 
           <!-- CERTS -->
@@ -476,5 +476,42 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
 }
 .lang-list li{
   margin: 2px 0;
+}
+
+.language-items {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0;
+}
+
+.language-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 0;
+  gap: 8px;
+}
+
+.language-name {
+  flex: 1;
+  font-size: 9.5pt;
+}
+
+.language-level {
+  font-size: 8.5pt;
+  opacity: 0.8;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+#cv_exp_personal {
+  article.item {
+    border-radius: 15px;
+    padding: 5px 10px;
+
+    p {
+      margin-bottom: 2px;
+    }
+  }
 }
 </style>

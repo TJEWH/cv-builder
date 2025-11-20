@@ -962,7 +962,7 @@ const areaCerts = areaModel('certs');
           v-model="state.languages"
           :schema="[
             {label:t('languageName'), key:'name', type:'text', placeholder:t('german')},
-            {label:t('level'), key:'level', type:'select', options: [(langRef==='de'?'nativ':'native'),'C2','C1','B2','B1','A2','A1']}
+            {label:t('level'), key:'level', type:'select', options: [(langRef==='de'?'Muttersprache':'native'),'C2','C1','B2','B1','A2','A1']}
           ]"
           :addLabel="t('add')"
           :disabled="isHidden('languages')"
