@@ -159,11 +159,26 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
         <p class="role">{{ state.contact.role }}</p>
       </div>
       <address class="contact">
-        <div>{{ state.contact.location }}</div>
-        <div><a :href="state.contact.email ? 'mailto:'+state.contact.email : '#'">{{ state.contact.email }}</a></div>
-        <div>{{ state.contact.phone }}</div>
-        <div><a :href="state.contact.website || '#'">{{ (state.contact.website||'').replace(/^https?:\/\//,'') }}</a></div>
-        <div><a :href="state.contact.linkedin || '#'">{{ (state.contact.linkedin||'').replace(/^https?:\/\//,'') }}</a></div>
+        <div v-if="state.contact.location">
+          {{ state.contact.location }}
+          <font-awesome-icon :icon="['fas', 'location-dot']" class="contact-icon" />
+        </div>
+        <div v-if="state.contact.email">
+          <a :href="'mailto:'+state.contact.email">{{ state.contact.email }}</a>
+          <font-awesome-icon :icon="['fas', 'envelope']" class="contact-icon" />
+        </div>
+        <div v-if="state.contact.phone">
+          {{ state.contact.phone }}
+          <font-awesome-icon :icon="['fas', 'phone']" class="contact-icon" />
+        </div>
+        <div v-if="state.contact.website">
+          <a :href="state.contact.website">{{ state.contact.website.replace(/^https?:\/\//,'') }}</a>
+          <font-awesome-icon :icon="['fas', 'globe']" class="contact-icon" />
+        </div>
+        <div v-if="state.contact.linkedin">
+          <a :href="state.contact.linkedin">{{ state.contact.linkedin.replace(/^https?:\/\//,'') }}</a>
+          <font-awesome-icon :icon="['fab', 'linkedin']" class="contact-icon" />
+        </div>
       </address>
     </header>
 
@@ -203,8 +218,8 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             <component :is="getSectionHeaderSize('addExp')" v-if="!isSectionHeaderHidden('addExp')">
               {{ getSectionDisplayName('addExp') }}
             </component>
-            <div id="cv_exp_personal" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4mm">
-              <article class="item" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx" style="border:1px solid var(--border);border-radius:6px;padding:6px">
+            <div id="cv_exp_personal" style="display:grid;grid-template-columns:repeat(var(--addexp-columns),minmax(0,1fr));gap:4mm">
+              <article class="item addexp-card" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx" style="border:var(--item-border-width) solid var(--graphic);border-radius:6px;padding:6px">
                 <div class="item-header">
                   <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
                   <div class="item-meta">{{ formatMeta(it) }}</div>
@@ -316,7 +331,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
         </section>
       </div>
 
-      <aside class="sidebar" id="cv_side" :style="{background:'var(--sidebar-bg)', padding:'6mm', borderRadius:'10px'}">
+      <aside class="sidebar" id="cv_side">
         <section v-for="key in blocksSide" :key="key" class="section cv-block" :class="{'is-hidden': isHiddenFor(key) }">
 
           <template v-if="key==='about'">

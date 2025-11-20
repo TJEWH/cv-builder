@@ -8,7 +8,12 @@ const isEmbedded = ref(false);
 const state = reactive({
   version: 1, disabled: [],
   design: { h1:'22pt', h2:'12pt', h3:'10pt', bullets:'10.5pt', ink:'#111827', accent:'#0f66d0', bg:'#ffffff', headerbg:'#ffffff', sidebarbg:'#ffffff',
-    fontBody:'Inter', fontHead:'Inter', hstyle:'clean', radius:'10px' },
+    fontBody:'Inter', fontHead:'Inter', hstyle:'clean', radius:'10px',
+    subtitle:'#0a9c91', graphic:'#4f46e5', dateColor:'#6b7280',
+    badgeBorderWidth:'1px', badgeBorderRadius:'6px', invertBadge:false, enableBoxShadow:false,
+    itemBorderWidth:'1px',
+    sectionSpacing:'6mm', sectionSpacingBody:'6mm', sectionSpacingSidebar:'6mm',
+    sidebarWidth:'0.7fr', sidebarAlign:'right', sidebarStyle:'default', addExpColumns:'2' },
   contact: { name:'', location:'', role:'', email:'', phone:'', website:'', linkedin:'' },
   about: { text:'' },
   experience: { jobs:[], addExp:[], projects:[] },
@@ -48,10 +53,42 @@ function applyDesign(){
   root.setProperty('--header-bg', d.headerbg||'#ffffff');
   root.setProperty('--sidebar-bg', d.sidebarbg||'#ffffff');
   root.setProperty('--radius', d.radius||'10px');
+  root.setProperty('--subtitle', d.subtitle||'#0a9c91');
+  root.setProperty('--graphic', d.graphic||d.accent||'#4f46e5');
+  root.setProperty('--date-color', d.dateColor||'#6b7280');
+  root.setProperty('--badge-border-width', d.badgeBorderWidth||'1px');
+  root.setProperty('--badge-border-radius', d.badgeBorderRadius||'6px');
+  root.setProperty('--item-border-width', d.itemBorderWidth||'1px');
+  root.setProperty('--section-spacing', d.sectionSpacing||'6mm');
+  root.setProperty('--section-spacing-body', d.sectionSpacingBody||d.sectionSpacing||'6mm');
+  root.setProperty('--section-spacing-sidebar', d.sectionSpacingSidebar||d.sectionSpacing||'6mm');
+  root.setProperty('--sidebar-width', d.sidebarWidth||'0.7fr');
+  root.setProperty('--sidebar-align', d.sidebarAlign||'right');
+  root.setProperty('--addexp-columns', d.addExpColumns||'2');
+  root.setProperty('--bullet-size', d.bullets||'10.5pt');
+
+  // Badge invert logic
+  if (d.invertBadge) {
+    root.setProperty('--badge-bg', 'transparent');
+    root.setProperty('--badge-color', d.graphic||d.accent||'#4f46e5');
+  } else {
+    root.setProperty('--badge-bg', d.graphic||d.accent||'#4f46e5');
+    root.setProperty('--badge-color', '#ffffff');
+  }
+
+  // Box shadow logic
+  if (d.enableBoxShadow) {
+    root.setProperty('--box-shadow', '0 2px 8px rgba(0,0,0,0.1)');
+  } else {
+    root.setProperty('--box-shadow', 'none');
+  }
+
   ensureFontLink('body', d.fontBody); ensureFontLink('head', d.fontHead);
   root.setProperty('--font-body', `${d.fontBody ? `'${d.fontBody}', `:''}ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`);
   root.setProperty('--font-head', `${d.fontHead ? `'${d.fontHead}', `:''}var(--font-body)`);
   document.documentElement.setAttribute('data-hstyle', d.hstyle || 'clean');
+  document.documentElement.setAttribute('data-sidebar-align', d.sidebarAlign || 'right');
+  document.documentElement.setAttribute('data-sidebar-style', d.sidebarStyle || 'default');
 }
 
 function mergeIn(data){
