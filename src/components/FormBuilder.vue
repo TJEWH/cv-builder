@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, nextTick } from 'vue';
+import { computed, reactive } from 'vue';
 import SectionList from './SectionList.vue';
 import { makeT } from '../i18n/dict.js';
 import sectionIcons from '../i18n/sectionIcons.js';
@@ -18,25 +18,20 @@ const t = makeT(langRef);
 // collapsed state for sections (controls whether section-group is collapsed in the builder)
 const collapsed = reactive({ header:false, about:false, soft:false });
 
-/* ===== Hide / Collapse handling ===== */
-const disabled = computed({
-  get: ()=> props.state.disabled,
-  set: v => props.state.disabled = v
-});
-const isHidden = (k)=> disabled.value.includes(k);
-const toggleDisabled = (key)=>{
-  const s = new Set(disabled.value);
-  s.has(key) ? s.delete(key) : s.add(key);
-  disabled.value = [...s];
-};
-const collapsed = reactive({ contact:false, about:false, skills:false, hobbies:false, soft:false });
+// ensure state.disabled exists
+if(!Array.isArray(props.state.disabled)) props.state.disabled = [];
 
-/* ===== Add new custom section ===== */
-const addCustom = async () => {
-  props.state.custom.push({ title:'', place:'', start:'', end:'', bullets:'' });
-  await nextTick();
-  document.querySelector('[data-section="custom"] .item-row:last-of-type')
-      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+const isHidden = (key) => Array.isArray(props.state.disabled) && props.state.disabled.includes(key);
+const toggleDisabled = (key) => {
+  if(!Array.isArray(props.state.disabled)) props.state.disabled = [];
+  const idx = props.state.disabled.indexOf(key);
+  if(idx === -1) props.state.disabled.push(key); else props.state.disabled.splice(idx,1);
+  try{ props.onSave?.(); }catch(e){}
+};
+
+const addCustom = () => {
+  if(!Array.isArray(props.state.custom)) props.state.custom = [];
+  props.state.custom.push({ title:'', place:'', start:'', end:'', bullets:[] });
 };
 
 // helper to get icon name for a section
@@ -45,93 +40,93 @@ const getIcon = (key) => sectionIcons[key] || 'folder-open';
 /* ===== Section placement & ordering helpers ===== */
 if(!props.state.sectionPlacement) props.state.sectionPlacement = {};
 
-
-// known sections list (keine direkte Verwendung hier, behalte als Kommentar)
-// ['about','jobs','education','projects','custom','skills','languages','certs','hobbies','jobs','addExp'];
-
 const previewKeyFor = (key) => {
   if(!key) return key;
-  if(String(key).startsWith('exp-')) return 'experience';
-  // other mappings could be added here if needed
+  const s = String(key);
+  if(s.startsWith('addExp')) return 'addExp';
+  if(s.startsWith('jobs')) return 'jobs';
+  if(s.startsWith('projects')) return 'projects';
   return key;
+};
+
+// Helper to ensure order arrays exist and are valid
+const ensureOrderArrays = () => {
+  if(!Array.isArray(props.state.orderMain)) props.state.orderMain = [];
+  if(!Array.isArray(props.state.orderSide)) props.state.orderSide = [];
+};
+
+// Helper to sanitize and maintain exclusivity between arrays (skills can be in both)
+const sanitizeOrderArrays = () => {
+  ensureOrderArrays();
+  props.state.orderMain = Array.from(new Set(props.state.orderMain.filter(Boolean)));
+  props.state.orderSide = Array.from(new Set(props.state.orderSide.filter(Boolean)));
+  // Ensure exclusivity except for 'skills'
+  props.state.orderSide = props.state.orderSide.filter(x => x === 'skills' || !props.state.orderMain.includes(x));
+  props.state.orderMain = props.state.orderMain.filter(x => x === 'skills' || !props.state.orderSide.includes(x));
 };
 
 const currentArea = (key) => {
   const pKey = previewKeyFor(key);
-  if(props.state.sectionPlacement && props.state.sectionPlacement[pKey]) return props.state.sectionPlacement[pKey];
-  // derive from order arrays
-  if(Array.isArray(props.state.orderMain) && props.state.orderMain.includes(pKey)) return 'body';
-  if(Array.isArray(props.state.orderSide) && props.state.orderSide.includes(pKey)) return 'sidebar';
-  // default to body when not present
+  if(props.state.sectionPlacement?.[pKey]) return props.state.sectionPlacement[pKey];
+  // Derive from order arrays
+  ensureOrderArrays();
+  if(props.state.orderMain.includes(pKey)) return 'body';
+  if(props.state.orderSide.includes(pKey)) return 'sidebar';
   return 'body';
 };
 
-const setArea = (key, area)=>{
+const setArea = (key, area) => {
   const pKey = previewKeyFor(key);
-  // ensure arrays exist
-  if(!Array.isArray(props.state.orderMain)) props.state.orderMain = [];
-  if(!Array.isArray(props.state.orderSide)) props.state.orderSide = [];
+  ensureOrderArrays();
 
-  // remove pKey from both arrays fully
-  props.state.orderMain = props.state.orderMain.filter(x=>x!==pKey);
-  props.state.orderSide = props.state.orderSide.filter(x=>x!==pKey);
+  // Remove from both arrays
+  props.state.orderMain = props.state.orderMain.filter(x => x !== pKey);
+  props.state.orderSide = props.state.orderSide.filter(x => x !== pKey);
 
-  if(area==='body'){
+  // Add to target array
+  if(area === 'body') {
     props.state.orderMain.push(pKey);
-  }else if(area==='sidebar'){
+  } else if(area === 'sidebar') {
     props.state.orderSide.push(pKey);
   }
 
-  // sanitize arrays: unique and exclusive
-  props.state.orderMain = Array.from(new Set(props.state.orderMain.filter(Boolean)));
-  props.state.orderSide = Array.from(new Set(props.state.orderSide.filter(Boolean)));
-  // ensure exclusivity (remove any overlap)
-  props.state.orderSide = props.state.orderSide.filter(x => !props.state.orderMain.includes(x));
+  sanitizeOrderArrays();
+  props.state.sectionPlacement = { ...(props.state.sectionPlacement || {}), [pKey]: area };
 
-  // store placement keyed by preview block key
-  props.state.sectionPlacement = { ...(props.state.sectionPlacement||{}), [pKey]: area };
-
-  // trigger immediate save/publish if provided (App.vue passes saveDebounced)
-  try{ props.onSave?.(); }catch(e){ console.warn('onSave failed', e); }
+  try { props.onSave?.(); } catch(e) { console.warn('onSave failed', e); }
 };
 
-const moveInArray = (arr, from, to)=>{
-  if(!Array.isArray(arr)) return arr;
-  if(from<0 || from>=arr.length || to<0 || to>=arr.length) return arr;
-  const copy = arr.slice();
-  const [it] = copy.splice(from,1);
-  copy.splice(to,0,it);
-  return copy;
-};
-
-const moveUp = (key)=>{
+// Generic move function to reduce duplication
+const moveSection = (key, direction) => {
   const pKey = previewKeyFor(key);
   const area = currentArea(key);
-  const list = area==='body' ? props.state.orderMain : area==='sidebar' ? props.state.orderSide : null;
-  if(!Array.isArray(list)) return;
-  const idx = list.indexOf(pKey);
-  if(idx>0){
-    const updated = moveInArray(list, idx, idx-1);
-    if(area==='body') props.state.orderMain = updated;
-    else props.state.orderSide = updated;
-    console.debug('[FormBuilder] moveUp', { key, pKey, area, orderMain: props.state.orderMain, orderSide: props.state.orderSide });
-    try{ props.onSave?.(); }catch(e){ console.warn('onSave failed', e); }
+  const arrName = area === 'body' ? 'orderMain' : 'orderSide';
+  ensureOrderArrays();
+
+  const arr = props.state[arrName];
+  let idx = arr.indexOf(pKey);
+
+  // Add to array if not present
+  if(idx === -1) {
+    arr[direction === 'up' ? 'push' : 'unshift'](pKey);
+    idx = arr.indexOf(pKey);
+  }
+
+  // Swap elements if possible
+  const canMove = direction === 'up' ? idx > 0 : idx < arr.length - 1;
+  if(canMove) {
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    [arr[idx], arr[swapIdx]] = [arr[swapIdx], arr[idx]];
+    sanitizeOrderArrays();
+    console.debug(`[FormBuilder] move${direction === 'up' ? 'Up' : 'Down'}`, {
+      key, pKey, area, orderMain: props.state.orderMain, orderSide: props.state.orderSide
+    });
+    try { props.onSave?.(); } catch(e) { console.warn('onSave failed', e); }
   }
 };
-const moveDown = (key)=>{
-  const pKey = previewKeyFor(key);
-  const area = currentArea(key);
-  const list = area==='body' ? props.state.orderMain : area==='sidebar' ? props.state.orderSide : null;
-  if(!Array.isArray(list)) return;
-  const idx = list.indexOf(pKey);
-  if(idx>=0 && idx<list.length-1){
-    const updated = moveInArray(list, idx, idx+1);
-    if(area==='body') props.state.orderMain = updated;
-    else props.state.orderSide = updated;
-    console.debug('[FormBuilder] moveDown', { key, pKey, area, orderMain: props.state.orderMain, orderSide: props.state.orderSide });
-    try{ props.onSave?.(); }catch(e){ console.warn('onSave failed', e); }
-  }
-};
+
+const moveUp = (key) => moveSection(key, 'up');
+const moveDown = (key) => moveSection(key, 'down');
 
 const areaModel = (key) => computed({
   get: () => currentArea(key),
