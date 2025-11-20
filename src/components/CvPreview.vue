@@ -240,6 +240,19 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
             </div>
           </template>
 
+          <template v-else-if="key==='addExp'">
+            <h2>{{ t('subHeaderAddXP') }}</h2>
+            <div>
+              <article class="item" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx" style="margin-bottom:3mm">
+                <div class="item-header">
+                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
+                  <div class="item-meta">{{ formatMeta(it) }}</div>
+                </div>
+                <p v-if="it.desc" style="font-size:0.9em;margin-top:2px">{{ it.desc }}</p>
+              </article>
+            </div>
+          </template>
+
           <template v-else-if="key==='education'">
             <h2>{{ t('educationTitle') }}</h2>
             <div>
