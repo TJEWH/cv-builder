@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, onMounted, onBeforeUnmount } from 'vue';
+import { computed, reactive, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import SectionList from './SectionList.vue';
 import { makeT } from '../i18n/dict.js';
 import sectionIcons from '../i18n/sectionIcons.js';
@@ -31,12 +31,48 @@ const toggleDisabled = (key) => {
 };
 
 const addCustom = () => {
-  if(!Array.isArray(props.state.custom)) props.state.custom = [];
-  props.state.custom.push({ title:'', place:'', start:'', end:'', bullets:[] });
+  if(!Array.isArray(props.state.customSections)) props.state.customSections = [];
+  const id = `custom_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  props.state.customSections.push({
+    id,
+    name: langRef.value === 'de' ? 'Neue Section' : 'New Section',
+    entries: []
+  });
+  // Add to orderMain
+  ensureOrderArrays();
+  props.state.orderMain.push(id);
+  try { props.onSave?.(); } catch(e) {}
+};
+
+const deleteCustomSection = (id) => {
+  if(!Array.isArray(props.state.customSections)) return;
+  const idx = props.state.customSections.findIndex(s => s.id === id);
+  if(idx !== -1) {
+    props.state.customSections.splice(idx, 1);
+    // Remove from order arrays
+    ensureOrderArrays();
+    props.state.orderMain = props.state.orderMain.filter(k => k !== id);
+    props.state.orderSide = props.state.orderSide.filter(k => k !== id);
+    // Remove from disabled
+    if(Array.isArray(props.state.disabled)) {
+      props.state.disabled = props.state.disabled.filter(k => k !== id);
+    }
+    try { props.onSave?.(); } catch(e) {}
+  }
+};
+
+const getCustomSection = (id) => {
+  if(!Array.isArray(props.state.customSections)) return null;
+  return props.state.customSections.find(s => s.id === id);
 };
 
 // helper to get icon name for a section
-const getIcon = (key) => sectionIcons[key] || 'folder-open';
+const getIcon = (key) => {
+  // Check if it's a custom section
+  const customSection = getCustomSection(key);
+  if(customSection) return 'folder-open';
+  return sectionIcons[key] || 'folder-open';
+};
 
 /* ===== Section placement & ordering helpers ===== */
 if(!props.state.sectionPlacement) props.state.sectionPlacement = {};
@@ -233,15 +269,25 @@ const isDragging = (key) => {
   return dragState.draggedKey === pKey;
 };
 
-// Get sorted sections for an area (excluding the dragged one)
-const getSortedSections = (area) => {
-  ensureOrderArrays();
-  const arr = area === 'body' ? props.state.orderMain : props.state.orderSide;
-  return arr.filter(key => key !== dragState.draggedKey && !isHidden(key));
-};
+// State for editing section names (both custom and standard)
+const editingSection = reactive({
+  id: null,
+  tempName: ''
+});
 
-// Get display name for a section key
-const getSectionName = (key) => {
+// Ensure sectionNames object exists
+if(!props.state.sectionNames) props.state.sectionNames = {};
+
+// Get display name for any section (custom or standard)
+const getSectionDisplayName = (key) => {
+  // Check if there's a custom name set
+  if(props.state.sectionNames?.[key]) { return props.state.sectionNames[key]; }
+
+  // For custom sections, use their name property
+  const customSection = getCustomSection(key);
+  if(customSection) return customSection.name;
+
+  // Otherwise use default translated name
   const names = {
     about: t('aboutTitle'),
     education: t('educationTitle'),
@@ -251,10 +297,139 @@ const getSectionName = (key) => {
     skills: t('skillsTitle'),
     languages: t('languagesTitle'),
     hobbies: t('hobbiesTitle'),
-    certs: t('certsTitle'),
-    custom: t('customTitle')
+    certs: t('certsTitle')
   };
   return names[key] || key;
+};
+
+// Get default (original) name for a section
+const getSectionDefaultName = (key) => {
+  const customSection = getCustomSection(key);
+  if(customSection) return langRef.value === 'de' ? 'Neue Section' : 'New Section';
+
+  const names = {
+    about: t('aboutTitle'),
+    education: t('educationTitle'),
+    jobs: t('expJobTitle'),
+    addExp: t('expPersonalTitle'),
+    projects: t('projectsTitle'),
+    skills: t('skillsTitle'),
+    languages: t('languagesTitle'),
+    hobbies: t('hobbiesTitle'),
+    certs: t('certsTitle')
+  };
+  return names[key] || key;
+};
+
+const startEditSectionName = (sectionKeyOrSection, isCustom = false) => {
+  console.log('🎬 [FormBuilder] Starting edit:', isCustom ? 'CUSTOM' : 'STANDARD', sectionKeyOrSection);
+  if(isCustom) {
+    // Custom section with section object
+    editingSection.id = sectionKeyOrSection.id;
+    editingSection.tempName = sectionKeyOrSection.name;
+    console.log('   Custom section ID:', editingSection.id);
+    console.log('   Initial tempName:', editingSection.tempName);
+  } else {
+    // Standard section with key
+    editingSection.id = sectionKeyOrSection;
+    editingSection.tempName = props.state.sectionNames?.[sectionKeyOrSection] || '';
+    console.log('   Section key:', editingSection.id);
+    console.log('   Current custom name:', props.state.sectionNames?.[sectionKeyOrSection]);
+    console.log('   Initial tempName:', editingSection.tempName);
+  }
+};
+
+const finishEditSectionName = (sectionKeyOrSection, isCustom = false) => {
+  if(isCustom) {
+    // Custom section
+    if(editingSection.id === sectionKeyOrSection.id) {
+      if(editingSection.tempName.trim() && editingSection.tempName !== sectionKeyOrSection.name) {
+        sectionKeyOrSection.name = editingSection.tempName.trim();
+        try { props.onSave?.(); } catch(e) {}
+      }
+      editingSection.id = null;
+      editingSection.tempName = '';
+    }
+  } else {
+    // Standard section
+    if(editingSection.id === sectionKeyOrSection) {
+      const trimmed = editingSection.tempName.trim();
+      const defaultName = getSectionDefaultName(sectionKeyOrSection);
+
+      console.log('🔧 [FormBuilder] Finishing edit for:', sectionKeyOrSection);
+      console.log('   New name:', trimmed);
+      console.log('   Default name:', defaultName);
+      console.log('   Are they different?', trimmed !== defaultName);
+
+      if(!props.state.sectionNames) {
+        console.log('   Creating sectionNames object');
+        props.state.sectionNames = {};
+      }
+
+      if(trimmed && trimmed !== defaultName) {
+        // Set custom name - use Vue.set equivalent for reactivity
+        console.log('   ✅ Setting custom name');
+        props.state.sectionNames = {
+          ...props.state.sectionNames,
+          [sectionKeyOrSection]: trimmed
+        };
+        console.log('   Updated sectionNames:', JSON.stringify(props.state.sectionNames));
+        try { props.onSave?.(); } catch(e) { console.error('Save failed:', e); }
+      } else if(!trimmed) {
+        // Empty - remove custom name
+        console.log('   🗑️ Removing custom name (empty input)');
+        const { [sectionKeyOrSection]: removed, ...rest } = props.state.sectionNames;
+        props.state.sectionNames = rest;
+        try { props.onSave?.(); } catch(e) {}
+      } else {
+        console.log('   ⏭️ Skipping (same as default)');
+      }
+      editingSection.id = null;
+      editingSection.tempName = '';
+    }
+  }
+};
+
+const cancelEditSectionName = () => {
+  editingSection.id = null;
+  editingSection.tempName = '';
+};
+
+const isEditingSection = (sectionId) => editingSection.id === sectionId;
+
+// Watch for editing state to auto-focus input
+watch(() => editingSection.id, (newId) => {
+  if(newId) {
+    nextTick(() => {
+      const input = document.querySelector('.section-name-input');
+      if(input) {
+        input.focus();
+        input.select();
+      }
+    });
+  }
+});
+
+// Helper function to get editable title props for SectionList
+const getEditableTitleProps = (sectionKey) => {
+  return {
+    editableTitle: true,
+    isEditingTitle: isEditingSection(sectionKey),
+    editingTitleValue: editingSection.tempName,
+    titlePlaceholder: getSectionDefaultName(sectionKey)
+  };
+};
+
+// Get sorted sections for an area (excluding the dragged one)
+const getSortedSections = (area) => {
+  ensureOrderArrays();
+  const arr = area === 'body' ? props.state.orderMain : props.state.orderSide;
+  return arr.filter(key => key !== dragState.draggedKey && !isHidden(key));
+};
+
+// Get display name for a section key (for drag overlay)
+const getSectionName = (key) => {
+  return getSectionDisplayName(key);
 };
 
 // Computed: Check if draggable based on movementMode
@@ -272,7 +447,6 @@ const areaEducation = areaModel('education');
 const areaExpJob = areaModel('jobs');
 const areaExpPersonal = areaModel('addExp');
 const areaProjects = areaModel('projects');
-const areaCustom = areaModel('custom');
 const areaSkills = areaModel('skills');
 const areaLanguages = areaModel('languages');
 const areaHobbies = areaModel('hobbies');
@@ -404,8 +578,34 @@ const areaCerts = areaModel('certs');
           <button class="caret mini" type="button" @click="collapsed.about=!collapsed.about">
             <font-awesome-icon :icon="['fas', getIcon('about')]" class="section-icon" aria-hidden="true" />
           </button>
-          <h3>{{ t('aboutTitle') }}</h3>
+
+          <!-- Editable Label -->
+          <h3
+            v-if="!isEditingSection('about')"
+            class="section-name-label"
+            @click="startEditSectionName('about', false)"
+            :title="langRef === 'de' ? 'Klicken zum Umbenennen' : 'Click to rename'"
+          >
+            {{ getSectionDisplayName('about') }}
+          </h3>
+          <input
+            v-else
+            type="text"
+            v-model="editingSection.tempName"
+            class="section-name-input"
+            :placeholder="getSectionDefaultName('about')"
+            @blur="finishEditSectionName('about', false)"
+            @keyup.enter="finishEditSectionName('about', false)"
+            @keyup.esc="cancelEditSectionName"
+          />
+
           <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+            <select v-model="state.sectionHeaderSizes.about" class="header-size-select">
+              <option value="h2">H2</option>
+              <option value="h3">H3</option>
+              <option value="h4">H4</option>
+              <option value="null">{{ langRef === 'de' ? 'Kein Titel' : 'No Title' }}</option>
+            </select>
             <select v-if="isButtonMode" v-model="areaAbout">
               <option value="body">Body</option>
               <option value="sidebar">Sidebar</option>
@@ -422,7 +622,7 @@ const areaCerts = areaModel('certs');
 
       <!-- Education -->
       <SectionList
-          :title="t('educationTitle')"
+          :title="getSectionDisplayName('education')"
           :lang="langRef"
           sectionKey="education"
           v-model="state.education"
@@ -434,9 +634,16 @@ const areaCerts = areaModel('certs');
           {label:t('end'),         key:'end', type:'text', placeholder:'2020'},
           {label:t('focus'),       key:'desc', type:'textarea', placeholder:'AI'}
         ]"
-          :addLabel="t('addEntry')"
+          :addLabel="t('add')"
           :disabled="isHidden('education')"
           @toggle-section="toggleDisabled('education')"
+          v-bind="getEditableTitleProps('education')"
+          @start-edit-title="startEditSectionName('education', false)"
+          @finish-edit-title="finishEditSectionName('education', false)"
+          @cancel-edit-title="cancelEditSectionName"
+          @update-editing-value="editingSection.tempName = $event"
+          :headerSize="state.sectionHeaderSizes.education || 'h2'"
+          @header-size-change="state.sectionHeaderSizes.education = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('education')"
@@ -457,7 +664,7 @@ const areaCerts = areaModel('certs');
 
       <!-- Experience job -->
       <SectionList
-          :title="t('expJobTitle')"
+          :title="getSectionDisplayName('jobs')"
           :lang="langRef"
           sectionKey="jobs"
           v-model="state.experience.jobs"
@@ -469,9 +676,16 @@ const areaCerts = areaModel('certs');
             {label:t('end'),      key:'end', type:'text', placeholder: t('current')},
             {label:t('bulletsLabel'), key:'bullets', type:'textarea', placeholder:t('tasks')}
           ]"
-          :addLabel="t('addEntry')"
+          :addLabel="t('add')"
           :disabled="isHidden('jobs')"
           @toggle-section="toggleDisabled('jobs')"
+          v-bind="getEditableTitleProps('jobs')"
+          @start-edit-title="startEditSectionName('jobs', false)"
+          @finish-edit-title="finishEditSectionName('jobs', false)"
+          @cancel-edit-title="cancelEditSectionName"
+          @update-editing-value="editingSection.tempName = $event"
+          :headerSize="state.sectionHeaderSizes.jobs || 'h2'"
+          @header-size-change="state.sectionHeaderSizes.jobs = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('jobs')"
@@ -490,9 +704,9 @@ const areaCerts = areaModel('certs');
         </template>
       </SectionList>
 
-      <!-- Experience personal -->
+      <!-- Experience additional -->
       <SectionList
-          :title="t('expPersonalTitle')"
+          :title="getSectionDisplayName('addExp')"
           :lang="langRef"
           sectionKey="addExp"
           v-model="state.experience.addExp"
@@ -504,9 +718,16 @@ const areaCerts = areaModel('certs');
             {label:t('end'),      key:'end', type:'text', placeholder:'03.2024'},
             {label:t('desc'),     key:'desc', type:'textarea', placeholder: t('hackathonPH')}
           ]"
-          :addLabel="t('addEntry')"
+          :addLabel="t('add')"
           :disabled="isHidden('addExp')"
           @toggle-section="toggleDisabled('addExp')"
+          v-bind="getEditableTitleProps('addExp')"
+          @start-edit-title="startEditSectionName('addExp', false)"
+          @finish-edit-title="finishEditSectionName('addExp', false)"
+          @cancel-edit-title="cancelEditSectionName"
+          @update-editing-value="editingSection.tempName = $event"
+          :headerSize="state.sectionHeaderSizes.addExp || 'h2'"
+          @header-size-change="state.sectionHeaderSizes.addExp = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('addExp')"
@@ -527,7 +748,7 @@ const areaCerts = areaModel('certs');
 
       <!-- Projects -->
       <SectionList
-          :title="t('projectsTitle')"
+          :title="getSectionDisplayName('projects')"
           :lang="langRef"
           sectionKey="projects"
           v-model="state.experience.projects"
@@ -538,9 +759,16 @@ const areaCerts = areaModel('certs');
             {label:t('end'),          key:'end', type:'text', placeholder:'2025'},
             {label:t('desc'),         key:'desc', type:'textarea', placeholder: 'CLI tool XY -'}
           ]"
-          :addLabel="t('addEntry')"
+          :addLabel="t('add')"
           :disabled="isHidden('projects')"
           @toggle-section="toggleDisabled('projects')"
+          v-bind="getEditableTitleProps('projects')"
+          @start-edit-title="startEditSectionName('projects', false)"
+          @finish-edit-title="finishEditSectionName('projects', false)"
+          @cancel-edit-title="cancelEditSectionName"
+          @update-editing-value="editingSection.tempName = $event"
+          :headerSize="state.sectionHeaderSizes.projects || 'h2'"
+          @header-size-change="state.sectionHeaderSizes.projects = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('projects')"
@@ -561,7 +789,7 @@ const areaCerts = areaModel('certs');
 
       <!-- Skills -->
       <SectionList
-          :title="t('skillsTitle')"
+          :title="getSectionDisplayName('skills')"
           :lang="langRef"
           sectionKey="skills"
           v-model="state.skills"
@@ -571,7 +799,14 @@ const areaCerts = areaModel('certs');
           ]"
           :disabled="isHidden('skills')"
           @toggle-section="toggleDisabled('skills')"
-          :addLabel="t('addSkillType')"
+          :addLabel="t('add')"
+          v-bind="getEditableTitleProps('skills')"
+          @start-edit-title="startEditSectionName('skills', false)"
+          @finish-edit-title="finishEditSectionName('skills', false)"
+          @cancel-edit-title="cancelEditSectionName"
+          @update-editing-value="editingSection.tempName = $event"
+          :headerSize="state.sectionHeaderSizes.skills || 'h2'"
+          @header-size-change="state.sectionHeaderSizes.skills = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('skills')"
@@ -592,7 +827,7 @@ const areaCerts = areaModel('certs');
 
       <!-- Languages: CEFR -->
       <SectionList
-          :title="t('languagesTitle')"
+          :title="getSectionDisplayName('languages')"
           :lang="langRef"
           sectionKey="languages"
           v-model="state.languages"
@@ -600,9 +835,16 @@ const areaCerts = areaModel('certs');
             {label:t('languageName'), key:'name', type:'text', placeholder:t('german')},
             {label:t('level'), key:'level', type:'select', options: [(langRef==='de'?'nativ':'native'),'C2','C1','B2','B1','A2','A1']}
           ]"
-          :addLabel="t('addLanguage')"
+          :addLabel="t('add')"
           :disabled="isHidden('languages')"
           @toggle-section="toggleDisabled('languages')"
+          v-bind="getEditableTitleProps('languages')"
+          @start-edit-title="startEditSectionName('languages', false)"
+          @finish-edit-title="finishEditSectionName('languages', false)"
+          @cancel-edit-title="cancelEditSectionName"
+          @update-editing-value="editingSection.tempName = $event"
+          :headerSize="state.sectionHeaderSizes.languages || 'h2'"
+          @header-size-change="state.sectionHeaderSizes.languages = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('languages')"
@@ -623,7 +865,7 @@ const areaCerts = areaModel('certs');
 
       <!-- Hobbies -->
       <SectionList
-          :title="t('hobbiesTitle')"
+          :title="getSectionDisplayName('hobbies')"
           :lang="langRef"
           sectionKey="hobbies"
           v-model="state.hobbies"
@@ -631,9 +873,16 @@ const areaCerts = areaModel('certs');
             {label: 'Hobby',   key:'name',    type:'text', placeholder:'Music Production'},
             {label: 'Details', key:'details', type:'text', placeholder:'Genres, DAW, Releases \u2026'}
           ]"
-          :addLabel="(langRef==='de'?'Hobby hinzufügen':'Add hobby')"
+          :addLabel="t('add')"
           :disabled="isHidden('hobbies')"
           @toggle-section="toggleDisabled('hobbies')"
+          v-bind="getEditableTitleProps('hobbies')"
+          @start-edit-title="startEditSectionName('hobbies', false)"
+          @finish-edit-title="finishEditSectionName('hobbies', false)"
+          @cancel-edit-title="cancelEditSectionName"
+          @update-editing-value="editingSection.tempName = $event"
+          :headerSize="state.sectionHeaderSizes.hobbies || 'h2'"
+          @header-size-change="state.sectionHeaderSizes.hobbies = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('hobbies')"
@@ -654,7 +903,7 @@ const areaCerts = areaModel('certs');
 
       <!-- Certs -->
       <SectionList
-          :title="t('certsTitle')"
+          :title="getSectionDisplayName('certs')"
           :lang="langRef"
           sectionKey="certs"
           v-model="state.certs"
@@ -662,9 +911,16 @@ const areaCerts = areaModel('certs');
           {label:t('certificate'), key:'name', type:'text', placeholder:'AWS Solutions Architect'},
           {label:t('yearShort'),  key:'year', type:'text', placeholder:'2023'}
         ]"
-          :addLabel="t('addCert')"
+          :addLabel="t('add')"
           :disabled="isHidden('certs')"
           @toggle-section="toggleDisabled('certs')"
+          v-bind="getEditableTitleProps('certs')"
+          @start-edit-title="startEditSectionName('certs', false)"
+          @finish-edit-title="finishEditSectionName('certs', false)"
+          @cancel-edit-title="cancelEditSectionName"
+          @update-editing-value="editingSection.tempName = $event"
+          :headerSize="state.sectionHeaderSizes.certs || 'h2'"
+          @header-size-change="state.sectionHeaderSizes.certs = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('certs')"
@@ -683,37 +939,116 @@ const areaCerts = areaModel('certs');
         </template>
       </SectionList>
 
-      <!-- Custom -->
-      <SectionList
-          :title="t('customTitle')"
-          :lang="langRef"
-          sectionKey="custom"
-          v-model="state.custom"
-          :schema="[
-            {label:t('title'), key:'title', type:'text', placeholder:t('customSectionPH')},
-            {label:t('place'), key:'place', type:'text', placeholder:'Berlin'},
-            {label:t('start'), key:'start', type:'text', placeholder:'04.2024'},
-            {label:t('end'),   key:'end', type:'text', placeholder:t('current')},
-            {label:t('bulletsLabel'), key:'bullets', type:'textarea', placeholder:'Achievement 1\\nAchievement 2\\n...'}
-          ]"
-          :addLabel="t('addEntry')"
-          :disabled="isHidden('custom')"
-          @toggle-section="toggleDisabled('custom')"
-          toggle-style="icon"
-      >
-        <template #controls>
-          <div v-if="isButtonMode" style="display:flex;align-items:center;gap:8px">
-            <select v-model="areaCustom">
-              <option value="body">Body</option>
-              <option value="sidebar">Sidebar</option>
-            </select>
-            <button class="mini" type="button" @click="moveUp('custom')">▲</button>
-            <button class="mini" type="button" @click="moveDown('custom')">▼</button>
-          </div>
-        </template>
-      </SectionList>
+      <!-- Custom Sections (dynamisch) -->
+      <template v-if="Array.isArray(state.customSections)">
+        <section
+          v-for="customSection in state.customSections"
+          :key="customSection.id"
+          class="section-group"
+          :data-section="customSection.id"
+          :class="{disabled: isHidden(customSection.id), dragging: isDragging(customSection.id)}"
+          :draggable="isDraggableMode"
+          @dragstart="isDraggableMode ? onDragStart(customSection.id, $event) : null"
+          @dragend="isDraggableMode ? onDragEnd : null"
+        >
+          <div class="section-head">
+            <button class="caret mini" type="button" @click="$event.target.closest('.section-group').classList.toggle('collapsed')">
+              <font-awesome-icon :icon="['fas', 'folder-open']" class="section-icon" aria-hidden="true" />
+            </button>
 
-      <div style="display:flex;justify-content:center">
+            <!-- Editable Label for Section Name -->
+            <h3
+              v-if="!isEditingSection(customSection.id)"
+              class="section-name-label"
+              @click="startEditSectionName(customSection, true)"
+              :title="langRef === 'de' ? 'Klicken zum Umbenennen' : 'Click to rename'"
+            >
+              {{ customSection.name }}
+            </h3>
+            <input
+              v-else
+              type="text"
+              v-model="editingSection.tempName"
+              class="section-name-input"
+              :placeholder="langRef === 'de' ? 'Neue Section' : 'New Section'"
+              @blur="finishEditSectionName(customSection, true)"
+              @keyup.enter="finishEditSectionName(customSection, true)"
+              @keyup.esc="cancelEditSectionName"
+            />
+            <button
+                class="mini btn--danger"
+                type="button"
+                @click="deleteCustomSection(customSection.id)"
+                :title="langRef === 'de' ? 'Section löschen' : 'Delete section'"
+            >
+              <font-awesome-icon :icon="['fas', 'trash']" />
+            </button>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              <select v-model="state.sectionHeaderSizes[customSection.id]" class="header-size-select">
+                <option value="h2">H2</option>
+                <option value="h3">H3</option>
+                <option value="h4">H4</option>
+                <option value="null">{{ langRef === 'de' ? 'Kein Titel' : 'No Title' }}</option>
+              </select>
+              <div v-if="isButtonMode" style="display:flex;align-items:center;gap:8px">
+                <select :value="currentArea(customSection.id)" @change="setArea(customSection.id, $event.target.value)">
+                  <option value="body">Body</option>
+                  <option value="sidebar">Sidebar</option>
+                </select>
+                <button class="mini" type="button" @click="moveUp(customSection.id)">▲</button>
+                <button class="mini" type="button" @click="moveDown(customSection.id)">▼</button>
+              </div>
+              <button type="button" class="mini btn--success" @click="customSection.entries.push({title:'', place:'', start:'', end:'', desc:''})">
+                {{ t('add') }}
+              </button>
+              <button
+                class="mini"
+                :class="[isHidden(customSection.id) ? 'btn--success' : 'btn--danger']"
+                type="button"
+                @click="toggleDisabled(customSection.id)"
+              >
+                {{ isHidden(customSection.id) ? t('show') : t('hide') }}
+              </button>
+            </div>
+          </div>
+
+          <div class="items">
+            <div class="item-row" v-for="(entry, idx) in customSection.entries" :key="idx">
+              <div class="row row-3">
+                <label>
+                  {{ t('title') }}
+                  <input type="text" v-model="entry.title" :placeholder="t('customSectionPH')" />
+                </label>
+                <label>
+                  {{ t('place') }}
+                  <input type="text" v-model="entry.place" placeholder="Berlin" />
+                </label>
+                <label>
+                  {{ t('start') }}
+                  <input type="text" v-model="entry.start" placeholder="04.2024" />
+                </label>
+              </div>
+              <div class="row">
+                <label>
+                  {{ t('end') }}
+                  <input type="text" v-model="entry.end" :placeholder="t('current')" />
+                </label>
+              </div>
+              <label>
+                {{ t('desc') }}
+                <textarea v-model="entry.desc" :placeholder="langRef === 'de' ? 'Beschreibung...' : 'Description...'"></textarea>
+              </label>
+              <div>
+                <button type="button" class="mini btn--danger" @click="customSection.entries.splice(idx, 1)">
+                  {{ t('remove') }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </template>
+
+      <div style="display:flex;justify-content:center;margin-top:20px">
         <button type="button" class="btn btn--success" @click="addCustom">{{ t('newSection') }}</button>
       </div>
     </div>
@@ -731,6 +1066,67 @@ const areaCerts = areaModel('certs');
   padding: 4px 7px;
   border: 1px solid #134e4a;
   color: #9be8c7;
+}
+
+.section-name-label {
+  color: #9be8c7;
+  padding: 4px 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+  cursor: pointer;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.section-name-label:hover {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: #134e4a;
+}
+
+.section-name-input {
+  background: transparent;
+  border: 1px solid #134e4a;
+  color: #9be8c7;
+  padding: 4px 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 4px;
+  min-width: 200px;
+  transition: all 0.2s ease;
+  width: 30%;
+}
+
+.section-name-input:hover {
+  border-color: #10b981;
+}
+
+.section-name-input:focus {
+  outline: none;
+  border-color: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
+}
+
+.header-size-select {
+  padding: 4px 8px;
+  border: 1px solid #134e4a;
+  background: #061017;
+  color: #9be8c7;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.header-size-select:hover {
+  border-color: #10b981;
+}
+
+.header-size-select:focus {
+  outline: none;
+  border-color: #10b981;
 }
 
 /* Drag & Drop styles */

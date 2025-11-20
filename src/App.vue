@@ -29,13 +29,15 @@ const state = reactive({
   languages: [],
   certs: [],
   hobbies: [ { name: 'Musik', details: '' } ],
-  custom: [],
+  customSections: [],
+  sectionNames: {}, // Alternative Namen für Sections
+  sectionHeaderSizes: {}, // Header-Größen für Sections (h2, h3, h4, null)
   softSkills: [
     {label:'Anpassungsfähigkeit', desc:'', refs:[]},
     {label:'Kritisches Denken', desc:'', refs:[]},
     {label:'Kreative Problemlösung', desc:'', refs:[]},
   ],
-  orderMain: ['about','education','jobs','addExp','projects','custom'],
+  orderMain: ['about','education','jobs','addExp','projects'],
   orderSide: ['skills','languages','hobbies','certs'],
 });
 
@@ -51,6 +53,8 @@ let bc;
 /* Saving (debounced) */
 const saveDebounced = debounce(()=>{
   const data = JSON.parse(JSON.stringify(state));
+  console.log('💾 [App] Saving data to localStorage');
+  console.log('   sectionNames:', data.sectionNames);
   saveLocal(data);
   status.value=t('saved');
   try{ bc?.postMessage({ type:'update', data }); }catch{}
@@ -63,6 +67,23 @@ onMounted(async ()=>{
   const cached = loadLocal();
   if (cached){
     Object.assign(state, { ...state, ...cached });
+    // Migrate old custom array to customSections
+    if(Array.isArray(cached.custom) && cached.custom.length > 0 && !Array.isArray(cached.customSections)) {
+      state.customSections = [{
+        id: `custom_${Date.now()}`,
+        name: lang.value === 'de' ? 'Eigene Section' : 'Custom Section',
+        entries: cached.custom
+      }];
+      // Add to orderMain if not present
+      if(!state.orderMain.includes('custom')) {
+        state.orderMain = state.orderMain.filter(k => k !== 'custom');
+        state.orderMain.push(state.customSections[0].id);
+      } else {
+        const idx = state.orderMain.indexOf('custom');
+        state.orderMain[idx] = state.customSections[0].id;
+      }
+      saveDebounced();
+    }
     status.value=t('loadedLast');
   } else {
     const mode = getBackupMode();

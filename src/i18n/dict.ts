@@ -18,6 +18,7 @@ export const dict = {
     load:               {de: 'Laden', en: 'Load'},
     save:               {de: 'Speichern', en: 'Save'},
     newSection:         {de: 'Neue Sektion', en: 'New section'},
+    add:                {de: 'Hinzufügen', en: 'Add'},
     addEntry:           {de: 'Eintrag hinzufügen', en: 'Add entry'},
     entryCSV:           {de: 'Einträge (komma-getrennt)', en: 'Entries (comma-separated)'},
     addLanguage:        {de: 'Sprache hinzufügen', en: 'Add language'},
