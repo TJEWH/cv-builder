@@ -2,18 +2,11 @@
 import { computed, watch } from 'vue';
 import { makeT } from '../i18n/dict.js';
 
-const props = defineProps({
-  state: { type: Object, required: true }
-});
-
-const langRef = computed({
-  get: ()=> props.state.lang || 'de',
-  set: v  => (props.state.lang = v)
-});
+const props = defineProps({ state: { type: Object, required: true } });
+const langRef = computed({ get: ()=> props.state.lang || 'de', set: v => (props.state.lang = v) });
 const t = makeT(langRef);
 
 const isDisabled = (k) => props.state.disabled.includes(k);
-
 const hasAny = (arr)=> Array.isArray(arr) && arr.length>0;
 const hasText = (s)=> !!(s && String(s).trim());
 
@@ -22,37 +15,35 @@ const defaultMain = ['about','education','jobs','addExp','projects','custom'];
 const defaultSide = ['skills','languages','hobbies','certs'];
 
 const blocksMain = computed(()=>{
-  // prefer explicit orderMain if provided
   const base = Array.isArray(props.state.orderMain) && props.state.orderMain.length ? props.state.orderMain.slice() : defaultMain.slice();
-  // also respect explicit sectionPlacement entries (ensure any key assigned to 'body' is present)
   const placement = props.state.sectionPlacement || {};
-  Object.keys(placement).forEach(k=>{
-    if(placement[k]==='body' && !base.includes(k)) base.push(k);
-  });
-  // remove keys that are explicitly placed in sidebar or present in orderSide
+  Object.keys(placement).forEach(k=>{ if(placement[k]==='body' && !base.includes(k)) base.push(k); });
   const sideKeys = new Set(Array.isArray(props.state.orderSide) ? props.state.orderSide : []);
-  Object.keys(placement).forEach(k=>{ if(placement[k]==='sidebar') sideKeys.add(k); });
-  // filter out sideKeys
-  const filtered = base.filter(k => !sideKeys.has(k));
-  return Array.from(new Set(filtered));
+  Object.keys(placement).forEach(k=>{ if(placement[k]==='sidebar') sideKeys.add(k); if(placement[k]==='body') sideKeys.delete(k); });
+  // allow skills in both areas
+  return Array.from(new Set(base.filter(k => (k==='skills') ? true : !sideKeys.has(k))));
 });
 
 const blocksSide = computed(()=>{
   const base = Array.isArray(props.state.orderSide) && props.state.orderSide.length ? props.state.orderSide.slice() : defaultSide.slice();
   const placement = props.state.sectionPlacement || {};
-  Object.keys(placement).forEach(k=>{
-    if(placement[k]==='sidebar' && !base.includes(k)) base.push(k);
-  });
-  // remove keys that are explicitly placed in body or present in orderMain
+  Object.keys(placement).forEach(k=>{ if(placement[k]==='sidebar' && !base.includes(k)) base.push(k); });
   const mainKeys = new Set(Array.isArray(props.state.orderMain) ? props.state.orderMain : []);
-  Object.keys(placement).forEach(k=>{ if(placement[k]==='body') mainKeys.add(k); });
-  const filtered = base.filter(k => !mainKeys.has(k));
-  return Array.from(new Set(filtered));
+  Object.keys(placement).forEach(k=>{ if(placement[k]==='body') mainKeys.add(k); if(placement[k]==='sidebar') mainKeys.delete(k); });
+  return Array.from(new Set(base.filter(k => (k==='skills') ? true : !mainKeys.has(k))));
 });
 
-const showExperience = computed(()=>{
-  const a = props.state.experience;
-  return (!isDisabled('exp-job') && hasAny(a.job)) || (!isDisabled('exp-personal') && hasAny(a.personal));
+const showJobs = computed(()=> {
+  const a = props.state.experience || {};
+  return (!isDisabled('jobs') && hasAny(a.jobs));
+});
+const showAddExp = computed(()=> {
+  const a = props.state.experience || {};
+  return (!isDisabled('addExp') && hasAny(a.addExp));
+});
+const showProjects = computed(()=> {
+  const a = props.state.experience || {};
+  return (!isDisabled('projects') && hasAny(a.projects));
 });
 
 function formatMeta({ start, end, place }){
@@ -65,15 +56,16 @@ function formatMeta({ start, end, place }){
 
 // Centralized visibility check used by template
 const isHiddenFor = (key) => {
-  if(key==='about') return isDisabled('about') || !hasText(props.state.about?.text);
-  if(key==='experience') return !showExperience.value;
-  if(key==='education') return isDisabled('education') || !hasAny(props.state.education);
-  if(key==='projects') return isDisabled('projects') || !hasAny(props.state.projects);
-  if(key==='custom') return !hasAny(props.state.custom);
-  if(key==='skills') return isDisabled('skills') || !hasAny(props.state.skills);
-  if(key==='languages') return isDisabled('languages') || !hasAny(props.state.languages);
-  if(key==='certs') return isDisabled('certs') || !hasAny(props.state.certs);
-  if(key==='hobbies') return isDisabled('hobbies') || !hasAny(props.state.hobbies);
+  if(key==='about')           return isDisabled('about') || !hasText(props.state.about?.text);
+  if(key==='education')       return isDisabled('education') || !hasAny(props.state.education);
+  if(key==='jobs')            return !showJobs.value;
+  if(key==='addExp')          return !showAddExp.value;
+  if(key==='projects')        return !showProjects.value;
+  if(key==='custom')          return isDisabled('custom') || !hasAny(props.state.custom);
+  if(key==='skills')          return isDisabled('skills') || !hasAny(props.state.skills);
+  if(key==='languages')       return isDisabled('languages') || !hasAny(props.state.languages);
+  if(key==='certs')           return isDisabled('certs') || !hasAny(props.state.certs);
+  if(key==='hobbies')         return isDisabled('hobbies') || !hasAny(props.state.hobbies);
   return false;
 };
 
@@ -82,7 +74,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
   try{
     console.debug('[CvPreview] blocksMain=', bm, 'blocksSide=', bs, 'sectionPlacement=', sp);
     console.debug('[CvPreview] visibleMain=', bm.filter(k=>!isHiddenFor(k)), 'visibleSide=', bs.filter(k=>!isHiddenFor(k)));
-  }catch(e){/* ignore */}
+  }catch(e){}
 },{deep:true, immediate:true});
 </script>
 
@@ -115,10 +107,8 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
           </template>
 
           <!-- EXPERIENCE -->
-          <template v-else-if="key==='experience'">
+          <template v-else-if="key==='jobs'">
             <h2>{{ t('expJobTitle') }}</h2>
-
-            <h3 class="small">{{ t('experienceH3Job') }}</h3>
             <div class="timeline" id="cv_exp_job">
               <article class="item" v-for="(it,idx) in state.experience.jobs" :key="idx">
                 <div class="item-header">
@@ -130,10 +120,12 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
                 </ul>
               </article>
             </div>
+          </template>
 
-            <h3 class="small" v-if="hasAny(state.experience.personal)">{{ t('experienceH3Personal') }}</h3>
+          <template v-else-if="key==='addExp'">
+            <h2>{{ t('subHeaderAddXP') }}</h2>
             <div id="cv_exp_personal" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4mm">
-              <article class="item" v-for="(it,idx) in state.experience.personal" :key="idx" style="border:1px solid var(--border);border-radius:6px;padding:6px">
+              <article class="item" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx" style="border:1px solid var(--border);border-radius:6px;padding:6px">
                 <div class="item-header">
                   <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
                   <div class="item-meta">{{ formatMeta(it) }}</div>
@@ -192,11 +184,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
             <div v-for="(grp,i) in state.skills" :key="i" style="margin-top:4mm">
               <h3 class="small">{{ grp.title }}</h3>
               <div class="tags">
-                <span
-                    v-for="(tg,ti) in (String(grp.tags||'').split(',').map(x=>x.trim()).filter(Boolean))"
-                    :key="ti"
-                    class="tag"
-                >{{ tg }}</span>
+                <span v-for="(tg,ti) in (String(grp.tags||'').split(',').map(x=>x.trim()).filter(Boolean))" :key="ti" class="tag">{{ tg }}</span>
               </div>
             </div>
           </template>
@@ -207,7 +195,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
             <ul class="lang-list">
               <li v-for="(l,i) in state.languages" :key="i">
                 <strong>{{ l.name }}</strong>
-                <span>\u2014 {{ l.level }}</span>
+                <span>- {{ l.level }}</span>
               </li>
             </ul>
           </template>
@@ -224,7 +212,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
             <ul class="lang-list">
               <li v-for="(h,i) in state.hobbies" :key="i">
                 <strong>{{ h.name }}</strong>
-                <span v-if="h.details"> \u2014 {{ h.details }}</span>
+                <span v-if="h.details"> - {{ h.details }}</span>
               </li>
             </ul>
           </template>
@@ -232,29 +220,20 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
         </section>
       </div>
 
-      <!-- Sidebar -->
       <aside class="sidebar" id="cv_side" :style="{background:'var(--sidebar-bg)', padding:'6mm', borderRadius:'10px'}">
-        <section v-for="key in blocksSide" :key="key" class="section cv-block"
-                 :class="{'is-hidden':
-                   (key==='skills'    && (isDisabled('skills'))) ||
-                   (key==='languages' && (isDisabled('languages') || !Array.isArray(state.languages) || !state.languages.length)) ||
-                   (key==='certs'     && (isDisabled('certs')     || !Array.isArray(state.certs)     || !state.certs.length)) ||
-                   (key==='hobbies'   && (isDisabled('hobbies')   || !Array.isArray(state.hobbies)   || !state.hobbies.length))
-                 }">
+        <section v-for="key in blocksSide" :key="key" class="section cv-block" :class="{'is-hidden': isHiddenFor(key) }">
 
-          <!-- Allow main-section keys in sidebar too -->
           <template v-if="key==='about'">
             <h2>{{ t('aboutTitle') }}</h2>
             <p>{{ state.about.text }}</p>
           </template>
 
-          <template v-else-if="key==='experience'">
+          <template v-else-if="key==='jobs'">
             <h2>{{ t('expJobTitle') }}</h2>
-            <h3 class="small">{{ t('experienceH3Job') }}</h3>
             <div class="timeline" id="cv_exp_job">
               <article class="item" v-for="(it,idx) in state.experience.jobs" :key="idx">
                 <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} \u2013 <span class='item-sub'>${it.company||''}</span>`"></div>
+                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.company||''}</span>`"></div>
                   <div class="item-meta">{{ formatMeta(it) }}</div>
                 </div>
               </article>
@@ -266,7 +245,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
             <div>
               <article class="item" v-for="(it, idx) in state.education" :key="idx">
                 <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} \u2013 <span class='item-sub'>${it.sub||''}</span>`"></div>
+                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
                   <div class="item-meta">{{ formatMeta(it) }}</div>
                 </div>
               </article>
@@ -301,11 +280,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
             <div v-for="(grp,i) in state.skills" :key="i" style="margin-top:4mm">
               <h3 class="small">{{ grp.title }}</h3>
               <div class="tags">
-                <span
-                    v-for="(tg,ti) in (String(grp.tags||'').split(',').map(x=>x.trim()).filter(Boolean))"
-                    :key="ti"
-                    class="tag"
-                >{{ tg }}</span>
+                <span v-for="(tg,ti) in (String(grp.tags||'').split(',').map(x=>x.trim()).filter(Boolean))" :key="ti" class="tag">{{ tg }}</span>
               </div>
             </div>
           </template>

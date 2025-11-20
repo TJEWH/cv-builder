@@ -129,8 +129,8 @@ export const dict = {
     entrepreneurship:       { de:'Entrepreneurship', en:'Entrepreneurship' },
 
     // Preview section headings (if you want different wording)
-    experienceH3Job:        { de:'Berufserfahrung', en:'Professional Experience' },
-    experienceH3Personal:   { de:'Weitere Erfahrung', en:'Personal Experience' },
+    subHeaderJobXP:         { de:'Berufserfahrung', en:'Professional Experience' },
+    subHeaderAddXP:         { de:'Weitere Erfahrung', en:'Personal Experience' },
 
     includeAddExp:     { de:'Erfahrung einbinden', en:'include Experience' },
     includeProjects:        { de:'Projekte einbinden', en:'include Projects' },

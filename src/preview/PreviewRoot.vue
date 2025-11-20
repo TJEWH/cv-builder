@@ -21,8 +21,6 @@ const state = reactive({
   softSkills: [],
   orderMain: ['about','education','jobs','addExp','projects','custom'],
   orderSide: ['skills','languages','hobbies','certs'],
-  includeAddExp: false,
-  includeProjects: false
 });
 
 function ensureFontLink(id, family){
@@ -57,12 +55,8 @@ function applyDesign(){
 function mergeIn(data){
   if(!data) return;
   Object.assign(state, data);
-  state.skills = { ...state.skills, ...(data.skills||{}) };
-  state.experience = {
-    jobs: Array.isArray(data?.experience?.jobs) ? data.experience.jobs : [],
-    addExp: Array.isArray(data?.experience?.addExp) ? data.experience.addExp : [],
-    projects: Array.isArray(data?.experience?.projects) ? data.experience.projects : []
-  };
+  state.experience = state.experience || { jobs:[], addExp:[], projects:[] };
+  state.skills = data.skills ?? state.skills ?? [];
   applyDesign();
 }
 

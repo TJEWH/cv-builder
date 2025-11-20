@@ -19,4 +19,3 @@ export default {
     'softSkills': 'hands-helping',
     'design': 'palette',
 };
-

@@ -42,8 +42,6 @@ const state = reactive({
   ],
   orderMain: ['about','education','jobs','addExp','projects','custom'],
   orderSide: ['skills','languages','hobbies','certs'],
-  includeAddExp: false,
-  includeProjects: false,
 });
 
 const lang = computed({

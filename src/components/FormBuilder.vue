@@ -276,10 +276,6 @@ const areaCerts = areaModel('certs');
               <button class="mini" type="button" @click="moveUp('jobs')">▲</button>
               <button class="mini" type="button" @click="moveDown('jobs')">▼</button>
             </div>
-            <div class="include-checkboxes" style="display:flex;align-items:center;gap:8px;margin-left:12px">
-              <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" v-model="state.includeProjects" @change="props.onSave?.()"/> {{ t('includeProjects') }}</label>
-              <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" v-model="state.includeAddExp" @change="props.onSave?.()"/> {{ t('includeAddExp') }}</label>
-            </div>
           </template>
         </SectionList>
 
@@ -518,6 +514,4 @@ const areaCerts = areaModel('certs');
 .caret{ display:inline-flex; align-items:center; justify-content:center; width:34px; height:26px; padding:0; }
 .caret .section-icon{ margin:0; }
 .section-controls select{ padding:4px 6px; }
-
-.include-checkboxes {}
 </style>
