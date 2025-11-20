@@ -19,6 +19,7 @@ const state = reactive({
   hobbies: [],
   customSections: [],
   sectionNames: {},
+  sectionHeaderSizes: {},
   softSkills: [],
   orderMain: ['about','education','jobs','addExp','projects'],
   orderSide: ['skills','languages','hobbies','certs'],

@@ -600,6 +600,12 @@ const areaCerts = areaModel('certs');
           />
 
           <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+            <select v-model="state.sectionHeaderSizes.about" class="header-size-select">
+              <option value="h2">H2</option>
+              <option value="h3">H3</option>
+              <option value="h4">H4</option>
+              <option value="null">{{ langRef === 'de' ? 'Kein Titel' : 'No Title' }}</option>
+            </select>
             <select v-if="isButtonMode" v-model="areaAbout">
               <option value="body">Body</option>
               <option value="sidebar">Sidebar</option>
@@ -636,6 +642,8 @@ const areaCerts = areaModel('certs');
           @finish-edit-title="finishEditSectionName('education', false)"
           @cancel-edit-title="cancelEditSectionName"
           @update-editing-value="editingSection.tempName = $event"
+          :headerSize="state.sectionHeaderSizes.education || 'h2'"
+          @header-size-change="state.sectionHeaderSizes.education = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('education')"
@@ -676,6 +684,8 @@ const areaCerts = areaModel('certs');
           @finish-edit-title="finishEditSectionName('jobs', false)"
           @cancel-edit-title="cancelEditSectionName"
           @update-editing-value="editingSection.tempName = $event"
+          :headerSize="state.sectionHeaderSizes.jobs || 'h2'"
+          @header-size-change="state.sectionHeaderSizes.jobs = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('jobs')"
@@ -716,6 +726,8 @@ const areaCerts = areaModel('certs');
           @finish-edit-title="finishEditSectionName('addExp', false)"
           @cancel-edit-title="cancelEditSectionName"
           @update-editing-value="editingSection.tempName = $event"
+          :headerSize="state.sectionHeaderSizes.addExp || 'h2'"
+          @header-size-change="state.sectionHeaderSizes.addExp = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('addExp')"
@@ -755,6 +767,8 @@ const areaCerts = areaModel('certs');
           @finish-edit-title="finishEditSectionName('projects', false)"
           @cancel-edit-title="cancelEditSectionName"
           @update-editing-value="editingSection.tempName = $event"
+          :headerSize="state.sectionHeaderSizes.projects || 'h2'"
+          @header-size-change="state.sectionHeaderSizes.projects = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('projects')"
@@ -791,6 +805,8 @@ const areaCerts = areaModel('certs');
           @finish-edit-title="finishEditSectionName('skills', false)"
           @cancel-edit-title="cancelEditSectionName"
           @update-editing-value="editingSection.tempName = $event"
+          :headerSize="state.sectionHeaderSizes.skills || 'h2'"
+          @header-size-change="state.sectionHeaderSizes.skills = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('skills')"
@@ -827,6 +843,8 @@ const areaCerts = areaModel('certs');
           @finish-edit-title="finishEditSectionName('languages', false)"
           @cancel-edit-title="cancelEditSectionName"
           @update-editing-value="editingSection.tempName = $event"
+          :headerSize="state.sectionHeaderSizes.languages || 'h2'"
+          @header-size-change="state.sectionHeaderSizes.languages = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('languages')"
@@ -863,6 +881,8 @@ const areaCerts = areaModel('certs');
           @finish-edit-title="finishEditSectionName('hobbies', false)"
           @cancel-edit-title="cancelEditSectionName"
           @update-editing-value="editingSection.tempName = $event"
+          :headerSize="state.sectionHeaderSizes.hobbies || 'h2'"
+          @header-size-change="state.sectionHeaderSizes.hobbies = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('hobbies')"
@@ -899,6 +919,8 @@ const areaCerts = areaModel('certs');
           @finish-edit-title="finishEditSectionName('certs', false)"
           @cancel-edit-title="cancelEditSectionName"
           @update-editing-value="editingSection.tempName = $event"
+          :headerSize="state.sectionHeaderSizes.certs || 'h2'"
+          @header-size-change="state.sectionHeaderSizes.certs = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('certs')"
@@ -962,6 +984,12 @@ const areaCerts = areaModel('certs');
               <font-awesome-icon :icon="['fas', 'trash']" />
             </button>
             <div style="margin-left:auto;display:flex;gap:6px">
+              <select v-model="state.sectionHeaderSizes[customSection.id]" class="header-size-select">
+                <option value="h2">H2</option>
+                <option value="h3">H3</option>
+                <option value="h4">H4</option>
+                <option value="null">{{ langRef === 'de' ? 'Kein Titel' : 'No Title' }}</option>
+              </select>
               <div v-if="isButtonMode" style="display:flex;align-items:center;gap:8px">
                 <select :value="currentArea(customSection.id)" @change="setArea(customSection.id, $event.target.value)">
                   <option value="body">Body</option>
@@ -1079,6 +1107,26 @@ const areaCerts = areaModel('certs');
   outline: none;
   border-color: #10b981;
   box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
+}
+
+.header-size-select {
+  padding: 4px 8px;
+  border: 1px solid #134e4a;
+  background: #061017;
+  color: #9be8c7;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.header-size-select:hover {
+  border-color: #10b981;
+}
+
+.header-size-select:focus {
+  outline: none;
+  border-color: #10b981;
 }
 
 /* Drag & Drop styles */

@@ -18,7 +18,8 @@ const props = defineProps({
   editableTitle: { type: Boolean, default: false },
   isEditingTitle: { type: Boolean, default: false },
   editingTitleValue: { type: String, default: '' },
-  titlePlaceholder: { type: String, default: '' }
+  titlePlaceholder: { type: String, default: '' },
+  headerSize: { type: String, default: 'h2' }
 });
 
 const langRef = computed({
@@ -27,7 +28,7 @@ const langRef = computed({
 const t = makeT(langRef);
 
 // declare emits so Vue doesn't warn when we $emit('toggle-section')
-const emit = defineEmits(['update:modelValue','toggle-section','dragstart','dragend','start-edit-title','finish-edit-title','cancel-edit-title','update-editing-value']);
+const emit = defineEmits(['update:modelValue','toggle-section','dragstart','dragend','start-edit-title','finish-edit-title','cancel-edit-title','update-editing-value','header-size-change']);
 
 const items = defineModel({ default: [] });
 
@@ -92,6 +93,12 @@ const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
       <h3 v-else>{{ title }}</h3>
 
       <div style="margin-left:auto;display:flex;gap:6px">
+        <select :value="headerSize" @change="emit('header-size-change', $event.target.value)" class="header-size-select">
+          <option value="h2">H2</option>
+          <option value="h3">H3</option>
+          <option value="h4">H4</option>
+          <option value="null">{{ langRef === 'de' ? 'Kein Titel' : 'No Title' }}</option>
+        </select>
         <slot name="controls"></slot>
         <button v-if="addLabel" type="button" class="mini btn--success" @click="add">{{ addLabel }}</button>
         <button v-if="toggleable" class="mini" :class="[disabled?'btn--success':'btn--danger']" type="button" @click="$emit('toggle-section')">
@@ -186,5 +193,25 @@ const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
   outline: none;
   border-color: #10b981;
   box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
+}
+
+.header-size-select {
+  padding: 4px 8px;
+  border: 1px solid #134e4a;
+  background: #061017;
+  color: #9be8c7;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.header-size-select:hover {
+  border-color: #10b981;
+}
+
+.header-size-select:focus {
+  outline: none;
+  border-color: #10b981;
 }
 </style>

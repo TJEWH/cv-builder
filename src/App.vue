@@ -31,6 +31,7 @@ const state = reactive({
   hobbies: [ { name: 'Musik', details: '' } ],
   customSections: [],
   sectionNames: {}, // Alternative Namen für Sections
+  sectionHeaderSizes: {}, // Header-Größen für Sections (h2, h3, h4, null)
   softSkills: [
     {label:'Anpassungsfähigkeit', desc:'', refs:[]},
     {label:'Kritisches Denken', desc:'', refs:[]},

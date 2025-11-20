@@ -89,6 +89,16 @@ const getCustomSection = (id) => {
   return props.state.customSections.find(cs => cs.id === id);
 };
 
+// Get header size for section (h2, h3, h4, or null to hide)
+const getSectionHeaderSize = (key) => {
+  return props.state.sectionHeaderSizes?.[key] || 'h2';
+};
+
+// Check if section header should be hidden
+const isSectionHeaderHidden = (key) => {
+  return props.state.sectionHeaderSizes?.[key] === 'null';
+};
+
 // Get display name for section (with custom names if set)
 const getSectionDisplayName = (key) => {
   // Check if there's a custom name set
@@ -165,13 +175,17 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
 
           <!-- ABOUT -->
           <template v-if="key==='about'">
-            <h2>{{ getSectionDisplayName('about') }}</h2>
+            <component :is="getSectionHeaderSize('about')" v-if="!isSectionHeaderHidden('about')">
+              {{ getSectionDisplayName('about') }}
+            </component>
             <p>{{ state.about.text }}</p>
           </template>
 
           <!-- EXPERIENCE -->
           <template v-else-if="key==='jobs'">
-            <h2>{{ getSectionDisplayName('jobs') }}</h2>
+            <component :is="getSectionHeaderSize('jobs')" v-if="!isSectionHeaderHidden('jobs')">
+              {{ getSectionDisplayName('jobs') }}
+            </component>
             <div class="timeline" id="cv_exp_job">
               <article class="item" v-for="(it,idx) in state.experience.jobs" :key="idx">
                 <div class="item-header">
@@ -186,7 +200,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
           </template>
 
           <template v-else-if="key==='addExp'">
-            <h2>{{ getSectionDisplayName('addExp') }}</h2>
+            <component :is="getSectionHeaderSize('addExp')" v-if="!isSectionHeaderHidden('addExp')">
+              {{ getSectionDisplayName('addExp') }}
+            </component>
             <div id="cv_exp_personal" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4mm">
               <article class="item" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx" style="border:1px solid var(--border);border-radius:6px;padding:6px">
                 <div class="item-header">
@@ -200,7 +216,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
 
           <!-- EDUCATION -->
           <template v-else-if="key==='education'">
-            <h2>{{ getSectionDisplayName('education') }}</h2>
+            <component :is="getSectionHeaderSize('education')" v-if="!isSectionHeaderHidden('education')">
+              {{ getSectionDisplayName('education') }}
+            </component>
             <div>
               <article class="item" v-for="(it, idx) in state.education" :key="idx">
                 <div class="item-header">
@@ -214,7 +232,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
 
           <!-- PROJECTS -->
           <template v-else-if="key==='projects'">
-            <h2>{{ getSectionDisplayName('projects') }}</h2>
+            <component :is="getSectionHeaderSize('projects')" v-if="!isSectionHeaderHidden('projects')">
+              {{ getSectionDisplayName('projects') }}
+            </component>
             <div>
               <article class="item" v-for="(it, idx) in state.experience.projects" :key="idx">
                 <div class="item-header">
@@ -228,7 +248,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
 
           <!-- CUSTOM SECTIONS (dynamisch) -->
           <template v-else-if="getCustomSection(key)">
-            <h2>{{ getCustomSection(key).name }}</h2>
+            <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">
+              {{ getSectionDisplayName(key) }}
+            </component>
             <div>
               <article class="item" v-for="(entry, idx) in getCustomSection(key).entries" :key="idx">
                 <div class="item-header">
@@ -242,7 +264,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
 
           <!-- SKILLS (wenn im Main) -->
           <template v-else-if="key==='skills'">
-            <h2>{{ getSectionDisplayName('skills') }}</h2>
+            <component :is="getSectionHeaderSize('skills')" v-if="!isSectionHeaderHidden('skills')">
+              {{ getSectionDisplayName('skills') }}
+            </component>
             <div v-for="(grp,i) in state.skills" :key="i" style="margin-top:4mm">
               <h3 class="small">{{ grp.title }}</h3>
               <div class="tags">
@@ -253,7 +277,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
 
           <!-- LANGUAGES (wenn im Main) -->
           <template v-else-if="key==='languages'">
-            <h2>{{ getSectionDisplayName('languages') }}</h2>
+            <component :is="getSectionHeaderSize('languages')" v-if="!isSectionHeaderHidden('languages')">
+              {{ getSectionDisplayName('languages') }}
+            </component>
             <ul class="lang-list">
               <li v-for="(l,i) in state.languages" :key="i">
                 <strong>{{ l.name }}</strong>
@@ -264,13 +290,17 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
 
           <!-- CERTS (wenn im Main) -->
           <template v-else-if="key==='certs'">
-            <h2>{{ getSectionDisplayName('certs') }}</h2>
+            <component :is="getSectionHeaderSize('certs')" v-if="!isSectionHeaderHidden('certs')">
+              {{ getSectionDisplayName('certs') }}
+            </component>
             <ul><li v-for="(c,i) in state.certs" :key="i">{{ [c.name,c.year].filter(Boolean).join(', ') }}</li></ul>
           </template>
 
           <!-- HOBBIES (wenn im Main) -->
           <template v-else-if="key==='hobbies'">
-            <h2>{{ getSectionDisplayName('hobbies') }}</h2>
+            <component :is="getSectionHeaderSize('hobbies')" v-if="!isSectionHeaderHidden('hobbies')">
+              {{ getSectionDisplayName('hobbies') }}
+            </component>
             <ul class="lang-list">
               <li v-for="(h,i) in state.hobbies" :key="i">
                 <strong>{{ h.name }}</strong>
@@ -286,12 +316,16 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
         <section v-for="key in blocksSide" :key="key" class="section cv-block" :class="{'is-hidden': isHiddenFor(key) }">
 
           <template v-if="key==='about'">
-            <h2>{{ getSectionDisplayName('about') }}</h2>
+            <component :is="getSectionHeaderSize('about')" v-if="!isSectionHeaderHidden('about')">
+              {{ getSectionDisplayName('about') }}
+            </component>
             <p>{{ state.about.text }}</p>
           </template>
 
           <template v-else-if="key==='jobs'">
-            <h2>{{ getSectionDisplayName('jobs') }}</h2>
+            <component :is="getSectionHeaderSize('jobs')" v-if="!isSectionHeaderHidden('jobs')">
+              {{ getSectionDisplayName('jobs') }}
+            </component>
             <div class="timeline" id="cv_exp_job">
               <article class="item" v-for="(it,idx) in state.experience.jobs" :key="idx">
                 <div class="item-header">
@@ -303,7 +337,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
           </template>
 
           <template v-else-if="key==='addExp'">
-            <h2>{{ getSectionDisplayName('addExp') }}</h2>
+            <component :is="getSectionHeaderSize('addExp')" v-if="!isSectionHeaderHidden('addExp')">
+              {{ getSectionDisplayName('addExp') }}
+            </component>
             <div>
               <article class="item" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx" style="margin-bottom:3mm">
                 <div class="item-header">
@@ -316,7 +352,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
           </template>
 
           <template v-else-if="key==='education'">
-            <h2>{{ getSectionDisplayName('education') }}</h2>
+            <component :is="getSectionHeaderSize('education')" v-if="!isSectionHeaderHidden('education')">
+              {{ getSectionDisplayName('education') }}
+            </component>
             <div>
               <article class="item" v-for="(it, idx) in state.education" :key="idx">
                 <div class="item-header">
@@ -328,7 +366,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
           </template>
 
           <template v-else-if="key==='projects'">
-            <h2>{{ getSectionDisplayName('projects') }}</h2>
+            <component :is="getSectionHeaderSize('projects')" v-if="!isSectionHeaderHidden('projects')">
+              {{ getSectionDisplayName('projects') }}
+            </component>
             <div>
               <article class="item" v-for="(it, idx) in state.experience.projects" :key="idx">
                 <div class="item-header">
@@ -340,7 +380,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
 
           <!-- CUSTOM SECTIONS (dynamisch) -->
           <template v-else-if="getCustomSection(key)">
-            <h2>{{ getCustomSection(key).name }}</h2>
+            <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">
+              {{ getSectionDisplayName(key) }}
+            </component>
             <div>
               <article class="item" v-for="(entry, idx) in getCustomSection(key).entries" :key="idx">
                 <div class="item-header">
@@ -354,7 +396,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
 
           <!-- SKILLS -->
           <template v-else-if="key==='skills'">
-            <h2>{{ getSectionDisplayName('skills') }}</h2>
+            <component :is="getSectionHeaderSize('skills')" v-if="!isSectionHeaderHidden('skills')">
+              {{ getSectionDisplayName('skills') }}
+            </component>
             <div v-for="(grp,i) in state.skills" :key="i" style="margin-top:4mm">
               <h3 class="small">{{ grp.title }}</h3>
               <div class="tags">
@@ -365,7 +409,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
 
           <!-- LANGUAGES (CEFR text) -->
           <template v-else-if="key==='languages'">
-            <h2>{{ getSectionDisplayName('languages') }}</h2>
+            <component :is="getSectionHeaderSize('languages')" v-if="!isSectionHeaderHidden('languages')">
+              {{ getSectionDisplayName('languages') }}
+            </component>
             <ul class="lang-list">
               <li v-for="(l,i) in state.languages" :key="i">
                 <strong>{{ l.name }}</strong>
@@ -376,13 +422,17 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
 
           <!-- CERTS -->
           <template v-else-if="key==='certs'">
-            <h2>{{ getSectionDisplayName('certs') }}</h2>
+            <component :is="getSectionHeaderSize('certs')" v-if="!isSectionHeaderHidden('certs')">
+              {{ getSectionDisplayName('certs') }}
+            </component>
             <ul><li v-for="(c,i) in state.certs" :key="i">{{ [c.name,c.year].filter(Boolean).join(', ') }}</li></ul>
           </template>
 
           <!-- HOBBIES -->
           <template v-else-if="key==='hobbies'">
-            <h2>{{ getSectionDisplayName('hobbies') }}</h2>
+            <component :is="getSectionHeaderSize('hobbies')" v-if="!isSectionHeaderHidden('hobbies')">
+              {{ getSectionDisplayName('hobbies') }}
+            </component>
             <ul class="lang-list">
               <li v-for="(h,i) in state.hobbies" :key="i">
                 <strong>{{ h.name }}</strong>
