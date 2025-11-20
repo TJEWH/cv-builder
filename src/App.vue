@@ -6,6 +6,8 @@ import FloatingPreview from './components/FloatingPreview.vue';
 import { makeT } from './i18n/dict';
 import ToolBar from "./components/ToolBar.vue";
 import BackupManager from "./components/BackupManager.vue";
+import DesignPanel from "./components/DesignPanel.vue";
+//import SoftSkills from "./components/SoftSkills.vue";
 
 const state = reactive({
   version: 1,
@@ -16,35 +18,25 @@ const state = reactive({
     ink:'#111827', accent:'#0f66d0', bg:'#ffffff', headerbg:'#CE9048', sidebarbg:'#CE9048',
     fontBody:'Inter', fontHead:'Inter', hstyle:'clean', radius:'10px',
   },
-  header: { name:'', location:'', role:'', email:'', phone:'', website:'', linkedin:'' },
+  contact: { name:'', location:'', role:'', email:'', phone:'', website:'', linkedin:'' },
   about: { text:'' },
-  experience: { job:[], personal:[] },
   education: [],
-  projects: [],
+  experience: { jobs:[], addExp:[], projects:[] },
   skills: [
     { title: 'Programmiersprachen',     tags: 'Python, TypeScript, Go' },
     { title: 'Frameworks',              tags: 'React, Docker, Kubernetes' },
-    { title: 'Methoden',                tags: '' },
   ],
   languages: [],
   certs: [],
-  hobbies: [
-    { name: 'Musik', details: '' }
-  ],
+  hobbies: [ { name: 'Musik', details: '' } ],
   custom: [],
-  softskills: [
-    {label:'Analytisches Denken', desc:'', refs:[]},
+  softSkills: [
     {label:'Anpassungsfähigkeit', desc:'', refs:[]},
     {label:'Kritisches Denken', desc:'', refs:[]},
     {label:'Kreative Problemlösung', desc:'', refs:[]},
-    {label:'Kommunikationsstärke', desc:'', refs:[]},
-    {label:'Emotionale Intelligenz', desc:'', refs:[]},
-    {label:'Teamfähigkeit', desc:'', refs:[]},
-    {label:'Digitale Kompetenz', desc:'', refs:[]},
-    {label:'Entrepreneurship', desc:'', refs:[]}
   ],
-  orderMain: ['about','experience','education','projects','custom'],
-  orderSide: ['skills','languages','certs','hobbies'],
+  orderMain: ['about','education','jobs','addExp','projects','custom'],
+  orderSide: ['skills','languages','hobbies','certs'],
 });
 
 const lang = computed({
@@ -94,12 +86,17 @@ onMounted(async ()=>{
 onBeforeUnmount(()=>{ try{ bc?.close(); }catch{} });
 
 const showPreview = ref(true);
+const sectionMovementMode = ref('drag'); // 'drag' or 'buttons'
 </script>
 
 <template>
-  <ToolBar v-model:showPreview="showPreview" v-model:lang="lang"/>
-  <FloatingPreview v-if="showPreview" url="/preview.html?embed=1" :initialScale="0.35" />
+  <ToolBar v-model:showPreview="showPreview" v-model:lang="lang" v-model:sectionMovementMode="sectionMovementMode"/>
+  <FloatingPreview v-if="showPreview" url="/preview.html?embed=1" :initialScale="0.25" />
 
-  <BackupManager :state="state" :langRef="lang" :onSave="saveDebounced" />
-  <FormBuilder :state="state" :onSave="saveDebounced" />
+  <div class="workbench">
+    <BackupManager :state="state" :langRef="lang" :onSave="saveDebounced" />
+    <DesignPanel v-model="state.design" />
+    <FormBuilder :state="state" :onSave="saveDebounced" :movementMode="sectionMovementMode" />
+    <!--<SoftSkills v-model="state.softSkills" :options="refsOptions" />-->
+  </div>
 </template>

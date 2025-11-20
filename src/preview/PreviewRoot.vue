@@ -9,15 +9,18 @@ const state = reactive({
   version: 1, disabled: [],
   design: { h1:'22pt', h2:'12pt', h3:'10pt', bullets:'10.5pt', ink:'#111827', accent:'#0f66d0', bg:'#ffffff', headerbg:'#ffffff', sidebarbg:'#ffffff',
     fontBody:'Inter', fontHead:'Inter', hstyle:'clean', radius:'10px' },
-  header: { name:'', location:'', role:'', email:'', phone:'', website:'', linkedin:'' },
+  contact: { name:'', location:'', role:'', email:'', phone:'', website:'', linkedin:'' },
   about: { text:'' },
-  experience: { job:[], personal:[] },
-  education: [], projects: [],
+  experience: { jobs:[], addExp:[], projects:[] },
+  education: [],
   skills: [],
-  languages: [], certs: [],
-  hobbies: [], custom: [], softskills: [],
-  orderMain: ['about','experience','education','projects','custom'],
-  orderSide: ['skills','languages','certs','hobbies']
+  languages: [],
+  certs: [],
+  hobbies: [],
+  custom: [],
+  softSkills: [],
+  orderMain: ['about','education','jobs','addExp','projects','custom'],
+  orderSide: ['skills','languages','hobbies','certs'],
 });
 
 function ensureFontLink(id, family){
@@ -52,11 +55,8 @@ function applyDesign(){
 function mergeIn(data){
   if(!data) return;
   Object.assign(state, data);
-  state.skills = { ...state.skills, ...(data.skills||{}) };
-  state.experience = {
-    job: Array.isArray(data?.experience?.job) ? data.experience.job : [],
-    personal: Array.isArray(data?.experience?.personal) ? data.experience.personal : []
-  };
+  state.experience = state.experience || { jobs:[], addExp:[], projects:[] };
+  state.skills = data.skills ?? state.skills ?? [];
   applyDesign();
 }
 

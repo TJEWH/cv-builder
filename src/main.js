@@ -5,29 +5,11 @@ import './assets/cv.css';
 // FontAwesome setup
 import { library } from '@fortawesome/fontawesome-svg-core';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-// icons used in the app (solid)
-import {
-  faIdBadge,
-  faInfoCircle,
-  faBriefcase,
-  faUser,
-  faGraduationCap,
-  faFolderOpen,
-  faTools,
-  faLanguage,
-  faCertificate,
-  faHeart,
-  faPlusCircle,
-  faHandsHelping,
-  faPalette,
-  faSave
-} from '@fortawesome/free-solid-svg-icons';
+// Import ALL solid icons
+import { fas } from '@fortawesome/free-solid-svg-icons';
 
-library.add(
-  faIdBadge, faInfoCircle, faBriefcase, faUser, faGraduationCap,
-  faFolderOpen, faTools, faLanguage, faCertificate, faHeart, faPlusCircle, faHandsHelping,
-  faPalette, faSave
-);
+// Add all solid icons to the library
+library.add(fas);
 
 const app = createApp(App);
 app.component('font-awesome-icon', FontAwesomeIcon);

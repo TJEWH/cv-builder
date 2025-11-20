@@ -1,41 +1,49 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, watch } from 'vue';
 import { makeT } from '../i18n/dict.js';
 
-const props = defineProps({
-  state: { type: Object, required: true }
-});
-
-const langRef = computed({
-  get: ()=> props.state.lang || 'de',
-  set: v  => (props.state.lang = v)
-});
+const props = defineProps({ state: { type: Object, required: true } });
+const langRef = computed({ get: ()=> props.state.lang || 'de', set: v => (props.state.lang = v) });
 const t = makeT(langRef);
 
 const isDisabled = (k) => props.state.disabled.includes(k);
-
 const hasAny = (arr)=> Array.isArray(arr) && arr.length>0;
 const hasText = (s)=> !!(s && String(s).trim());
 
-// Order (drag & drop)
-const blocksMain = ref(props.state.orderMain || ['about','experience','education','projects','custom']);
-const blocksSide = ref(props.state.orderSide || ['skills','languages','certs','hobbies']);
+// Order gets extracted from formbuilder
+const defaultMain = ['about','education','jobs','addExp','projects','custom'];
+const defaultSide = ['skills','languages','hobbies','certs'];
 
-const drag = { src:null, list:null };
-const onDragStart = (list, idx, e)=>{ drag.src=idx; drag.list=list; e.dataTransfer.effectAllowed='move'; };
-const onDrop = (list, idx)=>{
-  if(drag.list!==list || drag.src===null) return;
-  const a = list.value;
-  const [it] = a.splice(drag.src,1);
-  a.splice(idx,0,it);
-  drag.src=null; drag.list=null;
-  if(list===blocksMain) props.state.orderMain=[...a];
-  if(list===blocksSide) props.state.orderSide=[...a];
-};
+const blocksMain = computed(()=>{
+  const base = Array.isArray(props.state.orderMain) && props.state.orderMain.length ? props.state.orderMain.slice() : defaultMain.slice();
+  const placement = props.state.sectionPlacement || {};
+  Object.keys(placement).forEach(k=>{ if(placement[k]==='body' && !base.includes(k)) base.push(k); });
+  const sideKeys = new Set(Array.isArray(props.state.orderSide) ? props.state.orderSide : []);
+  Object.keys(placement).forEach(k=>{ if(placement[k]==='sidebar') sideKeys.add(k); if(placement[k]==='body') sideKeys.delete(k); });
+  // allow skills in both areas
+  return Array.from(new Set(base.filter(k => (k==='skills') ? true : !sideKeys.has(k))));
+});
 
-const showExperience = computed(()=>{
-  const a = props.state.experience;
-  return (!isDisabled('exp-job') && hasAny(a.job)) || (!isDisabled('exp-personal') && hasAny(a.personal));
+const blocksSide = computed(()=>{
+  const base = Array.isArray(props.state.orderSide) && props.state.orderSide.length ? props.state.orderSide.slice() : defaultSide.slice();
+  const placement = props.state.sectionPlacement || {};
+  Object.keys(placement).forEach(k=>{ if(placement[k]==='sidebar' && !base.includes(k)) base.push(k); });
+  const mainKeys = new Set(Array.isArray(props.state.orderMain) ? props.state.orderMain : []);
+  Object.keys(placement).forEach(k=>{ if(placement[k]==='body') mainKeys.add(k); if(placement[k]==='sidebar') mainKeys.delete(k); });
+  return Array.from(new Set(base.filter(k => (k==='skills') ? true : !mainKeys.has(k))));
+});
+
+const showJobs = computed(()=> {
+  const a = props.state.experience || {};
+  return (!isDisabled('jobs') && hasAny(a.jobs));
+});
+const showAddExp = computed(()=> {
+  const a = props.state.experience || {};
+  return (!isDisabled('addExp') && hasAny(a.addExp));
+});
+const showProjects = computed(()=> {
+  const a = props.state.experience || {};
+  return (!isDisabled('projects') && hasAny(a.projects));
 });
 
 function formatMeta({ start, end, place }){
@@ -45,39 +53,53 @@ function formatMeta({ start, end, place }){
   if(place) segs.push(place);
   return segs.join(t('dotSep'));
 }
+
+// Centralized visibility check used by template
+const isHiddenFor = (key) => {
+  if(key==='about')           return isDisabled('about') || !hasText(props.state.about?.text);
+  if(key==='education')       return isDisabled('education') || !hasAny(props.state.education);
+  if(key==='jobs')            return !showJobs.value;
+  if(key==='addExp')          return !showAddExp.value;
+  if(key==='projects')        return !showProjects.value;
+  if(key==='custom')          return isDisabled('custom') || !hasAny(props.state.custom);
+  if(key==='skills')          return isDisabled('skills') || !hasAny(props.state.skills);
+  if(key==='languages')       return isDisabled('languages') || !hasAny(props.state.languages);
+  if(key==='certs')           return isDisabled('certs') || !hasAny(props.state.certs);
+  if(key==='hobbies')         return isDisabled('hobbies') || !hasAny(props.state.hobbies);
+  return false;
+};
+
+// Debug logging to help track why a key is/was not shown
+watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp])=>{
+  try{
+    console.debug('[CvPreview] blocksMain=', bm, 'blocksSide=', bs, 'sectionPlacement=', sp);
+    console.debug('[CvPreview] visibleMain=', bm.filter(k=>!isHiddenFor(k)), 'visibleSide=', bs.filter(k=>!isHiddenFor(k)));
+  }catch(e){}
+},{deep:true, immediate:true});
 </script>
 
 <template>
   <div class="page" role="document">
     <header class="header">
       <div class="title">
-        <h1 class="name">{{ state.header.name || '—' }}</h1>
-        <p class="role">{{ state.header.role }}</p>
+        <h1 class="name">{{ state.contact.name || '-' }}</h1>
+        <p class="role">{{ state.contact.role }}</p>
       </div>
       <address class="contact">
-        <div>{{ state.header.location }}</div>
-        <div><a :href="state.header.email ? 'mailto:'+state.header.email : '#'">{{ state.header.email }}</a></div>
-        <div>{{ state.header.phone }}</div>
-        <div><a :href="state.header.website || '#'">{{ (state.header.website||'').replace(/^https?:\/\//,'') }}</a></div>
-        <div><a :href="state.header.linkedin || '#'">{{ (state.header.linkedin||'').replace(/^https?:\/\//,'') }}</a></div>
+        <div>{{ state.contact.location }}</div>
+        <div><a :href="state.contact.email ? 'mailto:'+state.contact.email : '#'">{{ state.contact.email }}</a></div>
+        <div>{{ state.contact.phone }}</div>
+        <div><a :href="state.contact.website || '#'">{{ (state.contact.website||'').replace(/^https?:\/\//,'') }}</a></div>
+        <div><a :href="state.contact.linkedin || '#'">{{ (state.contact.linkedin||'').replace(/^https?:\/\//,'') }}</a></div>
       </address>
     </header>
 
     <section class="content">
       <!-- Main -->
       <div id="cv_main">
-        <section v-for="(key, i) in blocksMain" :key="key" class="section cv-block"
-                 draggable="true"
-                 @dragstart="onDragStart(blocksMain, i, $event)"
-                 @dragover.prevent
-                 @drop="onDrop(blocksMain, i, $event)"
-                 :class="{'is-hidden':
-                   (key==='about'     && (isDisabled('about') || !hasText(state.about.text))) ||
-                   (key==='experience'&& (!showExperience)) ||
-                   (key==='education' && (isDisabled('education') || !hasAny(state.education))) ||
-                   (key==='projects'  && (isDisabled('projects')  || !hasAny(state.projects))) ||
-                   (key==='custom'    && (!hasAny(state.custom)))
-                 }">
+        <section v-for="key in blocksMain" :key="key" class="section cv-block"
+                 :class="{ 'is-hidden': isHiddenFor(key) }">
+
           <!-- ABOUT -->
           <template v-if="key==='about'">
             <h2>{{ t('aboutTitle') }}</h2>
@@ -85,14 +107,12 @@ function formatMeta({ start, end, place }){
           </template>
 
           <!-- EXPERIENCE -->
-          <template v-else-if="key==='experience'">
+          <template v-else-if="key==='jobs'">
             <h2>{{ t('expJobTitle') }}</h2>
-
-            <h3 class="small">{{ t('experienceH3Job') }}</h3>
             <div class="timeline" id="cv_exp_job">
-              <article class="item" v-for="(it,idx) in state.experience.job" :key="idx">
+              <article class="item" v-for="(it,idx) in state.experience.jobs" :key="idx">
                 <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} – <span class='item-sub'>${it.company||''}</span>`"></div>
+                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.company||''}</span>`"></div>
                   <div class="item-meta">{{ formatMeta(it) }}</div>
                 </div>
                 <ul v-if="Array.isArray(it.bullets) && it.bullets.length">
@@ -100,12 +120,14 @@ function formatMeta({ start, end, place }){
                 </ul>
               </article>
             </div>
+          </template>
 
-            <h3 class="small" v-if="hasAny(state.experience.personal)">{{ t('experienceH3Personal') }}</h3>
+          <template v-else-if="key==='addExp'">
+            <h2>{{ t('subHeaderAddXP') }}</h2>
             <div id="cv_exp_personal" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4mm">
-              <article class="item" v-for="(it,idx) in state.experience.personal" :key="idx" style="border:1px solid var(--border);border-radius:6px;padding:6px">
+              <article class="item" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx" style="border:1px solid var(--border);border-radius:6px;padding:6px">
                 <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} – <span class='item-sub'>${it.sub||''}</span>`"></div>
+                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
                   <div class="item-meta">{{ formatMeta(it) }}</div>
                 </div>
                 <p v-if="it.desc">{{ it.desc }}</p>
@@ -119,7 +141,7 @@ function formatMeta({ start, end, place }){
             <div>
               <article class="item" v-for="(it, idx) in state.education" :key="idx">
                 <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} – <span class='item-sub'>${it.sub||''}</span>`"></div>
+                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
                   <div class="item-meta">{{ formatMeta(it) }}</div>
                 </div>
                 <p v-if="it.desc">{{ it.desc }}</p>
@@ -131,7 +153,7 @@ function formatMeta({ start, end, place }){
           <template v-else-if="key==='projects'">
             <h2>{{ t('projectsTitle') }}</h2>
             <div>
-              <article class="item" v-for="(it, idx) in state.projects" :key="idx">
+              <article class="item" v-for="(it, idx) in state.experience.projects" :key="idx">
                 <div class="item-header">
                   <div class="item-title">{{ it.title }}</div>
                   <div class="item-meta">{{ formatMeta(it) }}</div>
@@ -155,33 +177,123 @@ function formatMeta({ start, end, place }){
               </section>
             </div>
           </template>
-        </section>
-      </div>
 
-      <!-- Sidebar -->
-      <aside class="sidebar" id="cv_side" :style="{background:'var(--sidebar-bg)', padding:'6mm', borderRadius:'10px'}">
-        <section v-for="(key, i) in blocksSide" :key="key" class="section cv-block"
-                 draggable="true"
-                 @dragstart="onDragStart(blocksSide, i, $event)"
-                 @dragover.prevent
-                 @drop="onDrop(blocksSide, i, $event)"
-                 :class="{'is-hidden':
-                   (key==='skills'    && (isDisabled('skills'))) ||
-                   (key==='languages' && (isDisabled('languages') || !Array.isArray(state.languages) || !state.languages.length)) ||
-                   (key==='certs'     && (isDisabled('certs')     || !Array.isArray(state.certs)     || !state.certs.length)) ||
-                   (key==='hobbies'   && (isDisabled('hobbies')   || !Array.isArray(state.hobbies)   || !state.hobbies.length))
-                 }">
-          <!-- SKILLS -->
-          <template v-if="key==='skills'">
+          <!-- SKILLS (wenn im Main) -->
+          <template v-else-if="key==='skills'">
             <h2>{{ t('skillsTitle') }}</h2>
             <div v-for="(grp,i) in state.skills" :key="i" style="margin-top:4mm">
               <h3 class="small">{{ grp.title }}</h3>
               <div class="tags">
-                <span
-                    v-for="(tg,ti) in (String(grp.tags||'').split(',').map(x=>x.trim()).filter(Boolean))"
-                    :key="ti"
-                    class="tag"
-                >{{ tg }}</span>
+                <span v-for="(tg,ti) in (String(grp.tags||'').split(',').map(x=>x.trim()).filter(Boolean))" :key="ti" class="tag">{{ tg }}</span>
+              </div>
+            </div>
+          </template>
+
+          <!-- LANGUAGES (wenn im Main) -->
+          <template v-else-if="key==='languages'">
+            <h2>{{ t('languagesTitle') }}</h2>
+            <ul class="lang-list">
+              <li v-for="(l,i) in state.languages" :key="i">
+                <strong>{{ l.name }}</strong>
+                <span>- {{ l.level }}</span>
+              </li>
+            </ul>
+          </template>
+
+          <!-- CERTS (wenn im Main) -->
+          <template v-else-if="key==='certs'">
+            <h2>{{ t('certsTitle') }}</h2>
+            <ul><li v-for="(c,i) in state.certs" :key="i">{{ [c.name,c.year].filter(Boolean).join(', ') }}</li></ul>
+          </template>
+
+          <!-- HOBBIES (wenn im Main) -->
+          <template v-else-if="key==='hobbies'">
+            <h2>{{ t('hobbiesTitle') }}</h2>
+            <ul class="lang-list">
+              <li v-for="(h,i) in state.hobbies" :key="i">
+                <strong>{{ h.name }}</strong>
+                <span v-if="h.details"> - {{ h.details }}</span>
+              </li>
+            </ul>
+          </template>
+
+        </section>
+      </div>
+
+      <aside class="sidebar" id="cv_side" :style="{background:'var(--sidebar-bg)', padding:'6mm', borderRadius:'10px'}">
+        <section v-for="key in blocksSide" :key="key" class="section cv-block" :class="{'is-hidden': isHiddenFor(key) }">
+
+          <template v-if="key==='about'">
+            <h2>{{ t('aboutTitle') }}</h2>
+            <p>{{ state.about.text }}</p>
+          </template>
+
+          <template v-else-if="key==='jobs'">
+            <h2>{{ t('expJobTitle') }}</h2>
+            <div class="timeline" id="cv_exp_job">
+              <article class="item" v-for="(it,idx) in state.experience.jobs" :key="idx">
+                <div class="item-header">
+                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.company||''}</span>`"></div>
+                  <div class="item-meta">{{ formatMeta(it) }}</div>
+                </div>
+              </article>
+            </div>
+          </template>
+
+          <template v-else-if="key==='addExp'">
+            <h2>{{ t('subHeaderAddXP') }}</h2>
+            <div>
+              <article class="item" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx" style="margin-bottom:3mm">
+                <div class="item-header">
+                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
+                  <div class="item-meta">{{ formatMeta(it) }}</div>
+                </div>
+                <p v-if="it.desc" style="font-size:0.9em;margin-top:2px">{{ it.desc }}</p>
+              </article>
+            </div>
+          </template>
+
+          <template v-else-if="key==='education'">
+            <h2>{{ t('educationTitle') }}</h2>
+            <div>
+              <article class="item" v-for="(it, idx) in state.education" :key="idx">
+                <div class="item-header">
+                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
+                  <div class="item-meta">{{ formatMeta(it) }}</div>
+                </div>
+              </article>
+            </div>
+          </template>
+
+          <template v-else-if="key==='projects'">
+            <h2>{{ t('projectsTitle') }}</h2>
+            <div>
+              <article class="item" v-for="(it, idx) in state.experience.projects" :key="idx">
+                <div class="item-header">
+                  <div class="item-title">{{ it.title }}</div>
+                </div>
+              </article>
+            </div>
+          </template>
+
+          <template v-else-if="key==='custom'">
+            <h2>{{ t('customTitle') }}</h2>
+            <div id="cv_custom">
+              <section class="section" v-for="(it, idx) in state.custom" :key="idx">
+                <div class="item-header">
+                  <div class="item-title">{{ it.title }}</div>
+                </div>
+              </section>
+            </div>
+          </template>
+
+          <!-- SKILLS -->
+          <template v-else-if="key==='skills'">
+            <h2>{{ t('skillsTitle') }}</h2>
+            <div v-for="(grp,i) in state.skills" :key="i" style="margin-top:4mm">
+              <h3 class="small">{{ grp.title }}</h3>
+              <div class="tags">
+                <span v-for="(tg,ti) in (String(grp.tags||'').split(',').map(x=>x.trim()).filter(Boolean))" :key="ti" class="tag">{{ tg }}</span>
               </div>
             </div>
           </template>
@@ -192,7 +304,7 @@ function formatMeta({ start, end, place }){
             <ul class="lang-list">
               <li v-for="(l,i) in state.languages" :key="i">
                 <strong>{{ l.name }}</strong>
-                <span>— {{ l.level }}</span>
+                <span>- {{ l.level }}</span>
               </li>
             </ul>
           </template>
@@ -203,15 +315,16 @@ function formatMeta({ start, end, place }){
             <ul><li v-for="(c,i) in state.certs" :key="i">{{ [c.name,c.year].filter(Boolean).join(', ') }}</li></ul>
           </template>
 
-          <!-- HOBBIES --><template v-else-if="key==='hobbies'">
-          <h2>{{ t('hobbiesTitle') }}</h2>
-          <ul class="lang-list">
-            <li v-for="(h,i) in state.hobbies" :key="i">
-              <strong>{{ h.name }}</strong>
-              <span v-if="h.details"> — {{ h.details }}</span>
-            </li>
-          </ul>
-        </template>
+          <!-- HOBBIES -->
+          <template v-else-if="key==='hobbies'">
+            <h2>{{ t('hobbiesTitle') }}</h2>
+            <ul class="lang-list">
+              <li v-for="(h,i) in state.hobbies" :key="i">
+                <strong>{{ h.name }}</strong>
+                <span v-if="h.details"> - {{ h.details }}</span>
+              </li>
+            </ul>
+          </template>
 
         </section>
       </aside>
