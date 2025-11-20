@@ -121,8 +121,7 @@ const getSectionDisplayName = (key) => {
     hobbies: t('hobbiesTitle'),
     certs: t('certsTitle')
   };
-  const defaultName = names[key] || key;
-  return defaultName;
+  return names[key] || key;
 };
 
 // Centralized visibility check used by template
@@ -296,7 +295,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             <component :is="getSectionHeaderSize('certs')" v-if="!isSectionHeaderHidden('certs')">
               {{ getSectionDisplayName('certs') }}
             </component>
-            <ul><li v-for="(c,i) in state.certs" :key="i">{{ [c.name,c.year].filter(Boolean).join(', ') }}</li></ul>
+            <ul class="lang-list">
+              <li v-for="(c,i) in state.certs" :key="i">{{ [c.name,c.year].filter(Boolean).join(', ') }}</li>
+            </ul>
           </template>
 
           <!-- HOBBIES (wenn im Main) -->
@@ -430,7 +431,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             <component :is="getSectionHeaderSize('certs')" v-if="!isSectionHeaderHidden('certs')">
               {{ getSectionDisplayName('certs') }}
             </component>
-            <ul><li v-for="(c,i) in state.certs" :key="i">{{ [c.name,c.year].filter(Boolean).join(', ') }}</li></ul>
+            <ul class="lang-list">
+              <li v-for="(c,i) in state.certs" :key="i">{{ [c.name,c.year].filter(Boolean).join(', ') }}</li>
+            </ul>
           </template>
 
           <!-- HOBBIES -->

@@ -116,7 +116,7 @@ const pick = (p)=>{ Object.assign(design.value, {ink:p.ink, accent:p.accent, bg:
     </div>
 
     <div style="margin-top:6px">
-      <strong style="display:block;margin-bottom:4px">Templates:</strong>
+      <label style="display:block;margin-bottom:4px">Templates:</label>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
         <button v-for="p in palettes" :key="p.name" type="button" class="mini btn--primary" @click="pick(p)">
           <span :style="{display:'inline-block',width:'10px',height:'10px',background:p.accent,borderRadius:'50%',marginRight:'6px',verticalAlign:'-1px'}"></span>{{p.name}}
