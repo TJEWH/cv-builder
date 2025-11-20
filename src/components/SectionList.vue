@@ -212,6 +212,8 @@ const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
   font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.2s ease;
+  width: 20%;
+  min-width: 100px;
 }
 
 .header-size-select:hover {

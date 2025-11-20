@@ -792,7 +792,7 @@ const areaCerts = areaModel('certs');
       <section
         class="section-group"
         data-section="skills"
-        :class="{disabled: isHidden('skills'), dragging: isDragging('skills')}"
+        :class="{disabled: isHidden('skills'), dragging: isDragging('skills'), collapsed: collapsed.skills}"
         :draggable="isDraggableMode"
         @dragstart="isDraggableMode ? onDragStart('skills', $event) : null"
         @dragend="isDraggableMode ? onDragEnd : null"
@@ -802,7 +802,7 @@ const areaCerts = areaModel('certs');
             <font-awesome-icon :icon="['fas', 'tools']" class="section-icon" aria-hidden="true" />
           </button>
 
-          <template v-if="editingSection.key === 'skills' && !editingSection.inCustom">
+          <template v-if="editingSection.id === 'skills'">
             <input
               type="text"
               v-model="editingSection.tempName"

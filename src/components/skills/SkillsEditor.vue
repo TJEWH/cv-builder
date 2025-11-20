@@ -104,9 +104,9 @@ const updateItem = (catIdx, itemIdx, field, value) => {
               <option value="years">{{ langRef === 'de' ? 'Jahre' : 'Years' }}</option>
             </select>
           </label>
-          <button type="button" class="mini btn--success" @click="addItem(catIdx)">Skill</button>
+          <button type="button" class="mini btn--success" @click="addItem(catIdx)">{{ langRef === 'de' ? 'Hinzufügen' : 'Add' }}</button>
           <button type="button" class="mini btn--danger" @click="removeCategory(catIdx)">
-            {{ langRef === 'de' ? 'Kategorie löschen' : 'Remove Category' }}
+            {{ langRef === 'de' ? 'Löschen' : 'Delete' }}
           </button>
         </div>
 
@@ -140,7 +140,7 @@ const updateItem = (catIdx, itemIdx, field, value) => {
           </div>
 
           <div v-if="!cat.items || cat.items.length === 0" class="empty-state">
-            {{ langRef === 'de' ? 'Keine Skills. Klicke "+ Skill" um einen hinzuzufügen.' : 'No skills. Click "+ Skill" to add one.' }}
+            {{ langRef === 'de' ? 'Keine Fähigkeiten. Klicke auf "Hinzufügen"' : 'No skills. Click "Add"' }}
           </div>
         </div>
       </div>
@@ -167,9 +167,9 @@ const updateItem = (catIdx, itemIdx, field, value) => {
 
 .category-block {
   border: 2px solid #134e4a;
-  border-radius: 8px;
+  border-radius: 4px;
   padding: 12px;
-  background: #061017;
+  background: #134e4a;
 }
 
 .category-header {
@@ -183,8 +183,6 @@ const updateItem = (catIdx, itemIdx, field, value) => {
 .category-title-input {
   flex: 1;
   min-width: 200px;
-  font-weight: 600;
-  font-size: 1.05rem;
   background: transparent;
   border: 1px solid #10b981;
   color: #9be8c7;
