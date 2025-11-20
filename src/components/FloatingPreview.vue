@@ -112,7 +112,7 @@ onMounted(() => {
       @mousedown.stop>
 
     <div class="fp-header" @mousedown="startDrag">
-      <strong>Preview (A4)</strong>
+      <strong>Preview</strong>
       <span class="fp-size">{{ Math.round(scale*100) }}%</span>
       <div class="fp-actions">
         <button class="mini" type="button" @click="openPrint">Export</button>
@@ -197,6 +197,12 @@ onMounted(() => {
   border-bottom: 2px solid #0f766e;
   border-radius: 4px;
   opacity:.9;
+}
+
+.floating-preview.is-resizing .fp-resizer::before{
+  opacity:.9;
+  border-right: 2px solid #f59e0b;
+  border-bottom: 2px solid #f59e0b;
 }
 
 /* Fullscreen-Overlay: blockt iFrame-MouseEvents während Resizes */

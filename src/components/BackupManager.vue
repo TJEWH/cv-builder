@@ -268,14 +268,14 @@ onMounted(refreshConfigs);
 }
 .toggle-track{
   position:relative; display:inline-flex; align-items:center; justify-content:space-around;
-  width: 120px; height: 36px; border-radius:999px;
+  width: 120px; height: 30px; border-radius:999px;
   background: #0c131a; border:1px solid var(--border);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
 }
 .toggle-label{ font-size:11px; opacity:.75; color:#cbd5e1; z-index:1; user-select:none; }
 .toggle-thumb{
   position:absolute; top:2px; left:2px;
-  width: 58px; height: 30px; border-radius:999px;
+  width: 58px; height: 24px; border-radius:999px;
   background:linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.02));
   border:1px solid rgba(255,255,255,.12);
   transition: transform .18s ease;
@@ -296,16 +296,13 @@ onMounted(refreshConfigs);
 .backup-manager {
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
-  width: 210mm;
   padding: 10px;
   display: grid;
   background: #113c34;
   border-radius: 10px;
-  margin: 10px auto;
 
   select, input {
-    width: 50% !important;
+    width: 60% !important;
   }
 }
 </style>

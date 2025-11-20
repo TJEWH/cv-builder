@@ -15,16 +15,8 @@ const langRef = computed({
 });
 const t = makeT(langRef);
 
-const refsOptions = computed(()=>{
-  const opts = [];
-  const add = (id,label)=> opts.push({id,label});
-  props.state.experience.jobs.forEach((r,i)=> add('jobs:'+i,            [r.title,r.company].filter(Boolean).join('  ') || `Entry ${i+1}`));
-  props.state.experience.addExp.forEach((r,i)=> add('addExp:'+i,        [r.title,r.sub].filter(Boolean).join('  ') || `Entry ${i+1}`));
-  props.state.experience.projects.forEach((r,i)=> add('projects:'+i,    r.title || `Entry ${i+1}`));
-  props.state.education.forEach((r,i)=> add('education:'+i,             [r.title,r.sub].filter(Boolean).join('  ') || `Entry ${i+1}`));
-  props.state.custom.forEach((r,i)=> add('custom:'+i,                   r.title || `Entry ${i+1}`));
-  return opts;
-});
+// collapsed state for sections (controls whether section-group is collapsed in the builder)
+const collapsed = reactive({ header:false, about:false, soft:false });
 
 /* ===== Hide / Collapse handling ===== */
 const disabled = computed({
@@ -51,7 +43,6 @@ const addCustom = async () => {
 const getIcon = (key) => sectionIcons[key] || 'folder-open';
 
 /* ===== Section placement & ordering helpers ===== */
-// Ensure sectionPlacement exists on state
 if(!props.state.sectionPlacement) props.state.sectionPlacement = {};
 
 
@@ -99,8 +90,6 @@ const setArea = (key, area)=>{
 
   // store placement keyed by preview block key
   props.state.sectionPlacement = { ...(props.state.sectionPlacement||{}), [pKey]: area };
-
-  console.debug('[FormBuilder] setArea', { key, pKey, area, orderMain: props.state.orderMain, orderSide: props.state.orderSide, sectionPlacement: props.state.sectionPlacement });
 
   // trigger immediate save/publish if provided (App.vue passes saveDebounced)
   try{ props.onSave?.(); }catch(e){ console.warn('onSave failed', e); }
@@ -487,4 +476,11 @@ const areaCerts = areaModel('certs');
 .caret{ display:inline-flex; align-items:center; justify-content:center; width:34px; height:26px; padding:0; }
 .caret .section-icon{ margin:0; }
 .section-controls select{ padding:4px 6px; }
+
+.section-head select, .section-head .mini:not(.caret){
+  height: 100%;
+  padding: 4px 7px;
+  border: 1px solid #134e4a;
+  color: #9be8c7;
+}
 </style>
