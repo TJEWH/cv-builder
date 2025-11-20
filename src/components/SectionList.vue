@@ -37,7 +37,15 @@ const toggleCollapse = () => { root.value?.classList.toggle('collapsed'); };
 
 const add = () => {
   const o = {};
-  props.schema.forEach(f => { o[f.key] = f.type === 'number' ? 0 : ''; });
+  props.schema.forEach(f => {
+    if (f.type === 'number') {
+      o[f.key] = 0;
+    } else if (f.type === 'select' && f.options && f.options.length > 0) {
+      o[f.key] = f.options[0];
+    } else {
+      o[f.key] = '';
+    }
+  });
   items.value.push(o);
 
   requestAnimationFrame(()=>{
@@ -109,7 +117,7 @@ const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
 
     <div class="items">
       <div class="item-row" v-for="(item, i) in items" :key="i">
-        <div v-if="schema.some(s=>s.type!=='textarea')" :class="['row', schema.length===2?'row-2':'', schema.length===3?'row-3':'']">
+        <div v-if="schema.some(s=>s.type!=='textarea')" :class="['row', schema.length===2?'row-2':'', schema.length===3?'row-3':'', schema.length===4?'row-4':'']">
           <label v-for="f in schema.filter(s=>s.type!=='textarea')" :key="f.key">
             {{ f.label }}
             <template v-if="f.type==='text'">

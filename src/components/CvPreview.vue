@@ -1,6 +1,7 @@
 <script setup>
 import { computed, watch } from 'vue';
 import { makeT } from '../i18n/dict.js';
+import SkillCategory from './skills/SkillCategory.vue';
 
 const props = defineProps({ state: { type: Object, required: true } });
 const langRef = computed({ get: ()=> props.state.lang || 'de', set: v => (props.state.lang = v) });
@@ -267,12 +268,14 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             <component :is="getSectionHeaderSize('skills')" v-if="!isSectionHeaderHidden('skills')">
               {{ getSectionDisplayName('skills') }}
             </component>
-            <div v-for="(grp,i) in state.skills" :key="i" style="margin-top:4mm">
-              <h3 class="small">{{ grp.title }}</h3>
-              <div class="tags">
-                <span v-for="(tg,ti) in (String(grp.tags||'').split(',').map(x=>x.trim()).filter(Boolean))" :key="ti" class="tag">{{ tg }}</span>
-              </div>
-            </div>
+            <SkillCategory
+              v-for="(grp,i) in state.skills"
+              :key="i"
+              :title="grp.title"
+              :items="grp.items || []"
+              :levelType="grp.levelType"
+              :sidebarColor="state.design?.sidebarbg || '#ffffff'"
+            />
           </template>
 
           <!-- LANGUAGES (wenn im Main) -->
@@ -399,12 +402,14 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             <component :is="getSectionHeaderSize('skills')" v-if="!isSectionHeaderHidden('skills')">
               {{ getSectionDisplayName('skills') }}
             </component>
-            <div v-for="(grp,i) in state.skills" :key="i" style="margin-top:4mm">
-              <h3 class="small">{{ grp.title }}</h3>
-              <div class="tags">
-                <span v-for="(tg,ti) in (String(grp.tags||'').split(',').map(x=>x.trim()).filter(Boolean))" :key="ti" class="tag">{{ tg }}</span>
-              </div>
-            </div>
+            <SkillCategory
+              v-for="(grp,i) in state.skills"
+              :key="i"
+              :title="grp.title"
+              :items="grp.items || []"
+              :levelType="grp.levelType"
+              :sidebarColor="state.design?.sidebarbg || '#ffffff'"
+            />
           </template>
 
           <!-- LANGUAGES (CEFR text) -->

@@ -62,11 +62,35 @@
   "education": [
     { "title": "M.Sc. Informatik", "sub": "TU München", "place": "München", "start": "2017", "end": "2020", "desc": "KI, Softwarearchitektur" }
   ],
-  "skills": {
-    "langs": ["Python", "TypeScript", "Go"],
-    "tools": ["React", "Docker", "Kubernetes"],
-    "methods": ["System Design", "TDD", "CI/CD"]
-  },
+  "skills": [
+    {
+      "title": "Programmiersprachen",
+      "levelType": "years",
+      "items": [
+        { "name": "Python", "levelValue": 5 },
+        { "name": "TypeScript", "levelValue": 3 },
+        { "name": "Go", "levelValue": 2 }
+      ]
+    },
+    {
+      "title": "Tools & Frameworks",
+      "levelType": "experience",
+      "items": [
+        { "name": "React", "levelValue": 9 },
+        { "name": "Docker", "levelValue": 7 },
+        { "name": "Kubernetes", "levelValue": 5 }
+      ]
+    },
+    {
+      "title": "Methoden",
+      "levelType": null,
+      "items": [
+        { "name": "System Design", "levelValue": 0 },
+        { "name": "TDD", "levelValue": 0 },
+        { "name": "CI/CD", "levelValue": 0 }
+      ]
+    }
+  ],
   "languages": [
     { "name": "Deutsch", "level": "Muttersprache" },
     { "name": "Englisch", "level": "C1" }

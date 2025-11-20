@@ -23,8 +23,24 @@ const state = reactive({
   education: [],
   experience: { jobs:[], addExp:[], projects:[] },
   skills: [
-    { title: 'Programmiersprachen',     tags: 'Python, TypeScript, Go' },
-    { title: 'Frameworks',              tags: 'React, Docker, Kubernetes' },
+    {
+      title: 'Programmiersprachen',
+      levelType: null,
+      items: [
+        { name: 'Python', levelValue: 0 },
+        { name: 'TypeScript', levelValue: 0 },
+        { name: 'Go', levelValue: 0 }
+      ]
+    },
+    {
+      title: 'Frameworks',
+      levelType: null,
+      items: [
+        { name: 'React', levelValue: 0 },
+        { name: 'Docker', levelValue: 0 },
+        { name: 'Kubernetes', levelValue: 0 }
+      ]
+    }
   ],
   languages: [],
   certs: [],
@@ -53,8 +69,6 @@ let bc;
 /* Saving (debounced) */
 const saveDebounced = debounce(()=>{
   const data = JSON.parse(JSON.stringify(state));
-  console.log('💾 [App] Saving data to localStorage');
-  console.log('   sectionNames:', data.sectionNames);
   saveLocal(data);
   status.value=t('saved');
   try{ bc?.postMessage({ type:'update', data }); }catch{}

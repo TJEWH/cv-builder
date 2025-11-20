@@ -1,6 +1,7 @@
 <script setup>
 import { computed, reactive, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import SectionList from './SectionList.vue';
+import SkillsEditor from './skills/SkillsEditor.vue';
 import { makeT } from '../i18n/dict.js';
 import sectionIcons from '../i18n/sectionIcons.js';
 
@@ -17,7 +18,7 @@ const langRef = computed({
 const t = makeT(langRef);
 
 // collapsed state for sections (controls whether section-group is collapsed in the builder)
-const collapsed = reactive({ header:false, about:false, soft:false });
+const collapsed = reactive({ header:false, about:false, soft:false, skills:false });
 
 // ensure state.disabled exists
 if(!Array.isArray(props.state.disabled)) props.state.disabled = [];
@@ -788,42 +789,70 @@ const areaCerts = areaModel('certs');
       </SectionList>
 
       <!-- Skills -->
-      <SectionList
-          :title="getSectionDisplayName('skills')"
-          :lang="langRef"
-          sectionKey="skills"
-          v-model="state.skills"
-          :schema="[
-            {label:t('category'), key:'title', type:'text', placeholder:t('programmingLanguages')},
-            {label:t('entryCSV'), key:'tags', type:'text', placeholder:'Python, TypeScript, Go'}
-          ]"
-          :disabled="isHidden('skills')"
-          @toggle-section="toggleDisabled('skills')"
-          :addLabel="t('add')"
-          v-bind="getEditableTitleProps('skills')"
-          @start-edit-title="startEditSectionName('skills', false)"
-          @finish-edit-title="finishEditSectionName('skills', false)"
-          @cancel-edit-title="cancelEditSectionName"
-          @update-editing-value="editingSection.tempName = $event"
-          :headerSize="state.sectionHeaderSizes.skills || 'h2'"
-          @header-size-change="state.sectionHeaderSizes.skills = $event"
-          toggle-style="icon"
-          :draggable="isDraggableMode"
-          :is-dragging="isDragging('skills')"
-          @dragstart="isDraggableMode ? onDragStart('skills', $event) : null"
-          @dragend="isDraggableMode ? onDragEnd : null"
+      <section
+        class="section-group"
+        data-section="skills"
+        :class="{disabled: isHidden('skills'), dragging: isDragging('skills')}"
+        :draggable="isDraggableMode"
+        @dragstart="isDraggableMode ? onDragStart('skills', $event) : null"
+        @dragend="isDraggableMode ? onDragEnd : null"
       >
-        <template #controls>
-          <div v-if="isButtonMode" style="display:flex;align-items:center;gap:8px">
-            <select v-model="areaSkills">
-              <option value="body">Body</option>
-              <option value="sidebar">Sidebar</option>
+        <div class="section-head">
+          <button class="caret mini" type="button" @click="collapsed.skills = !collapsed.skills">
+            <font-awesome-icon :icon="['fas', 'tools']" class="section-icon" aria-hidden="true" />
+          </button>
+
+          <template v-if="editingSection.key === 'skills' && !editingSection.inCustom">
+            <input
+              type="text"
+              v-model="editingSection.tempName"
+              class="section-name-input"
+              :placeholder="t('skillsTitle')"
+              @blur="finishEditSectionName('skills', false)"
+              @keyup.enter="finishEditSectionName('skills', false)"
+              @keyup.esc="cancelEditSectionName"
+            />
+          </template>
+          <h3 v-else class="section-name-label" @click="startEditSectionName('skills', false)">
+            {{ getSectionDisplayName('skills') }}
+          </h3>
+
+          <div style="margin-left:auto;display:flex;gap:6px">
+            <select
+              :value="state.sectionHeaderSizes?.skills || 'h2'"
+              @change="state.sectionHeaderSizes.skills = $event.target.value"
+              class="header-size-select"
+            >
+              <option value="h2">H2</option>
+              <option value="h3">H3</option>
+              <option value="h4">H4</option>
+              <option value="null">{{ langRef === 'de' ? 'Kein Titel' : 'No Title' }}</option>
             </select>
-            <button class="mini" type="button" @click="moveUp('skills')">▲</button>
-            <button class="mini" type="button" @click="moveDown('skills')">▼</button>
+
+            <div v-if="isButtonMode" style="display:flex;align-items:center;gap:8px">
+              <select v-model="areaSkills">
+                <option value="body">Body</option>
+                <option value="sidebar">Sidebar</option>
+              </select>
+              <button class="mini" type="button" @click="moveUp('skills')">▲</button>
+              <button class="mini" type="button" @click="moveDown('skills')">▼</button>
+            </div>
+
+            <button
+              class="mini"
+              :class="[isHidden('skills')?'btn--success':'btn--danger']"
+              type="button"
+              @click="toggleDisabled('skills')"
+            >
+              {{ isHidden('skills') ? t('show') : t('hide') }}
+            </button>
           </div>
-        </template>
-      </SectionList>
+        </div>
+
+        <div class="items" v-show="!collapsed.skills">
+          <SkillsEditor v-model="state.skills" :lang="langRef" />
+        </div>
+      </section>
 
       <!-- Languages: CEFR -->
       <SectionList
