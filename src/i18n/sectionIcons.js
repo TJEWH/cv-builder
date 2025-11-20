@@ -1,5 +1,3 @@
-// Mapping of section keys to FontAwesome icon names (solid)
-// Keep names in the FontAwesome "iconName" form (kebab-case)
 export default {
     'header': 'id-badge',
     'backup': 'save',
@@ -7,7 +5,7 @@ export default {
     'about': 'info-circle',
     'education': 'graduation-cap',
     'jobs': 'briefcase',
-    'addExp': 'user',
+    'addExp': 'brain',
     'projects': 'folder-open',
     'custom': 'plus-circle',
 
