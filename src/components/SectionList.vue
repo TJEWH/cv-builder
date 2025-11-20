@@ -90,6 +90,29 @@ const onDragStart = (event) => {
 const onMouseUp = () => {
   shouldPreventDrag.value = false;
 };
+
+// Helper to get/set textarea value with bullet conversion
+const getTextareaValue = (item, key) => {
+  const val = item[key];
+  // If it's an array (bullets), convert to string with newlines
+  if (Array.isArray(val)) {
+    return val.join('\n');
+  }
+  // Otherwise return as is
+  return val || '';
+};
+
+const setTextareaValue = (item, key, value) => {
+  // Check if this field should be stored as array (for bullets)
+  const field = props.schema.find(f => f.key === key);
+  if (field && field.key === 'bullets') {
+    // Split by newlines and filter out empty lines
+    item[key] = String(value || '').split('\n').map(line => line.trim()).filter(line => line.length > 0);
+  } else {
+    // Store as string for other textarea fields
+    item[key] = value;
+  }
+};
 </script>
 
 <template>
@@ -169,7 +192,10 @@ const onMouseUp = () => {
           </label>
         </div>
         <label v-for="f in schema.filter(s=>s.type==='textarea')" :key="f.key">
-          {{ f.label }}<textarea v-model="item[f.key]" :placeholder="f.placeholder||''"></textarea>
+          {{ f.label }}<textarea
+            :value="getTextareaValue(item, f.key)"
+            @input="setTextareaValue(item, f.key, $event.target.value)"
+            :placeholder="f.placeholder||''"></textarea>
         </label>
         <div><button type="button" class="mini btn--danger" @click="removeAt(i)">{{t('remove')}}</button></div>
       </div>
