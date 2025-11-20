@@ -30,6 +30,7 @@ const state = reactive({
   certs: [],
   hobbies: [ { name: 'Musik', details: '' } ],
   customSections: [],
+  sectionNames: {}, // Alternative Namen für Sections
   softSkills: [
     {label:'Anpassungsfähigkeit', desc:'', refs:[]},
     {label:'Kritisches Denken', desc:'', refs:[]},
@@ -51,6 +52,8 @@ let bc;
 /* Saving (debounced) */
 const saveDebounced = debounce(()=>{
   const data = JSON.parse(JSON.stringify(state));
+  console.log('💾 [App] Saving data to localStorage');
+  console.log('   sectionNames:', data.sectionNames);
   saveLocal(data);
   status.value=t('saved');
   try{ bc?.postMessage({ type:'update', data }); }catch{}

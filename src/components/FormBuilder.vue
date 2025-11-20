@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, onMounted, onBeforeUnmount } from 'vue';
+import { computed, reactive, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import SectionList from './SectionList.vue';
 import { makeT } from '../i18n/dict.js';
 import sectionIcons from '../i18n/sectionIcons.js';
@@ -269,15 +269,25 @@ const isDragging = (key) => {
   return dragState.draggedKey === pKey;
 };
 
-// Get sorted sections for an area (excluding the dragged one)
-const getSortedSections = (area) => {
-  ensureOrderArrays();
-  const arr = area === 'body' ? props.state.orderMain : props.state.orderSide;
-  return arr.filter(key => key !== dragState.draggedKey && !isHidden(key));
-};
+// State for editing section names (both custom and standard)
+const editingSection = reactive({
+  id: null,
+  tempName: ''
+});
 
-// Get display name for a section key
-const getSectionName = (key) => {
+// Ensure sectionNames object exists
+if(!props.state.sectionNames) props.state.sectionNames = {};
+
+// Get display name for any section (custom or standard)
+const getSectionDisplayName = (key) => {
+  // Check if there's a custom name set
+  if(props.state.sectionNames?.[key]) { return props.state.sectionNames[key]; }
+
+  // For custom sections, use their name property
+  const customSection = getCustomSection(key);
+  if(customSection) return customSection.name;
+
+  // Otherwise use default translated name
   const names = {
     about: t('aboutTitle'),
     education: t('educationTitle'),
@@ -289,11 +299,137 @@ const getSectionName = (key) => {
     hobbies: t('hobbiesTitle'),
     certs: t('certsTitle')
   };
-  if(names[key]) return names[key];
-  // Check if it's a custom section
+  return names[key] || key;
+};
+
+// Get default (original) name for a section
+const getSectionDefaultName = (key) => {
   const customSection = getCustomSection(key);
-  if(customSection) return customSection.name;
-  return key;
+  if(customSection) return langRef.value === 'de' ? 'Neue Section' : 'New Section';
+
+  const names = {
+    about: t('aboutTitle'),
+    education: t('educationTitle'),
+    jobs: t('expJobTitle'),
+    addExp: t('expPersonalTitle'),
+    projects: t('projectsTitle'),
+    skills: t('skillsTitle'),
+    languages: t('languagesTitle'),
+    hobbies: t('hobbiesTitle'),
+    certs: t('certsTitle')
+  };
+  return names[key] || key;
+};
+
+const startEditSectionName = (sectionKeyOrSection, isCustom = false) => {
+  console.log('🎬 [FormBuilder] Starting edit:', isCustom ? 'CUSTOM' : 'STANDARD', sectionKeyOrSection);
+  if(isCustom) {
+    // Custom section with section object
+    editingSection.id = sectionKeyOrSection.id;
+    editingSection.tempName = sectionKeyOrSection.name;
+    console.log('   Custom section ID:', editingSection.id);
+    console.log('   Initial tempName:', editingSection.tempName);
+  } else {
+    // Standard section with key
+    editingSection.id = sectionKeyOrSection;
+    editingSection.tempName = props.state.sectionNames?.[sectionKeyOrSection] || '';
+    console.log('   Section key:', editingSection.id);
+    console.log('   Current custom name:', props.state.sectionNames?.[sectionKeyOrSection]);
+    console.log('   Initial tempName:', editingSection.tempName);
+  }
+};
+
+const finishEditSectionName = (sectionKeyOrSection, isCustom = false) => {
+  if(isCustom) {
+    // Custom section
+    if(editingSection.id === sectionKeyOrSection.id) {
+      if(editingSection.tempName.trim() && editingSection.tempName !== sectionKeyOrSection.name) {
+        sectionKeyOrSection.name = editingSection.tempName.trim();
+        try { props.onSave?.(); } catch(e) {}
+      }
+      editingSection.id = null;
+      editingSection.tempName = '';
+    }
+  } else {
+    // Standard section
+    if(editingSection.id === sectionKeyOrSection) {
+      const trimmed = editingSection.tempName.trim();
+      const defaultName = getSectionDefaultName(sectionKeyOrSection);
+
+      console.log('🔧 [FormBuilder] Finishing edit for:', sectionKeyOrSection);
+      console.log('   New name:', trimmed);
+      console.log('   Default name:', defaultName);
+      console.log('   Are they different?', trimmed !== defaultName);
+
+      if(!props.state.sectionNames) {
+        console.log('   Creating sectionNames object');
+        props.state.sectionNames = {};
+      }
+
+      if(trimmed && trimmed !== defaultName) {
+        // Set custom name - use Vue.set equivalent for reactivity
+        console.log('   ✅ Setting custom name');
+        props.state.sectionNames = {
+          ...props.state.sectionNames,
+          [sectionKeyOrSection]: trimmed
+        };
+        console.log('   Updated sectionNames:', JSON.stringify(props.state.sectionNames));
+        try { props.onSave?.(); } catch(e) { console.error('Save failed:', e); }
+      } else if(!trimmed) {
+        // Empty - remove custom name
+        console.log('   🗑️ Removing custom name (empty input)');
+        const { [sectionKeyOrSection]: removed, ...rest } = props.state.sectionNames;
+        props.state.sectionNames = rest;
+        try { props.onSave?.(); } catch(e) {}
+      } else {
+        console.log('   ⏭️ Skipping (same as default)');
+      }
+      editingSection.id = null;
+      editingSection.tempName = '';
+    }
+  }
+};
+
+const cancelEditSectionName = () => {
+  editingSection.id = null;
+  editingSection.tempName = '';
+};
+
+const isEditingSection = (sectionId) => editingSection.id === sectionId;
+
+// Watch for editing state to auto-focus input
+watch(() => editingSection.id, (newId) => {
+  if(newId) {
+    nextTick(() => {
+      const input = document.querySelector('.section-name-input');
+      if(input) {
+        input.focus();
+        input.select();
+      }
+    });
+  }
+});
+
+// Helper function to get editable title props for SectionList
+const getEditableTitleProps = (sectionKey) => {
+  return {
+    editableTitle: true,
+    isEditingTitle: isEditingSection(sectionKey),
+    editingTitleValue: editingSection.tempName,
+    titlePlaceholder: getSectionDefaultName(sectionKey)
+  };
+};
+
+// Get sorted sections for an area (excluding the dragged one)
+const getSortedSections = (area) => {
+  ensureOrderArrays();
+  const arr = area === 'body' ? props.state.orderMain : props.state.orderSide;
+  return arr.filter(key => key !== dragState.draggedKey && !isHidden(key));
+};
+
+// Get display name for a section key (for drag overlay)
+const getSectionName = (key) => {
+  return getSectionDisplayName(key);
 };
 
 // Computed: Check if draggable based on movementMode
@@ -442,7 +578,27 @@ const areaCerts = areaModel('certs');
           <button class="caret mini" type="button" @click="collapsed.about=!collapsed.about">
             <font-awesome-icon :icon="['fas', getIcon('about')]" class="section-icon" aria-hidden="true" />
           </button>
-          <h3>{{ t('aboutTitle') }}</h3>
+
+          <!-- Editable Label -->
+          <h3
+            v-if="!isEditingSection('about')"
+            class="section-name-label"
+            @click="startEditSectionName('about', false)"
+            :title="langRef === 'de' ? 'Klicken zum Umbenennen' : 'Click to rename'"
+          >
+            {{ getSectionDisplayName('about') }}
+          </h3>
+          <input
+            v-else
+            type="text"
+            v-model="editingSection.tempName"
+            class="section-name-input"
+            :placeholder="getSectionDefaultName('about')"
+            @blur="finishEditSectionName('about', false)"
+            @keyup.enter="finishEditSectionName('about', false)"
+            @keyup.esc="cancelEditSectionName"
+          />
+
           <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
             <select v-if="isButtonMode" v-model="areaAbout">
               <option value="body">Body</option>
@@ -460,7 +616,7 @@ const areaCerts = areaModel('certs');
 
       <!-- Education -->
       <SectionList
-          :title="t('educationTitle')"
+          :title="getSectionDisplayName('education')"
           :lang="langRef"
           sectionKey="education"
           v-model="state.education"
@@ -475,6 +631,11 @@ const areaCerts = areaModel('certs');
           :addLabel="t('add')"
           :disabled="isHidden('education')"
           @toggle-section="toggleDisabled('education')"
+          v-bind="getEditableTitleProps('education')"
+          @start-edit-title="startEditSectionName('education', false)"
+          @finish-edit-title="finishEditSectionName('education', false)"
+          @cancel-edit-title="cancelEditSectionName"
+          @update-editing-value="editingSection.tempName = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('education')"
@@ -495,7 +656,7 @@ const areaCerts = areaModel('certs');
 
       <!-- Experience job -->
       <SectionList
-          :title="t('expJobTitle')"
+          :title="getSectionDisplayName('jobs')"
           :lang="langRef"
           sectionKey="jobs"
           v-model="state.experience.jobs"
@@ -510,6 +671,11 @@ const areaCerts = areaModel('certs');
           :addLabel="t('add')"
           :disabled="isHidden('jobs')"
           @toggle-section="toggleDisabled('jobs')"
+          v-bind="getEditableTitleProps('jobs')"
+          @start-edit-title="startEditSectionName('jobs', false)"
+          @finish-edit-title="finishEditSectionName('jobs', false)"
+          @cancel-edit-title="cancelEditSectionName"
+          @update-editing-value="editingSection.tempName = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('jobs')"
@@ -528,9 +694,9 @@ const areaCerts = areaModel('certs');
         </template>
       </SectionList>
 
-      <!-- Experience personal -->
+      <!-- Experience additional -->
       <SectionList
-          :title="t('expPersonalTitle')"
+          :title="getSectionDisplayName('addExp')"
           :lang="langRef"
           sectionKey="addExp"
           v-model="state.experience.addExp"
@@ -545,6 +711,11 @@ const areaCerts = areaModel('certs');
           :addLabel="t('add')"
           :disabled="isHidden('addExp')"
           @toggle-section="toggleDisabled('addExp')"
+          v-bind="getEditableTitleProps('addExp')"
+          @start-edit-title="startEditSectionName('addExp', false)"
+          @finish-edit-title="finishEditSectionName('addExp', false)"
+          @cancel-edit-title="cancelEditSectionName"
+          @update-editing-value="editingSection.tempName = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('addExp')"
@@ -565,7 +736,7 @@ const areaCerts = areaModel('certs');
 
       <!-- Projects -->
       <SectionList
-          :title="t('projectsTitle')"
+          :title="getSectionDisplayName('projects')"
           :lang="langRef"
           sectionKey="projects"
           v-model="state.experience.projects"
@@ -579,6 +750,11 @@ const areaCerts = areaModel('certs');
           :addLabel="t('add')"
           :disabled="isHidden('projects')"
           @toggle-section="toggleDisabled('projects')"
+          v-bind="getEditableTitleProps('projects')"
+          @start-edit-title="startEditSectionName('projects', false)"
+          @finish-edit-title="finishEditSectionName('projects', false)"
+          @cancel-edit-title="cancelEditSectionName"
+          @update-editing-value="editingSection.tempName = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('projects')"
@@ -599,7 +775,7 @@ const areaCerts = areaModel('certs');
 
       <!-- Skills -->
       <SectionList
-          :title="t('skillsTitle')"
+          :title="getSectionDisplayName('skills')"
           :lang="langRef"
           sectionKey="skills"
           v-model="state.skills"
@@ -610,6 +786,11 @@ const areaCerts = areaModel('certs');
           :disabled="isHidden('skills')"
           @toggle-section="toggleDisabled('skills')"
           :addLabel="t('add')"
+          v-bind="getEditableTitleProps('skills')"
+          @start-edit-title="startEditSectionName('skills', false)"
+          @finish-edit-title="finishEditSectionName('skills', false)"
+          @cancel-edit-title="cancelEditSectionName"
+          @update-editing-value="editingSection.tempName = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('skills')"
@@ -630,7 +811,7 @@ const areaCerts = areaModel('certs');
 
       <!-- Languages: CEFR -->
       <SectionList
-          :title="t('languagesTitle')"
+          :title="getSectionDisplayName('languages')"
           :lang="langRef"
           sectionKey="languages"
           v-model="state.languages"
@@ -641,6 +822,11 @@ const areaCerts = areaModel('certs');
           :addLabel="t('add')"
           :disabled="isHidden('languages')"
           @toggle-section="toggleDisabled('languages')"
+          v-bind="getEditableTitleProps('languages')"
+          @start-edit-title="startEditSectionName('languages', false)"
+          @finish-edit-title="finishEditSectionName('languages', false)"
+          @cancel-edit-title="cancelEditSectionName"
+          @update-editing-value="editingSection.tempName = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('languages')"
@@ -661,7 +847,7 @@ const areaCerts = areaModel('certs');
 
       <!-- Hobbies -->
       <SectionList
-          :title="t('hobbiesTitle')"
+          :title="getSectionDisplayName('hobbies')"
           :lang="langRef"
           sectionKey="hobbies"
           v-model="state.hobbies"
@@ -672,6 +858,11 @@ const areaCerts = areaModel('certs');
           :addLabel="t('add')"
           :disabled="isHidden('hobbies')"
           @toggle-section="toggleDisabled('hobbies')"
+          v-bind="getEditableTitleProps('hobbies')"
+          @start-edit-title="startEditSectionName('hobbies', false)"
+          @finish-edit-title="finishEditSectionName('hobbies', false)"
+          @cancel-edit-title="cancelEditSectionName"
+          @update-editing-value="editingSection.tempName = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('hobbies')"
@@ -692,7 +883,7 @@ const areaCerts = areaModel('certs');
 
       <!-- Certs -->
       <SectionList
-          :title="t('certsTitle')"
+          :title="getSectionDisplayName('certs')"
           :lang="langRef"
           sectionKey="certs"
           v-model="state.certs"
@@ -703,6 +894,11 @@ const areaCerts = areaModel('certs');
           :addLabel="t('add')"
           :disabled="isHidden('certs')"
           @toggle-section="toggleDisabled('certs')"
+          v-bind="getEditableTitleProps('certs')"
+          @start-edit-title="startEditSectionName('certs', false)"
+          @finish-edit-title="finishEditSectionName('certs', false)"
+          @cancel-edit-title="cancelEditSectionName"
+          @update-editing-value="editingSection.tempName = $event"
           toggle-style="icon"
           :draggable="isDraggableMode"
           :is-dragging="isDragging('certs')"
@@ -737,11 +933,25 @@ const areaCerts = areaModel('certs');
             <button class="caret mini" type="button" @click="$event.target.closest('.section-group').classList.toggle('collapsed')">
               <font-awesome-icon :icon="['fas', 'folder-open']" class="section-icon" aria-hidden="true" />
             </button>
+
+            <!-- Editable Label for Section Name -->
+            <h3
+              v-if="!isEditingSection(customSection.id)"
+              class="section-name-label"
+              @click="startEditSectionName(customSection, true)"
+              :title="langRef === 'de' ? 'Klicken zum Umbenennen' : 'Click to rename'"
+            >
+              {{ customSection.name }}
+            </h3>
             <input
+              v-else
               type="text"
-              v-model="customSection.name"
+              v-model="editingSection.tempName"
               class="section-name-input"
-              :placeholder="langRef === 'de' ? 'Section Name' : 'Section Name'"
+              :placeholder="langRef === 'de' ? 'Neue Section' : 'New Section'"
+              @blur="finishEditSectionName(customSection, true)"
+              @keyup.enter="finishEditSectionName(customSection, true)"
+              @keyup.esc="cancelEditSectionName"
             />
             <button
                 class="mini btn--danger"
@@ -828,6 +1038,24 @@ const areaCerts = areaModel('certs');
   padding: 4px 7px;
   border: 1px solid #134e4a;
   color: #9be8c7;
+}
+
+.section-name-label {
+  color: #9be8c7;
+  padding: 4px 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+  cursor: pointer;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.section-name-label:hover {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: #134e4a;
 }
 
 .section-name-input {

@@ -21,11 +21,18 @@ const blocksMain = computed(()=>{
   const sideKeys = new Set(Array.isArray(props.state.orderSide) ? props.state.orderSide : []);
   Object.keys(placement).forEach(k=>{ if(placement[k]==='sidebar') sideKeys.add(k); if(placement[k]==='body') sideKeys.delete(k); });
   // allow skills in both areas
-  // Add custom sections that are in orderMain or have body placement
+  // Add custom sections - if they're in orderMain, placement says body, or no placement set (default to body)
   if(Array.isArray(props.state.customSections)) {
     props.state.customSections.forEach(cs => {
-      if(base.includes(cs.id) || placement[cs.id] === 'body') {
-        if(!base.includes(cs.id)) base.push(cs.id);
+      const isInMain = base.includes(cs.id);
+      const isInSide = sideKeys.has(cs.id);
+      const placementIsSidebar = placement[cs.id] === 'sidebar';
+
+      // Add to main if: in orderMain, explicitly set to body, or no placement and not in sidebar
+      if(isInMain || placement[cs.id] === 'body' || (!placementIsSidebar && !isInSide)) {
+        if(!base.includes(cs.id)) {
+          base.push(cs.id);
+        }
       }
     });
   }
@@ -38,11 +45,17 @@ const blocksSide = computed(()=>{
   Object.keys(placement).forEach(k=>{ if(placement[k]==='sidebar' && !base.includes(k)) base.push(k); });
   const mainKeys = new Set(Array.isArray(props.state.orderMain) ? props.state.orderMain : []);
   Object.keys(placement).forEach(k=>{ if(placement[k]==='body') mainKeys.add(k); if(placement[k]==='sidebar') mainKeys.delete(k); });
-  // Add custom sections that are in orderSide or have sidebar placement
+  // Add custom sections - only if explicitly in orderSide or placement is sidebar
   if(Array.isArray(props.state.customSections)) {
     props.state.customSections.forEach(cs => {
-      if(base.includes(cs.id) || placement[cs.id] === 'sidebar') {
-        if(!base.includes(cs.id)) base.push(cs.id);
+      const isInSide = base.includes(cs.id);
+      const placementIsSidebar = placement[cs.id] === 'sidebar';
+
+      // Only add to sidebar if explicitly set
+      if(isInSide || placementIsSidebar) {
+        if(!base.includes(cs.id)) {
+          base.push(cs.id);
+        }
       }
     });
   }
@@ -76,6 +89,31 @@ const getCustomSection = (id) => {
   return props.state.customSections.find(cs => cs.id === id);
 };
 
+// Get display name for section (with custom names if set)
+const getSectionDisplayName = (key) => {
+  // Check if there's a custom name set
+  if(props.state.sectionNames && props.state.sectionNames[key]) { return props.state.sectionNames[key]; }
+
+  // For custom sections, use their name property
+  const customSection = getCustomSection(key);
+  if(customSection) { return customSection.name; }
+
+  // Otherwise use default translated name
+  const names = {
+    about: t('aboutTitle'),
+    education: t('educationTitle'),
+    jobs: t('expJobTitle'),
+    addExp: t('expPersonalTitle'),
+    projects: t('projectsTitle'),
+    skills: t('skillsTitle'),
+    languages: t('languagesTitle'),
+    hobbies: t('hobbiesTitle'),
+    certs: t('certsTitle')
+  };
+  const defaultName = names[key] || key;
+  return defaultName;
+};
+
 // Centralized visibility check used by template
 const isHiddenFor = (key) => {
   if(key==='about')           return isDisabled('about') || !hasText(props.state.about?.text);
@@ -94,9 +132,10 @@ const isHiddenFor = (key) => {
 };
 
 // Debug logging to help track why a key is/was not shown
-watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp])=>{
+watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.state.customSections], ([bm, bs, sp, cs])=>{
   try{
     console.debug('[CvPreview] blocksMain=', bm, 'blocksSide=', bs, 'sectionPlacement=', sp);
+    console.debug('[CvPreview] customSections=', cs);
     console.debug('[CvPreview] visibleMain=', bm.filter(k=>!isHiddenFor(k)), 'visibleSide=', bs.filter(k=>!isHiddenFor(k)));
   }catch(e){}
 },{deep:true, immediate:true});
@@ -126,13 +165,13 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
 
           <!-- ABOUT -->
           <template v-if="key==='about'">
-            <h2>{{ t('aboutTitle') }}</h2>
+            <h2>{{ getSectionDisplayName('about') }}</h2>
             <p>{{ state.about.text }}</p>
           </template>
 
           <!-- EXPERIENCE -->
           <template v-else-if="key==='jobs'">
-            <h2>{{ t('expJobTitle') }}</h2>
+            <h2>{{ getSectionDisplayName('jobs') }}</h2>
             <div class="timeline" id="cv_exp_job">
               <article class="item" v-for="(it,idx) in state.experience.jobs" :key="idx">
                 <div class="item-header">
@@ -147,7 +186,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
           </template>
 
           <template v-else-if="key==='addExp'">
-            <h2>{{ t('subHeaderAddXP') }}</h2>
+            <h2>{{ getSectionDisplayName('addExp') }}</h2>
             <div id="cv_exp_personal" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4mm">
               <article class="item" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx" style="border:1px solid var(--border);border-radius:6px;padding:6px">
                 <div class="item-header">
@@ -161,7 +200,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
 
           <!-- EDUCATION -->
           <template v-else-if="key==='education'">
-            <h2>{{ t('educationTitle') }}</h2>
+            <h2>{{ getSectionDisplayName('education') }}</h2>
             <div>
               <article class="item" v-for="(it, idx) in state.education" :key="idx">
                 <div class="item-header">
@@ -175,7 +214,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
 
           <!-- PROJECTS -->
           <template v-else-if="key==='projects'">
-            <h2>{{ t('projectsTitle') }}</h2>
+            <h2>{{ getSectionDisplayName('projects') }}</h2>
             <div>
               <article class="item" v-for="(it, idx) in state.experience.projects" :key="idx">
                 <div class="item-header">
@@ -203,7 +242,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
 
           <!-- SKILLS (wenn im Main) -->
           <template v-else-if="key==='skills'">
-            <h2>{{ t('skillsTitle') }}</h2>
+            <h2>{{ getSectionDisplayName('skills') }}</h2>
             <div v-for="(grp,i) in state.skills" :key="i" style="margin-top:4mm">
               <h3 class="small">{{ grp.title }}</h3>
               <div class="tags">
@@ -214,7 +253,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
 
           <!-- LANGUAGES (wenn im Main) -->
           <template v-else-if="key==='languages'">
-            <h2>{{ t('languagesTitle') }}</h2>
+            <h2>{{ getSectionDisplayName('languages') }}</h2>
             <ul class="lang-list">
               <li v-for="(l,i) in state.languages" :key="i">
                 <strong>{{ l.name }}</strong>
@@ -225,13 +264,13 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
 
           <!-- CERTS (wenn im Main) -->
           <template v-else-if="key==='certs'">
-            <h2>{{ t('certsTitle') }}</h2>
+            <h2>{{ getSectionDisplayName('certs') }}</h2>
             <ul><li v-for="(c,i) in state.certs" :key="i">{{ [c.name,c.year].filter(Boolean).join(', ') }}</li></ul>
           </template>
 
           <!-- HOBBIES (wenn im Main) -->
           <template v-else-if="key==='hobbies'">
-            <h2>{{ t('hobbiesTitle') }}</h2>
+            <h2>{{ getSectionDisplayName('hobbies') }}</h2>
             <ul class="lang-list">
               <li v-for="(h,i) in state.hobbies" :key="i">
                 <strong>{{ h.name }}</strong>
@@ -247,12 +286,12 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
         <section v-for="key in blocksSide" :key="key" class="section cv-block" :class="{'is-hidden': isHiddenFor(key) }">
 
           <template v-if="key==='about'">
-            <h2>{{ t('aboutTitle') }}</h2>
+            <h2>{{ getSectionDisplayName('about') }}</h2>
             <p>{{ state.about.text }}</p>
           </template>
 
           <template v-else-if="key==='jobs'">
-            <h2>{{ t('expJobTitle') }}</h2>
+            <h2>{{ getSectionDisplayName('jobs') }}</h2>
             <div class="timeline" id="cv_exp_job">
               <article class="item" v-for="(it,idx) in state.experience.jobs" :key="idx">
                 <div class="item-header">
@@ -264,7 +303,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
           </template>
 
           <template v-else-if="key==='addExp'">
-            <h2>{{ t('subHeaderAddXP') }}</h2>
+            <h2>{{ getSectionDisplayName('addExp') }}</h2>
             <div>
               <article class="item" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx" style="margin-bottom:3mm">
                 <div class="item-header">
@@ -277,7 +316,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
           </template>
 
           <template v-else-if="key==='education'">
-            <h2>{{ t('educationTitle') }}</h2>
+            <h2>{{ getSectionDisplayName('education') }}</h2>
             <div>
               <article class="item" v-for="(it, idx) in state.education" :key="idx">
                 <div class="item-header">
@@ -289,7 +328,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
           </template>
 
           <template v-else-if="key==='projects'">
-            <h2>{{ t('projectsTitle') }}</h2>
+            <h2>{{ getSectionDisplayName('projects') }}</h2>
             <div>
               <article class="item" v-for="(it, idx) in state.experience.projects" :key="idx">
                 <div class="item-header">
@@ -315,7 +354,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
 
           <!-- SKILLS -->
           <template v-else-if="key==='skills'">
-            <h2>{{ t('skillsTitle') }}</h2>
+            <h2>{{ getSectionDisplayName('skills') }}</h2>
             <div v-for="(grp,i) in state.skills" :key="i" style="margin-top:4mm">
               <h3 class="small">{{ grp.title }}</h3>
               <div class="tags">
@@ -326,7 +365,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
 
           <!-- LANGUAGES (CEFR text) -->
           <template v-else-if="key==='languages'">
-            <h2>{{ t('languagesTitle') }}</h2>
+            <h2>{{ getSectionDisplayName('languages') }}</h2>
             <ul class="lang-list">
               <li v-for="(l,i) in state.languages" :key="i">
                 <strong>{{ l.name }}</strong>
@@ -337,13 +376,13 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement], ([bm, bs, sp
 
           <!-- CERTS -->
           <template v-else-if="key==='certs'">
-            <h2>{{ t('certsTitle') }}</h2>
+            <h2>{{ getSectionDisplayName('certs') }}</h2>
             <ul><li v-for="(c,i) in state.certs" :key="i">{{ [c.name,c.year].filter(Boolean).join(', ') }}</li></ul>
           </template>
 
           <!-- HOBBIES -->
           <template v-else-if="key==='hobbies'">
-            <h2>{{ t('hobbiesTitle') }}</h2>
+            <h2>{{ getSectionDisplayName('hobbies') }}</h2>
             <ul class="lang-list">
               <li v-for="(h,i) in state.hobbies" :key="i">
                 <strong>{{ h.name }}</strong>
