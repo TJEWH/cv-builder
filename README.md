@@ -140,14 +140,25 @@ npm run preview      # Test build
 
 ## 🚀 Deployment
 
+### GitHub Pages (Configured ✅)
+
+This project is configured for automatic deployment to GitHub Pages:
+
+1. **Push to `main` branch** → Automatic build & deploy via GitHub Actions
+2. **Configure GitHub Settings**: Go to Settings → Pages → Source: "GitHub Actions"
+3. **Access**: `https://tjewh.github.io/cv-builder/`
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed setup instructions.
+
+### Manual Deployment
+
 Create build: `npm run build` → `/dist` folder
 
-**Static Hosting** (recommended for client-only app):
-- Netlify, Vercel, GitHub Pages, Cloudflare Pages
+**Other Static Hosting** (Netlify, Vercel, Cloudflare Pages):
 - Build Command: `npm run build`
 - Output: `dist`
 
-**Subfolder Deployment**: Set `base: '/path/'` in `vite.config.js`
+**Subfolder Deployment**: Already configured with `base: '/cv-builder/'` in `vite.config.js`
 
 ---
 

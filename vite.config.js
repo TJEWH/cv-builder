@@ -181,5 +181,6 @@ function cvBackupPlugin() {
 }
 
 export default defineConfig({
-  plugins: [vue(), cvBackupPlugin()],
+    plugins: [vue(), cvBackupPlugin()],
+    base: '/cv-builder/',
 })
