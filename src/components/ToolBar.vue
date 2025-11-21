@@ -111,14 +111,14 @@ const handleExportPdf = async () => {
 }
 .toggle-track{
   position:relative; display:inline-flex; align-items:center; justify-content:space-around;
-  width: 120px; height: 36px; border-radius:999px;
+  width: 140px; height: 36px; border-radius:999px;
   background: #0c131a; border:1px solid var(--border);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
 }
 .toggle-label{ font-size:11px; opacity:.75; color:#cbd5e1; z-index:1; user-select:none; }
 .toggle-thumb{
   position:absolute; top:2px; left:2px;
-  width: 58px; height: 30px; border-radius:999px;
+  width: 68px; height: 30px; border-radius:999px;
   background:linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.02));
   border:1px solid rgba(255,255,255,.12);
   transition: transform .18s ease;
@@ -133,5 +133,21 @@ const handleExportPdf = async () => {
   background: linear-gradient(180deg, rgba(34,197,94,.25), rgba(16,185,129,.15));
   border-color: rgba(16,185,129,.45);
 }
-.toggle.is-on .toggle-thumb{ transform: translateX(56px); }
+.toggle.is-on .toggle-thumb{ transform: translateX(66px); }
+
+.toolbar {
+  position: fixed;
+  top: 30px;
+  display: flex;
+  right: 30px;
+  width: 140px;
+  z-index: 10;
+  gap: 5px;
+  flex-direction: column;
+
+  button {
+    width: 100%;
+  }
+}
+span.toggle-caption {display: none}
 </style>

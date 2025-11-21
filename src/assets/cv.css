@@ -34,7 +34,6 @@ body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f1
 @page{size:A4;margin:14mm}
 @media print{.toolbar,.builder,.note,#dev-tests{display:none!important}.page{box-shadow:none} body{background:#fff}}
 
-.toolbar{position:sticky;top:10px;display:flex;gap:8px;justify-content:center;margin:10px auto 0;width:210mm;max-width:calc(100vw - 24px);z-index:10}
 .btn{padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:#0e141b;color:#e5ffee;cursor:pointer}
 .btn--primary{border-color:#3b82f6;color:#dbeafe}
 .btn--success{border-color:#22c55e;color:#d1fae5}
