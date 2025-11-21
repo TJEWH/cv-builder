@@ -3,7 +3,6 @@ import { computed, reactive, watch, onMounted, ref, onBeforeUnmount } from 'vue'
 import { debounce, loadLocal, saveLocal, readBackup, fsApiAvailable, getBackupMode } from './composables/useStorage';
 import { usePdfExport } from './composables/usePdfExport';
 import FormBuilder from './components/FormBuilder.vue';
-import FloatingPreview from './components/FloatingPreview.vue';
 import PageFlip from './components/PageFlip.vue';
 import { makeT } from './i18n/dict';
 import ToolBar from "./components/ToolBar.vue";
