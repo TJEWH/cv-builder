@@ -1,0 +1,356 @@
+{
+  "__meta": {
+    "id": "v2",
+    "name": "v2",
+    "updatedAt": "2025-11-20T19:56:06.979Z"
+  },
+  "data": {
+    "version": 1,
+    "disabled": [
+      "custom",
+      "custom_1763625701737_17bue5xzd"
+    ],
+    "lang": "en",
+    "design": {
+      "h1": "28pt",
+      "h2": "19pt",
+      "h3": "11pt",
+      "bullets": "9pt",
+      "ink": "#0f172a",
+      "accent": "#0f766e",
+      "bg": "#ffffff",
+      "headerbg": "#ecfeff",
+      "sidebarbg": "#f0fdfa",
+      "fontBody": "Nunito Sans",
+      "fontHead": "Montserrat",
+      "hstyle": "clean",
+      "radius": "10px",
+      "lang": "en",
+      "sidebarWidth": "1.1fr",
+      "sidebarAlign": "right",
+      "subtitle": "#5c605f",
+      "graphic": "#c40800",
+      "sectionSpacing": "2mm",
+      "badgeBg": "#a1e592",
+      "badgeBorder": "#924b94",
+      "itemBg": "#aee5cf",
+      "itemBorder": "#7daae3",
+      "badgeBorderWidth": "2px",
+      "badgeBorderRadius": "20px",
+      "addExpColumns": "1",
+      "sectionSpacingBody": "11mm",
+      "sectionSpacingSidebar": "8mm",
+      "itemBorderWidth": "2px",
+      "invertBadge": false,
+      "sidebarStyle": "default",
+      "dateColor": "#bcbcbc",
+      "enableBoxShadow": true
+    },
+    "contact": {
+      "name": "Tim Jacob Edelmann",
+      "location": "München",
+      "role": "",
+      "email": "tim.edelmann@campus.lmu.de",
+      "phone": "+49 160 97208002",
+      "website": "",
+      "linkedin": ""
+    },
+    "about": {
+      "text": "Software Engineer mit Fokus auf sauberen Code, Performance und DX. Erfahrung in Backend."
+    },
+    "education": [
+      {
+        "title": "M.Sc. Informatik",
+        "sub": "TU München",
+        "meta": "2017–2020",
+        "desc": "Softwarearchitektur,KI",
+        "start": "2020",
+        "end": "2021"
+      }
+    ],
+    "experience": {
+      "jobs": [
+        {
+          "title": "Senior Software Engineer",
+          "company": "Acme GmbH",
+          "meta": "2021–heute · Berlin",
+          "bullets": "Skalierung von X,Einführung CI/CD,Mentoring,dD",
+          "start": "03.2002",
+          "end": "05.2005"
+        }
+      ],
+      "addExp": [
+        {
+          "title": "XYZdsd",
+          "sub": "1. Platz",
+          "place": "",
+          "start": "03.01.2001",
+          "end": "03.2025",
+          "desc": ""
+        }
+      ],
+      "projects": [
+        {
+          "title": "dsd",
+          "place": "",
+          "start": "",
+          "end": "",
+          "desc": "ddsd"
+        }
+      ]
+    },
+    "skills": [
+      {
+        "title": "",
+        "tags": "Python, C++, JS",
+        "items": [
+          {
+            "name": "Python",
+            "levelType": "experience",
+            "levelValue": 5
+          },
+          {
+            "name": "JS",
+            "levelType": "experience",
+            "levelValue": 3
+          },
+          {
+            "name": "C++",
+            "levelType": "experience",
+            "levelValue": 7
+          }
+        ],
+        "levelType": "experience"
+      },
+      {
+        "title": "Weiteres",
+        "levelType": null,
+        "items": [
+          {
+            "name": "Pyton",
+            "levelValue": 0
+          },
+          {
+            "name": "Rate",
+            "levelValue": 0
+          }
+        ]
+      },
+      {
+        "title": "",
+        "levelType": null,
+        "items": []
+      }
+    ],
+    "languages": [
+      {
+        "name": "Deutsch",
+        "level": "nativ"
+      },
+      {
+        "name": "Englisch",
+        "level": "C2"
+      },
+      {
+        "name": "Französisch",
+        "level": "B2"
+      }
+    ],
+    "certs": [
+      {
+        "name": "AWS Solutions Architect",
+        "year": "2023"
+      }
+    ],
+    "hobbies": [
+      {
+        "name": "Musik",
+        "details": ""
+      },
+      {
+        "name": "Zeichnen",
+        "details": "Akt"
+      }
+    ],
+    "customSections": [
+      {
+        "id": "custom_1763625701737_17bue5xzd",
+        "name": "DiesDas",
+        "entries": [
+          {
+            "title": "Jaja",
+            "place": "",
+            "start": "",
+            "end": "",
+            "desc": ""
+          }
+        ]
+      }
+    ],
+    "sectionNames": {
+      "projects": "Projects"
+    },
+    "sectionHeaderSizes": {
+      "about": "h2",
+      "custom_1763625701737_17bue5xzd": "h2",
+      "skills": "h2",
+      "addExp": "h2"
+    },
+    "softSkills": [
+      {
+        "label": "Analytisches Denken",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Anpassungsfähigkeit",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Kritisches Denken",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Kreative Problemlösung",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Kommunikationsstärke",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Emotionale Intelligenz",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Teamfähigkeit",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Digitale Kompetenz",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Entrepreneurship",
+        "desc": "",
+        "refs": []
+      }
+    ],
+    "orderMain": [
+      "about",
+      "education",
+      "jobs",
+      "projects",
+      "addExp",
+      "custom",
+      "custom_1763625701737_17bue5xzd"
+    ],
+    "orderSide": [
+      "skills",
+      "languages",
+      "hobbies",
+      "certs"
+    ],
+    "sectionPlacement": {
+      "about": "body",
+      "education": "body",
+      "jobs": "body",
+      "addExp": "body",
+      "projects": "body",
+      "languages": "sidebar",
+      "skills": "sidebar",
+      "hobbies": "sidebar",
+      "certs": "sidebar",
+      "custom_1763619769161_y0twwgtdr": "sidebar",
+      "custom_1763619614843_itsx01tlp": "sidebar",
+      "custom_1763621380597_7qnsej5jj": "body",
+      "custom_1763622411317_euoa07pyo": "body"
+    },
+    "custom": [
+      {
+        "title": "Konferenzen",
+        "meta": "2023–2025",
+        "bullets": [
+          "Sprecher auf JSConf",
+          "Mitorganisator lokaler Meetup-Reihe"
+        ],
+        "start": "2022",
+        "end": "2024"
+      },
+      {
+        "title": "",
+        "place": "",
+        "start": "",
+        "end": "",
+        "bullets": []
+      }
+    ],
+    "header": {
+      "name": "",
+      "location": "",
+      "role": "",
+      "email": "",
+      "phone": "",
+      "website": "",
+      "linkedin": ""
+    },
+    "projects": [],
+    "softskills": [
+      {
+        "label": "Analytisches Denken",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Anpassungsfähigkeit",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Kritisches Denken",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Kreative Problemlösung",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Kommunikationsstärke",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Emotionale Intelligenz",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Teamfähigkeit",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Digitale Kompetenz",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Entrepreneurship",
+        "desc": "",
+        "refs": []
+      }
+    ],
+    "includeAddExp": false,
+    "includeProjects": false,
+    "onSave": {}
+  }
+}

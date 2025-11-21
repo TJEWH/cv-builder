@@ -1,0 +1,378 @@
+{
+  "__meta": {
+    "id": "cv-backup",
+    "name": "cv-backup",
+    "updatedAt": "2025-11-21T03:09:29.844Z"
+  },
+  "data": {
+    "version": 1,
+    "disabled": [
+      "custom"
+    ],
+    "lang": "en",
+    "design": {
+      "h1": "30pt",
+      "h2": "13pt",
+      "h3": "10pt",
+      "bullets": "9.5pt",
+      "ink": "#0f172a",
+      "accent": "#0f766e",
+      "bg": "#ffffff",
+      "headerbg": "#ecfeff",
+      "sidebarbg": "#f0fdfa",
+      "fontBody": "Nunito Sans",
+      "fontHead": "Montserrat",
+      "hstyle": "clean",
+      "radius": "10px",
+      "lang": "en",
+      "sidebarWidth": "0.7fr",
+      "sidebarAlign": "right",
+      "subtitle": "#5c605f",
+      "graphic": "#930600",
+      "sectionSpacing": "2mm",
+      "badgeBg": "#a1e592",
+      "badgeBorder": "#924b94",
+      "itemBg": "#aee5cf",
+      "itemBorder": "#7daae3",
+      "badgeBorderWidth": "4px",
+      "badgeBorderRadius": "20px",
+      "addExpColumns": "2",
+      "sectionSpacingBody": "7mm",
+      "sectionSpacingSidebar": "10mm",
+      "itemBorderWidth": "4px",
+      "invertBadge": true,
+      "sidebarStyle": "default",
+      "dateColor": "#bcbcbc",
+      "enableBoxShadow": true,
+      "bulletStyle": "disclosure-closed"
+    },
+    "contact": {
+      "name": "Max Moritz",
+      "location": "Mainz",
+      "role": "Software Engineer",
+      "email": "moritz@example.com",
+      "phone": "+49 123 456789",
+      "website": "https://ma.moritz",
+      "linkedin": ""
+    },
+    "about": {
+      "text": "Software Engineer mit Fokus auf sauberen Code, Performance und DX. Erfahrung in Backend."
+    },
+    "education": [
+      {
+        "title": "M.Sc. Informatik",
+        "sub": "TU Reinstadt",
+        "meta": "2017–2020",
+        "desc": "Softwarearchitektur,KI",
+        "start": "2020",
+        "end": "2021"
+      }
+    ],
+    "experience": {
+      "jobs": [
+        {
+          "title": "Senior Software Engineer",
+          "company": "Acme GmbH",
+          "meta": "2021–heute · Berlin",
+          "bullets": [
+            "Skalierung von X",
+            "Einführung CI/CD",
+            "Mentoring"
+          ],
+          "start": "03.2002",
+          "end": "05.2005"
+        }
+      ],
+      "addExp": [
+        {
+          "title": "Sample Hackathon",
+          "sub": "1. Platz",
+          "place": "",
+          "start": "01.2001",
+          "end": "",
+          "desc": "War cool"
+        },
+        {
+          "title": "Next Hackathon",
+          "sub": "",
+          "place": "",
+          "start": "03.2020",
+          "end": "",
+          "desc": ""
+        }
+      ],
+      "projects": [
+        {
+          "title": "Cool Release",
+          "place": "",
+          "start": "2024",
+          "end": "2025",
+          "desc": "With some Description"
+        }
+      ]
+    },
+    "skills": [
+      {
+        "title": "",
+        "tags": "Python, C++, JS",
+        "items": [
+          {
+            "name": "Python",
+            "levelType": "experience",
+            "levelValue": 9
+          },
+          {
+            "name": "JS",
+            "levelType": "experience",
+            "levelValue": 5
+          },
+          {
+            "name": "C++",
+            "levelType": "experience",
+            "levelValue": 7
+          }
+        ],
+        "levelType": "experience"
+      },
+      {
+        "title": "",
+        "levelType": "years",
+        "items": [
+          {
+            "name": "Angular",
+            "levelValue": 20
+          },
+          {
+            "name": "Vue",
+            "levelValue": 10
+          }
+        ]
+      },
+      {
+        "title": "Weiteres",
+        "levelType": null,
+        "items": [
+          {
+            "name": "Bitcoin",
+            "levelValue": 0
+          },
+          {
+            "name": "ScamCoin",
+            "levelValue": 0
+          }
+        ]
+      }
+    ],
+    "languages": [
+      {
+        "name": "Deutsch",
+        "level": "Muttersprache"
+      },
+      {
+        "name": "Englisch",
+        "level": "C2"
+      },
+      {
+        "name": "Französisch",
+        "level": "B2"
+      }
+    ],
+    "certs": [
+      {
+        "name": "AWS Solutions Architect",
+        "year": "2023"
+      }
+    ],
+    "hobbies": [
+      {
+        "name": "Musik",
+        "details": ""
+      },
+      {
+        "name": "Zeichnen",
+        "details": "Akt"
+      }
+    ],
+    "customSections": [
+      {
+        "id": "custom_1763625701737_17bue5xzd",
+        "name": "DiesDas",
+        "entries": [
+          {
+            "title": "Like...",
+            "place": "",
+            "start": "",
+            "end": "",
+            "desc": ""
+          }
+        ]
+      }
+    ],
+    "sectionNames": {
+      "projects": "Projects",
+      "addExp": "Other Experience"
+    },
+    "sectionHeaderSizes": {
+      "about": "h2",
+      "custom_1763625701737_17bue5xzd": "h2",
+      "skills": "h2",
+      "addExp": "h2"
+    },
+    "softSkills": [
+      {
+        "label": "Analytisches Denken",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Anpassungsfähigkeit",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Kritisches Denken",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Kreative Problemlösung",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Kommunikationsstärke",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Emotionale Intelligenz",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Teamfähigkeit",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Digitale Kompetenz",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Entrepreneurship",
+        "desc": "",
+        "refs": []
+      }
+    ],
+    "orderMain": [
+      "about",
+      "education",
+      "jobs",
+      "projects",
+      "addExp",
+      "custom",
+      "custom_1763625701737_17bue5xzd"
+    ],
+    "orderSide": [
+      "skills",
+      "languages",
+      "hobbies",
+      "certs"
+    ],
+    "sectionPlacement": {
+      "about": "body",
+      "education": "body",
+      "jobs": "body",
+      "addExp": "body",
+      "projects": "body",
+      "languages": "sidebar",
+      "skills": "sidebar",
+      "hobbies": "sidebar",
+      "certs": "sidebar",
+      "custom_1763619769161_y0twwgtdr": "sidebar",
+      "custom_1763619614843_itsx01tlp": "sidebar",
+      "custom_1763621380597_7qnsej5jj": "body",
+      "custom_1763622411317_euoa07pyo": "body"
+    },
+    "custom": [
+      {
+        "title": "Konferenzen",
+        "meta": "2023–2025",
+        "bullets": [
+          "Sprecher auf JSConf",
+          "Mitorganisator lokaler Meetup-Reihe"
+        ],
+        "start": "2022",
+        "end": "2024"
+      },
+      {
+        "title": "",
+        "place": "",
+        "start": "",
+        "end": "",
+        "bullets": []
+      }
+    ],
+    "header": {
+      "name": "",
+      "location": "",
+      "role": "",
+      "email": "",
+      "phone": "",
+      "website": "",
+      "linkedin": ""
+    },
+    "projects": [],
+    "softskills": [
+      {
+        "label": "Analytisches Denken",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Anpassungsfähigkeit",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Kritisches Denken",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Kreative Problemlösung",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Kommunikationsstärke",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Emotionale Intelligenz",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Teamfähigkeit",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Digitale Kompetenz",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Entrepreneurship",
+        "desc": "",
+        "refs": []
+      }
+    ],
+    "includeAddExp": false,
+    "includeProjects": false,
+    "onSave": {}
+  }
+}

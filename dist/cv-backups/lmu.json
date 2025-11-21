@@ -1,0 +1,212 @@
+{
+  "__meta": {
+    "id": "lmu",
+    "name": "LMU",
+    "updatedAt": "2025-11-19T17:36:03.708Z"
+  },
+  "data": {
+    "version": 1,
+    "disabled": [
+      "certs",
+      "addExp"
+    ],
+    "lang": "de",
+    "design": {
+      "h1": "22pt",
+      "h2": "14pt",
+      "h3": "10pt",
+      "bullets": "10.5pt",
+      "ink": "#1f2937",
+      "accent": "#6d28d9",
+      "bg": "#ffffff",
+      "headerbg": "#f5f3ff",
+      "sidebarbg": "#faf5ff",
+      "fontBody": "Rubik",
+      "fontHead": "Bitter",
+      "hstyle": "underline",
+      "radius": "10px",
+      "lang": "en"
+    },
+    "contact": {
+      "name": "Tim Jacob Edelmann",
+      "location": "München",
+      "role": "",
+      "email": "tim.edelmann@campus.lmu.de",
+      "phone": "+49 160 97208002",
+      "website": "",
+      "linkedin": ""
+    },
+    "about": {
+      "text": "Software Engineer mit Fokus auf sauberen Code, Performance und DX. Erfahrung in Backend/Cloud & Frontend."
+    },
+    "education": [
+      {
+        "title": "M.Sc. Informatik",
+        "sub": "TU München",
+        "meta": "2017–2020",
+        "desc": "KI, Softwarearchitektur",
+        "start": "2020",
+        "end": "2021"
+      }
+    ],
+    "experience": {
+      "jobs": [
+        {
+          "title": "Senior Software Engineer",
+          "company": "Acme GmbH",
+          "meta": "2021–heute · Berlin",
+          "bullets": [
+            "Skalierung von X",
+            "Einführung CI/CD",
+            "Mentoring"
+          ]
+        }
+      ],
+      "addExp": [
+        {
+          "title": "Hac",
+          "sub": "",
+          "place": "",
+          "start": "",
+          "end": "",
+          "desc": ""
+        }
+      ],
+      "projects": [
+        {
+          "title": "hh",
+          "place": "",
+          "start": "",
+          "end": "",
+          "desc": ""
+        }
+      ]
+    },
+    "custom": [
+      {
+        "title": "Konferenzen",
+        "meta": "2023–2025",
+        "bullets": [
+          "Sprecher auf JSConf",
+          "Mitorganisator lokaler Meetup-Reihe"
+        ],
+        "start": "2022",
+        "end": "2024"
+      }
+    ],
+
+    "skills": [
+      {
+        "title": "Programmiersprachen",
+        "levelType": null,
+        "items": [
+          { "name": "Python", "levelValue": 0 },
+          { "name": "C++", "levelValue": 0 },
+          { "name": "JS", "levelValue": 0 }
+        ]
+      }
+    ],
+    "languages": [
+      {
+        "name": "Deutsch",
+        "level": "nativ"
+      },
+      {
+        "name": "Englisch",
+        "level": "C2"
+      },
+      {
+        "name": "Französisch",
+        "level": "B2"
+      }
+    ],
+    "hobbies": [
+      {
+        "name": "Musik",
+        "details": ""
+      }
+    ],
+    "certs": [
+      {
+        "name": "AWS Solutions Architect",
+        "year": "2023"
+      }
+    ],
+
+    "softSkills": [
+      {
+        "label": "Analytisches Denken",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Anpassungsfähigkeit",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Kritisches Denken",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Kreative Problemlösung",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Kommunikationsstärke",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Emotionale Intelligenz",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Teamfähigkeit",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Digitale Kompetenz",
+        "desc": "",
+        "refs": []
+      },
+      {
+        "label": "Entrepreneurship",
+        "desc": "",
+        "refs": []
+      }
+    ],
+    "orderMain": [
+      "about",
+      "education",
+      "jobs",
+      "addExp",
+      "projects",
+      "custom"
+    ],
+    "orderSide": [
+      "skills",
+      "languages",
+      "hobbies",
+      "certs"
+    ],
+    "sectionPlacement": {
+      "about": "body",
+      "education": "body",
+      "jobs": "body",
+      "addExp": "body",
+      "projects": "body",
+      "languages": "sidebar",
+      "skills": "sidebar",
+      "hobbies": "sidebar",
+      "certs": "sidebar"
+    },
+    "includeProjects": false,
+    "includeAddExp": false,
+    "onSave": {}
+  }
+}
