@@ -8,7 +8,6 @@ import { makeT } from './i18n/dict';
 import ToolBar from "./components/ToolBar.vue";
 import BackupManager from "./components/BackupManager.vue";
 import DesignPanel from "./components/DesignPanel.vue";
-//import SoftSkills from "./components/SoftSkills.vue";
 
 const state = reactive({
   version: 1,
@@ -126,26 +125,31 @@ onMounted(async ()=>{
 });
 onBeforeUnmount(()=>{ try{ bc?.close(); }catch{} });
 
-const showPreview = ref(true);
+const showPreview = ref(true); // Show FloatingPreview by default
 const sectionMovementMode = ref('drag'); // 'drag' or 'buttons'
-const floatingPreviewRef = ref(null);
 
-// PDF Export
+// Navigate to fullscreen preview
+const openFullscreenPreview = () => {
+  saveLocal(state);
+  window.location.href = '/preview.html';
+};
+
+// PDF Export via iframe
 const { exportToPdf } = usePdfExport();
 
 const handleExportPdf = async () => {
-  // Check if preview is visible and has iframe
+  // Check if preview is visible
   if (!showPreview.value) {
-    // If preview is hidden, show it first
     showPreview.value = true;
-    // Wait for it to render
     await new Promise(resolve => setTimeout(resolve, 500));
   }
 
   // Get the iframe from FloatingPreview
   const iframe = document.querySelector('.fp-iframe');
   if (!iframe || !iframe.contentWindow) {
-    alert(t('previewNotFound'));
+    // Fallback: navigate to preview with export flag
+    saveLocal(state);
+    window.location.href = '/preview.html?export=true';
     return;
   }
 
@@ -163,10 +167,11 @@ const handleExportPdf = async () => {
     v-model:lang="lang"
     v-model:sectionMovementMode="sectionMovementMode"
     @exportPdf="handleExportPdf"
+    @openFullscreen="openFullscreenPreview"
   />
+
   <FloatingPreview
     v-if="showPreview"
-    ref="floatingPreviewRef"
     url="/preview.html?embed=1"
     :initialScale="0.25"
   />
@@ -175,6 +180,5 @@ const handleExportPdf = async () => {
     <BackupManager :state="state" :langRef="lang" :onSave="saveDebounced" />
     <DesignPanel v-model="state.design" />
     <FormBuilder :state="state" :onSave="saveDebounced" :movementMode="sectionMovementMode" />
-    <!--<SoftSkills v-model="state.softSkills" :options="refsOptions" />-->
   </div>
 </template>

@@ -149,11 +149,22 @@ const handleExportPdf = async () => {
   }
 };
 
+const goBackToForm = () => {
+  window.location.href = '/';
+};
+
 onMounted(()=>{
-  // recognize iframe ODER ?embed=1
+  // Check if we're in an iframe
   try {
     const params = new URLSearchParams(location.search);
     isEmbedded.value = (window.self !== window.top) || params.has('embed');
+
+    // Auto-export if export parameter is present
+    if (params.has('export')) {
+      setTimeout(() => {
+        handleExportPdf();
+      }, 1000);
+    }
   } catch {
     isEmbedded.value = true;
   }
@@ -189,12 +200,16 @@ watch(()=>state.design, applyDesign, {deep:true});
 </script>
 
 <template>
-  <!-- PDF Export toolbar - always visible -->
-  <div class="pv-toolbar" :class="{ 'is-embedded': isEmbedded }">
+  <!-- Toolbar - visible in standalone mode -->
+  <div v-if="!isEmbedded" class="pv-toolbar">
+    <button class="pv-btn" @click="goBackToForm" title="Back to Form">
+      <font-awesome-icon :icon="['fas', 'arrow-left']" />
+      <span>Back to Form</span>
+    </button>
     <button class="pv-btn pv-btn--primary" @click="handleExportPdf" :disabled="isExporting" title="Download PDF">
       <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
       <font-awesome-icon v-else :icon="['fas', 'download']" />
-      <span v-if="!isEmbedded">{{ isExporting ? 'Exporting...' : 'Download PDF' }}</span>
+      <span>{{ isExporting ? 'Exporting...' : 'Download PDF' }}</span>
     </button>
   </div>
 
@@ -211,7 +226,7 @@ watch(()=>state.design, applyDesign, {deep:true});
 
 .pv-toolbar{
   position: fixed;
-  bottom: 12px;
+  top: 12px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 1000;
@@ -219,23 +234,14 @@ watch(()=>state.design, applyDesign, {deep:true});
   color: #9be8c7;
   border: 1px dashed #134e4a;
   border-radius: 8px;
-  padding: 6px 10px;
+  padding: 8px 12px;
   box-shadow: 0 8px 20px rgba(0,0,0,.35);
   display: flex;
-  gap: 4px;
-}
-.pv-toolbar.is-embedded{
-  bottom: 24px;
-  padding: 4px 6px;
-  background: rgba(10, 15, 20, 0.95);
-  backdrop-filter: blur(8px);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0,0,0,.4);
-  border: 1px solid rgba(19, 78, 74, 0.6);
+  gap: 8px;
 }
 .pv-btn{
   cursor: pointer;
-  padding: 6px 10px;
+  padding: 8px 14px;
   background: #061017;
   color: #9be8c7;
   border: 1px dashed #0f766e;
@@ -243,15 +249,10 @@ watch(()=>state.design, applyDesign, {deep:true});
   margin: 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
+  gap: 8px;
+  font-size: 14px;
   transition: all 0.2s ease;
-}
-.pv-toolbar.is-embedded .pv-btn{
-  padding: 6px 8px;
-  font-size: 12px;
-  min-width: 32px;
-  justify-content: center;
+  font-weight: 500;
 }
 .pv-btn--primary{
   background: linear-gradient(135deg, #0f766e 0%, #134e4a 100%);
@@ -261,6 +262,7 @@ watch(()=>state.design, applyDesign, {deep:true});
 .pv-btn--primary:hover:not(:disabled){
   background: linear-gradient(135deg, #14b8a6 0%, #0f766e 100%);
   box-shadow: 0 2px 8px rgba(15, 118, 110, 0.3);
+  transform: translateY(-1px);
 }
 .pv-btn:hover:not(:disabled){
   background:#0a1c26;

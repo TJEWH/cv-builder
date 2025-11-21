@@ -8,7 +8,7 @@ const props = defineProps({
   sectionMovementMode: { type: String, default: 'drag' } // 'drag' or 'buttons'
 });
 
-const emit = defineEmits(['update:showPreview', 'update:lang', 'update:sectionMovementMode', 'exportPdf']);
+const emit = defineEmits(['update:showPreview', 'update:lang', 'update:sectionMovementMode', 'exportPdf', 'openFullscreen']);
 
 const langRef = computed({
   get: ()=> props.lang ?? 'de',
@@ -28,7 +28,9 @@ const movementMode = computed({
 
 const isExporting = ref(false);
 
-const openPreviewTab = () => window.open('/preview.html', '_blank', 'noopener');
+const openPreviewTab = () => {
+  emit('openFullscreen');
+};
 
 const handleExportPdf = async () => {
   isExporting.value = true;
@@ -140,10 +142,13 @@ const handleExportPdf = async () => {
   top: 30px;
   display: flex;
   right: 30px;
-  width: 140px;
+  width: 170px;
   z-index: 10;
   gap: 5px;
   flex-direction: column;
+  background: #ffffff0f;
+  padding: 15px;
+  border-radius: 15px;
 
   button {
     width: 100%;
