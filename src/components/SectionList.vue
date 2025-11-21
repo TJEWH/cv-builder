@@ -69,12 +69,7 @@ const onMouseDown = (event) => {
 
   // Prevent drag if mousedown is on interactive elements
   // This allows text selection in inputs/textareas and normal interaction with other controls
-  if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT' || tagName === 'BUTTON') {
-    shouldPreventDrag.value = true;
-    // Don't stop propagation - allow normal interaction (text selection, button clicks, etc.)
-  } else {
-    shouldPreventDrag.value = false;
-  }
+  shouldPreventDrag.value = tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT' || tagName === 'BUTTON';
 };
 
 // Prevent drag when interacting with input/textarea

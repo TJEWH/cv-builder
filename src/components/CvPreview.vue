@@ -1,5 +1,5 @@
 <script setup>
-import { computed, watch } from 'vue';
+import { computed } from 'vue';
 import { makeT } from '../i18n/dict.js';
 import SkillCategory from './skills/SkillCategory.vue';
 

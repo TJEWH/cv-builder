@@ -209,8 +209,7 @@ const onDragStart = (key, event) => {
     collapsed[key] = true;
   } else {
     // For custom sections, check classList directly and store in customCollapsed
-    const isCollapsed = event.target.classList.contains('collapsed');
-    dragState.wasCollapsed = isCollapsed;
+    dragState.wasCollapsed = event.target.classList.contains('collapsed');
     customCollapsed.value[key] = true;
     event.target.classList.add('collapsed');
   }
