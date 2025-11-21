@@ -46,15 +46,15 @@ const handleExportPdf = async () => {
       <font-awesome-icon :icon="['fas', 'book-open']" />
       {{ pageFlipped ? t('backToForm') : t('openPdf') }}
     </button>
-    <button
-      class="btn btn--download"
-      type="button"
+    <button 
+      class="btn btn--download" 
+      type="button" 
       @click="handleExportPdf"
       :disabled="isExporting"
     >
       <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
       <font-awesome-icon v-else :icon="['fas', 'download']" />
-      {{ isExporting ? t('exportingPdf') : "Download" }}
+      {{ isExporting ? t('exportingPdf') : t('downloadPdf') }}
     </button>
     <!--<span class="note">{{ status }}</span>-->
 

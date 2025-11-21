@@ -1,7 +1,7 @@
 // Centralized dictionary for language translation (i18n)
 export const dict = {
     openPdf:            {de: 'PDF öffnen', en: 'open PDF'},
-    backToForm:         {de: 'Zum Formular', en: 'Back to Form'},
+    backToForm:         {de: 'Zurück zum Formular', en: 'Back to Form'},
     downloadPdf:        {de: 'PDF herunterladen', en: 'download PDF'},
     exportingPdf:       {de: 'Exportiere PDF...', en: 'Exporting PDF...'},
     previewNotFound:    {de: 'Vorschau konnte nicht gefunden werden. Bitte stelle sicher, dass die Vorschau aktiviert ist.', en: 'Preview not found. Please make sure the preview is enabled.'},

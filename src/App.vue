@@ -114,7 +114,8 @@ onMounted(async ()=>{
           (mode==='file' ? t('backupProject') : t('backupBrowser'));
     } else {
       try{
-        const res = await fetch('/cv-defaults.json',{cache:'no-store'});
+        const baseUrl = import.meta.env.BASE_URL || '/';
+        const res = await fetch(`${baseUrl}cv-defaults.json`,{cache:'no-store'});
         Object.assign(state, { ...state, ...(await res.json()) });
         status.value=t('defaultLoaded');
       }catch{

@@ -123,7 +123,8 @@ function loadInitial(){
     const cached = localStorage.getItem(STORAGE_KEY);
     if(cached){ mergeIn(JSON.parse(cached)); return; }
   }catch{}
-  fetch('/cv-defaults.json', {cache:'no-store'}).then(r=>r.json()).then(mergeIn).catch(()=>{});
+  const baseUrl = import.meta.env.BASE_URL || '/';
+  fetch(`${baseUrl}cv-defaults.json`, {cache:'no-store'}).then(r=>r.json()).then(mergeIn).catch(()=>{});
 }
 
 // PDF Export

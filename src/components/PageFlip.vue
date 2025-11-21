@@ -42,7 +42,7 @@ onMounted(() => {
       <div class="page-flip__front">
         <slot name="front"></slot>
       </div>
-
+      
       <!-- Back: Preview -->
       <div class="page-flip__back">
         <slot name="back"></slot>
@@ -111,4 +111,3 @@ onMounted(() => {
   opacity: 1;
 }
 </style>
-
