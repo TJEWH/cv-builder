@@ -217,7 +217,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             <component :is="getSectionHeaderSize('addExp')" v-if="!isSectionHeaderHidden('addExp')">
               {{ getSectionDisplayName('addExp') }}
             </component>
-            <div id="cv_add_exp" style="display:grid;grid-template-columns:repeat(var(--addexp-columns),minmax(0,1fr));gap:4mm">
+            <div id="cv_add_exp" :class="`addexp-cols-${state.design?.addExpColumns || '2'}`" style="display:grid;grid-template-columns:repeat(var(--addexp-columns),minmax(0,1fr));gap:4mm">
               <article class="item addexp-card" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx">
                 <div class="item-title">{{ it.title }}</div>
                 <div class="item-sub">{{ it.sub }}</div>

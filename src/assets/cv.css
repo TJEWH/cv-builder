@@ -166,7 +166,7 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--muted);text-transform
 .skill-row{padding:6px 8px;border-radius:4px;cursor:pointer}
 .skill-row.selected{background:rgba(15,102,208,.06)}
 
-.timeline:before{content:"";position:absolute;left:2.8mm;top:.5mm;bottom:.5mm;width:3px;background:var(--accent);opacity:0.3}
+.timeline:before{content:"";position:absolute;left:2.8mm;top:.5mm;bottom:.5mm;width:3px;background:var(--accent);opacity:0.3;border-radius: 10px;}
 .item ul{margin:1.5mm 0 0 4mm;padding:0;font-size:var(--bullet-size);list-style-type:var(--bullet-style)}
 /* Apply bullet size and style to all ul elements in the CV (sidebar lists, etc.) */
 #cv_body ul, #cv_side ul{font-size:var(--bullet-size);list-style-type:var(--bullet-style)}
@@ -174,22 +174,29 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--muted);text-transform
 .item-title                 {grid-column:1;grid-row:1;  font-weight:700;font-family:var(--font-head);}
 .item-meta                  {grid-column:2;grid-row:2;  font-size:9pt;color:var(--date-color);text-align:right;}
 .item-sub                   {grid-column:2;grid-row:1;  font-weight:600;color:var(--subtitle);text-align:right;}
-.item > p, .item > ul       {grid-column:1;grid-row:2;
-    margin-top: 1.5mm;
-}
+.item > p, .item > ul       {grid-column:1;grid-row:2;  margin-top: 1.5mm;}
 
-.item > ul {
-    margin-left: 4mm;
-    padding: 0;
+.item > ul { margin-left: 4mm; padding: 0; }
+.addexp-card {padding: 5px 10px;border-radius: 8px;}
+
+.addexp-cols-1 {
+    .item-title             {grid-column:1;grid-row:1;  font-weight:700;font-family:var(--font-head);}
+    .item-meta              {grid-column:1;grid-row:2;  font-size:9pt;color:var(--date-color);}
+    .item-sub               {grid-column:1;grid-row:1;  font-weight:600;color:var(--subtitle);}
+    p, ul                   {grid-column:1;grid-row:3;  align-self: flex-end;margin: 0;}
 }
 
 /* AddExp Card Styling mit Grid-Layout */
-.addexp-card {
-    border-radius: 8px;
-    padding: 5px 10px;
-
+.addexp-cols-2 {
     .item-title             {grid-column:1;grid-row:3;align-self: flex-end;}
     .item-meta              {grid-column:2;grid-row:1;text-align:right}
     .item-sub               {grid-column:2;grid-row:2}
+    p, ul                   {display: none}
+}
+
+.addexp-cols-3 {
+    .item-title             {grid-column:1;grid-row:2;align-self: flex-end;margin-top:15%}
+    .item-meta              {grid-column:1;grid-row:1;text-align:right;margin-right:-10px;}
+    .item-sub               {display: none}
     p, ul                   {display: none}
 }
