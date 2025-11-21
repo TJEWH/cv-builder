@@ -199,3 +199,22 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--muted);text-transform
     .item-sub               {display: none}
     p, ul                   {display: none}
 }
+
+.add-button-wrapper {
+    display: flex;
+    justify-content: center;
+    margin: 10px 0;
+}
+
+.add-button {
+    background: transparent;
+    border: 1px solid #9be8c7;
+    color: #9be8c7;
+    padding: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: 4px;
+    min-width: 200px;
+    transition: all 0.2s ease;
+    width: 30%;
+}

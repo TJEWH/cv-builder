@@ -1130,9 +1130,6 @@ const areaCerts = areaModel('certs');
                 <button class="mini" type="button" @click="moveUp(customSection.id)">▲</button>
                 <button class="mini" type="button" @click="moveDown(customSection.id)">▼</button>
               </div>
-              <button type="button" class="mini btn--success" @click="customSection.entries.push({title:'', place:'', start:'', end:'', desc:''})">
-                {{ t('add') }}
-              </button>
               <button
                 class="mini"
                 :class="[isHidden(customSection.id) ? 'btn--success' : 'btn--danger']"
@@ -1175,6 +1172,11 @@ const areaCerts = areaModel('certs');
                   {{ t('remove') }}
                 </button>
               </div>
+            </div>
+            <div class="add-button-wrapper">
+              <button type="button" class="add-button mini btn--success" @click="customSection.entries.push({title:'', place:'', start:'', end:'', desc:''})">
+                {{ t('add') }}
+              </button>
             </div>
           </div>
         </section>

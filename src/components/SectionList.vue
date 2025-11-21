@@ -167,7 +167,6 @@ const setTextareaValue = (item, key, value) => {
           <option value="null">{{ langRef === 'de' ? 'Kein Titel' : 'No Title' }}</option>
         </select>
         <slot name="controls"></slot>
-        <button v-if="addLabel" type="button" class="mini btn--success" @click="add">{{ addLabel }}</button>
         <button v-if="toggleable" class="mini" :class="[disabled?'btn--success':'btn--danger']" type="button" @click="$emit('toggle-section')">
           {{ disabled ? t('show') : t('hide') }}
         </button>
@@ -199,6 +198,9 @@ const setTextareaValue = (item, key, value) => {
             :placeholder="f.placeholder||''"></textarea>
         </label>
         <div><button type="button" class="mini btn--danger" @click="removeAt(i)">{{t('remove')}}</button></div>
+      </div>
+      <div class="add-button-wrapper">
+        <button v-if="addLabel" type="button" class="add-button mini btn--success" @click="add">{{ addLabel }}</button>
       </div>
     </div>
   </section>
@@ -274,8 +276,6 @@ const setTextareaValue = (item, key, value) => {
   font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.2s ease;
-  width: 20%;
-  min-width: 100px;
 }
 
 .header-size-select:hover {
