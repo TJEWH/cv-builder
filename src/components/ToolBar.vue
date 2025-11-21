@@ -1,5 +1,5 @@
 <script setup>
-import {computed} from "vue";
+import {computed, ref} from "vue";
 import { makeT } from '../i18n/dict';
 
 const props = defineProps({
@@ -8,7 +8,7 @@ const props = defineProps({
   sectionMovementMode: { type: String, default: 'drag' } // 'drag' or 'buttons'
 });
 
-const emit = defineEmits(['update:showPreview', 'update:lang', 'update:sectionMovementMode']);
+const emit = defineEmits(['update:showPreview', 'update:lang', 'update:sectionMovementMode', 'exportPdf']);
 
 const langRef = computed({
   get: ()=> props.lang ?? 'de',
@@ -26,12 +26,35 @@ const movementMode = computed({
   set: v => emit('update:sectionMovementMode', v)
 });
 
+const isExporting = ref(false);
+
 const openPreviewTab = () => window.open('/preview.html', '_blank', 'noopener');
+
+const handleExportPdf = async () => {
+  isExporting.value = true;
+  try {
+    await emit('exportPdf');
+  } finally {
+    // Keep loading state for a moment to show feedback
+    setTimeout(() => {
+      isExporting.value = false;
+    }, 500);
+  }
+};
 </script>
 
 <template>
   <div class="toolbar">
     <button class="btn btn--primary" type="button" @click="openPreviewTab">{{t('openPdf')}}</button>
+    <button 
+      class="btn btn--primary" 
+      type="button" 
+      @click="handleExportPdf"
+      :disabled="isExporting"
+    >
+      <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
+      {{ isExporting ? t('exportingPdf') : t('downloadPdf') }}
+    </button>
     <button class="btn" :class="[preview?'btn--danger':'btn--success']" type="button" @click="preview = !preview">
       {{ preview ? t('hidePreview') : t('showPreview') }}
     </button>

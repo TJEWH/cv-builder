@@ -2,6 +2,7 @@
 import { reactive, onMounted, watch, ref } from 'vue';
 import CvPreview from '../components/CvPreview.vue';
 import { STORAGE_KEY } from '../composables/useStorage';
+import { usePdfExport } from '../composables/usePdfExport';
 
 const isEmbedded = ref(false);
 
@@ -125,6 +126,29 @@ function loadInitial(){
   fetch('/cv-defaults.json', {cache:'no-store'}).then(r=>r.json()).then(mergeIn).catch(()=>{});
 }
 
+// PDF Export
+const { exportToPdf } = usePdfExport();
+const cvPreviewRef = ref(null);
+const isExporting = ref(false);
+
+const handleExportPdf = async () => {
+  isExporting.value = true;
+  try {
+    const cvElement = document.querySelector('.page');
+    if (cvElement) {
+      const contactName = state.contact?.name || 'CV';
+      const filename = `${contactName.replace(/\s+/g, '_')}_CV`;
+      await exportToPdf(cvElement, filename);
+    } else {
+      console.error('CV element not found');
+    }
+  } catch (error) {
+    console.error('PDF export failed:', error);
+  } finally {
+    isExporting.value = false;
+  }
+};
+
 onMounted(()=>{
   // recognize iframe ODER ?embed=1
   try {
@@ -140,23 +164,41 @@ onMounted(()=>{
     const bc = new BroadcastChannel('cv-sync');
     bc.onmessage = (ev)=>{
       if(ev?.data?.type==='update'){ mergeIn(ev.data.data); }
-      if(ev?.data?.type==='print'){ window.print(); }
+      if(ev?.data?.type==='exportPdf'){
+        if(ev.data.data) mergeIn(ev.data.data);
+        setTimeout(() => handleExportPdf(), 500);
+      }
     };
   }catch{}
-  if (location.hash === '#print'){ setTimeout(()=> window.print(), 200); }
+
+  // Listen for PDF export requests from parent window
+  window.addEventListener('message', (event) => {
+    if (event.data?.type === 'exportPdf') {
+      if (event.data.data) {
+        mergeIn(event.data.data);
+      }
+      // Wait for Vue to update the DOM
+      setTimeout(() => {
+        handleExportPdf();
+      }, 500);
+    }
+  });
 });
 
 watch(()=>state.design, applyDesign, {deep:true});
-
-const doPrint = ()=> window.print();
 </script>
 
 <template>
-  <div v-if="!isEmbedded" class="pv-toolbar">
-    <button class="pv-btn" @click="doPrint">Export</button>
+  <!-- PDF Export toolbar - always visible -->
+  <div class="pv-toolbar" :class="{ 'is-embedded': isEmbedded }">
+    <button class="pv-btn pv-btn--primary" @click="handleExportPdf" :disabled="isExporting" title="Download PDF">
+      <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
+      <font-awesome-icon v-else :icon="['fas', 'download']" />
+      <span v-if="!isEmbedded">{{ isExporting ? 'Exporting...' : 'Download PDF' }}</span>
+    </button>
   </div>
 
-  <CvPreview :state="state" />
+  <CvPreview ref="cvPreviewRef" :state="state" />
 </template>
 
 <style>
@@ -179,6 +221,17 @@ const doPrint = ()=> window.print();
   border-radius: 8px;
   padding: 6px 10px;
   box-shadow: 0 8px 20px rgba(0,0,0,.35);
+  display: flex;
+  gap: 4px;
+}
+.pv-toolbar.is-embedded{
+  bottom: 24px;
+  padding: 4px 6px;
+  background: rgba(10, 15, 20, 0.95);
+  backdrop-filter: blur(8px);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.4);
+  border: 1px solid rgba(19, 78, 74, 0.6);
 }
 .pv-btn{
   cursor: pointer;
@@ -187,7 +240,35 @@ const doPrint = ()=> window.print();
   color: #9be8c7;
   border: 1px dashed #0f766e;
   border-radius: 6px;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  transition: all 0.2s ease;
 }
-.pv-btn:hover{ background:#0a1c26 }
+.pv-toolbar.is-embedded .pv-btn{
+  padding: 6px 8px;
+  font-size: 12px;
+  min-width: 32px;
+  justify-content: center;
+}
+.pv-btn--primary{
+  background: linear-gradient(135deg, #0f766e 0%, #134e4a 100%);
+  border-color: #0f766e;
+  font-weight: 600;
+}
+.pv-btn--primary:hover:not(:disabled){
+  background: linear-gradient(135deg, #14b8a6 0%, #0f766e 100%);
+  box-shadow: 0 2px 8px rgba(15, 118, 110, 0.3);
+}
+.pv-btn:hover:not(:disabled){
+  background:#0a1c26;
+  transform: translateY(-1px);
+}
+.pv-btn:disabled{
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 @media print{ .pv-toolbar{ display:none !important } }
 </style>

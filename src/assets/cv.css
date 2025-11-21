@@ -105,18 +105,18 @@ textarea{min-height:64px}
     border-radius: var(--header-radius) var(--header-radius) 0 0;
     box-shadow:var(--box-shadow);
 }
-.name{margin:0;font-weight:800;font-size:var(--h1-size);font-family: var(--font-head),serif;color:var(--accent)}
+.name{margin:0;font-weight:800;font-size:var(--h1-size);font-family:var(--font-head);color:var(--accent)}
 .role{margin:.5mm 0 0;color:var(--subtitle)}
 .contact{display:grid;gap:2mm;justify-items:end;text-align:right;font-size:9.5pt}
 .contact a{color:inherit;text-decoration:none;border-bottom:0.5pt solid rgba(0,0,0,.2)}
-.contact-icon{margin-left:6px;opacity:0.7;width:12px;text-align:center}
+.contact-icon{margin-left: 8px;opacity: 0.6;width: 22px;height:12px;text-align:center;shape-rendering:geometricPrecision;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 .content{display:grid;grid-template-columns:1.5fr var(--sidebar-width);gap:10mm;padding:8mm 12mm 12mm}
 #cv_main{order:1}
 #cv_side{order:2}
 :root[data-sidebar-align="left"] #cv_main{order:2}
 :root[data-sidebar-align="left"] #cv_side{order:1}
-h2{margin:0 0 4mm;font-size:var(--h2-size);color:var(--accent);text-transform:uppercase;letter-spacing:.6px;font-family:var(--font-head),serif;text-shadow:var(--box-shadow)}
-h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-family:var(--font-head),serif}
+h2{margin:0 0 4mm;font-size:var(--h2-size);color:var(--accent);text-transform:uppercase;letter-spacing:.6px;font-family:var(--font-head);text-shadow:var(--box-shadow)}
+h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-family:var(--font-head)}
 .section{break-inside:avoid;margin:0 0 var(--section-spacing)}
 #cv_main .section{margin:0 0 var(--section-spacing-body)}
 #cv_side .section{margin:0 0 var(--section-spacing-sidebar)}
@@ -171,7 +171,7 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--muted);text-transform
 /* Apply bullet size and style to all ul elements in the CV (sidebar lists, etc.) */
 #cv_body ul, #cv_side ul{font-size:var(--bullet-size);list-style-type:var(--bullet-style)}
 
-.item-title                 {grid-column:1;grid-row:1;  font-weight:700;font-family:var(--font-head),serif;}
+.item-title                 {grid-column:1;grid-row:1;  font-weight:700;font-family:var(--font-head);}
 .item-meta                  {grid-column:2;grid-row:2;  font-size:9pt;color:var(--date-color);text-align:right;}
 .item-sub                   {grid-column:2;grid-row:1;  font-weight:600;color:var(--subtitle);text-align:right;}
 .item > p, .item > ul       {grid-column:1;grid-row:2;  margin-top: 1.5mm;}
@@ -180,7 +180,7 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--muted);text-transform
 .addexp-card {padding: 5px 10px;border-radius: 8px;}
 
 .addexp-cols-1 {
-    .item-title             {grid-column:1;grid-row:1;  font-weight:700;font-family:var(--font-head),serif;}
+    .item-title             {grid-column:1;grid-row:1;  font-weight:700;font-family:var(--font-head);}
     .item-meta              {grid-column:1;grid-row:2;  font-size:9pt;color:var(--date-color);}
     .item-sub               {grid-column:1;grid-row:1;  font-weight:600;color:var(--subtitle);}
     p, ul                   {grid-column:1;grid-row:3;  align-self: flex-end;margin: 0;}

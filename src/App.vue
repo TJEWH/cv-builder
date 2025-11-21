@@ -1,6 +1,7 @@
 <script setup>
 import { computed, reactive, watch, onMounted, ref, onBeforeUnmount } from 'vue';
 import { debounce, loadLocal, saveLocal, readBackup, fsApiAvailable, getBackupMode } from './composables/useStorage';
+import { usePdfExport } from './composables/usePdfExport';
 import FormBuilder from './components/FormBuilder.vue';
 import FloatingPreview from './components/FloatingPreview.vue';
 import { makeT } from './i18n/dict';
@@ -127,11 +128,48 @@ onBeforeUnmount(()=>{ try{ bc?.close(); }catch{} });
 
 const showPreview = ref(true);
 const sectionMovementMode = ref('drag'); // 'drag' or 'buttons'
+const floatingPreviewRef = ref(null);
+
+// PDF Export
+const { exportToPdf } = usePdfExport();
+
+const handleExportPdf = async () => {
+  // Check if preview is visible and has iframe
+  if (!showPreview.value) {
+    // If preview is hidden, show it first
+    showPreview.value = true;
+    // Wait for it to render
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  // Get the iframe from FloatingPreview
+  const iframe = document.querySelector('.fp-iframe');
+  if (!iframe || !iframe.contentWindow) {
+    alert(t('previewNotFound'));
+    return;
+  }
+
+  // Send message to iframe to trigger export
+  iframe.contentWindow.postMessage({
+    type: 'exportPdf',
+    data: JSON.parse(JSON.stringify(state))
+  }, '*');
+};
 </script>
 
 <template>
-  <ToolBar v-model:showPreview="showPreview" v-model:lang="lang" v-model:sectionMovementMode="sectionMovementMode"/>
-  <FloatingPreview v-if="showPreview" url="/preview.html?embed=1" :initialScale="0.25" />
+  <ToolBar
+    v-model:showPreview="showPreview"
+    v-model:lang="lang"
+    v-model:sectionMovementMode="sectionMovementMode"
+    @exportPdf="handleExportPdf"
+  />
+  <FloatingPreview
+    v-if="showPreview"
+    ref="floatingPreviewRef"
+    url="/preview.html?embed=1"
+    :initialScale="0.25"
+  />
 
   <div class="workbench">
     <BackupManager :state="state" :langRef="lang" :onSave="saveDebounced" />
