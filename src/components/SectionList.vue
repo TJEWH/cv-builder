@@ -14,6 +14,7 @@ const props = defineProps({
   disabled: { type: Boolean, default: false },
   draggable: { type: Boolean, default: false },
   isDragging: { type: Boolean, default: false },
+  isCollapsed: { type: Boolean, default: false }, // External control of collapsed state
   // Props für editierbare Namen
   editableTitle: { type: Boolean, default: false },
   isEditingTitle: { type: Boolean, default: false },
@@ -57,6 +58,57 @@ const removeAt = (i) => items.value.splice(i,1);
 
 // compute icon name for this section (fallback to 'folder-open')
 const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
+
+// Track if drag should be prevented based on mousedown target
+const shouldPreventDrag = ref(false);
+
+// Check mousedown target to determine if drag should be allowed
+const onMouseDown = (event) => {
+  const target = event.target;
+  const tagName = target.tagName;
+
+  // Prevent drag if mousedown is on interactive elements
+  // This allows text selection in inputs/textareas and normal interaction with other controls
+  shouldPreventDrag.value = tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT' || tagName === 'BUTTON';
+};
+
+// Prevent drag when interacting with input/textarea
+const onDragStart = (event) => {
+  if (shouldPreventDrag.value) {
+    event.preventDefault();
+    event.stopPropagation();
+    return false;
+  }
+  emit('dragstart', event);
+};
+
+// Reset shouldPreventDrag on mouseup to ensure clean state
+const onMouseUp = () => {
+  shouldPreventDrag.value = false;
+};
+
+// Helper to get/set textarea value with bullet conversion
+const getTextareaValue = (item, key) => {
+  const val = item[key];
+  // If it's an array (bullets), convert to string with newlines
+  if (Array.isArray(val)) {
+    return val.join('\n');
+  }
+  // Otherwise return as is
+  return val || '';
+};
+
+const setTextareaValue = (item, key, value) => {
+  // Check if this field should be stored as array (for bullets)
+  const field = props.schema.find(f => f.key === key);
+  if (field && field.key === 'bullets') {
+    // Split by newlines and filter out empty lines
+    item[key] = String(value || '').split('\n').map(line => line.trim()).filter(line => line.length > 0);
+  } else {
+    // Store as string for other textarea fields
+    item[key] = value;
+  }
+};
 </script>
 
 <template>
@@ -64,9 +116,11 @@ const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
     ref="root"
     class="section-group"
     :data-section="sectionKey"
-    :class="{disabled, dragging: isDragging}"
-    :draggable="draggable"
-    @dragstart="emit('dragstart', $event)"
+    :class="{disabled, dragging: isDragging, collapsed: isCollapsed}"
+    :draggable="draggable && !shouldPreventDrag"
+    @mousedown="onMouseDown"
+    @mouseup="onMouseUp"
+    @dragstart="onDragStart"
     @dragend="emit('dragend', $event)"
   >
     <div class="section-head">
@@ -108,7 +162,6 @@ const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
           <option value="null">{{ langRef === 'de' ? 'Kein Titel' : 'No Title' }}</option>
         </select>
         <slot name="controls"></slot>
-        <button v-if="addLabel" type="button" class="mini btn--success" @click="add">{{ addLabel }}</button>
         <button v-if="toggleable" class="mini" :class="[disabled?'btn--success':'btn--danger']" type="button" @click="$emit('toggle-section')">
           {{ disabled ? t('show') : t('hide') }}
         </button>
@@ -134,9 +187,15 @@ const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
           </label>
         </div>
         <label v-for="f in schema.filter(s=>s.type==='textarea')" :key="f.key">
-          {{ f.label }}<textarea v-model="item[f.key]" :placeholder="f.placeholder||''"></textarea>
+          {{ f.label }}<textarea
+            :value="getTextareaValue(item, f.key)"
+            @input="setTextareaValue(item, f.key, $event.target.value)"
+            :placeholder="f.placeholder||''"></textarea>
         </label>
         <div><button type="button" class="mini btn--danger" @click="removeAt(i)">{{t('remove')}}</button></div>
+      </div>
+      <div class="add-button-wrapper">
+        <button v-if="addLabel" type="button" class="add-button mini btn--success" @click="add">{{ addLabel }}</button>
       </div>
     </div>
   </section>
@@ -212,8 +271,6 @@ const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
   font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.2s ease;
-  width: 20%;
-  min-width: 100px;
 }
 
 .header-size-select:hover {

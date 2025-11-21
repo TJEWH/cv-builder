@@ -1,22 +1,27 @@
 <script setup>
 import { computed, reactive, watch, onMounted, ref, onBeforeUnmount } from 'vue';
 import { debounce, loadLocal, saveLocal, readBackup, fsApiAvailable, getBackupMode } from './composables/useStorage';
+import { usePdfExport } from './composables/usePdfExport';
 import FormBuilder from './components/FormBuilder.vue';
 import FloatingPreview from './components/FloatingPreview.vue';
 import { makeT } from './i18n/dict';
 import ToolBar from "./components/ToolBar.vue";
 import BackupManager from "./components/BackupManager.vue";
 import DesignPanel from "./components/DesignPanel.vue";
-//import SoftSkills from "./components/SoftSkills.vue";
 
 const state = reactive({
   version: 1,
   disabled: [],
   lang: 'de',
   design: {
-    h1:'22pt', h2:'12pt', h3:'10pt', bullets:'10.5pt',
+    h1:'22pt', h2:'12pt', h3:'10pt', bullets:'10.5pt', bulletStyle:'disc',
     ink:'#111827', accent:'#0f66d0', bg:'#ffffff', headerbg:'#CE9048', sidebarbg:'#CE9048',
     fontBody:'Inter', fontHead:'Inter', hstyle:'clean', radius:'10px',
+    subtitle:'#0a9c91', graphic:'#4f46e5', dateColor:'#6b7280',
+    badgeBorderWidth:'1px', badgeBorderRadius:'6px', invertBadge:false, enableBoxShadow:false,
+    itemBorderWidth:'1px',
+    sectionSpacing:'6mm', sectionSpacingBody:'6mm', sectionSpacingSidebar:'6mm',
+    sidebarWidth:'0.7fr', sidebarAlign:'right', sidebarStyle:'default', addExpColumns:'2',
   },
   contact: { name:'', location:'', role:'', email:'', phone:'', website:'', linkedin:'' },
   about: { text:'' },
@@ -120,18 +125,60 @@ onMounted(async ()=>{
 });
 onBeforeUnmount(()=>{ try{ bc?.close(); }catch{} });
 
-const showPreview = ref(true);
+const showPreview = ref(true); // Show FloatingPreview by default
 const sectionMovementMode = ref('drag'); // 'drag' or 'buttons'
+
+// Navigate to fullscreen preview
+const openFullscreenPreview = () => {
+  saveLocal(state);
+  window.location.href = '/preview.html';
+};
+
+// PDF Export via iframe
+const { exportToPdf } = usePdfExport();
+
+const handleExportPdf = async () => {
+  // Check if preview is visible
+  if (!showPreview.value) {
+    showPreview.value = true;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  // Get the iframe from FloatingPreview
+  const iframe = document.querySelector('.fp-iframe');
+  if (!iframe || !iframe.contentWindow) {
+    // Fallback: navigate to preview with export flag
+    saveLocal(state);
+    window.location.href = '/preview.html?export=true';
+    return;
+  }
+
+  // Send message to iframe to trigger export
+  iframe.contentWindow.postMessage({
+    type: 'exportPdf',
+    data: JSON.parse(JSON.stringify(state))
+  }, '*');
+};
 </script>
 
 <template>
-  <ToolBar v-model:showPreview="showPreview" v-model:lang="lang" v-model:sectionMovementMode="sectionMovementMode"/>
-  <FloatingPreview v-if="showPreview" url="/preview.html?embed=1" :initialScale="0.25" />
+  <ToolBar
+    v-model:showPreview="showPreview"
+    v-model:lang="lang"
+    v-model:sectionMovementMode="sectionMovementMode"
+    @exportPdf="handleExportPdf"
+    @openFullscreen="openFullscreenPreview"
+  />
+
+  <FloatingPreview
+    v-if="showPreview"
+    url="/preview.html?embed=1"
+    :initialScale="0.25"
+  />
 
   <div class="workbench">
     <BackupManager :state="state" :langRef="lang" :onSave="saveDebounced" />
     <DesignPanel v-model="state.design" />
     <FormBuilder :state="state" :onSave="saveDebounced" :movementMode="sectionMovementMode" />
-    <!--<SoftSkills v-model="state.softSkills" :options="refsOptions" />-->
   </div>
 </template>

@@ -16,7 +16,22 @@
     "radius": "10px",
     "headerRadius": "12px",
     "headerPadYmm": 12,
-    "lang": "de"
+    "lang": "de",
+    "subtitle": "#0a9c91",
+    "graphic": "#4f46e5",
+    "dateColor": "#6b7280",
+    "badgeBorderWidth": "1px",
+    "badgeBorderRadius": "6px",
+    "invertBadge": false,
+    "enableBoxShadow": false,
+    "itemBorderWidth": "1px",
+    "sectionSpacing": "6mm",
+    "sectionSpacingBody": "6mm",
+    "sectionSpacingSidebar": "6mm",
+    "sidebarWidth": "0.7fr",
+    "sidebarAlign": "right",
+    "sidebarStyle": "default",
+    "addExpColumns": "2"
   },
   "contact": {
     "name": "Alex Muster",

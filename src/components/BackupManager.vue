@@ -294,6 +294,7 @@ onMounted(refreshConfigs);
 .note { align-items: start }
 
 .backup-manager {
+  width: 100%;
   align-items: center;
   gap: 8px;
   padding: 10px;

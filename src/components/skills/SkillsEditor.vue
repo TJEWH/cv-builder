@@ -104,7 +104,6 @@ const updateItem = (catIdx, itemIdx, field, value) => {
               <option value="years">{{ langRef === 'de' ? 'Jahre' : 'Years' }}</option>
             </select>
           </label>
-          <button type="button" class="mini btn--success" @click="addItem(catIdx)">{{ langRef === 'de' ? 'Hinzufügen' : 'Add' }}</button>
           <button type="button" class="mini btn--danger" @click="removeCategory(catIdx)">
             {{ langRef === 'de' ? 'Löschen' : 'Delete' }}
           </button>
@@ -142,13 +141,18 @@ const updateItem = (catIdx, itemIdx, field, value) => {
           <div v-if="!cat.items || cat.items.length === 0" class="empty-state">
             {{ langRef === 'de' ? 'Keine Fähigkeiten. Klicke auf "Hinzufügen"' : 'No skills. Click "Add"' }}
           </div>
+          <div class="add-button-wrapper">
+            <button type="button" class="add-button mini btn--success" @click="addItem(catIdx)">{{ langRef === 'de' ? '+ Fähigkeit' : '+ Skill' }}</button>
+          </div>
         </div>
       </div>
     </div>
 
-    <button type="button" class="mini btn--success" @click="addCategory" style="margin-top: 12px">
-      {{ langRef === 'de' ? '+ Kategorie hinzufügen' : '+ Add Category' }}
-    </button>
+    <div class="add-button-wrapper">
+      <button type="button" class="add-button mini btn--success" @click="addCategory">
+        {{ langRef === 'de' ? '+ Kategorie hinzufügen' : '+ Add Category' }}
+      </button>
+    </div>
   </div>
 </template>
 

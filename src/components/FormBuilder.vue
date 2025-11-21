@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
+import { computed, reactive, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import SectionList from './SectionList.vue';
 import SkillsEditor from './skills/SkillsEditor.vue';
 import { makeT } from '../i18n/dict.js';
@@ -18,7 +18,22 @@ const langRef = computed({
 const t = makeT(langRef);
 
 // collapsed state for sections (controls whether section-group is collapsed in the builder)
-const collapsed = reactive({ header:false, about:false, soft:false, skills:false });
+const collapsed = reactive({
+  header: false,
+  about: false,
+  soft: false,
+  skills: false,
+  education: false,
+  jobs: false,
+  addExp: false,
+  projects: false,
+  languages: false,
+  hobbies: false,
+  certs: false
+});
+
+// collapsed state for custom sections (dynamic)
+const customCollapsed = ref({});
 
 // ensure state.disabled exists
 if(!Array.isArray(props.state.disabled)) props.state.disabled = [];
@@ -173,14 +188,32 @@ const dragState = reactive({
   dropTargetKey: null,
   isDragging: false,
   dropZoneArea: null, // 'body' or 'sidebar' when hovering over a drop zone
-  insertPosition: null // index where item would be inserted
+  insertPosition: null, // index where item would be inserted
+  wasCollapsed: false, // Store collapse state before dragging
+  draggedElement: null, // Store reference to dragged element
+  originalKey: null // Store original section key (before previewKeyFor conversion)
 });
 
 const onDragStart = (key, event) => {
   const pKey = previewKeyFor(key);
   dragState.draggedKey = pKey;
+  dragState.originalKey = key;
   dragState.draggedArea = currentArea(key);
   dragState.isDragging = true;
+  dragState.draggedElement = event.target;
+
+  // Save current collapse state from reactive variable
+  if (collapsed.hasOwnProperty(key)) {
+    dragState.wasCollapsed = collapsed[key] || false;
+    // Always collapse the section during drag (for cleaner UI)
+    collapsed[key] = true;
+  } else {
+    // For custom sections, check classList directly and store in customCollapsed
+    dragState.wasCollapsed = event.target.classList.contains('collapsed');
+    customCollapsed.value[key] = true;
+    event.target.classList.add('collapsed');
+  }
+
   event.dataTransfer.effectAllowed = 'move';
   event.dataTransfer.setData('text/plain', pKey);
   // Add slight delay to allow CSS to apply
@@ -191,11 +224,28 @@ const onDragStart = (key, event) => {
 
 const onDragEnd = (event) => {
   event.target.classList.remove('dragging');
+
+  // Restore original collapse state using reactive variable
+  if (dragState.originalKey && collapsed.hasOwnProperty(dragState.originalKey)) {
+    collapsed[dragState.originalKey] = dragState.wasCollapsed;
+  } else if (dragState.originalKey) {
+    // For custom sections, restore from customCollapsed
+    if (dragState.wasCollapsed) {
+      event.target.classList.add('collapsed');
+    } else {
+      event.target.classList.remove('collapsed');
+    }
+    delete customCollapsed.value[dragState.originalKey];
+  }
+
   dragState.draggedKey = null;
+  dragState.originalKey = null;
   dragState.draggedArea = null;
   dragState.isDragging = false;
   dragState.dropZoneArea = null;
   dragState.insertPosition = null;
+  dragState.wasCollapsed = false;
+  dragState.draggedElement = null;
 };
 
 const onDropZoneOver = (area, position, event) => {
@@ -242,11 +292,30 @@ const onDropZoneDrop = (area, position, event) => {
 
 // Manual close function for overlay
 const closeDragOverlay = () => {
+  // Restore original collapse state if overlay is closed without dropping
+  if (dragState.originalKey && collapsed.hasOwnProperty(dragState.originalKey)) {
+    collapsed[dragState.originalKey] = dragState.wasCollapsed;
+  } else if (dragState.originalKey && dragState.draggedElement) {
+    // For custom sections, restore from customCollapsed
+    if (dragState.wasCollapsed) {
+      dragState.draggedElement.classList.add('collapsed');
+    } else {
+      dragState.draggedElement.classList.remove('collapsed');
+    }
+    delete customCollapsed.value[dragState.originalKey];
+  }
+  if (dragState.draggedElement) {
+    dragState.draggedElement.classList.remove('dragging');
+  }
+
   dragState.draggedKey = null;
+  dragState.originalKey = null;
   dragState.draggedArea = null;
   dragState.isDragging = false;
   dragState.dropZoneArea = null;
   dragState.insertPosition = null;
+  dragState.wasCollapsed = false;
+  dragState.draggedElement = null;
 };
 
 // ESC key handler
@@ -428,6 +497,27 @@ const getSortedSections = (area) => {
   return arr.filter(key => key !== dragState.draggedKey && !isHidden(key));
 };
 
+// Get current position information for the dragged item
+const getCurrentPosition = () => {
+  if (!dragState.draggedKey) return null;
+
+  const area = dragState.draggedArea === 'body' ? 'Body' : 'Sidebar';
+  ensureOrderArrays();
+  const arr = dragState.draggedArea === 'body' ? props.state.orderMain : props.state.orderSide;
+  const index = arr.indexOf(dragState.draggedKey);
+
+  if (index === -1) return null;
+
+  // Count only visible sections before this one
+  const visibleBefore = arr.slice(0, index).filter(key => !isHidden(key)).length;
+
+  return {
+    area,
+    position: visibleBefore + 1,
+    total: arr.filter(key => !isHidden(key)).length
+  };
+};
+
 // Get display name for a section key (for drag overlay)
 const getSectionName = (key) => {
   return getSectionDisplayName(key);
@@ -468,6 +558,11 @@ const areaCerts = areaModel('certs');
           <p class="drag-item-name">
             <font-awesome-icon :icon="['fas', getIcon(dragState.draggedKey)]" />
             {{ getSectionName(dragState.draggedKey) }}
+          </p>
+          <p v-if="getCurrentPosition()" class="drag-current-position">
+            {{ t('aboutTitle').includes('Über') ? 'Aktuelle Position' : 'Current Position' }}:
+            <strong>{{ getCurrentPosition().area }}</strong>
+            ({{ getCurrentPosition().position }} {{ t('aboutTitle').includes('Über') ? 'von' : 'of' }} {{ getCurrentPosition().total }})
           </p>
         </div>
 
@@ -629,7 +724,7 @@ const areaCerts = areaModel('certs');
           v-model="state.education"
           :schema="[
           {label:t('degreeTitle'), key:'title', type:'text', placeholder:'M.Sc. Informatik'},
-          {label:t('institution'), key:'sub', type:'text', placeholder:'TU M\u00fcnchen'},
+          {label:t('institution'), key:'sub', type:'text', placeholder:'TU München'},
           {label:t('place'),       key:'place', type:'text', placeholder:'Hamburg'},
           {label:t('start'),       key:'start', type:'text', placeholder:'2017'},
           {label:t('end'),         key:'end', type:'text', placeholder:'2020'},
@@ -637,6 +732,7 @@ const areaCerts = areaModel('certs');
         ]"
           :addLabel="t('add')"
           :disabled="isHidden('education')"
+          :is-collapsed="collapsed.education"
           @toggle-section="toggleDisabled('education')"
           v-bind="getEditableTitleProps('education')"
           @start-edit-title="startEditSectionName('education', false)"
@@ -679,6 +775,7 @@ const areaCerts = areaModel('certs');
           ]"
           :addLabel="t('add')"
           :disabled="isHidden('jobs')"
+          :is-collapsed="collapsed.jobs"
           @toggle-section="toggleDisabled('jobs')"
           v-bind="getEditableTitleProps('jobs')"
           @start-edit-title="startEditSectionName('jobs', false)"
@@ -717,10 +814,11 @@ const areaCerts = areaModel('certs');
             {label:t('place'),    key:'place', type:'text', placeholder:'Hamburg'},
             {label:t('start'),    key:'start', type:'text', placeholder:'03.2024'},
             {label:t('end'),      key:'end', type:'text', placeholder:'03.2024'},
-            {label:t('desc'),     key:'desc', type:'textarea', placeholder: t('hackathonPH')}
+            {label:t('desc'),     key:'desc', type:'textarea', placeholder: t('hackathonDescPH')}
           ]"
           :addLabel="t('add')"
           :disabled="isHidden('addExp')"
+          :is-collapsed="collapsed.addExp"
           @toggle-section="toggleDisabled('addExp')"
           v-bind="getEditableTitleProps('addExp')"
           @start-edit-title="startEditSectionName('addExp', false)"
@@ -762,6 +860,7 @@ const areaCerts = areaModel('certs');
           ]"
           :addLabel="t('add')"
           :disabled="isHidden('projects')"
+          :is-collapsed="collapsed.projects"
           @toggle-section="toggleDisabled('projects')"
           v-bind="getEditableTitleProps('projects')"
           @start-edit-title="startEditSectionName('projects', false)"
@@ -862,10 +961,11 @@ const areaCerts = areaModel('certs');
           v-model="state.languages"
           :schema="[
             {label:t('languageName'), key:'name', type:'text', placeholder:t('german')},
-            {label:t('level'), key:'level', type:'select', options: [(langRef==='de'?'nativ':'native'),'C2','C1','B2','B1','A2','A1']}
+            {label:t('level'), key:'level', type:'select', options: [(langRef==='de'?'Muttersprache':'native'),'C2','C1','B2','B1','A2','A1']}
           ]"
           :addLabel="t('add')"
           :disabled="isHidden('languages')"
+          :is-collapsed="collapsed.languages"
           @toggle-section="toggleDisabled('languages')"
           v-bind="getEditableTitleProps('languages')"
           @start-edit-title="startEditSectionName('languages', false)"
@@ -904,6 +1004,7 @@ const areaCerts = areaModel('certs');
           ]"
           :addLabel="t('add')"
           :disabled="isHidden('hobbies')"
+          :is-collapsed="collapsed.hobbies"
           @toggle-section="toggleDisabled('hobbies')"
           v-bind="getEditableTitleProps('hobbies')"
           @start-edit-title="startEditSectionName('hobbies', false)"
@@ -942,6 +1043,7 @@ const areaCerts = areaModel('certs');
         ]"
           :addLabel="t('add')"
           :disabled="isHidden('certs')"
+          :is-collapsed="collapsed.certs"
           @toggle-section="toggleDisabled('certs')"
           v-bind="getEditableTitleProps('certs')"
           @start-edit-title="startEditSectionName('certs', false)"
@@ -1027,9 +1129,6 @@ const areaCerts = areaModel('certs');
                 <button class="mini" type="button" @click="moveUp(customSection.id)">▲</button>
                 <button class="mini" type="button" @click="moveDown(customSection.id)">▼</button>
               </div>
-              <button type="button" class="mini btn--success" @click="customSection.entries.push({title:'', place:'', start:'', end:'', desc:''})">
-                {{ t('add') }}
-              </button>
               <button
                 class="mini"
                 :class="[isHidden(customSection.id) ? 'btn--success' : 'btn--danger']"
@@ -1072,6 +1171,11 @@ const areaCerts = areaModel('certs');
                   {{ t('remove') }}
                 </button>
               </div>
+            </div>
+            <div class="add-button-wrapper">
+              <button type="button" class="add-button mini btn--success" @click="customSection.entries.push({title:'', place:'', start:'', end:'', desc:''})">
+                {{ t('add') }}
+              </button>
             </div>
           </div>
         </section>
@@ -1265,6 +1369,25 @@ const areaCerts = areaModel('certs');
   margin: 0;
 }
 
+.drag-current-position {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 0.95rem;
+  color: #94a3b8;
+  margin: 8px 0 0 0;
+  padding: 6px 12px;
+  background: rgba(16, 185, 129, 0.08);
+  border-radius: 6px;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.drag-current-position strong {
+  color: #10b981;
+  font-weight: 700;
+}
+
 .drag-columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1341,6 +1464,12 @@ const areaCerts = areaModel('certs');
 .drop-zone:hover:not(.active) {
   background: rgba(16, 185, 129, 0.1);
   height: 12px;
+}
+
+.section-group[data-section="header"] h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  padding-left: 8px;
 }
 
 @media (max-width: 768px) {

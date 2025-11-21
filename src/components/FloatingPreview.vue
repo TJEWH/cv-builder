@@ -21,6 +21,13 @@ const dragging = ref(false);
 let dragStart = null;
 
 const startDrag = (e) => {
+  // Prevent drag when interacting with input/textarea
+  const target = e.target;
+  const tagName = target.tagName;
+  if (tagName === 'INPUT' || tagName === 'TEXTAREA') {
+    return;
+  }
+
   dragging.value = true;
   dragStart = { mx: e.clientX, my: e.clientY, x0: pos.value.x, y0: pos.value.y };
   window.addEventListener('mousemove', onDragMove, true);
@@ -92,10 +99,20 @@ const endResize = () => {
 };
 
 const frame = ref(null);
-const openPrint = () => {
-  try { frame.value?.contentWindow?.focus(); frame.value?.contentWindow?.print(); } catch {}
+
+// Trigger PDF export in the iframe
+const triggerPdfExport = () => {
+  try {
+    if (frame.value?.contentWindow) {
+      // Send message to iframe to trigger PDF export
+      frame.value.contentWindow.postMessage({ type: 'exportPdf' }, '*');
+    }
+  } catch (e) {
+    console.error('Failed to trigger PDF export:', e);
+  }
 };
-defineExpose({ openPrint });
+
+defineExpose({ triggerPdfExport });
 
 onMounted(() => {
   const onEsc = (e) => {
@@ -115,7 +132,9 @@ onMounted(() => {
       <strong>Preview</strong>
       <span class="fp-size">{{ Math.round(scale*100) }}%</span>
       <div class="fp-actions">
-        <button class="mini" type="button" @click="openPrint">Export</button>
+        <button class="mini" type="button" @click.stop="triggerPdfExport" title="Download PDF">
+          <font-awesome-icon :icon="['fas', 'download']" style="font-size: 10px;" />
+        </button>
       </div>
     </div>
 
@@ -173,8 +192,24 @@ onMounted(() => {
   color:#9be8c7; background:#061017; border-radius: 10px 10px 0 0;
 }
 .fp-size{font-size:12px;color:#78d1b8}
-.fp-actions .mini{ padding:4px 7px; border:1px dashed #134e4a; border-radius:6px; background:#061017; color:#9be8c7; cursor:pointer }
-.fp-actions .mini:hover{ background:#0a1c26 }
+.fp-actions .mini{
+  padding:4px 7px;
+  border:1px dashed #134e4a;
+  border-radius:6px;
+  background:linear-gradient(135deg, #0f766e 0%, #134e4a 100%);
+  color:#9be8c7;
+  cursor:pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  transition: all 0.2s ease;
+}
+.fp-actions .mini:hover{
+  background:linear-gradient(135deg, #14b8a6 0%, #0f766e 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(15, 118, 110, 0.3);
+}
 
 .fp-body{ position: relative; overflow: hidden; background:#0b0f14; border-radius: 0 0 10px 10px }
 .fp-iframe{ display:block; border:0 }

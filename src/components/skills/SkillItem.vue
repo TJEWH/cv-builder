@@ -38,22 +38,6 @@ const circles = computed(() => {
   return result;
 });
 
-// Generiere eine kontrastierende Farbe zur Sidebar
-const circleColor = computed(() => {
-  // Einfache Konvertierung: Wenn Sidebar dunkel ist, helle Kreise, sonst dunkle
-  const color = props.sidebarColor;
-  const hex = color.replace('#', '');
-  const r = parseInt(hex.substring(0, 2), 16);
-  const g = parseInt(hex.substring(2, 4), 16);
-  const b = parseInt(hex.substring(4, 6), 16);
-
-  // Berechne Helligkeit (0-255)
-  const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-
-  // Wenn Sidebar hell ist (brightness > 128), dunkle Kreise, sonst helle
-  return brightness > 128 ? '#334155' : '#94a3b8';
-});
-
 const displayValue = computed(() => {
   if (props.levelType === 'years' && hasLevel.value) {
     return props.levelValue > 0 ? `${props.levelValue} ${props.levelValue === 1 ? 'Jahr' : 'Jahre'}` : '';
@@ -84,7 +68,7 @@ const displayValue = computed(() => {
               cx="10"
               cy="10"
               r="8"
-              :stroke="circleColor"
+              stroke="var(--graphic)"
               stroke-width="1.5"
               fill="none"
               opacity="0.3"
@@ -95,13 +79,13 @@ const displayValue = computed(() => {
               cx="10"
               cy="10"
               r="8"
-              :fill="circleColor"
+              fill="var(--graphic)"
             />
             <!-- Halber Kreis (linke Hälfte gefüllt) -->
             <path
               v-if="circle === 'half'"
               d="M 10,2 A 8,8 0 0,0 10,18 Z"
-              :fill="circleColor"
+              fill="var(--graphic)"
             />
           </svg>
         </div>
@@ -134,6 +118,7 @@ const displayValue = computed(() => {
   font-size: 8.5pt;
   opacity: 0.8;
   white-space: nowrap;
+  font-weight: 700;
 }
 
 .circles {

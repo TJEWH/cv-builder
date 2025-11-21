@@ -1,5 +1,5 @@
 <script setup>
-import { computed, watch } from 'vue';
+import { computed } from 'vue';
 import { makeT } from '../i18n/dict.js';
 import SkillCategory from './skills/SkillCategory.vue';
 
@@ -121,8 +121,7 @@ const getSectionDisplayName = (key) => {
     hobbies: t('hobbiesTitle'),
     certs: t('certsTitle')
   };
-  const defaultName = names[key] || key;
-  return defaultName;
+  return names[key] || key;
 };
 
 // Centralized visibility check used by template
@@ -141,15 +140,6 @@ const isHiddenFor = (key) => {
   if(customSection) return isDisabled(key) || !hasAny(customSection.entries);
   return false;
 };
-
-// Debug logging to help track why a key is/was not shown
-watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.state.customSections], ([bm, bs, sp, cs])=>{
-  try{
-    console.debug('[CvPreview] blocksMain=', bm, 'blocksSide=', bs, 'sectionPlacement=', sp);
-    console.debug('[CvPreview] customSections=', cs);
-    console.debug('[CvPreview] visibleMain=', bm.filter(k=>!isHiddenFor(k)), 'visibleSide=', bs.filter(k=>!isHiddenFor(k)));
-  }catch(e){}
-},{deep:true, immediate:true});
 </script>
 
 <template>
@@ -160,11 +150,26 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
         <p class="role">{{ state.contact.role }}</p>
       </div>
       <address class="contact">
-        <div>{{ state.contact.location }}</div>
-        <div><a :href="state.contact.email ? 'mailto:'+state.contact.email : '#'">{{ state.contact.email }}</a></div>
-        <div>{{ state.contact.phone }}</div>
-        <div><a :href="state.contact.website || '#'">{{ (state.contact.website||'').replace(/^https?:\/\//,'') }}</a></div>
-        <div><a :href="state.contact.linkedin || '#'">{{ (state.contact.linkedin||'').replace(/^https?:\/\//,'') }}</a></div>
+        <div v-if="state.contact.location">
+          {{ state.contact.location }}
+          <font-awesome-icon :icon="['fas', 'location-dot']" class="contact-icon" />
+        </div>
+        <div v-if="state.contact.email">
+          <a :href="'mailto:'+state.contact.email">{{ state.contact.email }}</a>
+          <font-awesome-icon :icon="['fas', 'envelope']" class="contact-icon" />
+        </div>
+        <div v-if="state.contact.phone">
+          {{ state.contact.phone }}
+          <font-awesome-icon :icon="['fas', 'phone']" class="contact-icon" />
+        </div>
+        <div v-if="state.contact.website">
+          <a :href="state.contact.website">{{ state.contact.website.replace(/^https?:\/\//,'') }}</a>
+          <font-awesome-icon :icon="['fas', 'globe']" class="contact-icon" />
+        </div>
+        <div v-if="state.contact.linkedin">
+          <a :href="state.contact.linkedin">{{ state.contact.linkedin.replace(/^https?:\/\//,'') }}</a>
+          <font-awesome-icon :icon="['fab', 'linkedin']" class="contact-icon" />
+        </div>
       </address>
     </header>
 
@@ -189,10 +194,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             </component>
             <div class="timeline" id="cv_exp_job">
               <article class="item" v-for="(it,idx) in state.experience.jobs" :key="idx">
-                <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.company||''}</span>`"></div>
-                  <div class="item-meta">{{ formatMeta(it) }}</div>
-                </div>
+                <div class="item-title">{{ it.title }}</div>
+                <div class="item-sub">{{ it.company }}</div>
+                <div class="item-meta">{{ formatMeta(it) }}</div>
                 <ul v-if="Array.isArray(it.bullets) && it.bullets.length">
                   <li v-for="(b,bi) in it.bullets" :key="bi">{{ b }}</li>
                 </ul>
@@ -204,12 +208,11 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             <component :is="getSectionHeaderSize('addExp')" v-if="!isSectionHeaderHidden('addExp')">
               {{ getSectionDisplayName('addExp') }}
             </component>
-            <div id="cv_exp_personal" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4mm">
-              <article class="item" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx" style="border:1px solid var(--border);border-radius:6px;padding:6px">
-                <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
-                  <div class="item-meta">{{ formatMeta(it) }}</div>
-                </div>
+            <div id="cv_add_exp" :class="`addexp-cols-${state.design?.addExpColumns || '2'}`" style="display:grid;grid-template-columns:repeat(var(--addexp-columns),minmax(0,1fr));gap:4mm">
+              <article class="item addexp-card" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx">
+                <div class="item-title">{{ it.title }}</div>
+                <div class="item-sub">{{ it.sub }}</div>
+                <div class="item-meta">{{ formatMeta(it) }}</div>
                 <p v-if="it.desc">{{ it.desc }}</p>
               </article>
             </div>
@@ -222,10 +225,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             </component>
             <div>
               <article class="item" v-for="(it, idx) in state.education" :key="idx">
-                <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
-                  <div class="item-meta">{{ formatMeta(it) }}</div>
-                </div>
+                <div class="item-title">{{ it.title }}</div>
+                <div class="item-sub">{{ it.sub }}</div>
+                <div class="item-meta">{{ formatMeta(it) }}</div>
                 <p v-if="it.desc">{{ it.desc }}</p>
               </article>
             </div>
@@ -238,10 +240,8 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             </component>
             <div>
               <article class="item" v-for="(it, idx) in state.experience.projects" :key="idx">
-                <div class="item-header">
-                  <div class="item-title">{{ it.title }}</div>
-                  <div class="item-meta">{{ formatMeta(it) }}</div>
-                </div>
+                <div class="item-title">{{ it.title }}</div>
+                <div class="item-meta">{{ formatMeta(it) }}</div>
                 <p v-if="it.desc">{{ it.desc }}</p>
               </article>
             </div>
@@ -283,12 +283,12 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             <component :is="getSectionHeaderSize('languages')" v-if="!isSectionHeaderHidden('languages')">
               {{ getSectionDisplayName('languages') }}
             </component>
-            <ul class="lang-list">
-              <li v-for="(l,i) in state.languages" :key="i">
-                <strong>{{ l.name }}</strong>
-                <span>- {{ l.level }}</span>
-              </li>
-            </ul>
+            <div class="language-items">
+              <div class="language-item" v-for="(l,i) in state.languages" :key="i">
+                <span class="language-name">{{ l.name }}</span>
+                <span class="language-level">{{ l.level }}</span>
+              </div>
+            </div>
           </template>
 
           <!-- CERTS (wenn im Main) -->
@@ -296,7 +296,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             <component :is="getSectionHeaderSize('certs')" v-if="!isSectionHeaderHidden('certs')">
               {{ getSectionDisplayName('certs') }}
             </component>
-            <ul><li v-for="(c,i) in state.certs" :key="i">{{ [c.name,c.year].filter(Boolean).join(', ') }}</li></ul>
+            <ul class="lang-list">
+              <li v-for="(c,i) in state.certs" :key="i">{{ [c.name,c.year].filter(Boolean).join(', ') }}</li>
+            </ul>
           </template>
 
           <!-- HOBBIES (wenn im Main) -->
@@ -315,7 +317,7 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
         </section>
       </div>
 
-      <aside class="sidebar" id="cv_side" :style="{background:'var(--sidebar-bg)', padding:'6mm', borderRadius:'10px'}">
+      <aside class="sidebar" id="cv_side">
         <section v-for="key in blocksSide" :key="key" class="section cv-block" :class="{'is-hidden': isHiddenFor(key) }">
 
           <template v-if="key==='about'">
@@ -331,10 +333,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             </component>
             <div class="timeline" id="cv_exp_job">
               <article class="item" v-for="(it,idx) in state.experience.jobs" :key="idx">
-                <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.company||''}</span>`"></div>
-                  <div class="item-meta">{{ formatMeta(it) }}</div>
-                </div>
+                <div class="item-title">{{ it.title }}</div>
+                <div class="item-sub">{{ it.company }}</div>
+                <div class="item-meta">{{ formatMeta(it) }}</div>
               </article>
             </div>
           </template>
@@ -344,12 +345,11 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
               {{ getSectionDisplayName('addExp') }}
             </component>
             <div>
-              <article class="item" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx" style="margin-bottom:3mm">
-                <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
-                  <div class="item-meta">{{ formatMeta(it) }}</div>
-                </div>
-                <p v-if="it.desc" style="font-size:0.9em;margin-top:2px">{{ it.desc }}</p>
+              <article class="item" v-for="(it,idx) in (Array.isArray(state.experience?.addExp)?state.experience.addExp:[])" :key="idx">
+                <div class="item-title">{{ it.title }}</div>
+                <div class="item-sub">{{ it.sub }}</div>
+                <div class="item-meta">{{ formatMeta(it) }}</div>
+                <p v-if="it.desc" style="font-size:0.9em">{{ it.desc }}</p>
               </article>
             </div>
           </template>
@@ -360,10 +360,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             </component>
             <div>
               <article class="item" v-for="(it, idx) in state.education" :key="idx">
-                <div class="item-header">
-                  <div class="item-title" v-html="`${it.title||''} - <span class='item-sub'>${it.sub||''}</span>`"></div>
-                  <div class="item-meta">{{ formatMeta(it) }}</div>
-                </div>
+                <div class="item-title">{{ it.title }}</div>
+                <div class="item-sub">{{ it.sub }}</div>
+                <div class="item-meta">{{ formatMeta(it) }}</div>
               </article>
             </div>
           </template>
@@ -374,9 +373,8 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             </component>
             <div>
               <article class="item" v-for="(it, idx) in state.experience.projects" :key="idx">
-                <div class="item-header">
-                  <div class="item-title">{{ it.title }}</div>
-                </div>
+                <div class="item-title">{{ it.title }}</div>
+                <div class="item-meta">{{ formatMeta(it) }}</div>
               </article>
             </div>
           </template>
@@ -417,12 +415,12 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             <component :is="getSectionHeaderSize('languages')" v-if="!isSectionHeaderHidden('languages')">
               {{ getSectionDisplayName('languages') }}
             </component>
-            <ul class="lang-list">
-              <li v-for="(l,i) in state.languages" :key="i">
-                <strong>{{ l.name }}</strong>
-                <span>- {{ l.level }}</span>
-              </li>
-            </ul>
+            <div class="language-items">
+              <div class="language-item" v-for="(l,i) in state.languages" :key="i">
+                <span class="language-name">{{ l.name }}</span>
+                <span class="language-level">{{ l.level }}</span>
+              </div>
+            </div>
           </template>
 
           <!-- CERTS -->
@@ -430,7 +428,9 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
             <component :is="getSectionHeaderSize('certs')" v-if="!isSectionHeaderHidden('certs')">
               {{ getSectionDisplayName('certs') }}
             </component>
-            <ul><li v-for="(c,i) in state.certs" :key="i">{{ [c.name,c.year].filter(Boolean).join(', ') }}</li></ul>
+            <ul class="lang-list">
+              <li v-for="(c,i) in state.certs" :key="i">{{ [c.name,c.year].filter(Boolean).join(', ') }}</li>
+            </ul>
           </template>
 
           <!-- HOBBIES -->
@@ -458,5 +458,31 @@ watch([blocksMain, blocksSide, () => props.state.sectionPlacement, () => props.s
 }
 .lang-list li{
   margin: 2px 0;
+}
+
+.language-items {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0;
+}
+
+.language-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 0;
+  gap: 8px;
+}
+
+.language-name {
+  flex: 1;
+  font-size: 9.5pt;
+}
+
+.language-level {
+  font-size: 8.5pt;
+  opacity: 0.8;
+  white-space: nowrap;
+  font-weight: 700;
 }
 </style>

@@ -1,5 +1,5 @@
 <script setup>
-import {computed} from "vue";
+import {computed, ref} from "vue";
 import { makeT } from '../i18n/dict';
 
 const props = defineProps({
@@ -8,7 +8,7 @@ const props = defineProps({
   sectionMovementMode: { type: String, default: 'drag' } // 'drag' or 'buttons'
 });
 
-const emit = defineEmits(['update:showPreview', 'update:lang', 'update:sectionMovementMode']);
+const emit = defineEmits(['update:showPreview', 'update:lang', 'update:sectionMovementMode', 'exportPdf', 'openFullscreen']);
 
 const langRef = computed({
   get: ()=> props.lang ?? 'de',
@@ -26,12 +26,37 @@ const movementMode = computed({
   set: v => emit('update:sectionMovementMode', v)
 });
 
-const openPreviewTab = () => window.open('/preview.html', '_blank', 'noopener');
+const isExporting = ref(false);
+
+const openPreviewTab = () => {
+  emit('openFullscreen');
+};
+
+const handleExportPdf = async () => {
+  isExporting.value = true;
+  try {
+    await emit('exportPdf');
+  } finally {
+    // Keep loading state for a moment to show feedback
+    setTimeout(() => {
+      isExporting.value = false;
+    }, 500);
+  }
+};
 </script>
 
 <template>
   <div class="toolbar">
     <button class="btn btn--primary" type="button" @click="openPreviewTab">{{t('openPdf')}}</button>
+    <button 
+      class="btn btn--primary" 
+      type="button" 
+      @click="handleExportPdf"
+      :disabled="isExporting"
+    >
+      <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
+      {{ isExporting ? t('exportingPdf') : t('downloadPdf') }}
+    </button>
     <button class="btn" :class="[preview?'btn--danger':'btn--success']" type="button" @click="preview = !preview">
       {{ preview ? t('hidePreview') : t('showPreview') }}
     </button>
@@ -88,14 +113,14 @@ const openPreviewTab = () => window.open('/preview.html', '_blank', 'noopener');
 }
 .toggle-track{
   position:relative; display:inline-flex; align-items:center; justify-content:space-around;
-  width: 120px; height: 36px; border-radius:999px;
+  width: 140px; height: 36px; border-radius:999px;
   background: #0c131a; border:1px solid var(--border);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
 }
 .toggle-label{ font-size:11px; opacity:.75; color:#cbd5e1; z-index:1; user-select:none; }
 .toggle-thumb{
   position:absolute; top:2px; left:2px;
-  width: 58px; height: 30px; border-radius:999px;
+  width: 68px; height: 30px; border-radius:999px;
   background:linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.02));
   border:1px solid rgba(255,255,255,.12);
   transition: transform .18s ease;
@@ -110,5 +135,24 @@ const openPreviewTab = () => window.open('/preview.html', '_blank', 'noopener');
   background: linear-gradient(180deg, rgba(34,197,94,.25), rgba(16,185,129,.15));
   border-color: rgba(16,185,129,.45);
 }
-.toggle.is-on .toggle-thumb{ transform: translateX(56px); }
+.toggle.is-on .toggle-thumb{ transform: translateX(66px); }
+
+.toolbar {
+  position: fixed;
+  top: 30px;
+  display: flex;
+  right: 30px;
+  width: 170px;
+  z-index: 10;
+  gap: 5px;
+  flex-direction: column;
+  background: #ffffff0f;
+  padding: 15px;
+  border-radius: 15px;
+
+  button {
+    width: 100%;
+  }
+}
+span.toggle-caption {display: none}
 </style>
