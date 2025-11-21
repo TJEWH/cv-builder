@@ -4,6 +4,7 @@ import { debounce, loadLocal, saveLocal, readBackup, fsApiAvailable, getBackupMo
 import { usePdfExport } from './composables/usePdfExport';
 import FormBuilder from './components/FormBuilder.vue';
 import FloatingPreview from './components/FloatingPreview.vue';
+import PageFlip from './components/PageFlip.vue';
 import { makeT } from './i18n/dict';
 import ToolBar from "./components/ToolBar.vue";
 import BackupManager from "./components/BackupManager.vue";
@@ -125,60 +126,109 @@ onMounted(async ()=>{
 });
 onBeforeUnmount(()=>{ try{ bc?.close(); }catch{} });
 
-const showPreview = ref(true); // Show FloatingPreview by default
+const pageFlipped = ref(false); // Page flip state
+const pageFlipRef = ref(null); // Reference to PageFlip component
 const sectionMovementMode = ref('drag'); // 'drag' or 'buttons'
 
-// Navigate to fullscreen preview
-const openFullscreenPreview = () => {
-  saveLocal(state);
-  window.location.href = '/preview.html';
+// Toggle page flip to show/hide preview
+const togglePageFlip = () => {
+  pageFlipRef.value?.toggle();
 };
 
-// PDF Export via iframe
+// PDF Export directly from embedded preview
 const { exportToPdf } = usePdfExport();
 
 const handleExportPdf = async () => {
-  // Check if preview is visible
-  if (!showPreview.value) {
-    showPreview.value = true;
-    await new Promise(resolve => setTimeout(resolve, 500));
+  try {
+    // Get the CV element from the embedded preview
+    const cvElement = document.querySelector('#preview .page');
+    if (cvElement) {
+      const contactName = state.contact?.name || 'CV';
+      const filename = `${contactName.replace(/\s+/g, '_')}_CV`;
+      await exportToPdf(cvElement, filename);
+    } else {
+      console.error('CV element not found in preview');
+    }
+  } catch (error) {
+    console.error('PDF export failed:', error);
   }
-
-  // Get the iframe from FloatingPreview
-  const iframe = document.querySelector('.fp-iframe');
-  if (!iframe || !iframe.contentWindow) {
-    // Fallback: navigate to preview with export flag
-    saveLocal(state);
-    window.location.href = '/preview.html?export=true';
-    return;
-  }
-
-  // Send message to iframe to trigger export
-  iframe.contentWindow.postMessage({
-    type: 'exportPdf',
-    data: JSON.parse(JSON.stringify(state))
-  }, '*');
 };
 </script>
 
 <template>
   <ToolBar
-    v-model:showPreview="showPreview"
+    v-model:pageFlipped="pageFlipped"
     v-model:lang="lang"
     v-model:sectionMovementMode="sectionMovementMode"
     @exportPdf="handleExportPdf"
-    @openFullscreen="openFullscreenPreview"
+    @toggleFlip="togglePageFlip"
   />
 
-  <FloatingPreview
-    v-if="showPreview"
-    url="/preview.html?embed=1"
-    :initialScale="0.25"
-  />
+  <PageFlip ref="pageFlipRef" v-model:isFlipped="pageFlipped">
+    <template #front>
+      <div class="workbench">
+        <BackupManager :state="state" :langRef="lang" :onSave="saveDebounced" />
+        <DesignPanel v-model="state.design" />
+        <FormBuilder :state="state" :onSave="saveDebounced" :movementMode="sectionMovementMode" />
+      </div>
+    </template>
 
-  <div class="workbench">
-    <BackupManager :state="state" :langRef="lang" :onSave="saveDebounced" />
-    <DesignPanel v-model="state.design" />
-    <FormBuilder :state="state" :onSave="saveDebounced" :movementMode="sectionMovementMode" />
-  </div>
+    <template #back>
+      <div class="preview-back">
+        <button class="back-btn" @click="togglePageFlip">
+          <font-awesome-icon :icon="['fas', 'arrow-left']" />
+          {{ t('backToForm') }}
+        </button>
+        <div id="preview" class="preview-container"></div>
+      </div>
+    </template>
+  </PageFlip>
 </template>
+
+<style scoped>
+.preview-back {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  background: #0a0f14;
+  box-sizing: border-box;
+}
+
+.back-btn {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 1000;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: #fff;
+  border: 1px solid #6366f1;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.back-btn:hover {
+  background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+}
+
+.preview-container {
+  width: 100%;
+  max-width: 900px;
+  display: flex;
+  justify-content: center;
+  margin-top: 60px;
+}
+</style>
+

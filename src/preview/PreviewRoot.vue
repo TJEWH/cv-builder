@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, onMounted, watch, ref } from 'vue';
+import { reactive, onMounted, watch, ref, nextTick } from 'vue';
 import CvPreview from '../components/CvPreview.vue';
 import { STORAGE_KEY } from '../composables/useStorage';
 import { usePdfExport } from '../composables/usePdfExport';
@@ -153,11 +153,16 @@ const goBackToForm = () => {
   window.location.href = '/';
 };
 
-onMounted(()=>{
-  // Check if we're in an iframe
+onMounted(async ()=>{
+  // Check if we're in an iframe or embedded in FloatingPreview
+  await nextTick();
   try {
     const params = new URLSearchParams(location.search);
-    isEmbedded.value = (window.self !== window.top) || params.has('embed');
+    // Check if we're inside the FloatingPreview component
+    const previewEl = document.getElementById('preview');
+    const isInFloatingPreview = previewEl?.parentElement?.classList?.contains('fp-embedded');
+
+    isEmbedded.value = (window.self !== window.top) || params.has('embed') || isInFloatingPreview;
 
     // Auto-export if export parameter is present
     if (params.has('export')) {

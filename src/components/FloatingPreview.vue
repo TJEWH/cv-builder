@@ -1,11 +1,12 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, defineExpose } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, defineExpose, nextTick } from 'vue';
 
 const props = defineProps({
-  url: { type: String, required: true },
+  url: { type: String, required: false },
   initialScale: { type: Number, default: 0.45 },
   minScale: { type: Number, default: 0.25 },
-  maxScale: { type: Number, default: 1.2 }
+  maxScale: { type: Number, default: 1.2 },
+  useEmbedded: { type: Boolean, default: false }
 });
 
 // A4 bei ~96dpi
@@ -99,11 +100,20 @@ const endResize = () => {
 };
 
 const frame = ref(null);
+const embeddedPreview = ref(null);
 
-// Trigger PDF export in the iframe
+// Trigger PDF export in the iframe or embedded preview
 const triggerPdfExport = () => {
   try {
-    if (frame.value?.contentWindow) {
+    if (props.useEmbedded) {
+      // Trigger export on the embedded preview element
+      const previewEl = embeddedPreview.value?.querySelector('#preview');
+      if (previewEl) {
+        // Dispatch a custom event that PreviewRoot can listen to
+        const event = new CustomEvent('exportPdf', { bubbles: true });
+        previewEl.dispatchEvent(event);
+      }
+    } else if (frame.value?.contentWindow) {
       // Send message to iframe to trigger PDF export
       frame.value.contentWindow.postMessage({ type: 'exportPdf' }, '*');
     }
@@ -143,7 +153,20 @@ onMounted(() => {
       :class="{ 'is-resizing': resizing }"
   :style="{ width: scaledW + 'px', height: scaledH + 'px' }"
   >
-    <iframe
+    <!-- Embedded mode: show #preview directly -->
+    <div v-if="useEmbedded" ref="embeddedPreview"
+         class="fp-embedded"
+         :style="{
+            width: BASE_W + 'px',
+            height: BASE_H + 'px',
+            transform: 'scale(' + scale + ')',
+            transformOrigin: 'top left'
+          }">
+      <div id="preview"></div>
+    </div>
+
+    <!-- Iframe mode: show preview in iframe -->
+    <iframe v-else
         ref="frame"
         class="fp-iframe"
         :src="url"
@@ -213,6 +236,7 @@ onMounted(() => {
 
 .fp-body{ position: relative; overflow: hidden; background:#0b0f14; border-radius: 0 0 10px 10px }
 .fp-iframe{ display:block; border:0 }
+.fp-embedded{ display:block; border:0; overflow: hidden; }
 
 .fp-resizer{
   position:absolute; right:4px; bottom:4px; width:16px; height:16px;
@@ -243,7 +267,7 @@ onMounted(() => {
 /* Fullscreen-Overlay: blockt iFrame-MouseEvents während Resizes */
 </style>
 
-<!-- unscoped for the overlay -->
+<!-- unscoped for the overlay and toolbar -->
 <style>
 .fp-global-overlay{
   position: fixed;
@@ -251,5 +275,10 @@ onMounted(() => {
   z-index: 2147483647;
   background: transparent;
   cursor: nwse-resize;
+}
+
+/* Hide toolbar when inside FloatingPreview embedded mode */
+.fp-embedded .pv-toolbar{
+  display: none !important;
 }
 </style>

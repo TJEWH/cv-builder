@@ -10,6 +10,9 @@ import { fab } from '@fortawesome/free-brands-svg-icons';
 
 library.add(fas, fab);
 
-const app = createApp(PreviewRoot);
-app.component('font-awesome-icon', FontAwesomeIcon);
-app.mount('#preview');
+const previewEl = document.querySelector('#preview');
+if (previewEl) {
+  const app = createApp(PreviewRoot);
+  app.component('font-awesome-icon', FontAwesomeIcon);
+  app.mount('#preview');
+}

@@ -218,3 +218,11 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--muted);text-transform
     transition: all 0.2s ease;
     width: 30%;
 }
+
+.page-flip__back .back-btn, .pv-toolbar {
+    display: none !important;
+}
+
+.preview-container {
+    margin-top: 0 !important;
+}

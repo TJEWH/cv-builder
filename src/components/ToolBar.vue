@@ -4,22 +4,17 @@ import { makeT } from '../i18n/dict';
 
 const props = defineProps({
   lang: { type: String, default: 'de' },
-  showPreview: { type: Boolean, required: true },
+  pageFlipped: { type: Boolean, default: false },
   sectionMovementMode: { type: String, default: 'drag' } // 'drag' or 'buttons'
 });
 
-const emit = defineEmits(['update:showPreview', 'update:lang', 'update:sectionMovementMode', 'exportPdf', 'openFullscreen']);
+const emit = defineEmits(['update:pageFlipped', 'update:lang', 'update:sectionMovementMode', 'exportPdf', 'toggleFlip']);
 
 const langRef = computed({
   get: ()=> props.lang ?? 'de',
   set: v  => { emit('update:lang', v); }
 });
 const t = makeT(langRef);
-
-const preview = computed({
-  get: () => props.showPreview,
-  set: v => emit('update:showPreview', v)
-});
 
 const movementMode = computed({
   get: () => props.sectionMovementMode || 'drag',
@@ -28,14 +23,14 @@ const movementMode = computed({
 
 const isExporting = ref(false);
 
-const openPreviewTab = () => {
-  emit('openFullscreen');
+const toggleFlip = () => {
+  emit('toggleFlip');
 };
 
 const handleExportPdf = async () => {
   isExporting.value = true;
   try {
-    await emit('exportPdf');
+    emit('exportPdf');
   } finally {
     // Keep loading state for a moment to show feedback
     setTimeout(() => {
@@ -47,18 +42,19 @@ const handleExportPdf = async () => {
 
 <template>
   <div class="toolbar">
-    <button class="btn btn--primary" type="button" @click="openPreviewTab">{{t('openPdf')}}</button>
-    <button 
-      class="btn btn--primary" 
-      type="button" 
+    <button class="btn btn--flip" type="button" @click="toggleFlip">
+      <font-awesome-icon :icon="['fas', 'book-open']" />
+      {{ pageFlipped ? t('backToForm') : t('openPdf') }}
+    </button>
+    <button
+      class="btn btn--download"
+      type="button"
       @click="handleExportPdf"
       :disabled="isExporting"
     >
       <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
-      {{ isExporting ? t('exportingPdf') : t('downloadPdf') }}
-    </button>
-    <button class="btn" :class="[preview?'btn--danger':'btn--success']" type="button" @click="preview = !preview">
-      {{ preview ? t('hidePreview') : t('showPreview') }}
+      <font-awesome-icon v-else :icon="['fas', 'download']" />
+      {{ isExporting ? t('exportingPdf') : "Download" }}
     </button>
     <!--<span class="note">{{ status }}</span>-->
 
@@ -154,5 +150,54 @@ const handleExportPdf = async () => {
     width: 100%;
   }
 }
+
+/* Page flip button */
+.btn--flip {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  border-color: #6366f1;
+  color: #fff;
+  font-weight: 600;
+  font-size: 15px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: all 0.3s ease;
+}
+
+.btn--flip:hover:not(:disabled) {
+  background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+}
+
+/* Download PDF button - large and prominent */
+.btn--download {
+  background: linear-gradient(135deg, #0f766e 0%, #134e4a 100%);
+  border-color: #0f766e;
+  color: #9be8c7;
+  font-weight: 700;
+  font-size: 16px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.3);
+}
+
+.btn--download:hover:not(:disabled) {
+  background: linear-gradient(135deg, #14b8a6 0%, #0f766e 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(15, 118, 110, 0.5);
+}
+
+.btn--download:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 span.toggle-caption {display: none}
 </style>
