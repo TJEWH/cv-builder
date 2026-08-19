@@ -29,12 +29,16 @@ const langRef = computed({
 const t = makeT(langRef);
 
 // declare emits so Vue doesn't warn when we $emit('toggle-section')
-const emit = defineEmits(['update:modelValue','toggle-section','dragstart','dragend','start-edit-title','finish-edit-title','cancel-edit-title','update-editing-value','header-size-change']);
+const emit = defineEmits(['update:modelValue','toggle-section','toggle-collapse','dragstart','dragend','start-edit-title','finish-edit-title','cancel-edit-title','update-editing-value','header-size-change']);
 
 const items = defineModel({ default: [] });
 
 const root = ref(null);
-const toggleCollapse = () => { root.value?.classList.toggle('collapsed'); };
+const toggleCollapse = () => emit('toggle-collapse');
+const isHeaderControl = (target) => target?.closest?.('button, input, select, textarea, a');
+const onHeaderClick = (event) => {
+  if (!isHeaderControl(event.target)) toggleCollapse();
+};
 
 const add = () => {
   const o = {};
@@ -123,8 +127,8 @@ const setTextareaValue = (item, key, value) => {
     @dragstart="onDragStart"
     @dragend="emit('dragend', $event)"
   >
-    <div class="section-head">
-      <button class="caret mini" type="button" @click="toggleCollapse">
+    <div class="section-head" @click="onHeaderClick">
+      <button class="caret mini" type="button" @click.stop="toggleCollapse">
         <font-awesome-icon v-if="iconName" :icon="['fas', iconName]" class="section-icon" aria-hidden="true" />
       </button>
 
@@ -133,7 +137,7 @@ const setTextareaValue = (item, key, value) => {
         <h3
           v-if="!isEditingTitle"
           class="section-name-label"
-          @click="emit('start-edit-title')"
+          @click.stop="emit('start-edit-title')"
           :title="langRef === 'de' ? 'Klicken zum Umbenennen' : 'Click to rename'"
         >
           {{ title }}
@@ -145,6 +149,7 @@ const setTextareaValue = (item, key, value) => {
           @input="emit('update-editing-value', $event.target.value)"
           class="section-name-input"
           :placeholder="titlePlaceholder"
+          @click.stop
           @blur="emit('finish-edit-title')"
           @keyup.enter="emit('finish-edit-title')"
           @keyup.esc="emit('cancel-edit-title')"

@@ -88,8 +88,11 @@ body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f1
     margin:0 0 8px;
     padding:6px 8px;
     border-radius:6px;
+    cursor:pointer;
     transition:background .18s ease, transform .18s ease;
 }
+.editor-subsection > .section-head input,
+.content-panel > .section-group[data-section] > .section-head input{cursor:text}
 .editor-subsection > .section-head:hover,
 .content-panel > .section-group[data-section] > .section-head:hover,
 .editor-subsection > .section-head:focus-within,

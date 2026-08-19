@@ -51,6 +51,19 @@ const toggleAllContent = () => {
   (props.state.customSections || []).forEach((section) => { customCollapsed.value[section.id] = next; });
 };
 
+const toggleContentSection = (key) => {
+  if (Object.prototype.hasOwnProperty.call(collapsed, key)) {
+    collapsed[key] = !collapsed[key];
+  } else {
+    customCollapsed.value[key] = !customCollapsed.value[key];
+  }
+};
+
+const isHeaderControl = (target) => target?.closest?.('button, input, select, textarea, a');
+const onContentHeaderClick = (key, event) => {
+  if (!isHeaderControl(event.target)) toggleContentSection(key);
+};
+
 // ensure state.disabled exists
 if(!Array.isArray(props.state.disabled)) props.state.disabled = [];
 
@@ -658,8 +671,8 @@ const areaCerts = areaModel('certs');
 
       <!-- Header -->
       <section class="section-group" data-section="header" :class="{collapsed:collapsed.header}">
-        <div class="section-head">
-          <button class="caret mini" type="button" @click="collapsed.header=!collapsed.header">
+        <div class="section-head" @click="onContentHeaderClick('header', $event)">
+          <button class="caret mini" type="button" @click.stop="toggleContentSection('header')">
             <font-awesome-icon :icon="['fas', getIcon('header')]" class="section-icon" aria-hidden="true" />
           </button>
           <h3>{{ t('headerTitle') }}</h3>
@@ -691,8 +704,8 @@ const areaCerts = areaModel('certs');
         @dragstart="isDraggableMode ? onDragStart('about', $event) : null"
         @dragend="isDraggableMode ? onDragEnd : null"
       >
-        <div class="section-head">
-          <button class="caret mini" type="button" @click="collapsed.about=!collapsed.about">
+        <div class="section-head" @click="onContentHeaderClick('about', $event)">
+          <button class="caret mini" type="button" @click.stop="toggleContentSection('about')">
             <font-awesome-icon :icon="['fas', getIcon('about')]" class="section-icon" aria-hidden="true" />
           </button>
 
@@ -700,7 +713,7 @@ const areaCerts = areaModel('certs');
           <h3
             v-if="!isEditingSection('about')"
             class="section-name-label"
-            @click="startEditSectionName('about', false)"
+            @click.stop="startEditSectionName('about', false)"
             :title="langRef === 'de' ? 'Klicken zum Umbenennen' : 'Click to rename'"
           >
             {{ getSectionDisplayName('about') }}
@@ -711,6 +724,7 @@ const areaCerts = areaModel('certs');
             v-model="editingSection.tempName"
             class="section-name-input"
             :placeholder="getSectionDefaultName('about')"
+            @click.stop
             @blur="finishEditSectionName('about', false)"
             @keyup.enter="finishEditSectionName('about', false)"
             @keyup.esc="cancelEditSectionName"
@@ -762,6 +776,7 @@ const areaCerts = areaModel('certs');
           :disabled="isHidden('education')"
           :is-collapsed="collapsed.education"
           @toggle-section="toggleDisabled('education')"
+          @toggle-collapse="toggleContentSection('education')"
           v-bind="getEditableTitleProps('education')"
           @start-edit-title="startEditSectionName('education', false)"
           @finish-edit-title="finishEditSectionName('education', false)"
@@ -805,6 +820,7 @@ const areaCerts = areaModel('certs');
           :disabled="isHidden('jobs')"
           :is-collapsed="collapsed.jobs"
           @toggle-section="toggleDisabled('jobs')"
+          @toggle-collapse="toggleContentSection('jobs')"
           v-bind="getEditableTitleProps('jobs')"
           @start-edit-title="startEditSectionName('jobs', false)"
           @finish-edit-title="finishEditSectionName('jobs', false)"
@@ -848,6 +864,7 @@ const areaCerts = areaModel('certs');
           :disabled="isHidden('addExp')"
           :is-collapsed="collapsed.addExp"
           @toggle-section="toggleDisabled('addExp')"
+          @toggle-collapse="toggleContentSection('addExp')"
           v-bind="getEditableTitleProps('addExp')"
           @start-edit-title="startEditSectionName('addExp', false)"
           @finish-edit-title="finishEditSectionName('addExp', false)"
@@ -890,6 +907,7 @@ const areaCerts = areaModel('certs');
           :disabled="isHidden('projects')"
           :is-collapsed="collapsed.projects"
           @toggle-section="toggleDisabled('projects')"
+          @toggle-collapse="toggleContentSection('projects')"
           v-bind="getEditableTitleProps('projects')"
           @start-edit-title="startEditSectionName('projects', false)"
           @finish-edit-title="finishEditSectionName('projects', false)"
@@ -924,8 +942,8 @@ const areaCerts = areaModel('certs');
         @dragstart="isDraggableMode ? onDragStart('skills', $event) : null"
         @dragend="isDraggableMode ? onDragEnd : null"
       >
-        <div class="section-head">
-          <button class="caret mini" type="button" @click="collapsed.skills = !collapsed.skills">
+        <div class="section-head" @click="onContentHeaderClick('skills', $event)">
+          <button class="caret mini" type="button" @click.stop="toggleContentSection('skills')">
             <font-awesome-icon :icon="['fas', 'tools']" class="section-icon" aria-hidden="true" />
           </button>
 
@@ -935,12 +953,13 @@ const areaCerts = areaModel('certs');
               v-model="editingSection.tempName"
               class="section-name-input"
               :placeholder="t('skillsTitle')"
+              @click.stop
               @blur="finishEditSectionName('skills', false)"
               @keyup.enter="finishEditSectionName('skills', false)"
               @keyup.esc="cancelEditSectionName"
             />
           </template>
-          <h3 v-else class="section-name-label" @click="startEditSectionName('skills', false)">
+          <h3 v-else class="section-name-label" @click.stop="startEditSectionName('skills', false)">
             {{ getSectionDisplayName('skills') }}
           </h3>
 
@@ -997,6 +1016,7 @@ const areaCerts = areaModel('certs');
           :disabled="isHidden('languages')"
           :is-collapsed="collapsed.languages"
           @toggle-section="toggleDisabled('languages')"
+          @toggle-collapse="toggleContentSection('languages')"
           v-bind="getEditableTitleProps('languages')"
           @start-edit-title="startEditSectionName('languages', false)"
           @finish-edit-title="finishEditSectionName('languages', false)"
@@ -1036,6 +1056,7 @@ const areaCerts = areaModel('certs');
           :disabled="isHidden('hobbies')"
           :is-collapsed="collapsed.hobbies"
           @toggle-section="toggleDisabled('hobbies')"
+          @toggle-collapse="toggleContentSection('hobbies')"
           v-bind="getEditableTitleProps('hobbies')"
           @start-edit-title="startEditSectionName('hobbies', false)"
           @finish-edit-title="finishEditSectionName('hobbies', false)"
@@ -1075,6 +1096,7 @@ const areaCerts = areaModel('certs');
           :disabled="isHidden('certs')"
           :is-collapsed="collapsed.certs"
           @toggle-section="toggleDisabled('certs')"
+          @toggle-collapse="toggleContentSection('certs')"
           v-bind="getEditableTitleProps('certs')"
           @start-edit-title="startEditSectionName('certs', false)"
           @finish-edit-title="finishEditSectionName('certs', false)"
@@ -1112,8 +1134,8 @@ const areaCerts = areaModel('certs');
           @dragstart="isDraggableMode ? onDragStart(customSection.id, $event) : null"
           @dragend="isDraggableMode ? onDragEnd : null"
         >
-          <div class="section-head">
-            <button class="caret mini" type="button" @click="customCollapsed[customSection.id] = !customCollapsed[customSection.id]">
+          <div class="section-head" @click="onContentHeaderClick(customSection.id, $event)">
+            <button class="caret mini" type="button" @click.stop="toggleContentSection(customSection.id)">
               <font-awesome-icon :icon="['fas', 'folder-open']" class="section-icon" aria-hidden="true" />
             </button>
 
@@ -1121,7 +1143,7 @@ const areaCerts = areaModel('certs');
             <h3
               v-if="!isEditingSection(customSection.id)"
               class="section-name-label"
-              @click="startEditSectionName(customSection, true)"
+              @click.stop="startEditSectionName(customSection, true)"
               :title="langRef === 'de' ? 'Klicken zum Umbenennen' : 'Click to rename'"
             >
               {{ customSection.name }}
@@ -1132,6 +1154,7 @@ const areaCerts = areaModel('certs');
               v-model="editingSection.tempName"
               class="section-name-input"
               :placeholder="langRef === 'de' ? 'Neue Section' : 'New Section'"
+              @click.stop
               @blur="finishEditSectionName(customSection, true)"
               @keyup.enter="finishEditSectionName(customSection, true)"
               @keyup.esc="cancelEditSectionName"
