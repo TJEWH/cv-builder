@@ -35,6 +35,22 @@ const collapsed = reactive({
 // collapsed state for custom sections (dynamic)
 const customCollapsed = ref({});
 
+const allContentCollapsed = computed(() => {
+  const standardSections = Object.entries(collapsed)
+      .filter(([key]) => key !== 'soft')
+      .every(([, isCollapsed]) => isCollapsed);
+  const customSections = Array.isArray(props.state.customSections)
+      ? props.state.customSections.every((section) => customCollapsed.value[section.id])
+      : true;
+  return standardSections && customSections;
+});
+
+const toggleAllContent = () => {
+  const next = !allContentCollapsed.value;
+  Object.keys(collapsed).forEach((key) => { collapsed[key] = next; });
+  (props.state.customSections || []).forEach((section) => { customCollapsed.value[section.id] = next; });
+};
+
 // ensure state.disabled exists
 if(!Array.isArray(props.state.disabled)) props.state.disabled = [];
 
@@ -49,11 +65,13 @@ const toggleDisabled = (key) => {
 const addCustom = () => {
   if(!Array.isArray(props.state.customSections)) props.state.customSections = [];
   const id = `custom_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const startCollapsed = allContentCollapsed.value;
   props.state.customSections.push({
     id,
     name: langRef.value === 'de' ? 'Neue Section' : 'New Section',
     entries: []
   });
+  customCollapsed.value[id] = startCollapsed;
   // Add to orderMain
   ensureOrderArrays();
   props.state.orderMain.push(id);
@@ -73,6 +91,7 @@ const deleteCustomSection = (id) => {
     if(Array.isArray(props.state.disabled)) {
       props.state.disabled = props.state.disabled.filter(k => k !== id);
     }
+    delete customCollapsed.value[id];
     try { props.onSave?.(); } catch(e) {}
   }
 };
@@ -208,10 +227,9 @@ const onDragStart = (key, event) => {
     // Always collapse the section during drag (for cleaner UI)
     collapsed[key] = true;
   } else {
-    // For custom sections, check classList directly and store in customCollapsed
-    dragState.wasCollapsed = event.target.classList.contains('collapsed');
+    // Custom sections use the same reactive collapse state as standard sections.
+    dragState.wasCollapsed = customCollapsed.value[key] || false;
     customCollapsed.value[key] = true;
-    event.target.classList.add('collapsed');
   }
 
   event.dataTransfer.effectAllowed = 'move';
@@ -229,13 +247,7 @@ const onDragEnd = (event) => {
   if (dragState.originalKey && collapsed.hasOwnProperty(dragState.originalKey)) {
     collapsed[dragState.originalKey] = dragState.wasCollapsed;
   } else if (dragState.originalKey) {
-    // For custom sections, restore from customCollapsed
-    if (dragState.wasCollapsed) {
-      event.target.classList.add('collapsed');
-    } else {
-      event.target.classList.remove('collapsed');
-    }
-    delete customCollapsed.value[dragState.originalKey];
+    customCollapsed.value[dragState.originalKey] = dragState.wasCollapsed;
   }
 
   dragState.draggedKey = null;
@@ -296,13 +308,7 @@ const closeDragOverlay = () => {
   if (dragState.originalKey && collapsed.hasOwnProperty(dragState.originalKey)) {
     collapsed[dragState.originalKey] = dragState.wasCollapsed;
   } else if (dragState.originalKey && dragState.draggedElement) {
-    // For custom sections, restore from customCollapsed
-    if (dragState.wasCollapsed) {
-      dragState.draggedElement.classList.add('collapsed');
-    } else {
-      dragState.draggedElement.classList.remove('collapsed');
-    }
-    delete customCollapsed.value[dragState.originalKey];
+    customCollapsed.value[dragState.originalKey] = dragState.wasCollapsed;
   }
   if (dragState.draggedElement) {
     dragState.draggedElement.classList.remove('dragging');
@@ -634,7 +640,22 @@ const areaCerts = areaModel('certs');
       </div>
     </div>
 
-    <div class="body">
+    <section class="body section-group editor-panel content-panel">
+      <div class="section-head editor-panel__header">
+        <font-awesome-icon :icon="['fas', 'list']" class="section-icon" aria-hidden="true" />
+        <h3>{{ t('content') }}</h3>
+        <button
+          class="mini panel-bulk-toggle"
+          type="button"
+          :aria-label="allContentCollapsed ? t('expandAll') : t('collapseAll')"
+          :title="allContentCollapsed ? t('expandAll') : t('collapseAll')"
+          @click="toggleAllContent"
+        >
+          <font-awesome-icon :icon="['fas', allContentCollapsed ? 'angles-down' : 'angles-up']" />
+          {{ allContentCollapsed ? t('expandAll') : t('collapseAll') }}
+        </button>
+      </div>
+
       <!-- Header -->
       <section class="section-group" data-section="header" :class="{collapsed:collapsed.header}">
         <div class="section-head">
@@ -708,8 +729,15 @@ const areaCerts = areaModel('certs');
             </select>
             <button v-if="isButtonMode" class="mini" type="button" @click="moveUp('about')">▲</button>
             <button v-if="isButtonMode" class="mini" type="button" @click="moveDown('about')">▼</button>
-            <button class="mini" :class="[isHidden('about')?'btn--success':'btn--danger']" type="button" @click="toggleDisabled('about')">
-              {{ isHidden('about') ? t('show') : t('hide') }}
+            <button
+              class="mini visibility-toggle"
+              :class="[isHidden('about') ? 'btn--success' : 'btn--danger']"
+              type="button"
+              :aria-label="isHidden('about') ? t('show') : t('hide')"
+              :title="isHidden('about') ? t('show') : t('hide')"
+              @click.stop="toggleDisabled('about')"
+            >
+              <font-awesome-icon :icon="['fas', isHidden('about') ? 'eye-slash' : 'eye']" />
             </button>
           </div>
         </div>
@@ -938,12 +966,14 @@ const areaCerts = areaModel('certs');
             </div>
 
             <button
-              class="mini"
+              class="mini visibility-toggle"
               :class="[isHidden('skills')?'btn--success':'btn--danger']"
               type="button"
-              @click="toggleDisabled('skills')"
+              :aria-label="isHidden('skills') ? t('show') : t('hide')"
+              :title="isHidden('skills') ? t('show') : t('hide')"
+              @click.stop="toggleDisabled('skills')"
             >
-              {{ isHidden('skills') ? t('show') : t('hide') }}
+              <font-awesome-icon :icon="['fas', isHidden('skills') ? 'eye-slash' : 'eye']" />
             </button>
           </div>
         </div>
@@ -1077,13 +1107,13 @@ const areaCerts = areaModel('certs');
           :key="customSection.id"
           class="section-group"
           :data-section="customSection.id"
-          :class="{disabled: isHidden(customSection.id), dragging: isDragging(customSection.id)}"
+          :class="{disabled: isHidden(customSection.id), dragging: isDragging(customSection.id), collapsed: customCollapsed[customSection.id]}"
           :draggable="isDraggableMode"
           @dragstart="isDraggableMode ? onDragStart(customSection.id, $event) : null"
           @dragend="isDraggableMode ? onDragEnd : null"
         >
           <div class="section-head">
-            <button class="caret mini" type="button" @click="$event.target.closest('.section-group').classList.toggle('collapsed')">
+            <button class="caret mini" type="button" @click="customCollapsed[customSection.id] = !customCollapsed[customSection.id]">
               <font-awesome-icon :icon="['fas', 'folder-open']" class="section-icon" aria-hidden="true" />
             </button>
 
@@ -1130,12 +1160,14 @@ const areaCerts = areaModel('certs');
                 <button class="mini" type="button" @click="moveDown(customSection.id)">▼</button>
               </div>
               <button
-                class="mini"
+                class="mini visibility-toggle"
                 :class="[isHidden(customSection.id) ? 'btn--success' : 'btn--danger']"
                 type="button"
-                @click="toggleDisabled(customSection.id)"
+                :aria-label="isHidden(customSection.id) ? t('show') : t('hide')"
+                :title="isHidden(customSection.id) ? t('show') : t('hide')"
+                @click.stop="toggleDisabled(customSection.id)"
               >
-                {{ isHidden(customSection.id) ? t('show') : t('hide') }}
+                <font-awesome-icon :icon="['fas', isHidden(customSection.id) ? 'eye-slash' : 'eye']" />
               </button>
             </div>
           </div>
@@ -1184,18 +1216,14 @@ const areaCerts = areaModel('certs');
       <div style="display:flex;justify-content:center;margin-top:20px">
         <button type="button" class="btn btn--success" @click="addCustom">{{ t('newSection') }}</button>
       </div>
-    </div>
+    </section>
   </form>
 </template>
 
 <style scoped>
-.section-icon{ margin-right:8px; color:var(--muted); }
-.caret{ display:inline-flex; align-items:center; justify-content:center; width:34px; height:26px; padding:0; }
-.caret .section-icon{ margin:0; }
 .section-controls select{ padding:4px 6px; }
 
 .section-head select, .section-head .mini:not(.caret){
-  height: 100%;
   padding: 4px 7px;
   border: 1px solid #134e4a;
   color: #9be8c7;
@@ -1484,4 +1512,3 @@ const areaCerts = areaModel('certs');
   }
 }
 </style>
-

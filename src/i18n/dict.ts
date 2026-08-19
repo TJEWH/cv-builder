@@ -8,6 +8,10 @@ export const dict = {
     previewNotFound:    {de: 'Vorschau konnte nicht gefunden werden. Bitte stelle sicher, dass die Vorschau aktiviert ist.', en: 'Preview not found. Please make sure the preview is enabled.'},
     showPreview:        {de: 'Vorschau anzeigen', en: 'show preview'},
     hidePreview:        {de: 'Vorschau ausblenden', en: 'hide preview'},
+    design:             {de: 'Design', en: 'Design'},
+    content:            {de: 'Inhalt', en: 'Content'},
+    collapseAll:        {de: 'Alle einklappen', en: 'Collapse all'},
+    expandAll:          {de: 'Alle ausklappen', en: 'Expand all'},
 
     // Toggles / captions
     storageCaption:     {de: 'Speicherort', en: 'Storage'},

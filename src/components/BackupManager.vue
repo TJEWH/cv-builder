@@ -158,9 +158,6 @@ onMounted(refreshConfigs);
 </template>
 
 <style scoped>
-.section-icon { margin-right: 8px; color: var(--muted); }
-.caret { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 26px; padding: 0; }
-.caret .section-icon { margin: 0; }
 .backup-manager { display: grid; gap: 10px; width: 100%; padding: 10px; border-radius: 10px; background: #113c34; }
 .backup-manager__actions, .backup-manager__save-as, .backup-manager__preferences { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .backup-manager__actions select, .backup-manager__save-as input { flex: 1 1 220px; width: auto; }

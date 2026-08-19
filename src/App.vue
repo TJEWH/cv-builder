@@ -189,7 +189,7 @@ async function handleExportPdf() {
           v-model:movementMode="sectionMovementMode"
           :onSave="saveDebounced"
         />
-        <DesignPanel v-model="state.design" />
+        <DesignPanel v-model="state.design" :lang="lang" />
         <FormBuilder :state="state" :onSave="saveDebounced" :movementMode="sectionMovementMode" />
       </div>
 

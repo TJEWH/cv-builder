@@ -162,8 +162,16 @@ const setTextareaValue = (item, key, value) => {
           <option value="null">{{ langRef === 'de' ? 'Kein Titel' : 'No Title' }}</option>
         </select>
         <slot name="controls"></slot>
-        <button v-if="toggleable" class="mini" :class="[disabled?'btn--success':'btn--danger']" type="button" @click="$emit('toggle-section')">
-          {{ disabled ? t('show') : t('hide') }}
+        <button
+          v-if="toggleable"
+          class="mini visibility-toggle"
+          :class="[disabled ? 'btn--success' : 'btn--danger']"
+          type="button"
+          :aria-label="disabled ? t('show') : t('hide')"
+          :title="disabled ? t('show') : t('hide')"
+          @click.stop="$emit('toggle-section')"
+        >
+          <font-awesome-icon :icon="['fas', disabled ? 'eye-slash' : 'eye']" />
         </button>
       </div>
     </div>
@@ -202,25 +210,6 @@ const setTextareaValue = (item, key, value) => {
 </template>
 
 <style scoped>
-.section-icon {
-  margin-right: 8px;
-  color: var(--muted);
-}
-
-/* ensure the icon is centered inside the toggle button */
-.caret {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 26px;
-  padding: 0;
-}
-
-.caret .section-icon {
-  margin: 0;
-}
-
 .section-name-label {
   color: #9be8c7;
   padding: 4px 8px;
