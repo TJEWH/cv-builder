@@ -1,184 +1,273 @@
 <script setup>
-import { computed, reactive, watch, onMounted, ref, onBeforeUnmount } from 'vue';
-import { debounce, loadLocal, saveLocal, readBackup, fsApiAvailable, getBackupMode } from './composables/useStorage';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { debounce, loadLocal, saveLocal } from './composables/useStorage';
+import { useCvDesign } from './composables/useCvDesign';
 import { usePdfExport } from './composables/usePdfExport';
 import FormBuilder from './components/FormBuilder.vue';
-import FloatingPreview from './components/FloatingPreview.vue';
-import { makeT } from './i18n/dict';
-import ToolBar from "./components/ToolBar.vue";
-import BackupManager from "./components/BackupManager.vue";
-import DesignPanel from "./components/DesignPanel.vue";
+import CvPreview from './components/CvPreview.vue';
+import ToolBar from './components/ToolBar.vue';
+import BackupManager from './components/BackupManager.vue';
+import DesignPanel from './components/DesignPanel.vue';
 
 const state = reactive({
   version: 1,
   disabled: [],
   lang: 'de',
   design: {
-    h1:'22pt', h2:'12pt', h3:'10pt', bullets:'10.5pt', bulletStyle:'disc',
-    ink:'#111827', accent:'#0f66d0', bg:'#ffffff', headerbg:'#CE9048', sidebarbg:'#CE9048',
-    fontBody:'Inter', fontHead:'Inter', hstyle:'clean', radius:'10px',
-    subtitle:'#0a9c91', graphic:'#4f46e5', dateColor:'#6b7280',
-    badgeBorderWidth:'1px', badgeBorderRadius:'6px', invertBadge:false, enableBoxShadow:false,
-    itemBorderWidth:'1px',
-    sectionSpacing:'6mm', sectionSpacingBody:'6mm', sectionSpacingSidebar:'6mm',
-    sidebarWidth:'0.7fr', sidebarAlign:'right', sidebarStyle:'default', addExpColumns:'2',
+    h1: '22pt', h2: '12pt', h3: '10pt', bullets: '10.5pt', bulletStyle: 'disc',
+    ink: '#111827', accent: '#0f66d0', bg: '#ffffff', headerbg: '#CE9048', sidebarbg: '#CE9048',
+    fontBody: 'Inter', fontHead: 'Inter', hstyle: 'clean', radius: '10px',
+    subtitle: '#0a9c91', graphic: '#4f46e5', dateColor: '#6b7280',
+    badgeBorderWidth: '1px', badgeBorderRadius: '6px', invertBadge: false, enableBoxShadow: false,
+    itemBorderWidth: '1px',
+    sectionSpacing: '6mm', sectionSpacingBody: '6mm', sectionSpacingSidebar: '6mm',
+    sidebarWidth: '0.7fr', sidebarAlign: 'right', sidebarStyle: 'default', addExpColumns: '2',
   },
-  contact: { name:'', location:'', role:'', email:'', phone:'', website:'', linkedin:'' },
-  about: { text:'' },
+  contact: { name: '', location: '', role: '', email: '', phone: '', website: '', linkedin: '' },
+  about: { text: '' },
   education: [],
-  experience: { jobs:[], addExp:[], projects:[] },
+  experience: { jobs: [], addExp: [], projects: [] },
   skills: [
-    {
-      title: 'Programmiersprachen',
-      levelType: null,
-      items: [
-        { name: 'Python', levelValue: 0 },
-        { name: 'TypeScript', levelValue: 0 },
-        { name: 'Go', levelValue: 0 }
-      ]
-    },
-    {
-      title: 'Frameworks',
-      levelType: null,
-      items: [
-        { name: 'React', levelValue: 0 },
-        { name: 'Docker', levelValue: 0 },
-        { name: 'Kubernetes', levelValue: 0 }
-      ]
-    }
+    { title: 'Programmiersprachen', levelType: null, items: [{ name: 'Python', levelValue: 0 }, { name: 'TypeScript', levelValue: 0 }, { name: 'Go', levelValue: 0 }] },
+    { title: 'Frameworks', levelType: null, items: [{ name: 'React', levelValue: 0 }, { name: 'Docker', levelValue: 0 }, { name: 'Kubernetes', levelValue: 0 }] },
   ],
   languages: [],
   certs: [],
-  hobbies: [ { name: 'Musik', details: '' } ],
+  hobbies: [{ name: 'Musik', details: '' }],
   customSections: [],
-  sectionNames: {}, // Alternative Namen für Sections
-  sectionHeaderSizes: {}, // Header-Größen für Sections (h2, h3, h4, null)
+  sectionNames: {},
+  sectionHeaderSizes: {},
   softSkills: [
-    {label:'Anpassungsfähigkeit', desc:'', refs:[]},
-    {label:'Kritisches Denken', desc:'', refs:[]},
-    {label:'Kreative Problemlösung', desc:'', refs:[]},
+    { label: 'Anpassungsfähigkeit', desc: '', refs: [] },
+    { label: 'Kritisches Denken', desc: '', refs: [] },
+    { label: 'Kreative Problemlösung', desc: '', refs: [] },
   ],
-  orderMain: ['about','education','jobs','addExp','projects'],
-  orderSide: ['skills','languages','hobbies','certs'],
+  orderMain: ['about', 'education', 'jobs', 'addExp', 'projects'],
+  orderSide: ['skills', 'languages', 'hobbies', 'certs'],
 });
 
 const lang = computed({
-  get: ()=> state.lang ?? 'de',
-  set: v  => { state.lang = v; }
+  get: () => state.lang ?? 'de',
+  set: (value) => { state.lang = value; },
 });
-const t = makeT(lang);
+const previewMode = ref(false);
+const sectionMovementMode = ref('drag');
 
-const status = ref(t('loading'));
-let bc;
+const saveDebounced = debounce(() => saveLocal(JSON.parse(JSON.stringify(state))), 250);
+watch(state, saveDebounced, { deep: true });
+useCvDesign(() => state.design);
 
-/* Saving (debounced) */
-const saveDebounced = debounce(()=>{
-  const data = JSON.parse(JSON.stringify(state));
-  saveLocal(data);
-  status.value=t('saved');
-  try{ bc?.postMessage({ type:'update', data }); }catch{}
-},250);
-watch(state, ()=>{ status.value=t('editing'); saveDebounced(); },{deep:true});
+function mergeIn(data) {
+  if (!data) return;
 
-onMounted(async ()=>{
-  try { bc = new BroadcastChannel('cv-sync'); } catch {}
+  Object.assign(state, data);
+  state.experience ||= { jobs: [], addExp: [], projects: [] };
+  state.experience.jobs ||= [];
+  state.experience.addExp ||= [];
+  state.experience.projects ||= [];
+  state.skills ??= [];
 
+  const hasNewCustomSections = Array.isArray(data.customSections) && data.customSections.length > 0;
+  if (Array.isArray(data.custom) && data.custom.length > 0 && !hasNewCustomSections) {
+    const customSection = {
+      id: `custom_${Date.now()}`,
+      name: lang.value === 'de' ? 'Eigene Section' : 'Custom Section',
+      entries: data.custom,
+    };
+    state.customSections = [customSection];
+    state.orderMain = (state.orderMain || []).filter((key) => key !== 'custom');
+    if (!state.orderMain.includes(customSection.id)) state.orderMain.push(customSection.id);
+  }
+}
+
+onMounted(async () => {
   const cached = loadLocal();
-  if (cached){
-    Object.assign(state, { ...state, ...cached });
-    // Migrate old custom array to customSections
-    if(Array.isArray(cached.custom) && cached.custom.length > 0 && !Array.isArray(cached.customSections)) {
-      state.customSections = [{
-        id: `custom_${Date.now()}`,
-        name: lang.value === 'de' ? 'Eigene Section' : 'Custom Section',
-        entries: cached.custom
-      }];
-      // Add to orderMain if not present
-      if(!state.orderMain.includes('custom')) {
-        state.orderMain = state.orderMain.filter(k => k !== 'custom');
-        state.orderMain.push(state.customSections[0].id);
-      } else {
-        const idx = state.orderMain.indexOf('custom');
-        state.orderMain[idx] = state.customSections[0].id;
-      }
-      saveDebounced();
-    }
-    status.value=t('loadedLast');
-  } else {
-    const mode = getBackupMode();
-    const backup = await readBackup(mode);
-    if (backup){
-      Object.assign(state, { ...state, ...backup });
-      saveLocal(state);
-      status.value = (mode==='file' && !fsApiAvailable()) ? t('backupBrowserFallback') :
-          (mode==='file' ? t('backupProject') : t('backupBrowser'));
-    } else {
-      try{
-        const res = await fetch('/cv-defaults.json',{cache:'no-store'});
-        Object.assign(state, { ...state, ...(await res.json()) });
-        status.value=t('defaultLoaded');
-      }catch{
-        status.value=t('defaultFailed');
-      }
-    }
-  }
-});
-onBeforeUnmount(()=>{ try{ bc?.close(); }catch{} });
-
-const showPreview = ref(true); // Show FloatingPreview by default
-const sectionMovementMode = ref('drag'); // 'drag' or 'buttons'
-
-// Navigate to fullscreen preview
-const openFullscreenPreview = () => {
-  saveLocal(state);
-  window.location.href = '/preview.html';
-};
-
-// PDF Export via iframe
-const { exportToPdf } = usePdfExport();
-
-const handleExportPdf = async () => {
-  // Check if preview is visible
-  if (!showPreview.value) {
-    showPreview.value = true;
-    await new Promise(resolve => setTimeout(resolve, 500));
-  }
-
-  // Get the iframe from FloatingPreview
-  const iframe = document.querySelector('.fp-iframe');
-  if (!iframe || !iframe.contentWindow) {
-    // Fallback: navigate to preview with export flag
-    saveLocal(state);
-    window.location.href = '/preview.html?export=true';
+  if (cached) {
+    mergeIn(cached);
     return;
   }
 
-  // Send message to iframe to trigger export
-  iframe.contentWindow.postMessage({
-    type: 'exportPdf',
-    data: JSON.parse(JSON.stringify(state))
-  }, '*');
-};
+  try {
+    const response = await fetch(`${import.meta.env.BASE_URL}cv-defaults.json`, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Failed to load defaults: ${response.status}`);
+    mergeIn(await response.json());
+  } catch (error) {
+    console.warn('Failed to load default CV data', error);
+  }
+});
+
+const { exportToPdf } = usePdfExport();
+const isExporting = ref(false);
+
+async function handleExportPdf() {
+  isExporting.value = true;
+  let exportElement;
+  try {
+    await nextTick();
+    const cvElement = document.querySelector('.cv-preview-export .page');
+    if (!cvElement) throw new Error('CV preview element not found');
+    const filename = `${(state.contact?.name || 'CV').replace(/\s+/g, '_')}_CV`;
+    exportElement = cvElement;
+    cvElement.classList.add('pdf-export-source');
+    await exportToPdf(cvElement, filename);
+  } catch (error) {
+    console.error('PDF export failed:', error);
+  } finally {
+    exportElement?.classList.remove('pdf-export-source');
+    isExporting.value = false;
+  }
+}
 </script>
 
 <template>
   <ToolBar
-    v-model:showPreview="showPreview"
     v-model:lang="lang"
     v-model:sectionMovementMode="sectionMovementMode"
+    :previewMode="previewMode"
+    :isExporting="isExporting"
+    @togglePreview="previewMode = !previewMode"
     @exportPdf="handleExportPdf"
-    @openFullscreen="openFullscreenPreview"
   />
 
-  <FloatingPreview
-    v-if="showPreview"
-    url="/preview.html?embed=1"
-    :initialScale="0.25"
-  />
+  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode }">
+    <section v-if="previewMode" class="fullscreen-preview" aria-label="CV preview">
+      <div class="fullscreen-preview__page cv-preview-export">
+        <CvPreview :state="state" />
+      </div>
+    </section>
 
-  <div class="workbench">
-    <BackupManager :state="state" :langRef="lang" :onSave="saveDebounced" />
-    <DesignPanel v-model="state.design" />
-    <FormBuilder :state="state" :onSave="saveDebounced" :movementMode="sectionMovementMode" />
-  </div>
+    <section v-else class="builder-layout">
+      <div class="builder-layout__controls">
+        <BackupManager :state="state" :langRef="lang" :onSave="saveDebounced" />
+        <DesignPanel v-model="state.design" />
+        <FormBuilder :state="state" :onSave="saveDebounced" :movementMode="sectionMovementMode" />
+      </div>
+
+      <aside class="inline-preview" aria-label="Live CV preview">
+        <div class="inline-preview__header">Live Preview</div>
+        <div class="inline-preview__viewport">
+          <div class="inline-preview__page cv-preview-export">
+            <CvPreview :state="state" />
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
 </template>
+
+<style>
+.cv-builder-app {
+  min-height: 100vh;
+  padding: 24px 230px 24px 24px;
+}
+
+.builder-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  align-items: start;
+  gap: 20px;
+  margin: 0 auto;
+  max-width: 1540px;
+}
+
+.builder-layout__controls {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.builder-layout__controls .workbench {
+  max-width: none;
+  padding: 0;
+}
+
+.inline-preview {
+  position: sticky;
+  top: 24px;
+  overflow: hidden;
+  border: 1px solid #2a3441;
+  border-radius: 12px;
+  background: #0a0f14;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, .45);
+}
+
+.inline-preview__header {
+  padding: 9px 12px;
+  border-bottom: 1px dashed #113c34;
+  color: #9be8c7;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.inline-preview__viewport {
+  width: 100%;
+  height: 480px;
+  overflow: auto;
+  background: #0b0f14;
+}
+
+.inline-preview__page {
+  width: 333px;
+  height: 472px;
+  overflow: hidden;
+}
+
+.inline-preview__page > .page {
+  transform: scale(.42);
+  transform-origin: top left;
+}
+
+.inline-preview__page > .page.pdf-export-source {
+  transform: none;
+}
+
+.fullscreen-preview {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0;
+}
+
+.fullscreen-preview__page {
+  width: 210mm;
+  max-width: 100%;
+}
+
+@media (max-width: 1180px) {
+  .cv-builder-app {
+    padding-right: 24px;
+  }
+
+  .builder-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inline-preview {
+    position: relative;
+    top: auto;
+    width: min(100%, 520px);
+    justify-self: center;
+  }
+}
+
+@media (max-width: 760px) {
+  .cv-builder-app {
+    padding: 16px;
+  }
+
+  .fullscreen-preview {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  .fullscreen-preview__page {
+    max-width: none;
+  }
+}
+
+@media print {
+  .inline-preview,
+  .toolbar {
+    display: none !important;
+  }
+}
+</style>

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch, onMounted } from 'vue';
+import { computed, ref } from 'vue';
 
 const props = defineProps({ modelValue: { type:Object, required:true } });
 const emit  = defineEmits(['update:modelValue']);
@@ -18,71 +18,6 @@ const collapsed = ref(false);
 function toggleCollapse() {
   collapsed.value = !collapsed.value;
 }
-
-function ensureFontLink(id, family){
-  const elId = `gf-${id}`;
-  let link = document.getElementById(elId);
-  if(!family){ if(link) link.remove(); return; }
-  const fam = family.replace(/\s+/g,'+');
-  const href = `https://fonts.googleapis.com/css2?family=${fam}:wght@300;400;600;700&display=swap`;
-  if(!link){ link = document.createElement('link'); link.id = elId; link.rel = 'stylesheet'; document.head.appendChild(link); }
-  link.href = href;
-}
-
-const applyCSS = () => {
-  const d = design.value;
-  const root = document.documentElement.style;
-  root.setProperty('--h1-size', d.h1);
-  root.setProperty('--h2-size', d.h2);
-  root.setProperty('--h3-size', d.h3);
-  root.setProperty('--bullet-size', d.bullets);
-  root.setProperty('--ink', d.ink);
-  root.setProperty('--accent', d.accent);
-  root.setProperty('--bg', d.bg);
-  root.setProperty('--header-bg', d.headerbg);
-  root.setProperty('--sidebar-bg', d.sidebarbg);
-  root.setProperty('--subtitle', d.subtitle || '#0a9c91');
-  root.setProperty('--graphic', d.graphic || d.accent || '#4f46e5');
-  root.setProperty('--date-color', d.dateColor || '#6b7280');
-  root.setProperty('--badge-border-width', d.badgeBorderWidth || '1px');
-  root.setProperty('--badge-border-radius', d.badgeBorderRadius || '6px');
-  root.setProperty('--item-border-width', d.itemBorderWidth || '1px');
-  root.setProperty('--section-spacing', d.sectionSpacing || '6mm');
-  root.setProperty('--section-spacing-body', d.sectionSpacingBody || d.sectionSpacing || '6mm');
-  root.setProperty('--section-spacing-sidebar', d.sectionSpacingSidebar || d.sectionSpacing || '6mm');
-  root.setProperty('--sidebar-width', d.sidebarWidth || '0.7fr');
-  root.setProperty('--sidebar-align', d.sidebarAlign || 'right');
-  root.setProperty('--addexp-columns', d.addExpColumns || '2');
-  root.setProperty('--bullet-size', d.bullets || '10.5pt');
-  root.setProperty('--bullet-style', d.bulletStyle || 'disc');
-
-  // Badge invert logic
-  if (d.invertBadge) {
-    root.setProperty('--badge-bg', 'transparent');
-    root.setProperty('--badge-color', d.graphic || d.accent || '#4f46e5');
-  } else {
-    root.setProperty('--badge-bg', d.graphic || d.accent || '#4f46e5');
-    root.setProperty('--badge-color', '#ffffff');
-  }
-
-  // Box shadow logic
-  if (d.enableBoxShadow) {
-    root.setProperty('--box-shadow', '0 2px 8px rgba(0,0,0,0.1)');
-  } else {
-    root.setProperty('--box-shadow', 'none');
-  }
-
-  ensureFontLink('body', d.fontBody);
-  ensureFontLink('head', d.fontHead);
-  root.setProperty('--font-body', `${d.fontBody ? `'${d.fontBody}', `:''}ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`);
-  root.setProperty('--font-head', `${d.fontHead ? `'${d.fontHead}', `:''}var(--font-body)`);
-  document.documentElement.setAttribute('data-hstyle', d.hstyle || 'clean');
-  document.documentElement.setAttribute('data-sidebar-align', d.sidebarAlign || 'right');
-  document.documentElement.setAttribute('data-sidebar-style', d.sidebarStyle || 'default');
-};
-
-watch(design, applyCSS, { deep:true });
-onMounted(applyCSS);
 
 const palettes = [
   {name:'Indigo + Slate', ink:'#111827', accent:'#4f46e5', bg:'#ffffff', header:'#ffffff', sidebar:'#f8fafc'},

@@ -32,14 +32,12 @@ Modern resume generator built with Vue 3 and Vite. Create professional CVs with 
 - **Spacing**: Individual spacing for body and sidebar
 
 ### Workflow
-- **Live Preview**: Floating preview (scalable, draggable) + separate preview page
+- **Live Preview**: Inline live preview with a full-size in-app preview mode
 - **Auto-Save**: Automatic saving with status indicator
-- **Backup System**: 
-  - Browser backup (LocalStorage)
-  - Project file backup (JSON in dev mode)
+- **Backup System**:
+  - Browser-local persistence (LocalStorage)
   - Multiple named configurations
   - Import/Export
-- **Cross-Tab Sync**: Changes synchronized across browser tabs
 - **Multilingual**: German/English (UI + content)
 - **Drag & Drop**: Reorder sections and entries
 
@@ -91,8 +89,8 @@ App runs at `http://localhost:5173`
 
 ### Backup & Export
 - **BackupManager** (☰): Multiple named configurations
-- Browser mode (LocalStorage) or project file mode (JSON in `/public/cv-backups`)
-- **PDF Export**: Open preview → "Export as PDF"
+- Browser-local storage (LocalStorage)
+- **PDF Export**: Download directly from the builder or full preview mode
 - Import/export JSON files possible
 
 
@@ -107,8 +105,7 @@ App runs at `http://localhost:5173`
 - **html2pdf.js**: PDF export (html2canvas + jsPDF)
 - **FontAwesome 7**: Icon system
 - **Google Fonts**: Dynamic font loading
-- **LocalStorage + IndexedDB**: Persistent storage
-- **BroadcastChannel**: Cross-tab sync
+- **LocalStorage**: Persistent storage and named browser configurations
 
 ---
 
@@ -134,7 +131,7 @@ npm run preview      # Test build
 
 - **Vue DevTools**: Browser extension for component tree and state
 - **Console**: `localStorage.getItem('cv-session')` for saved data
-- **Backup API**: `curl http://localhost:5173/__backup/list` (dev mode)
+- **Saved data**: inspect `localStorage.getItem('cv-session')` in the browser console
 
 ---
 
@@ -158,7 +155,7 @@ Create build: `npm run build` → `/dist` folder
 - Build Command: `npm run build`
 - Output: `dist`
 
-**Subfolder Deployment**: Already configured with `base: '/cv-builder/'` in `vite.config.js`
+**Custom Domain Deployment**: The Vite base is `/`, so the app is ready for a GitHub Pages custom domain served at its root. Configure the custom domain in GitHub Pages; no `CNAME` is included because the domain is deployment-specific.
 
 ---
 
@@ -171,5 +168,3 @@ Create build: `npm run build` → `/dist` folder
 ---
 
 **Good luck! 🎉**
-
-

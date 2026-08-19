@@ -1251,6 +1251,7 @@ const areaCerts = areaModel('certs');
   font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.2s ease;
+  width: auto;
 }
 
 .header-size-select:hover {
