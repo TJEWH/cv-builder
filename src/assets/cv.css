@@ -142,7 +142,7 @@ body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f1
 .section-complete-toggle input{width:16px;height:16px;accent-color:#86efac;cursor:pointer}
 label{color:#78d1b8;font-size:10pt}
 input,textarea,select{width:100%;padding:8px;border:1px solid #0b3740;border-radius:8px;background:#06141f;color:#e2ffe9;caret-color:#27f3a2;outline:none}
-input::placeholder,textarea::placeholder{color:#5dd6b5}
+input::placeholder,textarea::placeholder{color:#5dd6b5;opacity:.25}
 input:focus,textarea:focus,select:focus{box-shadow:0 0 0 2px rgba(39,243,162,.25)}
 textarea{min-height:64px}
 .builder .p-inputtext,
@@ -160,7 +160,7 @@ textarea{min-height:64px}
 }
 .builder .p-inputtext::placeholder,
 .builder .p-textarea::placeholder,
-.builder .p-select-label.p-placeholder{color:#5dd6b5}
+.builder .p-select-label.p-placeholder{color:#5dd6b5;opacity:.25}
 .builder .p-inputtext:focus,
 .builder .p-textarea:focus,
 .builder .p-select.p-focus{box-shadow:0 0 0 2px rgba(39,243,162,.25);border-color:#10b981}
