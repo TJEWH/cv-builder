@@ -709,7 +709,7 @@ function toggleFullPreviewView() {
 
 .builder-layout__controls {
   display: grid;
-  gap: 12px;
+  gap: 20px;
   min-width: 0;
 }
 

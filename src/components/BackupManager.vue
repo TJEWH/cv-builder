@@ -117,9 +117,8 @@ onMounted(refreshConfigs);
 
 <template>
   <section class="section-group backup-manager">
-    <div class="section-head">
-      <span class="caret mini"><font-awesome-icon :icon="['fas', 'save']" class="section-icon" aria-hidden="true" /></span>
-      <h3>Versioning / Backups</h3>
+    <div class="section-head group-panel__header--centered">
+      <h3>Versioning</h3>
     </div>
 
     <div class="backup-manager__actions">

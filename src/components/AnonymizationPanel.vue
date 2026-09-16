@@ -61,10 +61,9 @@ function setExcluded(key, id, shouldExclude) {
 
 <template>
   <section class="section-group editor-panel anonymization-panel" :class="{ collapsed }">
-    <div class="section-head editor-panel__header" @click="collapsed = !collapsed">
+    <div class="section-head editor-panel__header anonymization-panel__header" role="button" tabindex="0" :aria-expanded="!collapsed" @click="collapsed = !collapsed" @keydown.enter.prevent="collapsed = !collapsed" @keydown.space.prevent="collapsed = !collapsed">
       <font-awesome-icon :icon="['fas', 'user-secret']" class="section-icon" aria-hidden="true" />
       <h3>{{ t('anonymization') }}</h3>
-      <button class="caret mini anonymization-panel__toggle" type="button" :aria-label="collapsed ? t('expandAll') : t('collapseAll')" :title="collapsed ? t('expandAll') : t('collapseAll')" @click.stop="collapsed = !collapsed"><font-awesome-icon :icon="['fas', collapsed ? 'angles-down' : 'angles-up']" /></button>
     </div>
 
     <div class="editor-panel__body">
@@ -123,7 +122,10 @@ function setExcluded(key, id, shouldExclude) {
 .anonymization-panel__help, .anonymization-panel__marker-help { margin: 0; color: #cbd5e1; font-size: 12px; }
 .anonymization-panel__marker-help { color: var(--muted); }
 .anonymization-panel.collapsed .editor-panel__body { display: none; }
-.anonymization-panel__toggle { margin-left: auto; }
+.anonymization-panel__header { padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: background .18s ease, transform .18s ease; }
+.anonymization-panel__header:hover, .anonymization-panel__header:focus-visible { background: rgba(16, 185, 129, .1); }
+.anonymization-panel__header:active { background: rgba(16, 185, 129, .18); transform: translateY(1px); }
+.anonymization-panel__header:focus-visible { outline: 2px solid #9be8c7; outline-offset: 2px; }
 .anonymization-panel__columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .anonymization-panel__column { display: grid; gap: 5px; margin-top: 12px; }
 .anonymization-panel__column h4 { margin: 0; color: #9be8c7; font-size: 10pt; text-transform: uppercase; letter-spacing: .5px; }

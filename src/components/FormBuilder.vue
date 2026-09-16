@@ -18,8 +18,8 @@ const langRef = computed(() => props.state.lang || 'de');
 const t = makeT(langRef);
 const reorderDialogOpen = ref(false);
 const fieldConfigSectionId = ref(null);
+const activeContentTab = ref('header');
 const collapsed = reactive({
-  header: true,
   about: true,
   education: true,
   jobs: true,
@@ -56,14 +56,6 @@ const toggleComplete = (key) => {
   else props.state.completedSections.splice(index, 1);
   props.onSave?.();
 };
-const groupHiddenSections = (orderName) => {
-  const order = props.state[orderName] || [];
-  props.state[orderName] = [
-    ...order.filter((key) => !isHidden(key)),
-    ...order.filter((key) => isHidden(key)),
-  ];
-  props.onSave?.();
-};
 const updateVisibleOrder = (orderName, rows) => {
   props.state[orderName] = reorderVisibleSectionOrder(
     props.state[orderName],
@@ -74,12 +66,6 @@ const updateVisibleOrder = (orderName, rows) => {
 };
 const bodyOrderRows = computed(() => props.state.bodyOrder.filter((key) => !isHidden(key)).map((key) => ({ key })));
 const sidebarOrderRows = computed(() => props.state.sidebarOrder.filter((key) => !isHidden(key)).map((key) => ({ key })));
-const allContentCollapsed = computed(() => [
-  ...Object.entries(collapsed).filter(([key]) => key !== 'header'),
-  ...(props.state.customSections || []).map((section) => [section.id, customCollapsed[section.id]]),
-  ...(props.state.sidebarSections || []).map((section) => [section.id, customCollapsed[section.id]]),
-].every(([, value]) => value));
-
 const toggleDisabled = (key) => {
   const index = props.state.disabled.indexOf(key);
   if (index === -1) props.state.disabled.push(key);
@@ -96,12 +82,7 @@ const getIcon = (key) => getCustomSection(key) ? 'folder-open' : (sectionIcons[k
 const isCollapsed = (key) => Object.hasOwn(collapsed, key) ? collapsed[key] : customCollapsed[key] ?? true;
 const toggleCollapsed = (key) => {
   if (Object.hasOwn(collapsed, key)) collapsed[key] = !collapsed[key];
-  else customCollapsed[key] = !customCollapsed[key];
-};
-const toggleAllContent = () => {
-  const next = !allContentCollapsed.value;
-  Object.keys(collapsed).filter((key) => key !== 'header').forEach((key) => { collapsed[key] = next; });
-  [...props.state.customSections, ...props.state.sidebarSections].forEach((section) => { customCollapsed[section.id] = next; });
+  else customCollapsed[key] = !isCollapsed(key);
 };
 const isHeaderControl = (target) => target?.closest?.('button, input, select, textarea, a, [contenteditable="true"], .p-select');
 const onHeaderClick = (key, event) => {
@@ -283,18 +264,24 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
     </div>
 
     <section class="body section-group editor-panel content-panel">
-      <div class="section-head editor-panel__header">
-        <font-awesome-icon :icon="['fas', 'list']" class="section-icon" aria-hidden="true" />
+      <div class="section-head editor-panel__header editor-panel__header--centered">
         <h3>{{ t('content') }}</h3>
-        <button class="mini panel-bulk-toggle" type="button" @click="toggleAllContent">
-          <font-awesome-icon :icon="['fas', allContentCollapsed ? 'angles-down' : 'angles-up']" />
-          {{ allContentCollapsed ? t('expandAll') : t('collapseAll') }}
+        <button class="mini panel-header-action" type="button" :aria-label="t('reorder')" :title="t('reorder')" @click="reorderDialogOpen = true">
+          <font-awesome-icon :icon="['fas', 'grip-vertical']" />
+          {{ t('reorder') }}
         </button>
       </div>
 
-      <section class="section-group" data-section="header" :class="{ completed: isComplete('header'), collapsed: collapsed.header }">
-        <div class="section-head" @click="onHeaderClick('header', $event)">
-          <h3>{{ t('headerTitle') }}</h3>
+      <div class="content-tabs" role="tablist" :aria-label="t('content')">
+        <button id="content-tab-header" class="content-tab" :class="{ active: activeContentTab === 'header' }" type="button" role="tab" :aria-selected="activeContentTab === 'header'" aria-controls="content-panel-header" @click="activeContentTab = 'header'">{{ t('header') }}</button>
+        <button id="content-tab-body" class="content-tab" :class="{ active: activeContentTab === 'body' }" type="button" role="tab" :aria-selected="activeContentTab === 'body'" aria-controls="content-panel-body" @click="activeContentTab = 'body'">{{ t('body') }}</button>
+        <button id="content-tab-sidebar" class="content-tab" :class="{ active: activeContentTab === 'sidebar' }" type="button" role="tab" :aria-selected="activeContentTab === 'sidebar'" aria-controls="content-panel-sidebar" @click="activeContentTab = 'sidebar'">{{ t('sidebar') }}</button>
+      </div>
+
+      <section v-show="activeContentTab === 'header'" id="content-panel-header" class="section-group content-section content-tab-panel" role="tabpanel" aria-labelledby="content-tab-header" :class="{ disabled: isHidden('header'), completed: isComplete('header') }">
+        <div class="section-head">
+          <button class="mini visibility-toggle" :class="isHidden('header') ? 'btn--success' : 'btn--danger'" type="button" :aria-label="isHidden('header') ? t('show') : t('hide')" :title="isHidden('header') ? t('show') : t('hide')" @click.stop="toggleDisabled('header')"><font-awesome-icon :icon="['fas', isHidden('header') ? 'eye-slash' : 'eye']" /></button>
+          <h3 class="section-name-label section-name-label--static">{{ t('headerTitle') }}</h3>
           <div class="section-head__actions"><label class="section-complete-toggle" :title="t('markComplete')" @click.stop><input type="checkbox" :checked="isComplete('header')" :aria-label="t('markComplete')" @change="toggleComplete('header')" /></label></div>
         </div>
         <div class="grid-2"><label>{{ t('name') }}<InputText v-model="state.contact.name" placeholder="Alex Muster" fluid /></label><label>{{ t('location') }}<InputText v-model="state.contact.location" placeholder="Neustadt" fluid /></label></div>
@@ -303,9 +290,7 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
         <div class="grid-3"><label>{{ t('website') }}<InputText v-model="state.contact.website" type="url" placeholder="https://alexmuster.dev" fluid /></label><label>{{ t('linkedin') }}<InputText v-model="state.contact.linkedin" type="url" placeholder="https://linkedin.com/in/alexmuster" fluid /></label><label>{{ t('github') }}<InputText v-model="state.contact.github" type="url" placeholder="https://github.com/alexmuster" fluid /></label></div>
       </section>
 
-      <div class="content-columns">
-        <section class="content-column">
-          <h3 class="content-column__title">{{ t('body') }}<span class="content-column__actions"><button class="mini" type="button" :aria-label="t('reorder')" :title="t('reorder')" @click="reorderDialogOpen = true"><font-awesome-icon :icon="['fas', 'grip-vertical']" /> {{ t('reorder') }}</button><button class="mini" type="button" :aria-label="t('groupHidden')" :title="t('groupHidden')" @click="groupHiddenSections('bodyOrder')"><font-awesome-icon :icon="['fas', 'eye-slash']" /> {{ t('groupHidden') }}</button></span></h3>
+      <section v-show="activeContentTab === 'body'" id="content-panel-body" class="content-tab-panel content-column" role="tabpanel" aria-labelledby="content-tab-body">
           <template v-for="key in state.bodyOrder" :key="key">
             <section v-if="key === 'about'" class="section-group content-section" :class="{ disabled: isHidden(key), completed: isComplete(key), collapsed: isCollapsed(key) }">
               <div class="section-head" @click="onHeaderClick(key, $event)">
@@ -313,7 +298,7 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
                 <h3 v-if="editingSection.id !== key" class="section-name-label" @click.stop="startEditSectionName(key)">{{ getSectionDisplayName(key) }}</h3>
                 <InputText v-else v-model="editingSection.value" class="section-name-input" :placeholder="getDefaultName(key)" @click.stop @blur="finishEditSectionName(key)" @keyup.enter="finishEditSectionName(key)" @keyup.esc="cancelEditSectionName" />
                 <div class="section-head__actions">
-                  <Select v-model="state.sectionHeaderSizes[key]" :options="headerSizeOptions" option-label="label" option-value="value" class="header-size-select" />
+                  <Select :model-value="state.sectionHeaderSizes[key] || 'h2'" :options="headerSizeOptions" option-label="label" option-value="value" class="header-size-select" @update:model-value="state.sectionHeaderSizes[key] = $event" />
                   <label class="section-complete-toggle" :title="t('markComplete')" @click.stop><input type="checkbox" :checked="isComplete(key)" :aria-label="t('markComplete')" @change="toggleComplete(key)" /></label>
                 </div>
               </div>
@@ -362,11 +347,13 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
               </div>
             </section>
           </template>
-          <div class="add-button-wrapper"><button type="button" class="btn btn--success" @click="addBodySection">{{ t('newSection') }}</button></div>
-        </section>
+          <button type="button" class="add-section-row" @click="addBodySection">
+            <font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />
+            {{ t('addSection') }}
+          </button>
+      </section>
 
-        <section class="content-column">
-          <h3 class="content-column__title">{{ t('sidebar') }}<span class="content-column__actions"><button class="mini" type="button" :aria-label="t('reorder')" :title="t('reorder')" @click="reorderDialogOpen = true"><font-awesome-icon :icon="['fas', 'grip-vertical']" /> {{ t('reorder') }}</button><button class="mini" type="button" :aria-label="t('groupHidden')" :title="t('groupHidden')" @click="groupHiddenSections('sidebarOrder')"><font-awesome-icon :icon="['fas', 'eye-slash']" /> {{ t('groupHidden') }}</button></span></h3>
+      <section v-show="activeContentTab === 'sidebar'" id="content-panel-sidebar" class="content-tab-panel content-column" role="tabpanel" aria-labelledby="content-tab-sidebar">
           <template v-for="key in state.sidebarOrder" :key="key">
             <SectionList
               v-if="key === 'languages'"
@@ -408,23 +395,33 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
               </div>
             </section>
           </template>
-          <div class="add-button-wrapper"><button type="button" class="btn btn--success" @click="addSidebarSection">{{ t('newSidebarSection') }}</button></div>
-        </section>
-      </div>
+          <button type="button" class="add-section-row" @click="addSidebarSection">
+            <font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />
+            {{ t('addSection') }}
+          </button>
+      </section>
     </section>
   </form>
 </template>
 
 <style scoped>
-.content-columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .content-column { display: grid; gap: 0; min-width: 0; }
-.content-column__title { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 12px; color: #9be8c7; border-bottom: 1px solid #134e4a; }
-.content-column__actions { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.content-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.content-tab { min-height: 38px; padding: 8px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); cursor: pointer; font: inherit; font-weight: 600; }
+.content-tab:hover, .content-tab:focus-visible { background: rgba(16, 185, 129, .1); color: #d1fae5; }
+.content-tab.active { border-bottom-color: #27f3a2; color: #9be8c7; }
+.content-tab:focus-visible { outline: 2px solid #9be8c7; outline-offset: -3px; }
+.content-tab-panel { min-width: 0; }
+.add-section-row { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 54px; padding: 8px; border: 0; border-top: 1px dashed #2a6a60; border-bottom: 1px dashed #2a6a60; background: transparent; color: #9be8c7; cursor: pointer; font: inherit; }
+.add-section-row:hover, .add-section-row:focus-visible { border-color: #27f3a2; background: rgba(16, 185, 129, .1); }
+.add-section-row:focus-visible { outline: 2px solid #9be8c7; outline-offset: -3px; }
 .section-head__actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .item-row__actions { display: flex; flex-direction: column; align-items: center; gap: 6px; align-self: center; }
 .section-name-label { color: #9be8c7; padding: 4px 8px; font-size: 1rem; font-weight: 600; margin: 0; cursor: pointer; user-select: none; border-radius: 4px; border: 1px solid transparent; }
-.section-name-label:hover { background: rgba(16, 185, 129, .1); border-color: #134e4a; }
+.section-name-label:not(.section-name-label--static):hover { background: rgba(16, 185, 129, .1); border-color: #134e4a; }
+.section-name-label--static { cursor: default; }
 .section-name-input { min-width: 200px; width: 30%; }
+.about-editor { display: grid; gap: 4px; }
 .entry-drag-handle { cursor: grab; }
 .entry-drag-handle:active { cursor: grabbing; }
 .sortable-ghost { opacity: .4; }

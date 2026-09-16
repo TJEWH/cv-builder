@@ -77,6 +77,7 @@ export const dict = {
     load:               {de: 'Laden', en: 'Load'},
     save:               {de: 'Speichern', en: 'Save'},
     newSection:         {de: 'Neue Sektion', en: 'New section'},
+    addSection:         {de: 'Sektion hinzufügen', en: 'Add section'},
     add:                {de: 'Hinzufügen', en: 'Add'},
     addEntry:           {de: 'Eintrag hinzufügen', en: 'Add entry'},
     entryCSV:           {de: 'Einträge (komma-getrennt)', en: 'Entries (comma-separated)'},
@@ -107,7 +108,8 @@ export const dict = {
     backupNotFound:     {de: 'Keine Backup-Datei gefunden', en: 'No backup file found'},
 
     // Section titles
-    headerTitle:     { de:'Kontakt (Header)', en:'Contact (Header)' },
+    header:          { de:'Header', en:'Header' },
+    headerTitle:     { de:'Kontakt', en:'Contact' },
     aboutTitle:      { de:'Selbstbeschreibung', en:'Profile' },
     expJobTitle:     { de:'Berufserfahrung', en:'Professional Experience' },
     educationTitle:  { de:'Ausbildung', en:'Education' },

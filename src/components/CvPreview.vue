@@ -65,7 +65,7 @@ const hasCustomInstitution = (section, entry) => (
 
 <template>
   <div class="page" :class="{ 'pdf-export-source': exportSource }" role="document">
-    <header class="header">
+    <header v-if="!isDisabled('header')" class="header">
       <div class="title"><h1 class="name">{{ state.contact.name || '-' }}</h1><p class="role">{{ state.contact.role }}</p></div>
       <address class="contact">
         <div v-if="state.contact.location">{{ state.contact.location }}<font-awesome-icon :icon="['fas', 'location-dot']" class="contact-icon" /></div>
