@@ -142,7 +142,7 @@ const addBodySection = () => {
   const section = {
     id: createContentId('body'),
     name: langRef.value === 'de' ? 'Neue Sektion' : 'New Section',
-    fields: ['title', 'institution', 'place', 'start', 'end', 'desc'],
+    fields: ['title', 'institution', 'place', 'start', 'end', 'tools', 'desc'],
     entries: [],
   };
   props.state.customSections.push(section);
@@ -176,7 +176,7 @@ const deleteCustomSection = (section, area) => {
   delete customCollapsed[section.id];
   props.onSave?.();
 };
-const addBodyEntry = (section) => section.entries.push({ id: createContentId('entry'), hidden: false, title: '', place: '', start: '', end: '', desc: '' });
+const addBodyEntry = (section) => section.entries.push({ id: createContentId('entry'), hidden: false, title: '', institution: '', place: '', start: '', end: '', tools: '', desc: '' });
 const removeBodyEntry = (section, index) => section.entries.splice(index, 1);
 const addSidebarItem = (section) => section.items.push({ id: createContentId('skill'), hidden: false, name: '', levelValue: 0 });
 const removeSidebarItem = (section, index) => section.items.splice(index, 1);
@@ -199,6 +199,7 @@ const customBodyFieldOptions = computed(() => [
   { key: 'place', label: t('place'), type: 'text', placeholder: 'Berlin' },
   { key: 'start', label: t('start'), type: 'text', placeholder: '04.2024' },
   { key: 'end', label: t('end'), type: 'text', placeholder: t('current') },
+  { key: 'tools', label: t('tools'), type: 'text', placeholder: 'Vue, TypeScript, Figma' },
   { key: 'desc', label: t('desc'), type: 'textarea', placeholder: '' },
 ]);
 const enabledCustomBodyFields = (section) => customBodyFieldOptions.value.filter((field) => section.fields.includes(field.key));
@@ -234,6 +235,7 @@ const jobsSchema = computed(() => [
   { label: t('place'), key: 'place', type: 'text', placeholder: 'Berlin' },
   { label: t('start'), key: 'start', type: 'text', placeholder: '05.2021' },
   { label: t('end'), key: 'end', type: 'text', placeholder: t('current') },
+  { label: t('tools'), key: 'tools', type: 'text', placeholder: 'Vue, TypeScript, Figma' },
   { label: t('bulletsLabel'), key: 'bullets', type: 'textarea', placeholder: t('tasksPH') },
 ]);
 const languagesSchema = computed(() => [

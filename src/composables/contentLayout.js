@@ -3,7 +3,7 @@ import { normalizeAnonymizationState } from './anonymization.js';
 
 export const BODY_SECTION_KEYS = ['about', 'education', 'jobs'];
 export const SIDEBAR_SECTION_KEYS = ['languages', 'hobbies'];
-export const CUSTOM_BODY_FIELDS = ['title', 'institution', 'place', 'start', 'end', 'desc'];
+export const CUSTOM_BODY_FIELDS = ['title', 'institution', 'place', 'start', 'end', 'tools', 'desc'];
 
 let generatedId = 0;
 
@@ -91,6 +91,7 @@ function normalizeCustomSections(state, migratedSections = []) {
     entries: ensureIds(section?.entries, 'entry').map((entry) => ({
       ...entry,
       institution: entry.institution || '',
+      tools: entry.tools || '',
       desc: normalizeMarkdownText(entry.desc),
     })),
   }));
@@ -237,6 +238,7 @@ export function normalizeContentState(state) {
   state.education = ensureIds(state.education, 'education').map((item) => normalizeEducationItem(item, migrateLegacyEducation));
   state.experience.jobs = ensureIds(state.experience.jobs, 'job').map((item) => ({
     ...item,
+    tools: item.tools || '',
     bullets: normalizeMarkdownText(item.bullets),
   }));
   state.languages = ensureIds(state.languages, 'language');

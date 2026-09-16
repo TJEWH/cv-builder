@@ -147,6 +147,7 @@ export const dict = {
     place:          { de:'Ort', en:'Place' },
     start:          { de:'Start', en:'Start' },
     end:            { de:'Ende', en:'End' },
+    tools:          { de:'Tools', en:'Tools' },
     bulletsLabel:   { de:'Aufgaben/Erfolge', en:'Responsibilities/Achievements' },
     title:          { de:'Titel', en:'Title' },
     desc:           { de:'Kurzbeschreibung', en:'Short description' },

@@ -79,7 +79,7 @@ test('converts a legacy custom array to a single body-only custom section', () =
   assert.equal(state.custom, undefined);
   assert.equal(state.customSections.length, 1);
   assert.equal(state.customSections[0].name, 'Eigene Sektion');
-  assert.deepEqual(state.customSections[0].fields, ['title', 'institution', 'place', 'start', 'end', 'desc']);
+  assert.deepEqual(state.customSections[0].fields, ['title', 'institution', 'place', 'start', 'end', 'tools', 'desc']);
   assert.equal(state.customSections[0].entries[0].institution, '');
   assert.equal(state.customSections[0].entries[0].title, 'Vortrag');
   assert.ok(state.bodyOrder.includes(state.customSections[0].id));
@@ -92,16 +92,17 @@ test('normalizes configurable custom body fields without losing entry data', () 
     customSections: [{
       id: 'custom',
       name: 'Talks',
-      fields: ['end', 'title', 'unknown', 'title'],
-      entries: [{ title: 'VueConf', place: 'Berlin', start: '2025', end: '2025', desc: 'Session' }],
+      fields: ['end', 'title', 'tools', 'unknown', 'title'],
+      entries: [{ title: 'VueConf', place: 'Berlin', start: '2025', end: '2025', tools: 'Vue, Vite', desc: 'Session' }],
     }],
     experience: {},
   };
 
   normalizeContentState(state);
 
-  assert.deepEqual(state.customSections[0].fields, ['title', 'end']);
+  assert.deepEqual(state.customSections[0].fields, ['title', 'end', 'tools']);
   assert.equal(state.customSections[0].entries[0].place, 'Berlin');
+  assert.equal(state.customSections[0].entries[0].tools, 'Vue, Vite');
   assert.equal(state.customSections[0].entries[0].desc, 'Session');
 });
 

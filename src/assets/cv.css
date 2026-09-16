@@ -271,6 +271,7 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--ink);text-transform:u
 .item-title{min-width:0;margin:0;font-family:var(--font-head),sans-serif;font-size:var(--h3-size);font-weight:700;line-height:1.2;overflow-wrap:anywhere;}
 .item-meta{font-size:9pt;color:var(--date-color);text-align:right;}
 .item-sub{font-weight:600;color:var(--subtitle);text-align:right;}
+.item-tools{font-size:9pt;text-align:right;}
 .item > p, .item > ul{min-width:0;overflow-wrap:anywhere;margin-top:1.5mm;}
 
 .item > ul { margin-left: 4mm; padding: 0; }
