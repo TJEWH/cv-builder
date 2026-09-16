@@ -29,9 +29,11 @@ const qualityLabel = computed(() => {
   return t('imageQuality');
 });
 
-const estimateAccuracyLabel = computed(() => (
-  props.estimateAccuracy === 'exact' ? t('exactEstimateResult') : t('approximateEstimate')
-));
+const estimateAccuracyLabel = computed(() => {
+  if (props.estimateAccuracy === 'exact') return t('exactEstimateResult');
+  if (props.estimateAccuracy === 'calibrated') return t('calibratedEstimate');
+  return t('heuristicEstimate');
+});
 </script>
 
 <template>
@@ -57,10 +59,11 @@ const estimateAccuracyLabel = computed(() => (
 
       <div class="export-estimate subsection-row" :class="{ 'export-estimate--stale': isEstimateStale, 'export-estimate--error': estimateError }">
         <span>{{ t('estimatedPdfSize') }}: </span>
-        <strong v-if="isExactEstimating">{{ t('calculatingEstimate') }}</strong>
-        <strong v-else-if="estimateSize">{{ estimateSize }}</strong>
+        <strong v-if="estimateSize">{{ estimateSize }}</strong>
+        <strong v-else-if="isExactEstimating">{{ t('calculatingEstimate') }}</strong>
         <strong v-else>{{ t('estimateUnavailable') }}</strong>
         <span v-if="estimateSize && !isExactEstimating" class="export-estimate__accuracy">{{ estimateAccuracyLabel }}</span>
+        <span v-else-if="estimateSize" class="export-estimate__accuracy">{{ t('calculatingEstimate') }}</span>
         <span v-if="isEstimateStale && !isExactEstimating" class="export-estimate__stale">{{ t('estimateStaleContent') }}</span>
         <button class="mini export-estimate__exact" type="button" :disabled="isExactEstimating" @click="$emit('exactEstimate')">
           <font-awesome-icon :icon="['fas', isExactEstimating ? 'spinner' : 'calculator']" :spin="isExactEstimating" />

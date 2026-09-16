@@ -21,6 +21,7 @@ import {
   createPdfSizeLayerInfo,
   estimatePdfSizeFromLayerCache,
   loadPdfSizeEstimateCache,
+  needsPdfSizeGroundTruth,
   recordPdfSizeMeasurement,
   savePdfSizeEstimateCache,
 } from './composables/pdfSizeEstimateCache';
@@ -165,6 +166,7 @@ const pdfSizeEstimateCache = ref(loadPdfSizeEstimateCache());
 let previewRenderVersion = 0;
 let pdfEstimateRequest = 0;
 let pdfContentRevision = 0;
+let initialPdfCalibrationChecked = false;
 
 function exportMarginMillimeters(value) {
   const parsed = Number.parseFloat(value);
@@ -213,7 +215,18 @@ async function refreshPdfPreview(version) {
 
     previewPages.value = pages;
     previewPage.value = Math.min(Math.max(previewPage.value, 1), Math.max(pages.length, 1));
-    if (estimatedPdfBytes.value == null) updateApproximatePdfSizeEstimate();
+    updateApproximatePdfSizeEstimate();
+
+    // The one automatic exact render belongs exclusively to the first stable
+    // preview after hydration. Normal edits and export-option changes stay on
+    // the instant, preview-fingerprint estimator path.
+    if (!initialPdfCalibrationChecked) {
+      initialPdfCalibrationChecked = true;
+      const layers = createPdfSizeLayerInfo(state, pages);
+      if (needsPdfSizeGroundTruth(pdfSizeEstimateCache.value, layers, state.exportOptions)) {
+        void calculateExactPdfSizeEstimate({ automatic: true });
+      }
+    }
   } catch (error) {
     if (version === previewRenderVersion) console.error('PDF preview failed:', error);
   } finally {
@@ -264,8 +277,11 @@ function updateApproximatePdfSizeEstimate() {
     state.exportOptions,
   );
   estimatedPdfBytes.value = estimate.bytes;
-  pdfEstimateAccuracy.value = estimate.source === 'cached-exact' ? 'exact' : 'approximate';
-  isPdfEstimateStale.value = false;
+  pdfEstimateAccuracy.value = estimate.source === 'cached-exact'
+    ? 'exact'
+    : ['cached-calibrated', 'similar-layer'].includes(estimate.source)
+      ? 'calibrated'
+      : 'heuristic';
   pdfEstimateError.value = '';
 }
 
@@ -282,10 +298,10 @@ function cachePdfSizeMeasurement(measurement) {
   savePdfSizeEstimateCache(nextCache);
 }
 
-async function calculateExactPdfSizeEstimate() {
+async function calculateExactPdfSizeEstimate({ automatic = false } = {}) {
   const request = ++pdfEstimateRequest;
   isExactPdfEstimating.value = true;
-  pdfEstimateError.value = '';
+  if (!automatic) pdfEstimateError.value = '';
 
   try {
     await nextTick();
@@ -299,7 +315,9 @@ async function calculateExactPdfSizeEstimate() {
     pdfEstimateAccuracy.value = 'exact';
     isPdfEstimateStale.value = false;
   } catch (error) {
-    if (request === pdfEstimateRequest) {
+    // A background calibration must never replace a usable estimate with an
+    // error. The manual action remains explicit about failures.
+    if (!automatic && request === pdfEstimateRequest) {
       pdfEstimateError.value = error instanceof Error ? error.message : String(error);
     }
   } finally {
@@ -330,6 +348,11 @@ async function handleExportPdf() {
     const filename = `${(state.contact?.name || 'CV').replace(/\s+/g, '_')}_CV`;
     const measurement = await exportToPdf(cvElement, filename, getHybridPdfRenderOptions());
     cachePdfSizeMeasurement(measurement);
+    if (measurement) {
+      estimatedPdfBytes.value = measurement.bytes;
+      pdfEstimateAccuracy.value = 'exact';
+      isPdfEstimateStale.value = false;
+    }
   } catch (error) {
     console.error('PDF export failed:', error);
   } finally {

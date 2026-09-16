@@ -17,6 +17,8 @@ export const dict = {
     estimateUnavailable:{de: 'Noch nicht berechnet', en: 'Not calculated yet'},
     estimateStaleContent: {de: 'Inhalt geändert – exakte Größe neu berechnen', en: 'Content changed — calculate again'},
     approximateEstimate: {de: 'Schnelle Schätzung', en: 'Quick estimate'},
+    calibratedEstimate: {de: 'Kalibrierte Schätzung', en: 'Calibrated estimate'},
+    heuristicEstimate: {de: 'Heuristische Schätzung', en: 'Heuristic estimate'},
     exactEstimateResult: {de: 'Exakt', en: 'Exact'},
     exactEstimate:      {de: 'Exakte Größe berechnen', en: 'Calculate exact size'},
     previewNotFound:    {de: 'Vorschau konnte nicht gefunden werden. Bitte stelle sicher, dass die Vorschau aktiviert ist.', en: 'Preview not found. Please make sure the preview is enabled.'},
