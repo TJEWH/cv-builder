@@ -5,7 +5,7 @@ export const dict = {
     showHtmlPreview:    {de: 'Raw HTML anzeigen', en: 'Show Raw HTML'},
     showPdfPreview:     {de: 'PDF anzeigen', en: 'Show PDF'},
     backToBuilder:      {de: 'Zurück zum Builder', en: 'Back to builder'},
-    downloadPdf:        {de: 'PDF herunterladen', en: 'download PDF'},
+    downloadPdf:        {de: 'PDF herunterladen', en: 'Download PDF'},
     exportingPdf:       {de: 'Exportiere PDF...', en: 'Exporting PDF...'},
     exportOptions:      {de: 'Exportoptionen', en: 'Export Options'},
     exportFormat:       {de: 'Hintergrundformat', en: 'Background format'},

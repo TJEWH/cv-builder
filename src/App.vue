@@ -14,10 +14,16 @@ import { makeT } from './i18n/dict';
 import { normalizeContentState } from './composables/contentLayout';
 import {
   DEFAULT_EXPORT_OPTIONS,
-  approximatePdfSizeFromPreview,
   formatPdfBytes,
   normalizeExportOptions,
 } from './composables/pdfImageEncoding';
+import {
+  createPdfSizeLayerInfo,
+  estimatePdfSizeFromLayerCache,
+  loadPdfSizeEstimateCache,
+  recordPdfSizeMeasurement,
+  savePdfSizeEstimateCache,
+} from './composables/pdfSizeEstimateCache';
 
 const state = reactive({
   version: 6,
@@ -150,6 +156,7 @@ const pdfEstimateAccuracy = ref('');
 const isExactPdfEstimating = ref(false);
 const isPdfEstimateStale = ref(false);
 const pdfEstimateError = ref('');
+const pdfSizeEstimateCache = ref(loadPdfSizeEstimateCache());
 let previewRenderVersion = 0;
 let pdfEstimateRequest = 0;
 let pdfContentRevision = 0;
@@ -246,10 +253,28 @@ watch(previewState, () => {
 }, { deep: true, flush: 'post' });
 
 function updateApproximatePdfSizeEstimate() {
-  estimatedPdfBytes.value = approximatePdfSizeFromPreview(previewPages.value, state.exportOptions);
-  pdfEstimateAccuracy.value = 'approximate';
+  const estimate = estimatePdfSizeFromLayerCache(
+    pdfSizeEstimateCache.value,
+    createPdfSizeLayerInfo(state, previewPages.value),
+    state.exportOptions,
+  );
+  estimatedPdfBytes.value = estimate.bytes;
+  pdfEstimateAccuracy.value = estimate.source === 'cached-exact' ? 'exact' : 'approximate';
   isPdfEstimateStale.value = false;
   pdfEstimateError.value = '';
+}
+
+function cachePdfSizeMeasurement(measurement) {
+  if (!measurement || !Number.isFinite(measurement.bytes)) return;
+  const layers = createPdfSizeLayerInfo(state, measurement.pages || previewPages.value);
+  const nextCache = recordPdfSizeMeasurement(
+    pdfSizeEstimateCache.value,
+    layers,
+    state.exportOptions,
+    measurement,
+  );
+  pdfSizeEstimateCache.value = nextCache;
+  savePdfSizeEstimateCache(nextCache);
 }
 
 async function calculateExactPdfSizeEstimate() {
@@ -262,9 +287,10 @@ async function calculateExactPdfSizeEstimate() {
     const contentRevision = pdfContentRevision;
     const cvElement = getPdfSourceElement();
     if (!cvElement) throw new Error('CV preview element not found');
-    const bytes = await estimatePdfSize(cvElement, getHybridPdfRenderOptions());
+    const measurement = await estimatePdfSize(cvElement, getHybridPdfRenderOptions());
     if (request !== pdfEstimateRequest || contentRevision !== pdfContentRevision) return;
-    estimatedPdfBytes.value = bytes;
+    cachePdfSizeMeasurement(measurement);
+    estimatedPdfBytes.value = measurement.bytes;
     pdfEstimateAccuracy.value = 'exact';
     isPdfEstimateStale.value = false;
   } catch (error) {
@@ -297,7 +323,8 @@ async function handleExportPdf() {
     const cvElement = getPdfSourceElement();
     if (!cvElement) throw new Error('CV preview element not found');
     const filename = `${(state.contact?.name || 'CV').replace(/\s+/g, '_')}_CV`;
-    await exportToPdf(cvElement, filename, getHybridPdfRenderOptions());
+    const measurement = await exportToPdf(cvElement, filename, getHybridPdfRenderOptions());
+    cachePdfSizeMeasurement(measurement);
   } catch (error) {
     console.error('PDF export failed:', error);
   } finally {
@@ -320,14 +347,14 @@ async function handleExportPdf() {
       </button>
 
       <div class="fullscreen-preview__actions">
-        <button class="btn" type="button" :aria-pressed="fullPreviewView === 'html'" @click="fullPreviewView = fullPreviewView === 'pdf' ? 'html' : 'pdf'">
-          <font-awesome-icon :icon="['fas', fullPreviewView === 'pdf' ? 'code' : 'file-pdf']" />
-          {{ fullPreviewView === 'pdf' ? t('showHtmlPreview') : t('showPdfPreview') }}
-        </button>
         <button class="btn btn--primary" type="button" @click="handleExportPdf" :disabled="isExporting">
           <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
           <font-awesome-icon v-else :icon="['fas', 'download']" />
           {{ isExporting ? t('exportingPdf') : t('downloadPdf') }}
+        </button>
+        <button class="btn" type="button" :aria-pressed="fullPreviewView === 'html'" @click="fullPreviewView = fullPreviewView === 'pdf' ? 'html' : 'pdf'">
+          <font-awesome-icon :icon="['fas', fullPreviewView === 'pdf' ? 'code' : 'file-pdf']" />
+          {{ fullPreviewView === 'pdf' ? t('showHtmlPreview') : t('showPdfPreview') }}
         </button>
       </div>
 
@@ -501,7 +528,8 @@ async function handleExportPdf() {
 .fullscreen-preview__actions {
   right: 20px;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
 }
 
