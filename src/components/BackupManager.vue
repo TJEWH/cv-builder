@@ -1,6 +1,11 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { saveLocal } from '../composables/useStorage';
+import {
+  MAX_CV_JSON_FILE_BYTES,
+  createCvJsonBackup,
+  parseCvJsonBackup,
+} from '../composables/cvJsonBackup';
 
 const props = defineProps({
   state: { type: Object, required: true },
@@ -20,11 +25,18 @@ const labels = computed(() => langRef.value === 'de' ? {
   save: 'Speichern',
   load: 'Laden',
   remove: 'Löschen',
+  exportJson: 'JSON exportieren',
+  importJson: 'JSON importieren',
   confirmLoad: 'Aktuelle Änderungen gehen verloren. Diese Konfiguration laden?',
+  confirmImport: 'Aktuelle Änderungen gehen verloren. Diese JSON-Datei laden?',
   confirmDelete: 'Diese Konfiguration wirklich löschen?',
   empty: '— keine Konfigurationen —',
   saved: 'Gespeichert.',
   loaded: 'Geladen.',
+  exported: 'JSON-Datei heruntergeladen.',
+  imported: 'JSON-Datei geladen.',
+  invalidFile: 'Die Datei ist keine unterstützte CV-JSON-Datei.',
+  fileTooLarge: 'Die JSON-Datei ist zu groß.',
   missingName: 'Bitte Titel eingeben.',
   language: 'Sprache',
 } : {
@@ -33,11 +45,18 @@ const labels = computed(() => langRef.value === 'de' ? {
   save: 'Save',
   load: 'Load',
   remove: 'Delete',
+  exportJson: 'Export JSON',
+  importJson: 'Import JSON',
   confirmLoad: 'Loading replaces your current changes. Continue?',
+  confirmImport: 'Loading this JSON file replaces your current changes. Continue?',
   confirmDelete: 'Delete this configuration?',
   empty: '— no configurations —',
   saved: 'Saved.',
   loaded: 'Loaded.',
+  exported: 'JSON file downloaded.',
+  imported: 'JSON file loaded.',
+  invalidFile: 'The file is not a supported CV JSON file.',
+  fileTooLarge: 'The JSON file is too large.',
   missingName: 'Please enter a title.',
   language: 'Language',
 });
@@ -46,6 +65,7 @@ const configs = ref([]);
 const currentId = ref('');
 const newName = ref('');
 const backupMsg = ref('');
+const fileInput = ref(null);
 const localIndexKey = 'CV_CONF_INDEX';
 const localDataKey = (id) => `CV_CONF_DATA:${id}`;
 
@@ -112,6 +132,53 @@ function deleteCurrent() {
   refreshConfigs();
 }
 
+function exportJson() {
+  try {
+    const backup = createCvJsonBackup(props.state);
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const version = Number.isFinite(Number(props.state?.version)) ? `-v${props.state.version}` : '';
+    link.href = url;
+    link.download = `${slug(props.state?.contact?.name || 'cv')}${version}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    backupMsg.value = labels.value.exported;
+  } catch (error) {
+    console.warn('Failed to export JSON configuration', error);
+    backupMsg.value = labels.value.invalidFile;
+  }
+}
+
+function chooseJsonFile() {
+  fileInput.value?.click();
+}
+
+async function importJson(event) {
+  const input = event.target;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+
+  if (file.size > MAX_CV_JSON_FILE_BYTES) {
+    backupMsg.value = labels.value.fileTooLarge;
+    return;
+  }
+
+  try {
+    const data = parseCvJsonBackup(await file.text());
+    if (!confirm(labels.value.confirmImport)) return;
+    props.onLoad(data);
+    props.onSave();
+    backupMsg.value = labels.value.imported;
+  } catch (error) {
+    console.warn('Failed to import JSON configuration', error);
+    backupMsg.value = labels.value.invalidFile;
+  }
+}
+
 onMounted(refreshConfigs);
 </script>
 
@@ -134,6 +201,12 @@ onMounted(refreshConfigs);
     <div class="backup-manager__save-as">
       <input v-model="newName" :placeholder="labels.newName" />
       <button type="button" class="btn btn--success" @click="saveAs">{{ labels.saveAs }}</button>
+    </div>
+
+    <div class="backup-manager__file-actions">
+      <input ref="fileInput" class="backup-manager__file-input" type="file" accept="application/json,.json" @change="importJson" />
+      <button type="button" class="btn" @click="exportJson">{{ labels.exportJson }}</button>
+      <button type="button" class="btn" @click="chooseJsonFile">{{ labels.importJson }}</button>
       <span v-if="backupMsg" class="note">{{ backupMsg }}</span>
     </div>
 
@@ -148,8 +221,9 @@ onMounted(refreshConfigs);
 
 <style scoped>
 .backup-manager { display: grid; gap: 10px; width: 100%; padding: 10px; border-radius: 10px; background: #113c34; }
-.backup-manager__actions, .backup-manager__save-as, .backup-manager__preferences { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.backup-manager__actions, .backup-manager__save-as, .backup-manager__file-actions, .backup-manager__preferences { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .backup-manager__actions select, .backup-manager__save-as input { flex: 1 1 220px; width: auto; }
+.backup-manager__file-input { display: none; }
 .backup-manager__preferences { padding-top: 8px; border-top: 1px solid #134e4a; color: var(--muted); font-size: 12px; }
 .toggle { border: 0; padding: 0; background: transparent; cursor: pointer; }
 .toggle-track { position: relative; display: inline-flex; align-items: center; justify-content: space-around; width: 86px; height: 30px; border: 1px solid var(--border); border-radius: 999px; background: #0c131a; }
