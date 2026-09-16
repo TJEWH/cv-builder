@@ -10,6 +10,7 @@ import {
   rasterizePdfOverlay,
 } from './pdfTextOverlay.js';
 import {
+  encodedPdfImageByteLength,
   encodePdfPageImage,
   imageMimeType,
   normalizeExportOptions,
@@ -588,11 +589,18 @@ export function usePdfExport() {
     return { pdf, pages };
   };
 
+  const outputMeasurement = (pdf, pages) => ({
+    bytes: pdf.output('blob').size,
+    graphicsBytes: pages.reduce((total, page) => total + encodedPdfImageByteLength(page.imageData), 0),
+    pages,
+  });
+
   const exportToPdf = async (element, filename = 'cv', options = {}) => {
     try {
-      const { pdf } = await renderHybridPdf(element, options);
+      const { pdf, pages } = await renderHybridPdf(element, options);
+      const measurement = outputMeasurement(pdf, pages);
       pdf.save(`${filename}.pdf`);
-      return true;
+      return measurement;
     } catch (error) {
       console.error('PDF export failed:', error);
       return false;
@@ -600,8 +608,8 @@ export function usePdfExport() {
   };
 
   const estimatePdfSize = async (element, options = {}) => {
-    const { pdf } = await renderHybridPdf(element, options);
-    return pdf.output('blob').size;
+    const { pdf, pages } = await renderHybridPdf(element, options);
+    return outputMeasurement(pdf, pages);
   };
 
   const exportToPdfNewTab = async (element, filename = 'cv', options = {}) => {
