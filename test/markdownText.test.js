@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { hasMarkdownText, normalizeMarkdownText, parseInlineMarkdown, parseMarkdownText, safeMarkdownUrl } from '../src/composables/markdownText.js';
+import { hasMarkdownText, normalizeMarkdownText, parseInlineMarkdown, parseMarkdownText, renderConfidentialText, safeMarkdownUrl } from '../src/composables/markdownText.js';
 
 test('parses multiline prose before markdown bullets', () => {
   const parsed = parseMarkdownText('First line\nSecond line\n- First bullet\n- Second bullet');
@@ -42,4 +42,36 @@ test('keeps bare and unsafe URLs as text', () => {
   assert.deepEqual(parseInlineMarkdown('Visit https://example.com'), [{ type: 'text', value: 'Visit https://example.com' }]);
   assert.deepEqual(parseInlineMarkdown('[bad](javascript:evil)'), [{ type: 'text', value: '[bad](javascript:evil)' }]);
   assert.equal(safeMarkdownUrl('mailto:person@example.com'), null);
+});
+
+test('renders paired confidential markers normally or as anonymous content', () => {
+  const source = 'Built !!a private **prototype**!! for [a client](https://example.com).';
+
+  assert.equal(
+    renderConfidentialText(source),
+    'Built  for [a client](https://example.com).',
+  );
+  assert.equal(
+    renderConfidentialText(source, { anonymized: true }),
+    'Built !!confidential text!! for [a client](https://example.com).',
+  );
+});
+
+test('handles multiple and malformed confidential markers safely', () => {
+  assert.equal(
+    renderConfidentialText('!!One!! and !!Two!!', { anonymized: true }),
+    '!!confidential text!! and !!confidential text!!',
+  );
+  assert.equal(renderConfidentialText('Unpaired !! marker', { anonymized: true }), 'Unpaired !! marker');
+});
+
+test('parses the anonymous confidential placeholder as strikethrough', () => {
+  assert.deepEqual(parseInlineMarkdown('A !!confidential phrase!!.'), [
+    { type: 'text', value: 'A ' },
+    { type: 'strike', value: 'confidential phrase' },
+    { type: 'text', value: '.' },
+  ]);
+  assert.deepEqual(parseInlineMarkdown('!!confidential text!!'), [
+    { type: 'strike', value: 'confidential text' },
+  ]);
 });

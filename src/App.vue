@@ -10,8 +10,10 @@ import PdfPagination from './components/PdfPagination.vue';
 import BackupManager from './components/BackupManager.vue';
 import DesignPanel from './components/DesignPanel.vue';
 import ExportOptionsPanel from './components/ExportOptionsPanel.vue';
+import AnonymizationPanel from './components/AnonymizationPanel.vue';
 import { makeT } from './i18n/dict';
 import { normalizeContentState } from './composables/contentLayout';
+import { createAnonymizedState } from './composables/anonymization';
 import {
   DEFAULT_EXPORT_OPTIONS,
   formatPdfBytes,
@@ -27,7 +29,7 @@ import {
 } from './composables/pdfSizeEstimateCache';
 
 const state = reactive({
-  version: 6,
+  version: 7,
   disabled: [],
   completedSections: [],
   lang: 'de',
@@ -46,6 +48,7 @@ const state = reactive({
     bodySidebarSpacing: '10mm',
   },
   exportOptions: { ...DEFAULT_EXPORT_OPTIONS },
+  anonymization: { excludedSections: [], excludedItems: [] },
   contact: { name: '', location: '', role: '', email: '', phone: '', website: '', linkedin: '', github: '' },
   about: { text: '' },
   education: [],
@@ -76,6 +79,11 @@ const previewPages = ref([]);
 const previewPage = ref(1);
 const isPreviewRendering = ref(true);
 const pdfRenderSource = ref(null);
+const anonymizedPreviewPages = ref([]);
+const anonymizedPreviewPage = ref(1);
+const isAnonymizedPreviewRendering = ref(false);
+const anonymizedPdfRenderSource = ref(null);
+const fullPreviewVariant = ref('normal');
 const t = makeT(lang);
 
 const saveDebounced = debounce(() => saveLocal(JSON.parse(JSON.stringify(state))), 250);
@@ -136,7 +144,7 @@ function mergeIn(data) {
   if (!data) return;
 
   Object.assign(state, data);
-  state.version = 6;
+  state.version = 7;
   ensureDesignLayoutDefaults();
   state.exportOptions = normalizeExportOptions(state.exportOptions);
   state.completedSections = Array.isArray(state.completedSections) ? [...new Set(state.completedSections)] : [];
@@ -169,6 +177,7 @@ onMounted(async () => {
 
 const { estimatePdfSize, exportToPdf, renderPdf } = usePdfExport();
 const isExporting = ref(false);
+const isAnonymizedExporting = ref(false);
 const estimatedPdfBytes = ref(null);
 const pdfEstimateAccuracy = ref('');
 const isExactPdfEstimating = ref(false);
@@ -179,6 +188,9 @@ let previewRenderVersion = 0;
 let pdfEstimateRequest = 0;
 let pdfContentRevision = 0;
 let initialPdfCalibrationChecked = false;
+let anonymizedSourceVersion = 0;
+let anonymizedPreviewRenderVersion = 0;
+let renderedAnonymizedSourceVersion = -1;
 
 function exportMarginMillimeters(value) {
   const parsed = Number.parseFloat(value);
@@ -213,6 +225,12 @@ function getHybridPdfRenderOptions() {
 function getPdfSourceElement() {
   return pdfRenderSource.value?.querySelector('.page') || null;
 }
+
+function getAnonymizedPdfSourceElement() {
+  return anonymizedPdfRenderSource.value?.querySelector('.page') || null;
+}
+
+const anonymizedState = computed(() => createAnonymizedState(state));
 
 async function refreshPdfPreview(version) {
   try {
@@ -254,6 +272,46 @@ function requestPdfPreview() {
   schedulePdfPreview();
 }
 
+async function refreshAnonymizedPdfPreview(renderVersion, sourceVersion) {
+  try {
+    await nextTick();
+    await document.fonts?.ready;
+    if (renderVersion !== anonymizedPreviewRenderVersion || sourceVersion !== anonymizedSourceVersion) return;
+
+    const cvElement = getAnonymizedPdfSourceElement();
+    if (!cvElement) throw new Error('Anonymized CV preview element not found');
+    const { pages } = await renderPdf(cvElement, getPdfRenderOptions());
+    if (renderVersion !== anonymizedPreviewRenderVersion || sourceVersion !== anonymizedSourceVersion) return;
+
+    anonymizedPreviewPages.value = pages;
+    anonymizedPreviewPage.value = Math.min(Math.max(anonymizedPreviewPage.value, 1), Math.max(pages.length, 1));
+    renderedAnonymizedSourceVersion = sourceVersion;
+  } catch (error) {
+    if (renderVersion === anonymizedPreviewRenderVersion) console.error('Anonymized PDF preview failed:', error);
+  } finally {
+    if (renderVersion === anonymizedPreviewRenderVersion) isAnonymizedPreviewRendering.value = false;
+  }
+}
+
+const scheduleAnonymizedPdfPreview = debounce((renderVersion, sourceVersion) => (
+  refreshAnonymizedPdfPreview(renderVersion, sourceVersion)
+), 500);
+
+function requestAnonymizedPdfPreview() {
+  if (renderedAnonymizedSourceVersion === anonymizedSourceVersion && anonymizedPreviewPages.value.length) return;
+  const renderVersion = ++anonymizedPreviewRenderVersion;
+  isAnonymizedPreviewRendering.value = true;
+  scheduleAnonymizedPdfPreview(renderVersion, anonymizedSourceVersion);
+}
+
+function invalidateAnonymizedPdfPreview() {
+  anonymizedSourceVersion += 1;
+  anonymizedPreviewPages.value = [];
+  anonymizedPreviewPage.value = 1;
+  renderedAnonymizedSourceVersion = -1;
+  if (fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
+}
+
 const previewState = computed(() => ({
   disabled: state.disabled,
   completedSections: state.completedSections,
@@ -274,6 +332,11 @@ const previewState = computed(() => ({
   sidebarOrder: state.sidebarOrder,
 }));
 
+const anonymizedPreviewState = computed(() => ({
+  ...previewState.value,
+  anonymization: state.anonymization,
+}));
+
 watch(previewState, () => {
   pdfContentRevision += 1;
   if (estimatedPdfBytes.value != null) {
@@ -281,6 +344,8 @@ watch(previewState, () => {
   }
   requestPdfPreview();
 }, { deep: true, flush: 'post' });
+
+watch(anonymizedPreviewState, invalidateAnonymizedPdfPreview, { deep: true, flush: 'post' });
 
 function updateApproximatePdfSizeEstimate() {
   const estimate = estimatePdfSizeFromLayerCache(
@@ -372,12 +437,49 @@ async function handleExportPdf() {
   }
 }
 
+async function handleAnonymizedExportPdf() {
+  isAnonymizedExporting.value = true;
+  try {
+    await nextTick();
+    const cvElement = getAnonymizedPdfSourceElement();
+    if (!cvElement) throw new Error('Anonymized CV preview element not found');
+    await exportToPdf(cvElement, 'anonymized-cv', getHybridPdfRenderOptions());
+  } catch (error) {
+    console.error('Anonymized PDF export failed:', error);
+  } finally {
+    isAnonymizedExporting.value = false;
+  }
+}
+
+const isAnonymizedFullPreview = computed(() => fullPreviewVariant.value === 'anonymized');
+const activeFullPreviewPages = computed(() => (
+  isAnonymizedFullPreview.value ? anonymizedPreviewPages.value : previewPages.value
+));
+const activeFullPreviewPage = computed({
+  get: () => (isAnonymizedFullPreview.value ? anonymizedPreviewPage.value : previewPage.value),
+  set: (value) => {
+    if (isAnonymizedFullPreview.value) anonymizedPreviewPage.value = value;
+    else previewPage.value = value;
+  },
+});
+const isActiveFullPreviewRendering = computed(() => (
+  isAnonymizedFullPreview.value ? isAnonymizedPreviewRendering.value : isPreviewRendering.value
+));
+
+function toggleAnonymizedFullPreview() {
+  fullPreviewVariant.value = isAnonymizedFullPreview.value ? 'normal' : 'anonymized';
+  if (fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
+}
+
 </script>
 
 <template>
   <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode }">
     <div ref="pdfRenderSource" class="pdf-render-source" aria-hidden="true">
       <CvPreview :state="state" export-source />
+    </div>
+    <div ref="anonymizedPdfRenderSource" class="pdf-render-source" aria-hidden="true">
+      <CvPreview :state="anonymizedState" export-source anonymized />
     </div>
 
     <section v-if="previewMode" class="fullscreen-preview" aria-label="CV preview">
@@ -392,6 +494,15 @@ async function handleExportPdf() {
           <font-awesome-icon v-else :icon="['fas', 'download']" />
           {{ isExporting ? t('exportingPdf') : t('downloadPdf') }}
         </button>
+        <button class="btn" type="button" :aria-pressed="isAnonymizedFullPreview" @click="toggleAnonymizedFullPreview">
+          <font-awesome-icon :icon="['fas', 'user-secret']" />
+          {{ isAnonymizedFullPreview ? t('showNormalPreview') : t('showAnonymizedPreview') }}
+        </button>
+        <button class="btn btn--primary" type="button" @click="handleAnonymizedExportPdf" :disabled="isAnonymizedExporting">
+          <font-awesome-icon v-if="isAnonymizedExporting" :icon="['fas', 'spinner']" spin />
+          <font-awesome-icon v-else :icon="['fas', 'user-secret']" />
+          {{ isAnonymizedExporting ? t('exportingAnonymizedPdf') : t('downloadAnonymizedPdf') }}
+        </button>
         <button class="btn" type="button" :aria-pressed="fullPreviewView === 'html'" @click="fullPreviewView = fullPreviewView === 'pdf' ? 'html' : 'pdf'">
           <font-awesome-icon :icon="['fas', fullPreviewView === 'pdf' ? 'code' : 'file-pdf']" />
           {{ fullPreviewView === 'pdf' ? t('showHtmlPreview') : t('showPdfPreview') }}
@@ -399,10 +510,10 @@ async function handleExportPdf() {
       </div>
 
       <div class="fullscreen-preview__content">
-        <PdfPreview v-if="fullPreviewView === 'pdf'" :page="previewPage" :pages="previewPages" :is-updating="isPreviewRendering" :lang="lang" />
-        <div v-else class="html-preview"><CvPreview :state="state" /></div>
+        <PdfPreview v-if="fullPreviewView === 'pdf'" :page="activeFullPreviewPage" :pages="activeFullPreviewPages" :is-updating="isActiveFullPreviewRendering" :lang="lang" />
+        <div v-else class="html-preview"><CvPreview :state="isAnonymizedFullPreview ? anonymizedState : state" :anonymized="isAnonymizedFullPreview" /></div>
       </div>
-      <PdfPagination v-if="fullPreviewView === 'pdf'" v-model:page="previewPage" :pages="previewPages" :lang="lang" fullscreen />
+      <PdfPagination v-if="fullPreviewView === 'pdf'" v-model:page="activeFullPreviewPage" :pages="activeFullPreviewPages" :lang="lang" fullscreen />
     </section>
 
     <section v-else class="builder-layout" :class="`builder-layout--${previewPlacement}`">
@@ -427,6 +538,12 @@ async function handleExportPdf() {
           :estimate-error="pdfEstimateError"
           :lang="lang"
           @exact-estimate="calculateExactPdfSizeEstimate"
+        />
+        <AnonymizationPanel
+          :state="state"
+          :is-exporting="isAnonymizedExporting"
+          :lang="lang"
+          @export="handleAnonymizedExportPdf"
         />
       </div>
 

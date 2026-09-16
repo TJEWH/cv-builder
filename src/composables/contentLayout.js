@@ -1,4 +1,5 @@
 import { normalizeMarkdownText } from './markdownText.js';
+import { normalizeAnonymizationState } from './anonymization.js';
 
 export const BODY_SECTION_KEYS = ['about', 'education', 'jobs'];
 export const SIDEBAR_SECTION_KEYS = ['languages', 'hobbies'];
@@ -250,6 +251,7 @@ export function normalizeContentState(state) {
   const sidebarKeys = [...SIDEBAR_SECTION_KEYS, ...state.sidebarSections.map((section) => section.id)];
   state.bodyOrder = normalizedOrder(ensureArray(sourceBodyOrder).map((key) => migratedIds[key] || key), bodyKeys);
   state.sidebarOrder = normalizedOrder(ensureArray(sourceSidebarOrder).map((key) => migratedIds[key] || key), sidebarKeys);
+  normalizeAnonymizationState(state);
 
   delete state.experience.addExp;
   delete state.experience.projects;

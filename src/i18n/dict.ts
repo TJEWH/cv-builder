@@ -8,6 +8,14 @@ export const dict = {
     downloadPdf:        {de: 'PDF herunterladen', en: 'Download PDF'},
     exportingPdf:       {de: 'Exportiere PDF...', en: 'Exporting PDF...'},
     exportOptions:      {de: 'Exportoptionen', en: 'Export Options'},
+    anonymization:      {de: 'Anonymisierung', en: 'Anonymization'},
+    anonymizationHelp:  {de: 'Ausgewählte Inhalte werden nur aus der anonymisierten Vorschau und dem anonymisierten PDF entfernt.', en: 'Selected content is removed only from the anonymized preview and PDF.'},
+    confidentialMarkerHelp: {de: 'Markiere vertraulichen Text in Textfeldern mit !!vertraulicher Text!!.', en: 'Mark confidential textarea content with !!confidential text!!.'},
+    contactAlwaysAnonymized: {de: 'Wird immer durch Beispieldaten ersetzt', en: 'Always replaced with sample data'},
+    downloadAnonymizedPdf: {de: 'Anonymisiertes PDF herunterladen', en: 'Download anonymized PDF'},
+    exportingAnonymizedPdf: {de: 'Anonymisiertes PDF wird erstellt...', en: 'Exporting anonymized PDF...'},
+    showAnonymizedPreview: {de: 'Anonymisierte Vorschau anzeigen', en: 'Show anonymized preview'},
+    showNormalPreview: {de: 'Normale Vorschau anzeigen', en: 'Show normal preview'},
     exportFormat:       {de: 'Hintergrundformat', en: 'Background format'},
     losslessPng:        {de: 'PNG verlustfrei', en: 'Lossless PNG'},
     pngPaletteCompression: {de: 'PNG-Palettenqualität', en: 'PNG palette quality'},
@@ -121,7 +129,7 @@ export const dict = {
 
     // About
     aboutTextLabel: { de:'Text', en:'Text' },
-    markdownTextareaHelp: { de:'Mehrzeiliger Text ist möglich. Mit „- “ beginnt eine Aufzählung; **fett** und [Text](https://example.com) werden formatiert.', en:'Multiline text is supported. Start a list with “- ”; **bold** and [text](https://example.com) are formatted.' },
+    markdownTextareaHelp: { de:'Mehrzeiliger Text ist möglich. Mit „- “ beginnt eine Aufzählung; **fett** und [Text](https://example.com) werden formatiert. Mit !!vertraulicher Text!! markierst du Inhalte für die Anonymisierung.', en:'Multiline text is supported. Start a list with “- ”; **bold** and [text](https://example.com) are formatted. Use !!confidential text!! to mark content for anonymization.' },
 
     // Experience and education
     position:       { de:'Position', en:'Position' },

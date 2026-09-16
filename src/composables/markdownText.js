@@ -10,6 +10,12 @@ export function normalizeMarkdownText(value) {
   return value == null ? '' : String(value).replaceAll('\r\n', '\n');
 }
 
+/** Render paired !!confidential text!! markers for normal or anonymous output. */
+export function renderConfidentialText(value, { anonymized = false } = {}) {
+  const normalized = normalizeMarkdownText(value);
+  return normalized.replace(/!!([\s\S]*?)!!/g, anonymized ? '!!confidential text!!' : '');
+}
+
 export function parseMarkdownText(value) {
   const proseLines = [];
   const bullets = [];
@@ -51,21 +57,26 @@ export function safeMarkdownUrl(value) {
   }
 }
 
-export function parseInlineMarkdown(value) {
+export function parseInlineMarkdown(value, { confidentialMarkers = true } = {}) {
   const source = String(value ?? '');
   const tokens = [];
-  const pattern = /\*\*([\s\S]+?)\*\*|\[([^\]]+)\]\(([^\s)]+)\)/g;
+  const pattern = confidentialMarkers
+    ? /!!([\s\S]+?)!!|\*\*([\s\S]+?)\*\*|\[([^\]]+)\]\(([^\s)]+)\)/g
+    : /\*\*([\s\S]+?)\*\*|\[([^\]]+)\]\(([^\s)]+)\)/g;
   let cursor = 0;
   let match;
 
   while ((match = pattern.exec(source))) {
     if (match.index > cursor) tokens.push({ type: 'text', value: source.slice(cursor, match.index) });
 
-    if (match[1] != null) {
-      tokens.push({ type: 'bold', value: match[1] });
+    if (confidentialMarkers && match[1] != null) {
+      tokens.push({ type: 'strike', value: match[1] });
+    } else if (match[confidentialMarkers ? 2 : 1] != null) {
+      tokens.push({ type: 'bold', value: match[confidentialMarkers ? 2 : 1] });
     } else {
-      const href = safeMarkdownUrl(match[3]);
-      if (href) tokens.push({ type: 'link', value: match[2], href });
+      const label = match[confidentialMarkers ? 3 : 2];
+      const href = safeMarkdownUrl(match[confidentialMarkers ? 4 : 3]);
+      if (href) tokens.push({ type: 'link', value: label, href });
       else tokens.push({ type: 'text', value: match[0] });
     }
     cursor = pattern.lastIndex;

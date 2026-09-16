@@ -1,8 +1,12 @@
 {
-  "version": 6,
+  "version": 7,
   "exportOptions": {
     "format": "png",
     "quality": 100
+  },
+  "anonymization": {
+    "excludedSections": [],
+    "excludedItems": []
   },
   "design": {
     "h1": "22pt",
@@ -48,9 +52,9 @@
   },
   "contact": {
     "name": "Alex Muster",
-    "location": "Berlin, DE",
+    "location": "Neustadt",
     "role": "Software Engineer",
-    "email": "alex@example.com",
+    "email": "muster-ex@mp.le",
     "phone": "+49 123 456789",
     "website": "https://alexmuster.dev",
     "linkedin": "https://linkedin.com/in/alexmuster"
