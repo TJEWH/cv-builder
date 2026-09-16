@@ -117,7 +117,6 @@ function pixels(value, fallback = 1) {
           </div>
           <div class="grid-3 subsection-row">
             <label>Bullet Point Font Size: {{ design.bullets }}<input type="range" min="8" max="14" step="0.5" :value="parseFloat(design.bullets)" @input="design.bullets = $event.target.value + 'pt'"></label>
-            <label>Bullet Point Style<select v-model="design.bulletStyle"><option value="disc">Disc (●)</option><option value="disclosure-closed">Disclosure (▸)</option><option value="circle">Circle (○)</option><option value="square">Square (■)</option></select></label>
           </div>
           <div class="grid-3 subsection-row">
             <label>Body-Font<select v-model="design.fontBody"><option :value="''">(System)</option><option v-for="font in bodyFonts" :key="font" :value="font">{{ font }}</option></select></label>

@@ -98,7 +98,6 @@ export function applyCvDesign(design = {}) {
   root.setProperty('--sidebar-width', design.sidebarWidth || '0.7fr');
   root.setProperty('--sidebar-column-width', sidebarColumnWidth(design.sidebarWidth));
   root.setProperty('--sidebar-align', design.sidebarAlign || 'right');
-  root.setProperty('--bullet-style', design.bulletStyle || 'disc');
   const badgeMode = design.badgeMode === 'border' ? 'border' : 'solid';
   root.setProperty('--badge-bg', badgeMode === 'solid' ? 'var(--graphic)' : 'transparent');
   root.setProperty('--badge-color', badgeMode === 'solid' ? '#ffffff' : 'var(--graphic)');

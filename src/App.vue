@@ -32,7 +32,7 @@ const state = reactive({
   completedSections: [],
   lang: 'de',
   design: {
-    h1: '22pt', h2: '12pt', h3: '10pt', bullets: '10.5pt', bulletStyle: 'disc',
+    h1: '22pt', h2: '12pt', h3: '10pt', bullets: '10.5pt',
     ink: '#111827', graphicOpacity: 100, dateOpacity: 100,
     fontBody: 'Inter', fontHead: 'Inter', hstyle: 'clean', radius: '10px',
     badgeMode: 'solid', badgeBorderWidth: '1px', badgeBorderRadius: '6px',
@@ -115,7 +115,7 @@ function ensureDesignLayoutDefaults() {
     state.design.badgeMode = 'solid';
   }
 
-  ['accent', 'bg', 'headerbg', 'sidebarbg', 'subtitle', 'graphic', 'dateColor', 'invertBadge', 'enableBoxShadow', 'layoutStyle', 'addExpColumns'].forEach((key) => {
+  ['accent', 'bg', 'headerbg', 'sidebarbg', 'subtitle', 'graphic', 'dateColor', 'invertBadge', 'enableBoxShadow', 'layoutStyle', 'addExpColumns', 'bulletStyle'].forEach((key) => {
     delete state.design[key];
   });
 }
