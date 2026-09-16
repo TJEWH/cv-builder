@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { makeT } from '../i18n/dict.js';
 import SkillItem from './skills/SkillItem.vue';
 import MarkdownContent from './MarkdownContent.vue';
+import CvBodyItem from './CvBodyItem.vue';
 import { hasMarkdownText } from '../composables/markdownText.js';
 
 const props = defineProps({
@@ -15,6 +16,7 @@ const t = makeT(langRef);
 const bodyKeys = computed(() => Array.isArray(props.state.bodyOrder) ? props.state.bodyOrder : ['about', 'education', 'jobs']);
 const sidebarKeys = computed(() => Array.isArray(props.state.sidebarOrder) ? props.state.sidebarOrder : ['languages', 'hobbies']);
 const isDisabled = (key) => Array.isArray(props.state.disabled) && props.state.disabled.includes(key);
+const isKeptTogether = (key) => Array.isArray(props.state.keepTogetherSections) && props.state.keepTogetherSections.includes(key);
 const visibleItems = (items) => Array.isArray(items) ? items.filter((item) => item && !item.hidden) : [];
 const hasVisibleItems = (items) => visibleItems(items).length > 0;
 const getBodySection = (id) => props.state.customSections?.find((section) => section.id === id);
@@ -99,22 +101,33 @@ const hasCustomInstitution = (section, entry) => (
       </aside>
 
       <div id="cv_main">
-        <section v-for="key in bodyKeys" :key="key" class="section cv-block" :class="{ 'is-hidden': isHiddenFor(key) }">
+        <section v-for="key in bodyKeys" :key="key" class="section cv-block" :class="{ 'is-hidden': isHiddenFor(key), 'section--keep-together': isKeptTogether(key) }">
           <template v-if="key === 'about'">
-            <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
-            <MarkdownContent :value="state.about.text" :anonymized="anonymized" />
+            <div class="section-lead">
+              <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
+              <MarkdownContent :value="state.about.text" :anonymized="anonymized" />
+            </div>
           </template>
           <template v-else-if="key === 'jobs'">
-            <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
-            <div class="timeline" id="cv_exp_job"><article v-for="item in visibleItems(state.experience.jobs)" :key="item.id" class="item"><h3 class="item-title">{{ item.title }}</h3><div class="item-sub">{{ item.company }}</div><div class="item-meta">{{ formatMeta(item) }}</div><MarkdownContent :value="item.bullets" :anonymized="anonymized" /></article></div>
+            <div class="section-lead">
+              <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
+              <div class="timeline" id="cv_exp_job"><CvBodyItem v-if="visibleItems(state.experience.jobs).length" kind="jobs" :item="visibleItems(state.experience.jobs)[0]" :meta="formatMeta(visibleItems(state.experience.jobs)[0])" :anonymized="anonymized" /></div>
+            </div>
+            <div v-if="visibleItems(state.experience.jobs).length > 1" class="timeline timeline--continued"><CvBodyItem v-for="item in visibleItems(state.experience.jobs).slice(1)" :key="item.id" kind="jobs" :item="item" :meta="formatMeta(item)" :anonymized="anonymized" /></div>
           </template>
           <template v-else-if="key === 'education'">
-            <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
-            <div class="timeline"><article v-for="item in visibleItems(state.education)" :key="item.id" class="item education-item"><h3 class="item-title">{{ item.title }}</h3><div class="item-sub">{{ item.sub }}</div><div class="item-meta">{{ formatMeta(item) }}</div><div v-if="hasMarkdownText(item.thesis) || hasMarkdownText(item.coursesText)" class="education-details"><div v-if="hasMarkdownText(item.thesis)" class="education-thesis"><MarkdownContent :value="item.thesis" :anonymized="anonymized" /></div><div v-if="hasMarkdownText(item.coursesText)" class="education-courses"><MarkdownContent :value="item.coursesText" :anonymized="anonymized" /></div></div></article></div>
+            <div class="section-lead">
+              <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
+              <div class="timeline"><CvBodyItem v-if="visibleItems(state.education).length" kind="education" :item="visibleItems(state.education)[0]" :meta="formatMeta(visibleItems(state.education)[0])" :anonymized="anonymized" /></div>
+            </div>
+            <div v-if="visibleItems(state.education).length > 1" class="timeline timeline--continued"><CvBodyItem v-for="item in visibleItems(state.education).slice(1)" :key="item.id" kind="education" :item="item" :meta="formatMeta(item)" :anonymized="anonymized" /></div>
           </template>
           <template v-else-if="getBodySection(key)">
-            <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
-            <div><article v-for="entry in visibleItems(getBodySection(key).entries)" :key="entry.id" class="item custom-body-item" :class="{ 'custom-body-item--with-institution': hasCustomInstitution(getBodySection(key), entry) }"><h3 v-if="customFieldEnabled(getBodySection(key), 'title')" class="item-title">{{ entry.title }}</h3><div v-if="hasCustomInstitution(getBodySection(key), entry)" class="item-sub">{{ entry.institution }}</div><div v-if="formatCustomMeta(getBodySection(key), entry)" class="item-meta">{{ formatCustomMeta(getBodySection(key), entry) }}</div><MarkdownContent v-if="customFieldEnabled(getBodySection(key), 'desc')" :value="entry.desc" :anonymized="anonymized" /></article></div>
+            <div class="section-lead">
+              <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
+              <CvBodyItem v-if="visibleItems(getBodySection(key).entries).length" kind="custom" :item="visibleItems(getBodySection(key).entries)[0]" :meta="formatCustomMeta(getBodySection(key), visibleItems(getBodySection(key).entries)[0])" :institution="hasCustomInstitution(getBodySection(key), visibleItems(getBodySection(key).entries)[0])" :show-title="customFieldEnabled(getBodySection(key), 'title')" :show-description="customFieldEnabled(getBodySection(key), 'desc')" :anonymized="anonymized" />
+            </div>
+            <div v-if="visibleItems(getBodySection(key).entries).length > 1"><CvBodyItem v-for="entry in visibleItems(getBodySection(key).entries).slice(1)" :key="entry.id" kind="custom" :item="entry" :meta="formatCustomMeta(getBodySection(key), entry)" :institution="hasCustomInstitution(getBodySection(key), entry)" :show-title="customFieldEnabled(getBodySection(key), 'title')" :show-description="customFieldEnabled(getBodySection(key), 'desc')" :anonymized="anonymized" /></div>
           </template>
         </section>
       </div>
@@ -130,6 +143,4 @@ const hasCustomInstitution = (section, entry) => (
 .language-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 2px 0; }
 .language-name { flex: 1; min-width: 0; font-size: 9.5pt; overflow-wrap: anywhere; }
 .language-level { flex: 0 0 auto; font-size: 8.5pt; font-weight: 700; opacity: .8; white-space: nowrap; }
-.custom-body-item { margin: 0 0 2.5mm; }
-.custom-body-item:not(.custom-body-item--with-institution) .item-meta { grid-row: 1; }
 </style>

@@ -11,6 +11,28 @@ test('reorders visible sections while preserving hidden section positions', () =
   );
 });
 
+test('defaults legacy CVs to breakable body sections', () => {
+  const state = { version: 2, experience: {} };
+  normalizeContentState(state);
+  assert.deepEqual(state.keepTogetherSections, []);
+});
+
+test('retains only current body section keys in keep-together settings', () => {
+  const state = {
+    version: 7,
+    experience: {},
+    customSections: [{ id: 'body_current', name: 'Projects', entries: [] }],
+    sidebarSections: [{ id: 'sidebar_current', name: 'Skills', items: [] }],
+    keepTogetherSections: ['education', 'body_current', 'jobs', 'education', 'body_deleted', 'sidebar_current', 'languages', null],
+  };
+  normalizeContentState(state);
+  assert.deepEqual(state.keepTogetherSections, ['education', 'body_current', 'jobs']);
+
+  state.customSections = [];
+  normalizeContentState(state);
+  assert.deepEqual(state.keepTogetherSections, ['education', 'jobs']);
+});
+
 test('migrates legacy ordering into fixed body and sidebar orders', () => {
   const state = {
     version: 1,

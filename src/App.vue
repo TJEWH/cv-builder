@@ -31,6 +31,7 @@ const state = reactive({
   version: 7,
   disabled: [],
   completedSections: [],
+  keepTogetherSections: [],
   lang: 'de',
   design: {
     h1: '22pt', h2: '12pt', h3: '10pt', bullets: '10.5pt',
@@ -417,6 +418,7 @@ const previewState = computed(() => ({
   sidebarSections: state.sidebarSections,
   sectionNames: state.sectionNames,
   sectionHeaderSizes: state.sectionHeaderSizes,
+  keepTogetherSections: state.keepTogetherSections,
   softSkills: state.softSkills,
   bodyOrder: state.bodyOrder,
   sidebarOrder: state.sidebarOrder,

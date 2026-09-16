@@ -16,6 +16,8 @@ const props = defineProps({
   toggleable: { type: Boolean, default: true },
   disabled: { type: Boolean, default: false },
   completed: { type: Boolean, default: false },
+  showKeepTogether: { type: Boolean, default: false },
+  keepTogether: { type: Boolean, default: false },
   isCollapsed: { type: Boolean, default: false },
   editableTitle: { type: Boolean, default: false },
   isEditingTitle: { type: Boolean, default: false },
@@ -26,6 +28,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   'update:modelValue', 'toggle-section', 'toggle-complete', 'toggle-collapse',
+  'toggle-keep-together',
   'start-edit-title', 'finish-edit-title', 'cancel-edit-title', 'update-editing-value', 'header-size-change',
 ]);
 
@@ -114,6 +117,7 @@ const confirmRemoveAt = () => {
       <h3 v-else>{{ title }}</h3>
 
       <div class="section-head__actions">
+        <button v-if="showKeepTogether" class="section-header-control section-break-toggle" :class="{ 'section-break-toggle--active': keepTogether }" type="button" :aria-pressed="keepTogether" :aria-label="keepTogether ? t('allowPageBreaks') : t('preventPageBreaks')" :title="keepTogether ? t('allowPageBreaks') : t('preventPageBreaks')" @click.stop="emit('toggle-keep-together')"><font-awesome-icon :icon="['fas', keepTogether ? 'lock' : 'lock-open']" /></button>
         <Select
           :model-value="headerSize"
           :options="headerSizeOptions"
@@ -159,6 +163,9 @@ const confirmRemoveAt = () => {
 
 <style scoped>
 .section-head__actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.section-header-control { display: inline-flex; align-items: center; justify-content: center; min-width: 38px; min-height: 38px; padding: 8px; border: 1px solid #0b3740; border-radius: 8px; background: #06141f; color: #e2ffe9; cursor: pointer; font: inherit; }
+.section-header-control:hover { border-color: #10b981; background: #0a1c26; }
+.section-break-toggle--active { border-color: #10b981; background: rgba(16, 185, 129, .16); color: #86efac; }
 .section-complete-toggle { display: inline-flex; align-items: center; cursor: pointer; }
 .section-complete-toggle input { width: 16px; height: 16px; accent-color: #86efac; cursor: pointer; }
 .item-row__actions { display: flex; flex-direction: column; align-items: center; gap: 6px; align-self: center; }

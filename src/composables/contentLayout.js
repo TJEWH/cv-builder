@@ -250,6 +250,9 @@ export function normalizeContentState(state) {
 
   const bodyKeys = [...BODY_SECTION_KEYS, ...state.customSections.map((section) => section.id)];
   const sidebarKeys = [...SIDEBAR_SECTION_KEYS, ...state.sidebarSections.map((section) => section.id)];
+  const validBodyKeys = new Set(bodyKeys);
+  state.keepTogetherSections = [...new Set(ensureArray(state.keepTogetherSections)
+    .filter((key) => typeof key === 'string' && validBodyKeys.has(key)))];
   state.bodyOrder = normalizedOrder(ensureArray(sourceBodyOrder).map((key) => migratedIds[key] || key), bodyKeys);
   state.sidebarOrder = normalizedOrder(ensureArray(sourceSidebarOrder).map((key) => migratedIds[key] || key), sidebarKeys);
   normalizeAnonymizationState(state);

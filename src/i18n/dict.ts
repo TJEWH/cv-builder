@@ -134,6 +134,8 @@ export const dict = {
     linkedin:       { de:'LinkedIn', en:'LinkedIn' },
     github:         { de:'GitHub', en:'GitHub' },
     markComplete:   { de:'Als erledigt markieren', en:'Mark as complete' },
+    preventPageBreaks: { de:'Seitenumbrüche in diesem Abschnitt verhindern', en:'Prevent page breaks in this section' },
+    allowPageBreaks: { de:'Seitenumbrüche in diesem Abschnitt erlauben', en:'Allow page breaks in this section' },
 
     // About
     aboutTextLabel: { de:'Text', en:'Text' },

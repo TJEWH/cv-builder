@@ -11,6 +11,7 @@ function sampleState() {
   return {
     contact: { name: 'Real Name', email: 'real@example.com', github: 'https://github.com/real' },
     disabled: ['languages'],
+    keepTogetherSections: ['education', 'custom_body'],
     anonymization: {
       excludedSections: ['jobs', 'custom_body', 'missing_section'],
       excludedItems: ['education_1', 'custom_item', 'missing_item'],
@@ -43,6 +44,7 @@ test('builds an anonymous copy without mutating normal CV data', () => {
   const anonymized = createAnonymizedState(state);
 
   assert.deepEqual(state, before);
+  assert.deepEqual(anonymized.keepTogetherSections, ['education', 'custom_body']);
   assert.deepEqual(anonymized.contact, createAnonymizedContact(state.contact));
   assert.deepEqual(new Set(anonymized.disabled), new Set(['languages', 'jobs', 'custom_body']));
   assert.equal(anonymized.education[0].hidden, true);
