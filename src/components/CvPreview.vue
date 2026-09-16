@@ -82,7 +82,7 @@ const hasCustomInstitution = (section, entry) => (
     <section class="content">
       <aside v-if="hasVisibleSidebarContent" class="sidebar" id="cv_side">
         <div class="sidebar-content">
-        <section v-for="key in sidebarKeys" :key="key" class="section cv-block" :class="{ 'is-hidden': isHiddenFor(key) }">
+        <section v-for="key in sidebarKeys" :key="key" class="section" :class="{ 'is-hidden': isHiddenFor(key) }">
           <template v-if="key === 'languages'">
             <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
             <div class="language-items"><div v-for="language in visibleItems(state.languages)" :key="language.id" class="language-item"><span class="language-name">{{ language.name }}</span><span class="language-level">{{ language.level }}</span></div></div>
@@ -101,7 +101,7 @@ const hasCustomInstitution = (section, entry) => (
       </aside>
 
       <div id="cv_main">
-        <section v-for="key in bodyKeys" :key="key" class="section cv-block" :class="{ 'is-hidden': isHiddenFor(key), 'section--keep-together': isKeptTogether(key) }">
+        <section v-for="key in bodyKeys" :key="key" class="section" :class="{ 'is-hidden': isHiddenFor(key), 'section--keep-together': isKeptTogether(key) }">
           <template v-if="key === 'about'">
             <div class="section-lead">
               <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>

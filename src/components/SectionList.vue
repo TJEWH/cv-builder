@@ -162,21 +162,5 @@ const confirmRemoveAt = () => {
 </template>
 
 <style scoped>
-.section-head__actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
-.section-header-control { display: inline-flex; align-items: center; justify-content: center; min-width: 38px; min-height: 38px; padding: 8px; border: 1px solid #0b3740; border-radius: 8px; background: #06141f; color: #e2ffe9; cursor: pointer; font: inherit; }
-.section-header-control:hover { border-color: #10b981; background: #0a1c26; }
-.section-break-toggle--active { border-color: #10b981; background: rgba(16, 185, 129, .16); color: #86efac; }
-.section-complete-toggle { display: inline-flex; align-items: center; cursor: pointer; }
-.section-complete-toggle input { width: 16px; height: 16px; accent-color: #86efac; cursor: pointer; }
-.item-row__actions { display: flex; flex-direction: column; align-items: center; gap: 6px; align-self: center; }
-.entry-drag-handle { cursor: grab; }
-.entry-drag-handle:active { cursor: grabbing; }
-.sortable-ghost { opacity: .4; }
 .sortable-chosen { outline: 1px solid #10b981; }
-.section-name-label { color: #9be8c7; padding: 4px 8px; font-size: 1rem; font-weight: 600; margin: 0; cursor: pointer; border-radius: 4px; border: 1px solid transparent; }
-.section-name-label:hover { background: rgba(16, 185, 129, .1); border-color: #134e4a; }
-.section-name-input { width: 30%; min-width: 200px; }
-.add-item-row { display: flex; align-items: center; justify-content: center; gap: 8px; width: calc(100% - 32px); min-height: 42px; margin-top: 8px; padding: 10px 12px; border: 1px dashed #2a6a60; border-radius: 6px; background: transparent; color: #9be8c7; cursor: pointer; font: inherit; }
-.add-item-row:hover, .add-item-row:focus-visible { border-color: #27f3a2; background: rgba(16, 185, 129, .1); }
-.add-item-row:focus-visible { outline: 2px solid #9be8c7; outline-offset: -3px; }
 </style>

@@ -77,8 +77,6 @@ export function applyCvDesign(design = {}) {
   root.setProperty('--accent-soft', colorWithOpacity(fontColor, 12));
   root.setProperty('--accent-fade', colorWithOpacity(fontColor, 15));
   root.setProperty('--bg', '#ffffff');
-  root.setProperty('--header-bg', '#ffffff');
-  root.setProperty('--sidebar-bg', '#ffffff');
   root.setProperty('--page-margin-top', millimeters(design.pageMarginTop, '0mm'));
   root.setProperty('--page-margin-right', millimeters(design.pageMarginRight, '0mm'));
   root.setProperty('--page-margin-bottom', millimeters(design.pageMarginBottom, '0mm'));
@@ -88,17 +86,12 @@ export function applyCvDesign(design = {}) {
   root.setProperty('--content-padding-vertical', millimeters(design.contentPaddingVertical, '10mm'));
   root.setProperty('--content-padding-horizontal', millimeters(design.contentPaddingHorizontal, '12mm'));
   root.setProperty('--separator-width', pixels(design.separatorWidth, '1px'));
-  root.setProperty('--radius', design.radius || '10px');
   root.setProperty('--badge-border-width', pixels(design.badgeBorderWidth, '1px'));
   root.setProperty('--badge-border-radius', design.badgeBorderRadius || '6px');
-  root.setProperty('--item-border-width', design.itemBorderWidth || '1px');
-  root.setProperty('--section-spacing', design.sectionSpacing || '6mm');
   root.setProperty('--section-spacing-body', design.sectionSpacingBody || design.sectionSpacing || '6mm');
   root.setProperty('--section-spacing-sidebar', design.sectionSpacingSidebar || design.sectionSpacing || '6mm');
   root.setProperty('--body-sidebar-spacing', millimeters(design.bodySidebarSpacing, '10mm'));
-  root.setProperty('--sidebar-width', design.sidebarWidth || '0.7fr');
   root.setProperty('--sidebar-column-width', sidebarColumnWidth(design.sidebarWidth));
-  root.setProperty('--sidebar-align', design.sidebarAlign || 'right');
   const badgeMode = design.badgeMode === 'border' ? 'border' : 'solid';
   root.setProperty('--badge-bg', badgeMode === 'solid' ? 'var(--graphic)' : 'transparent');
   root.setProperty('--badge-color', badgeMode === 'solid' ? '#ffffff' : 'var(--graphic)');

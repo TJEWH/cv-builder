@@ -446,31 +446,8 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
 .content-tab:focus-visible { outline: 2px solid #9be8c7; outline-offset: -3px; }
 .content-tab__complete { color: #86efac; }
 .content-tab-panel { min-width: 0; }
-.add-section-row { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 54px; padding: 8px; border: 0; border-top: 1px dashed #2a6a60; border-bottom: 1px dashed #2a6a60; background: transparent; color: #9be8c7; cursor: pointer; font: inherit; }
-.add-section-row:hover, .add-section-row:focus-visible { border-color: #27f3a2; background: rgba(16, 185, 129, .1); }
-.add-section-row:focus-visible { outline: 2px solid #9be8c7; outline-offset: -3px; }
-.add-item-row { display: flex; align-items: center; justify-content: center; gap: 8px; width: calc(100% - 32px); min-height: 42px; margin-top: 8px; padding: 10px 12px; border: 1px dashed #2a6a60; border-radius: 6px; background: transparent; color: #9be8c7; cursor: pointer; font: inherit; }
-.add-item-row:hover, .add-item-row:focus-visible { border-color: #27f3a2; background: rgba(16, 185, 129, .1); }
-.add-item-row:focus-visible { outline: 2px solid #9be8c7; outline-offset: -3px; }
-.section-head__actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
-.section-header-control { display: inline-flex; align-items: center; justify-content: center; min-height: 38px; padding: 8px; border: 1px solid #0b3740; border-radius: 8px; background: #06141f; color: #e2ffe9; cursor: pointer; font: inherit; }
-.section-header-control:hover { border-color: #10b981; background: #0a1c26; }
-.section-header-control--danger { color: #fee2e2; border-color: #7f1d1d; }
-.section-header-control--danger:hover { border-color: #ef4444; }
-.section-break-toggle { min-width: 38px; }
-.section-break-toggle--active { border-color: #10b981; background: rgba(16, 185, 129, .16); color: #86efac; }
-.item-row__actions { display: flex; flex-direction: column; align-items: center; gap: 6px; align-self: center; }
-.section-name-label { color: #9be8c7; padding: 4px 8px; font-size: 1rem; font-weight: 600; margin: 0; cursor: pointer; user-select: none; border-radius: 4px; border: 1px solid transparent; }
-.section-name-label:not(.section-name-label--static):hover { background: rgba(16, 185, 129, .1); border-color: #134e4a; }
-.section-name-label--static { cursor: default; }
-.section-name-input { min-width: 200px; width: 30%; }
+.add-section-row { width: 100%; min-height: 54px; padding: 8px; border: 0; border-top: 1px dashed #2a6a60; border-bottom: 1px dashed #2a6a60; }
 .about-editor { display: grid; gap: 4px; }
-.entry-drag-handle { cursor: grab; }
-.entry-drag-handle:active { cursor: grabbing; }
-.sortable-ghost { opacity: .4; }
-.sidebar-section-settings { padding: 0 12px; }
-.sidebar-section-settings label { display: grid; gap: 4px; max-width: 220px; }
-.section-group.collapsed .sidebar-section-settings { display: none; }
 .sidebar-skill-row__content { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; }
 .custom-body-entry__fields { display: grid; grid-template-columns: repeat(var(--custom-body-field-count), minmax(0, 1fr)); gap: 8px; }
 .reorder-dialog-backdrop { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; padding: 20px; background: rgba(0, 0, 0, .7); backdrop-filter: blur(3px); }

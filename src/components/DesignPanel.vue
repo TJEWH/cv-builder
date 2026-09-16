@@ -162,10 +162,9 @@ function pixels(value, fallback = 1) {
 .editor-subsection h4 { margin: 0; color: #9be8c7; font-size: 10pt; text-transform: uppercase; letter-spacing: .5px; }
 .editor-subsection > .section-head > .section-icon { width: 34px; color: var(--muted); text-align: center; }
 .subsection-row { margin-top: 8px; }
-.linked-control__heading { display: flex; align-items: center; gap: 6px; }
+.linked-control__heading { display: flex; align-items: center; gap: 6px; color: #78d1b8; font-size: 10pt; }
 .layout-control-group h5 { margin: 0 0 6px; color: var(--muted); font-size: 9pt; text-transform: uppercase; letter-spacing: .4px; }
 .link-toggle { width: 28px; min-width: 28px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .link-toggle[aria-pressed="true"] { border-color: #27f3a2; color: #9be8c7; }
 .linked-control { display: grid; gap: 4px; }
-.linked-control__heading { color: #78d1b8; font-size: 10pt; }
 </style>

@@ -36,9 +36,8 @@ const state = reactive({
   design: {
     h1: '22pt', h2: '12pt', h3: '10pt', bullets: '10.5pt',
     ink: '#111827', graphicOpacity: 100, dateOpacity: 100,
-    fontBody: 'Inter', fontHead: 'Inter', hstyle: 'clean', radius: '10px',
+    fontBody: 'Inter', fontHead: 'Inter', hstyle: 'clean',
     badgeMode: 'solid', badgeBorderWidth: '1px', badgeBorderRadius: '6px',
-    itemBorderWidth: '1px',
     sectionSpacing: '6mm', sectionSpacingBody: '6mm', sectionSpacingSidebar: '6mm',
     sidebarWidth: '0.7fr', sidebarAlign: 'right', sidebarFillMode: 'start', headerLayoutStyle: 'separator', sidebarLayoutStyle: 'separator', contactLayout: 'side', separatorWidth: '1px',
     pageMarginTop: '0mm', pageMarginRight: '0mm', pageMarginBottom: '0mm', pageMarginLeft: '0mm', pageMarginHorizontalLinked: true,
@@ -137,7 +136,7 @@ function ensureDesignLayoutDefaults() {
     }
   });
 
-  ['accent', 'bg', 'headerbg', 'sidebarbg', 'subtitle', 'graphic', 'dateColor', 'invertBadge', 'enableBoxShadow', 'layoutStyle', 'addExpColumns', 'bulletStyle'].forEach((key) => {
+  ['accent', 'bg', 'headerbg', 'sidebarbg', 'subtitle', 'graphic', 'dateColor', 'invertBadge', 'enableBoxShadow', 'layoutStyle', 'addExpColumns', 'bulletStyle', 'radius', 'itemBorderWidth'].forEach((key) => {
     delete state.design[key];
   });
 }
@@ -784,12 +783,12 @@ function toggleFullPreviewView() {
   overflow: auto;
 }
 
-.inline-preview :deep(.pdf-preview) {
+.inline-preview .pdf-preview {
   width: min(100%, 794px);
   margin: 0 auto;
 }
 
-.inline-preview :deep(.pdf-preview__stage) {
+.inline-preview .pdf-preview__stage {
   display: block;
   min-height: 0;
   overflow: visible;
@@ -797,7 +796,7 @@ function toggleFullPreviewView() {
   background: transparent;
 }
 
-.inline-preview :deep(.pdf-preview__page) {
+.inline-preview .pdf-preview__page {
   width: 100%;
   max-width: 794px;
   box-shadow: none;
@@ -862,15 +861,6 @@ function toggleFullPreviewView() {
 .fullscreen-preview__actions-spacer { height: 4px; }
 .fullscreen-preview__actions .btn { display: inline-flex; align-items: center; gap: 8px; }
 
-.preview-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  padding: 10px;
-  background: #061017;
-}
-.preview-actions .pdf-pagination { grid-column: 1 / -1; }
-.preview-actions .btn { width: 100%; }
 @media (max-width: 1180px) {
   .cv-builder-app {
     padding-right: 24px;
