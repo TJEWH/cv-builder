@@ -34,7 +34,7 @@ const state = reactive({
     h1: '22pt', h2: '12pt', h3: '10pt', bullets: '10.5pt', bulletStyle: 'disc',
     ink: '#111827', graphicOpacity: 100, dateOpacity: 100,
     fontBody: 'Inter', fontHead: 'Inter', hstyle: 'clean', radius: '10px',
-    badgeBorderWidth: '1px', badgeBorderRadius: '6px',
+    badgeMode: 'solid', badgeBorderWidth: '1px', badgeBorderRadius: '6px',
     itemBorderWidth: '1px',
     sectionSpacing: '6mm', sectionSpacingBody: '6mm', sectionSpacingSidebar: '6mm',
     sidebarWidth: '0.7fr', sidebarAlign: 'right', sidebarFillMode: 'start', headerLayoutStyle: 'separator', sidebarLayoutStyle: 'separator', contactLayout: 'side', separatorWidth: '1px',
@@ -100,6 +100,8 @@ function ensureDesignLayoutDefaults() {
     headerPaddingHorizontal: '12mm',
     contentPaddingVertical: '10mm',
     contentPaddingHorizontal: '12mm',
+    badgeMode: 'solid',
+    badgeBorderWidth: '1px',
   };
 
   Object.entries(defaults).forEach(([key, value]) => {
@@ -107,6 +109,9 @@ function ensureDesignLayoutDefaults() {
   });
   if (!['start', 'last-page', 'after-cover'].includes(state.design.sidebarFillMode)) {
     state.design.sidebarFillMode = 'start';
+  }
+  if (!['solid', 'border'].includes(state.design.badgeMode)) {
+    state.design.badgeMode = 'solid';
   }
 
   ['accent', 'bg', 'headerbg', 'sidebarbg', 'subtitle', 'graphic', 'dateColor', 'invertBadge', 'enableBoxShadow', 'layoutStyle', 'addExpColumns'].forEach((key) => {

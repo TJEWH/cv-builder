@@ -89,7 +89,7 @@ export function applyCvDesign(design = {}) {
   root.setProperty('--content-padding-horizontal', millimeters(design.contentPaddingHorizontal, '12mm'));
   root.setProperty('--separator-width', pixels(design.separatorWidth, '1px'));
   root.setProperty('--radius', design.radius || '10px');
-  root.setProperty('--badge-border-width', design.badgeBorderWidth || '1px');
+  root.setProperty('--badge-border-width', pixels(design.badgeBorderWidth, '1px'));
   root.setProperty('--badge-border-radius', design.badgeBorderRadius || '6px');
   root.setProperty('--item-border-width', design.itemBorderWidth || '1px');
   root.setProperty('--section-spacing', design.sectionSpacing || '6mm');
@@ -99,8 +99,10 @@ export function applyCvDesign(design = {}) {
   root.setProperty('--sidebar-column-width', sidebarColumnWidth(design.sidebarWidth));
   root.setProperty('--sidebar-align', design.sidebarAlign || 'right');
   root.setProperty('--bullet-style', design.bulletStyle || 'disc');
-  root.setProperty('--badge-bg', 'var(--graphic)');
-  root.setProperty('--badge-color', '#ffffff');
+  const badgeMode = design.badgeMode === 'border' ? 'border' : 'solid';
+  root.setProperty('--badge-bg', badgeMode === 'solid' ? 'var(--graphic)' : 'transparent');
+  root.setProperty('--badge-color', badgeMode === 'solid' ? '#ffffff' : 'var(--graphic)');
+  root.setProperty('--badge-border-color', 'var(--graphic)');
   root.setProperty('--box-shadow', 'none');
   const bodyFont = design.fontBody ? resolvedFontFamily(design.fontBody) : '';
   const headFont = design.fontHead ? resolvedFontFamily(design.fontHead) : '';

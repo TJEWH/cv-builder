@@ -27,6 +27,7 @@ html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
     --accent-fade:rgba(17,24,39,.15);
     --badge-bg:var(--graphic);
     --badge-color:#ffffff;
+    --badge-border-color:var(--graphic);
     --badge-border-width:1px;
     --badge-border-radius:6px;
     --item-border-width:1px;
@@ -261,7 +262,7 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--ink);text-transform:u
 .item{margin:0 0 3.5mm;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 8px;align-items:start;min-width:0}
 .item-header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px;align-items:baseline;min-width:0}
 .tags{display:flex;flex-wrap:wrap;gap:4px 6px}
-.tag{border:var(--badge-border-width) solid var(--badge-color);border-radius:var(--badge-border-radius);padding:1mm 3mm;font-size:8.6pt;background:var(--badge-bg);color:var(--badge-color);font-weight:700}
+.tag{border:var(--badge-border-width) solid var(--badge-border-color);border-radius:var(--badge-border-radius);padding:0.5mm 2mm;font-size:8.6pt;background:var(--badge-bg);color:var(--badge-color);font-weight:700}
 .bars{display:grid;gap:2mm}
 .bar{display:grid;grid-template-columns:1fr auto;gap:3mm;align-items:center}
 .track{height:3mm;border-radius:2mm;overflow:hidden;background:#eef2f7}

@@ -19,6 +19,7 @@
     "headerRadius": "12px",
     "headerPadYmm": 12,
     "lang": "de",
+    "badgeMode": "solid",
     "badgeBorderWidth": "1px",
     "badgeBorderRadius": "6px",
     "itemBorderWidth": "1px",

@@ -134,7 +134,7 @@ function pixels(value, fallback = 1) {
       <section class="editor-subsection" :class="{ collapsed: sections.badges }">
         <div class="section-head" @click="onSectionHeaderClick('badges', $event)"><button class="caret mini" type="button" @click.stop="toggleSection('badges')"><font-awesome-icon :icon="['fas', 'tag']" /></button><h4>Badges & Items</h4></div>
         <div class="editor-subsection__body">
-          <div class="grid-3"><label>Border Width: {{ design.badgeBorderWidth || design.itemBorderWidth || '1px' }}<input type="range" min="0" max="4" step="0.5" :value="parseFloat(design.badgeBorderWidth || design.itemBorderWidth || '1')" @input="design.badgeBorderWidth = design.itemBorderWidth = $event.target.value + 'px'"></label><label>Badge Border Radius: {{ design.badgeBorderRadius }}<input type="range" min="0" max="20" step="1" :value="parseInt(design.badgeBorderRadius)" @input="design.badgeBorderRadius = $event.target.value + 'px'"></label></div>
+          <div class="grid-3"><label>Badge Mode<select v-model="design.badgeMode"><option value="solid">Solid</option><option value="border">Border</option></select></label><label v-if="design.badgeMode === 'border'">Badge Border Width: {{ design.badgeBorderWidth || '1px' }}<input type="range" min="0.5" max="4" step="0.5" :value="parseFloat(design.badgeBorderWidth || '1')" @input="design.badgeBorderWidth = $event.target.value + 'px'"></label><label>Badge Border Radius: {{ design.badgeBorderRadius }}<input type="range" min="0" max="20" step="1" :value="parseInt(design.badgeBorderRadius)" @input="design.badgeBorderRadius = $event.target.value + 'px'"></label></div>
         </div>
       </section>
 
