@@ -157,7 +157,7 @@ Create build: `npm run build` → `/dist` folder
 - Build Command: `npm run build`
 - Output: `dist`
 
-**Custom Domain Deployment**: The Vite base is `/`, so the app is ready for a GitHub Pages custom domain served at its root. Configure the custom domain in GitHub Pages; no `CNAME` is included because the domain is deployment-specific.
+**Custom Domain Deployment**: This build targets the GitHub Pages project URL at `/cv-builder/`. If you later use a custom domain served from its root, change `base` in `vite.config.js` to `/` and add the domain configuration appropriate to that host.
 
 ---
 
