@@ -396,8 +396,17 @@ async function handleExportPdf() {
       </div>
 
       <aside class="inline-preview" aria-label="Live CV preview">
-        <div class="inline-preview__header">
-          <span>{{ t('livePreview') }}</span>
+        <div class="inline-preview__actions">
+          <button class="btn" type="button" @click="previewMode = true">{{ t('openPreview') }}</button>
+          <button class="btn btn--primary" type="button" @click="handleExportPdf" :disabled="isExporting">
+            <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
+            {{ isExporting ? t('exportingPdf') : t('downloadPdf') }}
+          </button>
+        </div>
+        <div class="inline-preview__viewport">
+          <div class="inline-preview__scroll">
+            <PdfPreview :page="previewPage" :pages="previewPages" :is-updating="isPreviewRendering" :lang="lang" />
+          </div>
           <button
             class="mini inline-preview__placement-toggle"
             type="button"
@@ -409,16 +418,8 @@ async function handleExportPdf() {
             <font-awesome-icon :icon="['fas', previewPlacement === 'side' ? 'arrow-down' : 'arrow-right']" />
           </button>
         </div>
-        <div class="inline-preview__viewport">
-          <PdfPreview :page="previewPage" :pages="previewPages" :is-updating="isPreviewRendering" :lang="lang" />
-        </div>
-        <div class="preview-actions">
+        <div class="inline-preview__pagination">
           <PdfPagination v-model:page="previewPage" :pages="previewPages" :lang="lang" />
-          <button class="btn" type="button" @click="previewMode = true">{{ t('openPreview') }}</button>
-          <button class="btn btn--primary" type="button" @click="handleExportPdf" :disabled="isExporting">
-            <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
-            {{ isExporting ? t('exportingPdf') : t('downloadPdf') }}
-          </button>
         </div>
       </aside>
     </section>
@@ -473,36 +474,72 @@ async function handleExportPdf() {
 .inline-preview {
   position: sticky;
   top: 24px;
-  overflow: hidden;
-  border: 1px solid #2a3441;
-  border-radius: 12px;
-  background: #0a0f14;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, .45);
+  display: grid;
+  gap: 10px;
+  background: transparent;
 }
 
-.inline-preview__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.inline-preview__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  padding: 9px 12px;
-  border-bottom: 1px dashed #113c34;
-  color: #9be8c7;
-  font-size: 13px;
-  font-weight: 700;
+  width: min(100%, 794px);
+  justify-self: center;
 }
 
-.inline-preview__placement-toggle { flex: 0 0 auto; }
+.inline-preview__actions .btn { width: 100%; }
 
 .inline-preview__viewport {
+  position: relative;
   width: 100%;
-  height: min(66vh, 520px);
-  min-height: 320px;
+  min-width: 0;
+}
+
+.inline-preview__scroll {
+  max-height: min(66vh, 520px);
   overflow: auto;
-  background: #0b0f14;
-  display: grid;
-  place-items: center;
-  padding: 12px;
+}
+
+.inline-preview :deep(.pdf-preview) {
+  width: min(100%, 794px);
+  margin: 0 auto;
+}
+
+.inline-preview :deep(.pdf-preview__stage) {
+  display: block;
+  min-height: 0;
+  overflow: visible;
+  border-radius: 0;
+  background: transparent;
+}
+
+.inline-preview :deep(.pdf-preview__page) {
+  width: 100%;
+  max-width: 794px;
+  box-shadow: none;
+}
+
+.inline-preview__placement-toggle {
+  position: absolute;
+  z-index: 2;
+  bottom: 10px;
+  left: 50%;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: opacity .16s ease;
+}
+
+.inline-preview:hover .inline-preview__placement-toggle,
+.inline-preview:focus-within .inline-preview__placement-toggle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.inline-preview__pagination {
+  min-width: 0;
+  width: min(100%, 794px);
+  justify-self: center;
 }
 
 .fullscreen-preview {
