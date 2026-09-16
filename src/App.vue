@@ -246,10 +246,37 @@ function waitForPreviewPaint() {
   return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 }
 
+function hasPendingBuilderInput() {
+  return navigator.scheduling?.isInputPending?.({ includeContinuous: true }) ?? false;
+}
+
+function waitForPreviewIdle() {
+  return new Promise((resolve) => {
+    const schedule = () => {
+      const run = () => {
+        if (hasPendingBuilderInput()) {
+          schedule();
+          return;
+        }
+        resolve();
+      };
+
+      if ('requestIdleCallback' in window) {
+        window.requestIdleCallback(run, { timeout: 1_500 });
+      } else {
+        window.setTimeout(run, 250);
+      }
+    };
+
+    schedule();
+  });
+}
+
 async function refreshPdfPreview(version) {
   try {
     await nextTick();
     await document.fonts?.ready;
+    await waitForPreviewIdle();
     if (version !== previewRenderVersion) return;
 
     const cvElement = getPdfSourceElement();
@@ -261,8 +288,10 @@ async function refreshPdfPreview(version) {
     previewPage.value = Math.min(Math.max(previewPage.value, 1), Math.max(fastPages.length, 1));
 
     // Let the low-resolution page reach the screen before beginning the more
-    // expensive inline refinement pass.
+    // expensive inline refinement pass, and only run it once the builder is
+    // idle again.
     await waitForPreviewPaint();
+    await waitForPreviewIdle();
     if (version !== previewRenderVersion) return;
 
     const { pages } = await renderPreview(cvElement, getInlinePdfPreviewRenderOptions({ detailed: true }));
@@ -381,7 +410,6 @@ function invalidateAnonymizedPdfPreview() {
 
 const previewState = computed(() => ({
   disabled: state.disabled,
-  completedSections: state.completedSections,
   lang: state.lang,
   design: state.design,
   contact: state.contact,
