@@ -57,7 +57,8 @@ test('converts a legacy custom array to a single body-only custom section', () =
   assert.equal(state.custom, undefined);
   assert.equal(state.customSections.length, 1);
   assert.equal(state.customSections[0].name, 'Eigene Sektion');
-  assert.deepEqual(state.customSections[0].fields, ['title', 'place', 'start', 'end', 'desc']);
+  assert.deepEqual(state.customSections[0].fields, ['title', 'institution', 'place', 'start', 'end', 'desc']);
+  assert.equal(state.customSections[0].entries[0].institution, '');
   assert.equal(state.customSections[0].entries[0].title, 'Vortrag');
   assert.ok(state.bodyOrder.includes(state.customSections[0].id));
   assert.deepEqual(state.sidebarSections, []);

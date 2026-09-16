@@ -145,7 +145,7 @@ const addBodySection = () => {
   const section = {
     id: createContentId('body'),
     name: langRef.value === 'de' ? 'Neue Sektion' : 'New Section',
-    fields: ['title', 'place', 'start', 'end', 'desc'],
+    fields: ['title', 'institution', 'place', 'start', 'end', 'desc'],
     entries: [],
   };
   props.state.customSections.push(section);
@@ -188,6 +188,7 @@ const closeFieldConfig = () => { fieldConfigSectionId.value = null; };
 const openFieldConfig = (section) => { fieldConfigSectionId.value = section.id; };
 const customBodyFieldOptions = computed(() => [
   { key: 'title', label: t('title'), type: 'text', placeholder: t('customSectionPH') },
+  { key: 'institution', label: t('institution'), type: 'text', placeholder: 'Organisation' },
   { key: 'place', label: t('place'), type: 'text', placeholder: 'Berlin' },
   { key: 'start', label: t('start'), type: 'text', placeholder: '04.2024' },
   { key: 'end', label: t('end'), type: 'text', placeholder: t('current') },

@@ -3,7 +3,7 @@ import { normalizeAnonymizationState } from './anonymization.js';
 
 export const BODY_SECTION_KEYS = ['about', 'education', 'jobs'];
 export const SIDEBAR_SECTION_KEYS = ['languages', 'hobbies'];
-export const CUSTOM_BODY_FIELDS = ['title', 'place', 'start', 'end', 'desc'];
+export const CUSTOM_BODY_FIELDS = ['title', 'institution', 'place', 'start', 'end', 'desc'];
 
 let generatedId = 0;
 
@@ -90,6 +90,7 @@ function normalizeCustomSections(state, migratedSections = []) {
     fields: normalizeCustomBodyFields(section?.fields),
     entries: ensureIds(section?.entries, 'entry').map((entry) => ({
       ...entry,
+      institution: entry.institution || '',
       desc: normalizeMarkdownText(entry.desc),
     })),
   }));

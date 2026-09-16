@@ -86,7 +86,7 @@
     {
       "id": "body_default_custom",
       "name": "Konferenzen",
-      "fields": ["title", "place", "start", "end", "desc"],
+      "fields": ["title", "institution", "place", "start", "end", "desc"],
       "entries": [
         { "id": "entry_default_custom", "title": "Konferenzen", "place": "Köln", "start": "2023", "end": "2025", "desc": "Sprecher auf JSConf; Mitorganisator lokaler Meetup-Reihe" }
       ]
@@ -94,7 +94,7 @@
     {
       "id": "body_default_additional",
       "name": "Weitere Erfahrung",
-      "fields": ["title", "place", "start", "end", "desc"],
+      "fields": ["title", "institution", "place", "start", "end", "desc"],
       "entries": [
         { "id": "entry_default_additional", "title": "Hackathon XYZ", "place": "Dortmund", "start": "2024/03", "end": "2024/03", "desc": "1. Platz – Team von 4\nPrototyp einer ML-App, 48h Sprint …" }
       ]
@@ -102,7 +102,7 @@
     {
       "id": "body_default_projects",
       "name": "Projekte & Publikationen",
-      "fields": ["title", "place", "start", "end", "desc"],
+      "fields": ["title", "institution", "place", "start", "end", "desc"],
       "entries": [
         { "id": "entry_default_project", "title": "Open Source Tool – repo/name", "place": "Remote", "start": "2025", "end": "2025", "desc": "CLI-Tool zur …" }
       ]

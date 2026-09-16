@@ -58,6 +58,9 @@ const formatCustomMeta = (section, entry) => {
   if (customFieldEnabled(section, 'place') && entry.place) values.push(entry.place);
   return values.join(t('dotSep'));
 };
+const hasCustomInstitution = (section, entry) => (
+  customFieldEnabled(section, 'institution') && Boolean(String(entry.institution || '').trim())
+);
 </script>
 
 <template>
@@ -103,15 +106,15 @@ const formatCustomMeta = (section, entry) => {
           </template>
           <template v-else-if="key === 'jobs'">
             <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
-            <div class="timeline" id="cv_exp_job"><article v-for="item in visibleItems(state.experience.jobs)" :key="item.id" class="item"><div class="item-title">{{ item.title }}</div><div class="item-sub">{{ item.company }}</div><div class="item-meta">{{ formatMeta(item) }}</div><MarkdownContent :value="item.bullets" :anonymized="anonymized" /></article></div>
+            <div class="timeline" id="cv_exp_job"><article v-for="item in visibleItems(state.experience.jobs)" :key="item.id" class="item"><h3 class="item-title">{{ item.title }}</h3><div class="item-sub">{{ item.company }}</div><div class="item-meta">{{ formatMeta(item) }}</div><MarkdownContent :value="item.bullets" :anonymized="anonymized" /></article></div>
           </template>
           <template v-else-if="key === 'education'">
             <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
-            <div class="timeline"><article v-for="item in visibleItems(state.education)" :key="item.id" class="item education-item"><div class="item-title">{{ item.title }}</div><div class="item-sub">{{ item.sub }}</div><div class="item-meta">{{ formatMeta(item) }}</div><div v-if="hasMarkdownText(item.thesis) || hasMarkdownText(item.coursesText)" class="education-details"><div v-if="hasMarkdownText(item.thesis)" class="education-thesis"><MarkdownContent :value="item.thesis" :anonymized="anonymized" /></div><div v-if="hasMarkdownText(item.coursesText)" class="education-courses"><MarkdownContent :value="item.coursesText" :anonymized="anonymized" /></div></div></article></div>
+            <div class="timeline"><article v-for="item in visibleItems(state.education)" :key="item.id" class="item education-item"><h3 class="item-title">{{ item.title }}</h3><div class="item-sub">{{ item.sub }}</div><div class="item-meta">{{ formatMeta(item) }}</div><div v-if="hasMarkdownText(item.thesis) || hasMarkdownText(item.coursesText)" class="education-details"><div v-if="hasMarkdownText(item.thesis)" class="education-thesis"><MarkdownContent :value="item.thesis" :anonymized="anonymized" /></div><div v-if="hasMarkdownText(item.coursesText)" class="education-courses"><MarkdownContent :value="item.coursesText" :anonymized="anonymized" /></div></div></article></div>
           </template>
           <template v-else-if="getBodySection(key)">
             <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
-            <div><article v-for="entry in visibleItems(getBodySection(key).entries)" :key="entry.id" class="item"><div v-if="customFieldEnabled(getBodySection(key), 'title') || formatCustomMeta(getBodySection(key), entry)" class="item-header"><div v-if="customFieldEnabled(getBodySection(key), 'title')" class="item-title">{{ entry.title }}</div><div v-if="formatCustomMeta(getBodySection(key), entry)" class="item-meta">{{ formatCustomMeta(getBodySection(key), entry) }}</div></div><MarkdownContent v-if="customFieldEnabled(getBodySection(key), 'desc')" :value="entry.desc" :anonymized="anonymized" /></article></div>
+            <div><article v-for="entry in visibleItems(getBodySection(key).entries)" :key="entry.id" class="item custom-body-item" :class="{ 'custom-body-item--with-institution': hasCustomInstitution(getBodySection(key), entry) }"><h3 v-if="customFieldEnabled(getBodySection(key), 'title')" class="item-title">{{ entry.title }}</h3><div v-if="hasCustomInstitution(getBodySection(key), entry)" class="item-sub">{{ entry.institution }}</div><div v-if="formatCustomMeta(getBodySection(key), entry)" class="item-meta">{{ formatCustomMeta(getBodySection(key), entry) }}</div><MarkdownContent v-if="customFieldEnabled(getBodySection(key), 'desc')" :value="entry.desc" :anonymized="anonymized" /></article></div>
           </template>
         </section>
       </div>
@@ -127,4 +130,6 @@ const formatCustomMeta = (section, entry) => {
 .language-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 2px 0; }
 .language-name { flex: 1; min-width: 0; font-size: 9.5pt; overflow-wrap: anywhere; }
 .language-level { flex: 0 0 auto; font-size: 8.5pt; font-weight: 700; opacity: .8; white-space: nowrap; }
+.custom-body-item { margin: 0 0 2.5mm; }
+.custom-body-item:not(.custom-body-item--with-institution) .item-meta { grid-row: 1; }
 </style>

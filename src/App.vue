@@ -289,7 +289,7 @@ async function refreshPdfPreview(version) {
   }
 }
 
-const schedulePdfPreview = debounce(() => refreshPdfPreview(previewRenderVersion), 100);
+const schedulePdfPreview = debounce((version) => refreshPdfPreview(version), 100);
 
 async function refreshFullPdfPreview(renderVersion, sourceVersion) {
   try {
@@ -322,13 +322,18 @@ function requestFullPdfPreview() {
   scheduleFullPdfPreview(renderVersion, fullPreviewSourceVersion);
 }
 
-function requestPdfPreview() {
-  previewRenderVersion += 1;
+function invalidatePdfPreview() {
+  const version = ++previewRenderVersion;
   fullPreviewSourceVersion += 1;
   fullPreviewPages.value = [];
   renderedFullPreviewSourceVersion = -1;
+  return version;
+}
+
+function requestPdfPreview() {
+  const version = invalidatePdfPreview();
   isPreviewRendering.value = true;
-  schedulePdfPreview();
+  schedulePdfPreview(version);
   if (previewMode.value && fullPreviewView.value === 'pdf' && fullPreviewVariant.value === 'normal') {
     requestFullPdfPreview();
   }
@@ -399,10 +404,34 @@ const anonymizedPreviewState = computed(() => ({
   anonymization: state.anonymization,
 }));
 
+function isTextEntryInput(element) {
+  return Boolean(element?.matches?.([
+    'textarea',
+    '[contenteditable="true"]',
+    'input:not([type])',
+    'input[type="text"]',
+    'input[type="email"]',
+    'input[type="tel"]',
+    'input[type="url"]',
+    'input[type="search"]',
+    'input[type="number"]',
+    'input[type="password"]',
+  ].join(',')));
+}
+
+function onPreviewInputBlur(event) {
+  if (isTextEntryInput(event.target)) requestPdfPreview();
+}
+
 watch(previewState, () => {
   pdfContentRevision += 1;
   if (estimatedPdfBytes.value != null) {
     isPdfEstimateStale.value = true;
+  }
+  if (isTextEntryInput(document.activeElement)) {
+    invalidatePdfPreview();
+    isPreviewRendering.value = false;
+    return;
   }
   requestPdfPreview();
 }, { deep: true, flush: 'post' });
@@ -551,7 +580,7 @@ function toggleFullPreviewView() {
 </script>
 
 <template>
-  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode }">
+  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode }" @focusout="onPreviewInputBlur">
     <div ref="pdfRenderSource" class="pdf-render-source" aria-hidden="true">
       <CvPreview :state="state" export-source />
     </div>

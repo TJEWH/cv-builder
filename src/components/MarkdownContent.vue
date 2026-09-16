@@ -38,7 +38,7 @@ const content = computed(() => {
 </template>
 
 <style scoped>
-.markdown-content__prose { white-space: pre-line; }
+.markdown-content__prose { margin: 0}
 .markdown-bullets li { white-space: pre-line; }
 .markdown-content__prose a,
 .markdown-bullets a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
