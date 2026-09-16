@@ -13,7 +13,7 @@ export function normalizeMarkdownText(value) {
 /** Render paired !!confidential text!! markers for normal or anonymous output. */
 export function renderConfidentialText(value, { anonymized = false } = {}) {
   const normalized = normalizeMarkdownText(value);
-  return normalized.replace(/!!([\s\S]*?)!!/g, anonymized ? '!!confidential text!!' : '');
+  return normalized.replace(/!!([\s\S]*?)!!/g, anonymized ? '!!confidential text!!' : '$1');
 }
 
 export function parseMarkdownText(value) {

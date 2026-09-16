@@ -49,7 +49,7 @@ test('renders paired confidential markers normally or as anonymous content', () 
 
   assert.equal(
     renderConfidentialText(source),
-    'Built  for [a client](https://example.com).',
+    'Built a private **prototype** for [a client](https://example.com).',
   );
   assert.equal(
     renderConfidentialText(source, { anonymized: true }),
