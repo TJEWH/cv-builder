@@ -39,9 +39,11 @@ const state = reactive({
     itemBorderWidth: '1px',
     sectionSpacing: '6mm', sectionSpacingBody: '6mm', sectionSpacingSidebar: '6mm',
     sidebarWidth: '0.7fr', sidebarAlign: 'right', sidebarFillMode: 'start', headerLayoutStyle: 'separator', sidebarLayoutStyle: 'separator', contactLayout: 'side', separatorWidth: '1px',
-    pageMarginTop: '0mm', pageMarginRight: '0mm', pageMarginBottom: '0mm', pageMarginLeft: '0mm',
+    pageMarginTop: '0mm', pageMarginRight: '0mm', pageMarginBottom: '0mm', pageMarginLeft: '0mm', pageMarginHorizontalLinked: true,
     headerPaddingVertical: '12mm', headerPaddingHorizontal: '12mm',
-    contentPaddingVertical: '10mm', contentPaddingHorizontal: '12mm',
+    contentPaddingVertical: '12mm', contentPaddingHorizontal: '12mm',
+    headerContentPaddingVerticalLinked: true, headerContentPaddingHorizontalLinked: true,
+    bodySidebarSpacing: '10mm',
   },
   exportOptions: { ...DEFAULT_EXPORT_OPTIONS },
   contact: { name: '', location: '', role: '', email: '', phone: '', website: '', linkedin: '', github: '' },
@@ -99,8 +101,9 @@ function ensureDesignLayoutDefaults() {
     pageMarginLeft: '0mm',
     headerPaddingVertical: '12mm',
     headerPaddingHorizontal: '12mm',
-    contentPaddingVertical: '10mm',
+    contentPaddingVertical: '12mm',
     contentPaddingHorizontal: '12mm',
+    bodySidebarSpacing: '10mm',
     badgeMode: 'solid',
     badgeBorderWidth: '1px',
   };
@@ -114,6 +117,15 @@ function ensureDesignLayoutDefaults() {
   if (!['solid', 'border'].includes(state.design.badgeMode)) {
     state.design.badgeMode = 'solid';
   }
+  [
+    ['pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft'],
+    ['headerContentPaddingVerticalLinked', 'headerPaddingVertical', 'contentPaddingVertical'],
+    ['headerContentPaddingHorizontalLinked', 'headerPaddingHorizontal', 'contentPaddingHorizontal'],
+  ].forEach(([linkKey, primaryKey, secondaryKey]) => {
+    if (typeof state.design[linkKey] !== 'boolean') {
+      state.design[linkKey] = state.design[primaryKey] === state.design[secondaryKey];
+    }
+  });
 
   ['accent', 'bg', 'headerbg', 'sidebarbg', 'subtitle', 'graphic', 'dateColor', 'invertBadge', 'enableBoxShadow', 'layoutStyle', 'addExpColumns', 'bulletStyle'].forEach((key) => {
     delete state.design[key];

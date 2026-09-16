@@ -34,6 +34,7 @@ html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
     --section-spacing:6mm;
     --section-spacing-body:6mm;
     --section-spacing-sidebar:6mm;
+    --body-sidebar-spacing:10mm;
     --sidebar-width:0.7fr;
     --sidebar-align:right;
     --box-shadow:none;
@@ -232,8 +233,8 @@ textarea{min-height:64px}
 #cv_main{min-width:0}
 #cv_main, #cv_main *{min-width:0}
 #cv_main h2, #cv_main h3, #cv_main h4, #cv_main p, #cv_main li, #cv_main .item-sub, #cv_main .item-meta{overflow-wrap:anywhere;word-break:break-word}
-#cv_side{float:right;width:var(--sidebar-column-width);min-width:0;margin:0 0 0 10mm}
-:root[data-sidebar-align="left"] #cv_side{float:left;margin:0 10mm 0 0}
+#cv_side{float:right;width:var(--sidebar-column-width);min-width:0;margin:0 0 0 var(--body-sidebar-spacing)}
+:root[data-sidebar-align="left"] #cv_side{float:left;margin:0 var(--body-sidebar-spacing) 0 0}
 #cv_side[data-pdf-deferred]{position:relative;min-height:0;background:transparent!important;padding:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;shape-outside:inset(var(--sidebar-deferred-start) 0 0 0)}
 #cv_side[data-pdf-deferred] .sidebar-content{position:absolute;top:var(--sidebar-deferred-start);left:0;right:0;min-height:var(--sidebar-deferred-min-height);background:#ffffff;box-shadow:none}
 h2{margin:0 0 4mm;font-size:var(--h2-size);color:var(--accent);text-transform:uppercase;letter-spacing:.6px;font-family:var(--font-head),sans-serif;text-shadow:var(--box-shadow)}

@@ -51,6 +51,21 @@ function setMillimeters(key, value) {
   design.value[key] = `${Math.max(0, Number.parseFloat(value) || 0)}mm`;
 }
 
+function isLinked(key) {
+  return design.value[key] !== false;
+}
+
+function setLinked(key, primaryKey, secondaryKey, linked) {
+  design.value[key] = linked;
+  if (linked) design.value[secondaryKey] = design.value[primaryKey];
+}
+
+function setLinkedMillimeters(linkKey, primaryKey, secondaryKey, value) {
+  const normalized = `${Math.max(0, Number.parseFloat(value) || 0)}mm`;
+  design.value[primaryKey] = normalized;
+  if (isLinked(linkKey)) design.value[secondaryKey] = normalized;
+}
+
 function pixels(value, fallback = 1) {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? Math.min(5, Math.max(0.5, parsed)) : fallback;
@@ -73,24 +88,37 @@ function pixels(value, fallback = 1) {
       <section class="editor-subsection" :class="{ collapsed: sections.layout }">
         <div class="section-head" @click="onSectionHeaderClick('layout', $event)"><button class="caret mini" type="button" @click.stop="toggleSection('layout')"><font-awesome-icon :icon="['fas', 'table-cells-large']" /></button><h4>Layout</h4></div>
         <div class="editor-subsection__body">
-          <div class="grid-2"><label>Heading-Style<select v-model="design.hstyle"><option v-for="style in hStyles" :key="style" :value="style">{{ style }}</option></select></label><label>Header Style<select v-model="design.headerLayoutStyle"><option value="boxed">Boxed</option><option value="separator">Separator</option></select></label></div>
-          <div class="grid-3 subsection-row"><label>Contact Layout<select v-model="design.contactLayout"><option value="side">Right column</option><option value="below">Below title (one row)</option></select></label><label>Separator Width: {{ pixels(design.separatorWidth) }}px<input type="range" min="0.5" max="5" step="0.5" :value="pixels(design.separatorWidth)" @input="design.separatorWidth = $event.target.value + 'px'"></label></div>
+          <div class="grid-2"><label>Contact Layout<select v-model="design.contactLayout"><option value="side">Right column</option><option value="below">Below title (one row)</option></select></label><label>Separator Width: {{ pixels(design.separatorWidth) }}px<input type="range" min="0.5" max="5" step="0.5" :value="pixels(design.separatorWidth)" @input="design.separatorWidth = $event.target.value + 'px'"></label></div>
+          <div class="grid-2 subsection-row"><label>Heading-Style<select v-model="design.hstyle"><option v-for="style in hStyles" :key="style" :value="style">{{ style }}</option></select></label><label>Header Style<select v-model="design.headerLayoutStyle"><option value="boxed">Boxed</option><option value="separator">Separator</option></select></label></div>
           <div class="layout-control-group subsection-row">
             <h5>Page Margins</h5>
             <div class="grid-2">
               <label>Top: {{ design.pageMarginTop || '0mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginTop, 0)" @input="setMillimeters('pageMarginTop', $event.target.value)"></label>
-              <label>Right: {{ design.pageMarginRight || '0mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginRight, 0)" @input="setMillimeters('pageMarginRight', $event.target.value)"></label>
+              <div class="linked-control">
+                <div class="linked-control__heading"><span>{{ isLinked('pageMarginHorizontalLinked') ? 'Horizontal' : 'Right' }}: {{ design.pageMarginRight || '0mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('pageMarginHorizontalLinked') ? 'Unlink right and left page margins' : 'Link right and left page margins'" :aria-pressed="isLinked('pageMarginHorizontalLinked')" :title="isLinked('pageMarginHorizontalLinked') ? 'Right and left margins linked' : 'Right and left margins independent'" @click="setLinked('pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft', !isLinked('pageMarginHorizontalLinked'))"><font-awesome-icon :icon="['fas', isLinked('pageMarginHorizontalLinked') ? 'link' : 'link-slash']" /></button></div>
+                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('pageMarginHorizontalLinked') ? 'Horizontal page margin' : 'Right page margin'" :value="millimeters(design.pageMarginRight, 0)" @input="setLinkedMillimeters('pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft', $event.target.value)">
+              </div>
               <label>Bottom: {{ design.pageMarginBottom || '0mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginBottom, 0)" @input="setMillimeters('pageMarginBottom', $event.target.value)"></label>
-              <label>Left: {{ design.pageMarginLeft || '0mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginLeft, 0)" @input="setMillimeters('pageMarginLeft', $event.target.value)"></label>
+              <label v-if="!isLinked('pageMarginHorizontalLinked')">Left: {{ design.pageMarginLeft || '0mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginLeft, 0)" @input="setMillimeters('pageMarginLeft', $event.target.value)"></label>
             </div>
           </div>
           <div class="layout-control-group subsection-row">
             <h5>Padding</h5>
             <div class="grid-2">
-              <label>Header Vertical: {{ design.headerPaddingVertical || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.headerPaddingVertical, 12)" @input="setMillimeters('headerPaddingVertical', $event.target.value)"></label>
-              <label>Header Horizontal: {{ design.headerPaddingHorizontal || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.headerPaddingHorizontal, 12)" @input="setMillimeters('headerPaddingHorizontal', $event.target.value)"></label>
-              <label>Content Vertical: {{ design.contentPaddingVertical || '10mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.contentPaddingVertical, 10)" @input="setMillimeters('contentPaddingVertical', $event.target.value)"></label>
-              <label>Content Horizontal: {{ design.contentPaddingHorizontal || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.contentPaddingHorizontal, 12)" @input="setMillimeters('contentPaddingHorizontal', $event.target.value)"></label>
+              <div class="linked-control">
+                <div class="linked-control__heading"><span>{{ isLinked('headerContentPaddingVerticalLinked') ? 'Header / Content Vertical' : 'Header Vertical' }}: {{ design.headerPaddingVertical || '12mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('headerContentPaddingVerticalLinked') ? 'Unlink header and content vertical padding' : 'Link header and content vertical padding'" :aria-pressed="isLinked('headerContentPaddingVerticalLinked')" :title="isLinked('headerContentPaddingVerticalLinked') ? 'Header and content vertical padding linked' : 'Header and content vertical padding independent'" @click="setLinked('headerContentPaddingVerticalLinked', 'headerPaddingVertical', 'contentPaddingVertical', !isLinked('headerContentPaddingVerticalLinked'))"><font-awesome-icon :icon="['fas', isLinked('headerContentPaddingVerticalLinked') ? 'link' : 'link-slash']" /></button></div>
+                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('headerContentPaddingVerticalLinked') ? 'Header and content vertical padding' : 'Header vertical padding'" :value="millimeters(design.headerPaddingVertical, 12)" @input="setLinkedMillimeters('headerContentPaddingVerticalLinked', 'headerPaddingVertical', 'contentPaddingVertical', $event.target.value)">
+              </div>
+              <div class="linked-control">
+                <div class="linked-control__heading"><span>{{ isLinked('headerContentPaddingHorizontalLinked') ? 'Header / Content Horizontal' : 'Header Horizontal' }}: {{ design.headerPaddingHorizontal || '12mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('headerContentPaddingHorizontalLinked') ? 'Unlink header and content horizontal padding' : 'Link header and content horizontal padding'" :aria-pressed="isLinked('headerContentPaddingHorizontalLinked')" :title="isLinked('headerContentPaddingHorizontalLinked') ? 'Header and content horizontal padding linked' : 'Header and content horizontal padding independent'" @click="setLinked('headerContentPaddingHorizontalLinked', 'headerPaddingHorizontal', 'contentPaddingHorizontal', !isLinked('headerContentPaddingHorizontalLinked'))"><font-awesome-icon :icon="['fas', isLinked('headerContentPaddingHorizontalLinked') ? 'link' : 'link-slash']" /></button></div>
+                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('headerContentPaddingHorizontalLinked') ? 'Header and content horizontal padding' : 'Header horizontal padding'" :value="millimeters(design.headerPaddingHorizontal, 12)" @input="setLinkedMillimeters('headerContentPaddingHorizontalLinked', 'headerPaddingHorizontal', 'contentPaddingHorizontal', $event.target.value)">
+              </div>
+              <template v-if="!isLinked('headerContentPaddingVerticalLinked')">
+                <label>Content Vertical: {{ design.contentPaddingVertical || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.contentPaddingVertical, 12)" @input="setMillimeters('contentPaddingVertical', $event.target.value)"></label>
+              </template>
+              <template v-if="!isLinked('headerContentPaddingHorizontalLinked')">
+                <label>Content Horizontal: {{ design.contentPaddingHorizontal || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.contentPaddingHorizontal, 12)" @input="setMillimeters('contentPaddingHorizontal', $event.target.value)"></label>
+              </template>
             </div>
           </div>
         </div>
@@ -104,7 +132,7 @@ function pixels(value, fallback = 1) {
 
       <section class="editor-subsection" :class="{ collapsed: sections.spacing }">
         <div class="section-head" @click="onSectionHeaderClick('spacing', $event)"><button class="caret mini" type="button" @click.stop="toggleSection('spacing')"><font-awesome-icon :icon="['fas', 'arrows-left-right-to-line']" /></button><h4>Spacing</h4></div>
-        <div class="editor-subsection__body grid-3"><label>Body Section Spacing: {{ design.sectionSpacingBody || design.sectionSpacing }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingBody || design.sectionSpacing)" @input="design.sectionSpacingBody = $event.target.value + 'mm'"></label><label>Sidebar Section Spacing: {{ design.sectionSpacingSidebar || design.sectionSpacing }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingSidebar || design.sectionSpacing)" @input="design.sectionSpacingSidebar = $event.target.value + 'mm'"></label></div>
+        <div class="editor-subsection__body grid-3"><label>Body Section Spacing: {{ design.sectionSpacingBody || design.sectionSpacing }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingBody || design.sectionSpacing)" @input="design.sectionSpacingBody = $event.target.value + 'mm'"></label><label>Sidebar Section Spacing: {{ design.sectionSpacingSidebar || design.sectionSpacing }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingSidebar || design.sectionSpacing)" @input="design.sectionSpacingSidebar = $event.target.value + 'mm'"></label><label>Body / Sidebar Spacing: {{ design.bodySidebarSpacing || '10mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.bodySidebarSpacing, 10)" @input="setMillimeters('bodySidebarSpacing', $event.target.value)"></label></div>
       </section>
 
       <section class="editor-subsection" :class="{ collapsed: sections.typography }">
@@ -144,5 +172,10 @@ function pixels(value, fallback = 1) {
 <style scoped>
 .editor-subsection h4 { margin: 0; color: #9be8c7; font-size: 10pt; text-transform: uppercase; letter-spacing: .5px; }
 .subsection-row { margin-top: 8px; }
+.linked-control__heading { display: flex; align-items: center; gap: 6px; }
 .layout-control-group h5 { margin: 0 0 6px; color: var(--muted); font-size: 9pt; text-transform: uppercase; letter-spacing: .4px; }
+.link-toggle { width: 28px; min-width: 28px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.link-toggle[aria-pressed="true"] { border-color: #27f3a2; color: #9be8c7; }
+.linked-control { display: grid; gap: 4px; }
+.linked-control__heading { color: #78d1b8; font-size: 10pt; }
 </style>

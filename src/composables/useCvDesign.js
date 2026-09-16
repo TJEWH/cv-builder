@@ -95,6 +95,7 @@ export function applyCvDesign(design = {}) {
   root.setProperty('--section-spacing', design.sectionSpacing || '6mm');
   root.setProperty('--section-spacing-body', design.sectionSpacingBody || design.sectionSpacing || '6mm');
   root.setProperty('--section-spacing-sidebar', design.sectionSpacingSidebar || design.sectionSpacing || '6mm');
+  root.setProperty('--body-sidebar-spacing', millimeters(design.bodySidebarSpacing, '10mm'));
   root.setProperty('--sidebar-width', design.sidebarWidth || '0.7fr');
   root.setProperty('--sidebar-column-width', sidebarColumnWidth(design.sidebarWidth));
   root.setProperty('--sidebar-align', design.sidebarAlign || 'right');

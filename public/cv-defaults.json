@@ -26,6 +26,7 @@
     "sectionSpacing": "6mm",
     "sectionSpacingBody": "6mm",
     "sectionSpacingSidebar": "6mm",
+    "bodySidebarSpacing": "10mm",
     "sidebarWidth": "0.7fr",
     "sidebarAlign": "right",
     "sidebarFillMode": "start",
@@ -37,10 +38,13 @@
     "pageMarginRight": "0mm",
     "pageMarginBottom": "0mm",
     "pageMarginLeft": "0mm",
+    "pageMarginHorizontalLinked": true,
     "headerPaddingVertical": "12mm",
     "headerPaddingHorizontal": "12mm",
-    "contentPaddingVertical": "10mm",
-    "contentPaddingHorizontal": "12mm"
+    "contentPaddingVertical": "12mm",
+    "contentPaddingHorizontal": "12mm",
+    "headerContentPaddingVerticalLinked": true,
+    "headerContentPaddingHorizontalLinked": true
   },
   "contact": {
     "name": "Alex Muster",
