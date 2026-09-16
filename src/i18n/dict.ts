@@ -10,7 +10,7 @@ export const dict = {
     exportOptions:      {de: 'Exportoptionen', en: 'Export Options'},
     anonymization:      {de: 'Anonymisierung', en: 'Anonymization'},
     anonymizationHelp:  {de: 'Ausgewählte Inhalte werden nur aus der anonymisierten Vorschau und dem anonymisierten PDF entfernt.', en: 'Selected content is removed only from the anonymized preview and PDF.'},
-    confidentialMarkerHelp: {de: 'Markiere vertraulichen Text in Textfeldern mit !!vertraulicher Text!!.', en: 'Mark confidential textarea content with !!confidential text!!.'},
+    confidentialMarkerHelp: {de: 'Markiere vertraulichen Text in Textfeldern mit "!!" mein vertraulicher Text "!!".', en: 'Mark confidential textarea content with "!!" my confidential text "!!".'},
     contactAlwaysAnonymized: {de: 'Wird immer durch Beispieldaten ersetzt', en: 'Always replaced with sample data'},
     downloadAnonymizedPdf: {de: 'Anonymisiertes PDF herunterladen', en: 'Download anonymized PDF'},
     exportingAnonymizedPdf: {de: 'Anonymisiertes PDF wird erstellt...', en: 'Exporting anonymized PDF...'},

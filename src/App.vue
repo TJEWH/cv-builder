@@ -78,6 +78,8 @@ const previewPlacement = ref('side');
 const previewPages = ref([]);
 const previewPage = ref(1);
 const isPreviewRendering = ref(true);
+const fullPreviewPages = ref([]);
+const isFullPreviewRendering = ref(false);
 const pdfRenderSource = ref(null);
 const anonymizedPreviewPages = ref([]);
 const anonymizedPreviewPage = ref(1);
@@ -175,7 +177,7 @@ onMounted(async () => {
   }
 });
 
-const { estimatePdfSize, exportToPdf, renderPdf } = usePdfExport();
+const { estimatePdfSize, exportToPdf, renderPdf, renderPreview } = usePdfExport();
 const isExporting = ref(false);
 const isAnonymizedExporting = ref(false);
 const estimatedPdfBytes = ref(null);
@@ -188,6 +190,9 @@ let previewRenderVersion = 0;
 let pdfEstimateRequest = 0;
 let pdfContentRevision = 0;
 let initialPdfCalibrationChecked = false;
+let fullPreviewSourceVersion = 0;
+let fullPreviewRenderVersion = 0;
+let renderedFullPreviewSourceVersion = -1;
 let anonymizedSourceVersion = 0;
 let anonymizedPreviewRenderVersion = 0;
 let renderedAnonymizedSourceVersion = -1;
@@ -206,12 +211,17 @@ function getPdfMargins(design = {}) {
   ];
 }
 
-function getPdfRenderOptions() {
+function getPdfRenderOptions(options = {}) {
   return {
     margin: getPdfMargins(state.design),
     continuationTopPadding: exportMarginMillimeters(state.design?.contentPaddingVertical || '10mm'),
     sidebarFillMode: state.design?.sidebarFillMode,
+    ...options,
   };
+}
+
+function getInlinePdfPreviewRenderOptions({ detailed = false } = {}) {
+  return getPdfRenderOptions({ html2canvas: { scale: detailed ? 1 : 0.4 } });
 }
 
 function getHybridPdfRenderOptions() {
@@ -232,6 +242,10 @@ function getAnonymizedPdfSourceElement() {
 
 const anonymizedState = computed(() => createAnonymizedState(state));
 
+function waitForPreviewPaint() {
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
 async function refreshPdfPreview(version) {
   try {
     await nextTick();
@@ -240,7 +254,18 @@ async function refreshPdfPreview(version) {
 
     const cvElement = getPdfSourceElement();
     if (!cvElement) throw new Error('CV preview element not found');
-    const { pages } = await renderPdf(cvElement, getPdfRenderOptions());
+    const { pages: fastPages } = await renderPreview(cvElement, getInlinePdfPreviewRenderOptions());
+    if (version !== previewRenderVersion) return;
+
+    previewPages.value = fastPages;
+    previewPage.value = Math.min(Math.max(previewPage.value, 1), Math.max(fastPages.length, 1));
+
+    // Let the low-resolution page reach the screen before beginning the more
+    // expensive inline refinement pass.
+    await waitForPreviewPaint();
+    if (version !== previewRenderVersion) return;
+
+    const { pages } = await renderPreview(cvElement, getInlinePdfPreviewRenderOptions({ detailed: true }));
     if (version !== previewRenderVersion) return;
 
     previewPages.value = pages;
@@ -264,12 +289,49 @@ async function refreshPdfPreview(version) {
   }
 }
 
-const schedulePdfPreview = debounce(() => refreshPdfPreview(previewRenderVersion), 500);
+const schedulePdfPreview = debounce(() => refreshPdfPreview(previewRenderVersion), 100);
+
+async function refreshFullPdfPreview(renderVersion, sourceVersion) {
+  try {
+    await nextTick();
+    await document.fonts?.ready;
+    if (renderVersion !== fullPreviewRenderVersion || sourceVersion !== fullPreviewSourceVersion) return;
+
+    const cvElement = getPdfSourceElement();
+    if (!cvElement) throw new Error('Full CV preview element not found');
+    const { pages } = await renderPdf(cvElement, getPdfRenderOptions());
+    if (renderVersion !== fullPreviewRenderVersion || sourceVersion !== fullPreviewSourceVersion) return;
+
+    fullPreviewPages.value = pages;
+    renderedFullPreviewSourceVersion = sourceVersion;
+  } catch (error) {
+    if (renderVersion === fullPreviewRenderVersion) console.error('Full PDF preview failed:', error);
+  } finally {
+    if (renderVersion === fullPreviewRenderVersion) isFullPreviewRendering.value = false;
+  }
+}
+
+const scheduleFullPdfPreview = debounce((renderVersion, sourceVersion) => (
+  refreshFullPdfPreview(renderVersion, sourceVersion)
+), 100);
+
+function requestFullPdfPreview() {
+  if (renderedFullPreviewSourceVersion === fullPreviewSourceVersion && fullPreviewPages.value.length) return;
+  const renderVersion = ++fullPreviewRenderVersion;
+  isFullPreviewRendering.value = true;
+  scheduleFullPdfPreview(renderVersion, fullPreviewSourceVersion);
+}
 
 function requestPdfPreview() {
   previewRenderVersion += 1;
+  fullPreviewSourceVersion += 1;
+  fullPreviewPages.value = [];
+  renderedFullPreviewSourceVersion = -1;
   isPreviewRendering.value = true;
   schedulePdfPreview();
+  if (previewMode.value && fullPreviewView.value === 'pdf' && fullPreviewVariant.value === 'normal') {
+    requestFullPdfPreview();
+  }
 }
 
 async function refreshAnonymizedPdfPreview(renderVersion, sourceVersion) {
@@ -453,7 +515,9 @@ async function handleAnonymizedExportPdf() {
 
 const isAnonymizedFullPreview = computed(() => fullPreviewVariant.value === 'anonymized');
 const activeFullPreviewPages = computed(() => (
-  isAnonymizedFullPreview.value ? anonymizedPreviewPages.value : previewPages.value
+  isAnonymizedFullPreview.value
+    ? anonymizedPreviewPages.value
+    : (fullPreviewPages.value.length ? fullPreviewPages.value : previewPages.value)
 ));
 const activeFullPreviewPage = computed({
   get: () => (isAnonymizedFullPreview.value ? anonymizedPreviewPage.value : previewPage.value),
@@ -463,12 +527,25 @@ const activeFullPreviewPage = computed({
   },
 });
 const isActiveFullPreviewRendering = computed(() => (
-  isAnonymizedFullPreview.value ? isAnonymizedPreviewRendering.value : isPreviewRendering.value
+  isAnonymizedFullPreview.value ? isAnonymizedPreviewRendering.value : isFullPreviewRendering.value
 ));
 
 function toggleAnonymizedFullPreview() {
   fullPreviewVariant.value = isAnonymizedFullPreview.value ? 'normal' : 'anonymized';
   if (fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
+  else if (fullPreviewView.value === 'pdf') requestFullPdfPreview();
+}
+
+function openFullPreview() {
+  previewMode.value = true;
+  if (fullPreviewView.value === 'pdf' && fullPreviewVariant.value === 'normal') requestFullPdfPreview();
+}
+
+function toggleFullPreviewView() {
+  fullPreviewView.value = fullPreviewView.value === 'pdf' ? 'html' : 'pdf';
+  if (fullPreviewView.value !== 'pdf') return;
+  if (isAnonymizedFullPreview.value) requestAnonymizedPdfPreview();
+  else requestFullPdfPreview();
 }
 
 </script>
@@ -489,11 +566,16 @@ function toggleAnonymizedFullPreview() {
       </button>
 
       <div class="fullscreen-preview__actions">
+        <button class="btn" type="button" :aria-pressed="fullPreviewView === 'html'" @click="toggleFullPreviewView">
+          <font-awesome-icon :icon="['fas', fullPreviewView === 'pdf' ? 'code' : 'file-pdf']" />
+          {{ fullPreviewView === 'pdf' ? t('showHtmlPreview') : t('showPdfPreview') }}
+        </button>
         <button class="btn btn--primary" type="button" @click="handleExportPdf" :disabled="isExporting">
           <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
           <font-awesome-icon v-else :icon="['fas', 'download']" />
           {{ isExporting ? t('exportingPdf') : t('downloadPdf') }}
         </button>
+        <span class="fullscreen-preview__actions-spacer" aria-hidden="true" />
         <button class="btn" type="button" :aria-pressed="isAnonymizedFullPreview" @click="toggleAnonymizedFullPreview">
           <font-awesome-icon :icon="['fas', 'user-secret']" />
           {{ isAnonymizedFullPreview ? t('showNormalPreview') : t('showAnonymizedPreview') }}
@@ -502,10 +584,6 @@ function toggleAnonymizedFullPreview() {
           <font-awesome-icon v-if="isAnonymizedExporting" :icon="['fas', 'spinner']" spin />
           <font-awesome-icon v-else :icon="['fas', 'user-secret']" />
           {{ isAnonymizedExporting ? t('exportingAnonymizedPdf') : t('downloadAnonymizedPdf') }}
-        </button>
-        <button class="btn" type="button" :aria-pressed="fullPreviewView === 'html'" @click="fullPreviewView = fullPreviewView === 'pdf' ? 'html' : 'pdf'">
-          <font-awesome-icon :icon="['fas', fullPreviewView === 'pdf' ? 'code' : 'file-pdf']" />
-          {{ fullPreviewView === 'pdf' ? t('showHtmlPreview') : t('showPdfPreview') }}
         </button>
       </div>
 
@@ -549,7 +627,7 @@ function toggleAnonymizedFullPreview() {
 
       <aside class="inline-preview" aria-label="Live CV preview">
         <div class="inline-preview__actions">
-          <button class="btn" type="button" @click="previewMode = true">{{ t('openPreview') }}</button>
+          <button class="btn" type="button" @click="openFullPreview">{{ t('openPreview') }}</button>
           <button class="btn btn--primary" type="button" @click="handleExportPdf" :disabled="isExporting">
             <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
             {{ isExporting ? t('exportingPdf') : t('downloadPdf') }}
@@ -727,6 +805,7 @@ function toggleAnonymizedFullPreview() {
   gap: 8px;
 }
 
+.fullscreen-preview__actions-spacer { height: 4px; }
 .fullscreen-preview__actions .btn { display: inline-flex; align-items: center; gap: 8px; }
 
 .preview-actions {

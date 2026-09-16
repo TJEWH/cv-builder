@@ -486,6 +486,7 @@ function sampleGraphicsFingerprint(pageCanvas, pageContext) {
 
 async function appendPdfPages(canvas, pdf, options, continuationPadding, {
   preserveBlankPages = false,
+  previewOnly = false,
   sourceWidth = canvas.width,
   sourceHeight = canvas.height,
 } = {}) {
@@ -534,19 +535,21 @@ async function appendPdfPages(canvas, pdf, options, continuationPadding, {
       ? sampleGraphicsFingerprint(pageCanvas, pageContext)
       : { samples: 0, inkRatio: 0, edgeRatio: 0, paletteSize: 0 };
     if (hasGraphics || preserveBlankPages) {
-      const pageImage = hasGraphics
+      const pageImage = hasGraphics && !previewOnly
         ? encodePdfPageImage(pageCanvas, options.image)
         : null;
-      if (pages.length > 0) pdf.addPage();
-      if (hasGraphics) {
-        pdf.addImage(
-          pageImage.data,
-          pageImage.format,
-          marginLeft,
-          topOffset,
-          contentWidth,
-          renderedHeight,
-        );
+      if (!previewOnly) {
+        if (pages.length > 0) pdf.addPage();
+        if (hasGraphics) {
+          pdf.addImage(
+            pageImage.data,
+            pageImage.format,
+            marginLeft,
+            topOffset,
+            contentWidth,
+            renderedHeight,
+          );
+        }
       }
 
       pages.push({
@@ -585,7 +588,7 @@ async function appendPdfPages(canvas, pdf, options, continuationPadding, {
  * placement but before html2canvas touches the source, which keeps Range
  * coordinates in the source element's unscaled CSS coordinate system.
  */
-async function renderRasterPdf(element, options = {}, captureOverlay) {
+async function renderRasterPdf(element, options = {}, captureOverlay, { previewOnly = false } = {}) {
   const mergedOptions = mergePdfOptions({
     ...options,
     html2canvas: {
@@ -610,7 +613,10 @@ async function renderRasterPdf(element, options = {}, captureOverlay) {
     pdf,
     mergedOptions,
     options.continuationTopPadding,
-    overlay ? { sourceWidth: overlay.width, sourceHeight: overlay.height } : undefined,
+    {
+      ...(overlay ? { sourceWidth: overlay.width, sourceHeight: overlay.height } : {}),
+      previewOnly,
+    },
   );
 
   return { pdf, pages, overlay: rasterOverlay };
@@ -623,6 +629,11 @@ export function usePdfExport() {
   const renderPdf = async (element, options = {}) => {
     if (!element) throw new Error('No element provided for PDF export');
     return renderRasterPdf(element, options);
+  };
+
+  const renderPreview = async (element, options = {}) => {
+    if (!element) throw new Error('No element provided for PDF preview');
+    return renderRasterPdf(element, options, undefined, { previewOnly: true });
   };
 
   const renderHybridPdf = async (element, options = {}) => {
@@ -686,6 +697,7 @@ export function usePdfExport() {
 
   return {
     renderPdf,
+    renderPreview,
     renderHybridPdf,
     exportToPdf,
     estimatePdfSize,
