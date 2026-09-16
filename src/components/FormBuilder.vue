@@ -247,17 +247,17 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
         <div class="reorder-dialog__columns">
           <section class="reorder-dialog__column">
             <h4>{{ t('body') }}</h4>
-            <Draggable :model-value="bodyOrderRows" item-key="key" handle=".popup-drag-handle" :animation="150" ghost-class="sortable-ghost" @update:modelValue="updateVisibleOrder('bodyOrder', $event)">
+            <Draggable :model-value="bodyOrderRows" item-key="key" :animation="150" ghost-class="sortable-ghost" @update:modelValue="updateVisibleOrder('bodyOrder', $event)">
               <template #item="{ element }">
-                <div class="reorder-dialog__row"><span><font-awesome-icon :icon="['fas', getIcon(element.key)]" /> {{ getSectionDisplayName(element.key) }}</span><button class="mini popup-drag-handle" type="button"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button></div>
+                <div class="reorder-dialog__row"><span><font-awesome-icon :icon="['fas', getIcon(element.key)]" /> {{ getSectionDisplayName(element.key) }}</span><font-awesome-icon class="popup-drag-icon" :icon="['fas', 'grip-vertical']" aria-hidden="true" /></div>
               </template>
             </Draggable>
           </section>
           <section class="reorder-dialog__column">
             <h4>{{ t('sidebar') }}</h4>
-            <Draggable :model-value="sidebarOrderRows" item-key="key" handle=".popup-drag-handle" :animation="150" ghost-class="sortable-ghost" @update:modelValue="updateVisibleOrder('sidebarOrder', $event)">
+            <Draggable :model-value="sidebarOrderRows" item-key="key" :animation="150" ghost-class="sortable-ghost" @update:modelValue="updateVisibleOrder('sidebarOrder', $event)">
               <template #item="{ element }">
-                <div class="reorder-dialog__row"><span><font-awesome-icon :icon="['fas', getIcon(element.key)]" /> {{ getSectionDisplayName(element.key) }}</span><button class="mini popup-drag-handle" type="button"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button></div>
+                <div class="reorder-dialog__row"><span><font-awesome-icon :icon="['fas', getIcon(element.key)]" /> {{ getSectionDisplayName(element.key) }}</span><font-awesome-icon class="popup-drag-icon" :icon="['fas', 'grip-vertical']" aria-hidden="true" /></div>
               </template>
             </Draggable>
           </section>
@@ -424,8 +424,8 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
 .section-name-label { color: #9be8c7; padding: 4px 8px; font-size: 1rem; font-weight: 600; margin: 0; cursor: pointer; user-select: none; border-radius: 4px; border: 1px solid transparent; }
 .section-name-label:hover { background: rgba(16, 185, 129, .1); border-color: #134e4a; }
 .section-name-input { min-width: 200px; width: 30%; }
-.entry-drag-handle, .popup-drag-handle { cursor: grab; }
-.entry-drag-handle:active, .popup-drag-handle:active { cursor: grabbing; }
+.entry-drag-handle { cursor: grab; }
+.entry-drag-handle:active { cursor: grabbing; }
 .sortable-ghost { opacity: .4; }
 .sidebar-section-settings { padding: 0 12px; }
 .sidebar-section-settings label { display: grid; gap: 4px; max-width: 220px; }
@@ -439,8 +439,10 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
 .reorder-dialog__columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .reorder-dialog__column { min-height: 80px; padding: 12px; border: 1px solid #134e4a; border-radius: 8px; }
 .reorder-dialog__column h4 { margin: 0 0 10px; color: #9be8c7; }
-.reorder-dialog__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; padding: 8px 10px; border: 1px solid rgba(255, 255, 255, .1); border-radius: 6px; background: rgba(255, 255, 255, .04); }
+.reorder-dialog__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; padding: 8px 10px; border: 1px solid rgba(255, 255, 255, .1); border-radius: 6px; background: rgba(255, 255, 255, .04); cursor: grab; }
+.reorder-dialog__row:active { cursor: grabbing; }
 .reorder-dialog__row span { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.popup-drag-icon { color: var(--muted); pointer-events: none; }
 .field-config-backdrop { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 20px; background: rgba(0, 0, 0, .7); backdrop-filter: blur(3px); }
 .field-config-dialog { width: min(420px, 100%); padding: 20px; border: 1px solid #10b981; border-radius: 12px; background: #0c131a; box-shadow: 0 24px 80px rgba(0, 0, 0, .5); }
 .field-config-dialog__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #134e4a; }
