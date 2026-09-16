@@ -61,8 +61,7 @@ function setExcluded(key, id, shouldExclude) {
 
 <template>
   <section class="section-group editor-panel anonymization-panel" :class="{ collapsed }">
-    <div class="section-head editor-panel__header anonymization-panel__header" role="button" tabindex="0" :aria-expanded="!collapsed" @click="collapsed = !collapsed" @keydown.enter.prevent="collapsed = !collapsed" @keydown.space.prevent="collapsed = !collapsed">
-      <font-awesome-icon :icon="['fas', 'user-secret']" class="section-icon" aria-hidden="true" />
+    <div class="section-head editor-panel__header editor-panel__header--centered anonymization-panel__header" role="button" tabindex="0" :aria-expanded="!collapsed" @click="collapsed = !collapsed" @keydown.enter.prevent="collapsed = !collapsed" @keydown.space.prevent="collapsed = !collapsed">
       <h3>{{ t('anonymization') }}</h3>
     </div>
 

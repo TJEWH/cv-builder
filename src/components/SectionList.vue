@@ -4,6 +4,7 @@ import Draggable from 'vuedraggable';
 import { makeT } from '../i18n/dict.js';
 import { createContentId } from '../composables/contentLayout.js';
 import MarkdownTextarea from './MarkdownTextarea.vue';
+import ConfirmDeletionDialog from './ConfirmDeletionDialog.vue';
 
 const props = defineProps({
   title: String,
@@ -31,6 +32,7 @@ const emit = defineEmits([
 const langRef = computed(() => props.lang || 'de');
 const t = makeT(langRef);
 const root = ref(null);
+const pendingDeleteIndex = ref(null);
 const items = computed({
   get: () => Array.isArray(props.modelValue) ? props.modelValue : [],
   set: (value) => emit('update:modelValue', value),
@@ -61,11 +63,25 @@ const add = () => {
 const removeAt = (index) => {
   items.value = items.value.filter((_, itemIndex) => itemIndex !== index);
 };
+const requestRemoveAt = (index) => { pendingDeleteIndex.value = index; };
+const confirmRemoveAt = () => {
+  if (pendingDeleteIndex.value !== null) removeAt(pendingDeleteIndex.value);
+  pendingDeleteIndex.value = null;
+};
 
 </script>
 
 <template>
   <section ref="root" class="section-group" :data-section="sectionKey" :class="{ disabled, completed, collapsed: isCollapsed }">
+    <ConfirmDeletionDialog
+      :visible="pendingDeleteIndex !== null"
+      :title="t('confirmDeletion')"
+      :message="t('confirmDeleteItem')"
+      :cancel-label="t('cancel')"
+      :confirm-label="t('delete')"
+      @cancel="pendingDeleteIndex = null"
+      @confirm="confirmRemoveAt"
+    />
     <div class="section-head" @click="onHeaderClick">
       <button
         v-if="toggleable"
@@ -118,7 +134,7 @@ const removeAt = (index) => {
           <div class="item-row__actions">
             <button class="mini entry-drag-handle" type="button" :aria-label="langRef === 'de' ? 'Eintrag verschieben' : 'Move entry'" :title="langRef === 'de' ? 'Eintrag verschieben' : 'Move entry'"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button>
             <button class="mini visibility-toggle" :class="item.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="item.hidden ? t('show') : t('hide')" :title="item.hidden ? t('show') : t('hide')" @click="item.hidden = !item.hidden"><font-awesome-icon :icon="['fas', item.hidden ? 'eye-slash' : 'eye']" /></button>
-            <button type="button" class="mini btn--danger" :aria-label="t('remove')" :title="t('remove')" @click="removeAt(index)"><font-awesome-icon :icon="['fas', 'trash']" /></button>
+            <button type="button" class="mini btn--danger" :aria-label="t('remove')" :title="t('remove')" @click="requestRemoveAt(index)"><font-awesome-icon :icon="['fas', 'trash']" /></button>
           </div>
           <div class="item-row__content">
             <div v-if="schema.some((field) => field.type !== 'textarea')" :class="['row', schema.length === 2 ? 'row-2' : '', schema.length === 3 ? 'row-3' : '', schema.length === 4 ? 'row-4' : '']">
@@ -137,9 +153,7 @@ const removeAt = (index) => {
         </div>
       </template>
     </Draggable>
-    <div class="add-button-wrapper">
-      <button v-if="addLabel" type="button" class="add-button mini btn--success" @click="add">{{ addLabel }}</button>
-    </div>
+    <button v-if="addLabel" type="button" class="add-item-row" @click="add"><font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />{{ addLabel }}</button>
   </section>
 </template>
 
@@ -155,4 +169,7 @@ const removeAt = (index) => {
 .section-name-label { color: #9be8c7; padding: 4px 8px; font-size: 1rem; font-weight: 600; margin: 0; cursor: pointer; border-radius: 4px; border: 1px solid transparent; }
 .section-name-label:hover { background: rgba(16, 185, 129, .1); border-color: #134e4a; }
 .section-name-input { width: 30%; min-width: 200px; }
+.add-item-row { display: flex; align-items: center; justify-content: center; gap: 8px; width: calc(100% - 32px); min-height: 42px; margin-top: 8px; padding: 10px 12px; border: 1px dashed #2a6a60; border-radius: 6px; background: transparent; color: #9be8c7; cursor: pointer; font: inherit; }
+.add-item-row:hover, .add-item-row:focus-visible { border-color: #27f3a2; background: rgba(16, 185, 129, .1); }
+.add-item-row:focus-visible { outline: 2px solid #9be8c7; outline-offset: -3px; }
 </style>

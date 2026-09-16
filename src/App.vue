@@ -23,7 +23,6 @@ import {
   createPdfSizeLayerInfo,
   estimatePdfSizeFromLayerCache,
   loadPdfSizeEstimateCache,
-  needsPdfSizeGroundTruth,
   recordPdfSizeMeasurement,
   savePdfSizeEstimateCache,
 } from './composables/pdfSizeEstimateCache';
@@ -189,7 +188,6 @@ const pdfSizeEstimateCache = ref(loadPdfSizeEstimateCache());
 let previewRenderVersion = 0;
 let pdfEstimateRequest = 0;
 let pdfContentRevision = 0;
-let initialPdfCalibrationChecked = false;
 let fullPreviewSourceVersion = 0;
 let fullPreviewRenderVersion = 0;
 let renderedFullPreviewSourceVersion = -1;
@@ -221,7 +219,7 @@ function getPdfRenderOptions(options = {}) {
 }
 
 function getInlinePdfPreviewRenderOptions({ detailed = false } = {}) {
-  return getPdfRenderOptions({ html2canvas: { scale: detailed ? 1 : 0.4 } });
+  return getPdfRenderOptions({ html2canvas: { scale: detailed ? 1 : 0.2 } });
 }
 
 function getHybridPdfRenderOptions() {
@@ -250,11 +248,15 @@ function hasPendingBuilderInput() {
   return navigator.scheduling?.isInputPending?.({ includeContinuous: true }) ?? false;
 }
 
-function waitForPreviewIdle() {
+function waitForPreviewIdle(maxWait = 400) {
   return new Promise((resolve) => {
+    const deadline = performance.now() + maxWait;
     const schedule = () => {
       const run = () => {
-        if (hasPendingBuilderInput()) {
+        // Some browsers may continue reporting pending input after focus has
+        // already left the builder. Do not let that status starve the inline
+        // preview forever; the fast pass should always get a chance to paint.
+        if (hasPendingBuilderInput() && performance.now() < deadline) {
           schedule();
           return;
         }
@@ -262,9 +264,9 @@ function waitForPreviewIdle() {
       };
 
       if ('requestIdleCallback' in window) {
-        window.requestIdleCallback(run, { timeout: 1_500 });
+        window.requestIdleCallback(run, { timeout: Math.max(1, deadline - performance.now()) });
       } else {
-        window.setTimeout(run, 250);
+        window.setTimeout(run, Math.min(50, Math.max(0, deadline - performance.now())));
       }
     };
 
@@ -301,16 +303,9 @@ async function refreshPdfPreview(version) {
     previewPage.value = Math.min(Math.max(previewPage.value, 1), Math.max(pages.length, 1));
     updateApproximatePdfSizeEstimate();
 
-    // The one automatic exact render belongs exclusively to the first stable
-    // preview after hydration. Normal edits and export-option changes stay on
-    // the instant, preview-fingerprint estimator path.
-    if (!initialPdfCalibrationChecked) {
-      initialPdfCalibrationChecked = true;
-      const layers = createPdfSizeLayerInfo(state, pages);
-      if (needsPdfSizeGroundTruth(pdfSizeEstimateCache.value, layers, state.exportOptions)) {
-        void calculateExactPdfSizeEstimate({ automatic: true });
-      }
-    }
+    // Keep the inline path strictly preview-only. An automatic exact-size
+    // calibration uses the full export renderer and can monopolize the main
+    // thread on long CVs; users can still request it explicitly.
   } catch (error) {
     if (version === previewRenderVersion) console.error('PDF preview failed:', error);
   } finally {

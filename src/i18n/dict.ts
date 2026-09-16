@@ -7,7 +7,7 @@ export const dict = {
     backToBuilder:      {de: 'Zurück zum Builder', en: 'Back to builder'},
     downloadPdf:        {de: 'PDF herunterladen', en: 'Download PDF'},
     exportingPdf:       {de: 'Exportiere PDF...', en: 'Exporting PDF...'},
-    exportOptions:      {de: 'Exportoptionen', en: 'Export Options'},
+    exportOptions:      {de: 'Renderingoptionen', en: 'Render Options'},
     anonymization:      {de: 'Anonymisierung', en: 'Anonymization'},
     anonymizationHelp:  {de: 'Ausgewählte Inhalte werden nur aus der anonymisierten Vorschau und dem anonymisierten PDF entfernt.', en: 'Selected content is removed only from the anonymized preview and PDF.'},
     confidentialMarkerHelp: {de: 'Markiere vertraulichen Text in Textfeldern mit "!!" mein vertraulicher Text "!!".', en: 'Mark confidential textarea content with "!!" my confidential text "!!".'},
@@ -78,6 +78,7 @@ export const dict = {
     save:               {de: 'Speichern', en: 'Save'},
     newSection:         {de: 'Neue Sektion', en: 'New section'},
     addSection:         {de: 'Sektion hinzufügen', en: 'Add section'},
+    addItem:            {de: 'Eintrag hinzufügen', en: 'Add item'},
     add:                {de: 'Hinzufügen', en: 'Add'},
     addEntry:           {de: 'Eintrag hinzufügen', en: 'Add entry'},
     entryCSV:           {de: 'Einträge (komma-getrennt)', en: 'Entries (comma-separated)'},
@@ -86,6 +87,11 @@ export const dict = {
     show:               {de: 'Einblenden', en: 'Show'},
     hide:               {de: 'Ausblenden', en: 'Hide'},
     remove:             {de: 'Entfernen', en: 'Remove'},
+    cancel:             {de: 'Abbrechen', en: 'Cancel'},
+    delete:             {de: 'Löschen', en: 'Delete'},
+    confirmDeletion:    {de: 'Löschen bestätigen', en: 'Confirm deletion'},
+    confirmDeleteItem:  {de: 'Diesen Eintrag wirklich löschen?', en: 'Delete this item?'},
+    confirmDeleteSection: {de: 'Diese Sektion und alle ihre Einträge wirklich löschen?', en: 'Delete this section and all of its items?'},
 
     // Status messages
     loading:            {de: 'Lädt…', en: 'Loading…'},
