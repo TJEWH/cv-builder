@@ -5,7 +5,7 @@ const props = defineProps({
   name: { type: String, required: true },
   levelType: { type: String, default: '' }, // 'experience' or 'years' or empty
   levelValue: { type: Number, default: 0 },
-  sidebarColor: { type: String, default: '#ffffff' }
+  lang: { type: String, default: 'de' }
 });
 
 // Prüfe ob Level-Anzeige aktiv ist
@@ -40,7 +40,10 @@ const circles = computed(() => {
 
 const displayValue = computed(() => {
   if (props.levelType === 'years' && hasLevel.value) {
-    return props.levelValue > 0 ? `${props.levelValue} ${props.levelValue === 1 ? 'Jahr' : 'Jahre'}` : '';
+    const label = props.lang === 'en'
+      ? (props.levelValue === 1 ? 'Year' : 'Years')
+      : (props.levelValue === 1 ? 'Jahr' : 'Jahre');
+    return `${props.levelValue} ${label}`;
   }
   return ''; // Bei Erfahrung werden Kreise angezeigt
 });
@@ -131,4 +134,3 @@ const displayValue = computed(() => {
   display: block;
 }
 </style>
-

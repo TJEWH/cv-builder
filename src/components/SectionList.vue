@@ -1,278 +1,158 @@
 <script setup>
 import { computed, ref } from 'vue';
+import Draggable from 'vuedraggable';
 import { makeT } from '../i18n/dict.js';
-import sectionIcons from '../i18n/sectionIcons.js';
+import { createContentId } from '../composables/contentLayout.js';
+import MarkdownTextarea from './MarkdownTextarea.vue';
 
 const props = defineProps({
   title: String,
   sectionKey: String,
   lang: { type: String, default: 'de' },
   modelValue: { type: Array, required: true },
-  schema: { type: Array, required: true }, // [{label,key,type,placeholder,options?}]
+  schema: { type: Array, required: true },
   addLabel: { type: String, default: 'Hinzufügen' },
   toggleable: { type: Boolean, default: true },
   disabled: { type: Boolean, default: false },
-  draggable: { type: Boolean, default: false },
-  isDragging: { type: Boolean, default: false },
-  isCollapsed: { type: Boolean, default: false }, // External control of collapsed state
-  // Props für editierbare Namen
+  completed: { type: Boolean, default: false },
+  isCollapsed: { type: Boolean, default: false },
   editableTitle: { type: Boolean, default: false },
   isEditingTitle: { type: Boolean, default: false },
   editingTitleValue: { type: String, default: '' },
   titlePlaceholder: { type: String, default: '' },
-  headerSize: { type: String, default: 'h2' }
+  headerSize: { type: String, default: 'h2' },
 });
 
-const langRef = computed({
-  get: () => props.lang || 'de'
-})
+const emit = defineEmits([
+  'update:modelValue', 'toggle-section', 'toggle-complete', 'toggle-collapse',
+  'start-edit-title', 'finish-edit-title', 'cancel-edit-title', 'update-editing-value', 'header-size-change',
+]);
+
+const langRef = computed(() => props.lang || 'de');
 const t = makeT(langRef);
-
-// declare emits so Vue doesn't warn when we $emit('toggle-section')
-const emit = defineEmits(['update:modelValue','toggle-section','toggle-collapse','dragstart','dragend','start-edit-title','finish-edit-title','cancel-edit-title','update-editing-value','header-size-change']);
-
-const items = defineModel({ default: [] });
-
 const root = ref(null);
-const toggleCollapse = () => emit('toggle-collapse');
-const isHeaderControl = (target) => target?.closest?.('button, input, select, textarea, a');
+const items = computed({
+  get: () => Array.isArray(props.modelValue) ? props.modelValue : [],
+  set: (value) => emit('update:modelValue', value),
+});
+const headerSizeOptions = computed(() => [
+  { label: 'H2', value: 'h2' },
+  { label: 'H3', value: 'h3' },
+  { label: 'H4', value: 'h4' },
+  { label: langRef.value === 'de' ? 'Kein Titel' : 'No Title', value: 'null' },
+]);
+
+const isHeaderControl = (target) => target?.closest?.('button, input, select, textarea, a, [contenteditable="true"], .p-select');
 const onHeaderClick = (event) => {
-  if (!isHeaderControl(event.target)) toggleCollapse();
+  if (!isHeaderControl(event.target)) emit('toggle-collapse');
 };
 
 const add = () => {
-  const o = {};
-  props.schema.forEach(f => {
-    if (f.type === 'number') {
-      o[f.key] = 0;
-    } else if (f.type === 'select' && f.options && f.options.length > 0) {
-      o[f.key] = f.options[0];
-    } else {
-      o[f.key] = '';
-    }
+  const entry = { id: createContentId(props.sectionKey || 'entry'), hidden: false };
+  props.schema.forEach((field) => {
+    if (field.type === 'number') entry[field.key] = 0;
+    else if (field.type === 'select' && field.options?.length) entry[field.key] = field.options[0];
+    else entry[field.key] = '';
   });
-  items.value.push(o);
-
-  requestAnimationFrame(()=>{
-    const el = root.value?.querySelector('.item-row:last-of-type');
-    el?.scrollIntoView({ behavior:'smooth', block:'center' });
-  });
-};
-const removeAt = (i) => items.value.splice(i,1);
-
-// compute icon name for this section (fallback to 'folder-open')
-const iconName = computed(()=> sectionIcons[props.sectionKey] || 'folder-open');
-
-// Track if drag should be prevented based on mousedown target
-const shouldPreventDrag = ref(false);
-
-// Check mousedown target to determine if drag should be allowed
-const onMouseDown = (event) => {
-  const target = event.target;
-  const tagName = target.tagName;
-
-  // Prevent drag if mousedown is on interactive elements
-  // This allows text selection in inputs/textareas and normal interaction with other controls
-  shouldPreventDrag.value = tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT' || tagName === 'BUTTON';
+  items.value = [...items.value, entry];
+  requestAnimationFrame(() => root.value?.querySelector('.item-row:last-of-type')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
 };
 
-// Prevent drag when interacting with input/textarea
-const onDragStart = (event) => {
-  if (shouldPreventDrag.value) {
-    event.preventDefault();
-    event.stopPropagation();
-    return false;
-  }
-  emit('dragstart', event);
+const removeAt = (index) => {
+  items.value = items.value.filter((_, itemIndex) => itemIndex !== index);
 };
 
-// Reset shouldPreventDrag on mouseup to ensure clean state
-const onMouseUp = () => {
-  shouldPreventDrag.value = false;
-};
-
-// Helper to get/set textarea value with bullet conversion
-const getTextareaValue = (item, key) => {
-  const val = item[key];
-  // If it's an array (bullets), convert to string with newlines
-  if (Array.isArray(val)) {
-    return val.join('\n');
-  }
-  // Otherwise return as is
-  return val || '';
-};
-
-const setTextareaValue = (item, key, value) => {
-  // Check if this field should be stored as array (for bullets)
-  const field = props.schema.find(f => f.key === key);
-  if (field && field.key === 'bullets') {
-    // Split by newlines and filter out empty lines
-    item[key] = String(value || '').split('\n').map(line => line.trim()).filter(line => line.length > 0);
-  } else {
-    // Store as string for other textarea fields
-    item[key] = value;
-  }
-};
 </script>
 
 <template>
-  <section
-    ref="root"
-    class="section-group"
-    :data-section="sectionKey"
-    :class="{disabled, dragging: isDragging, collapsed: isCollapsed}"
-    :draggable="draggable && !shouldPreventDrag"
-    @mousedown="onMouseDown"
-    @mouseup="onMouseUp"
-    @dragstart="onDragStart"
-    @dragend="emit('dragend', $event)"
-  >
+  <section ref="root" class="section-group" :data-section="sectionKey" :class="{ disabled, completed, collapsed: isCollapsed }">
     <div class="section-head" @click="onHeaderClick">
-      <button class="caret mini" type="button" @click.stop="toggleCollapse">
-        <font-awesome-icon v-if="iconName" :icon="['fas', iconName]" class="section-icon" aria-hidden="true" />
+      <button
+        v-if="toggleable"
+        class="mini visibility-toggle"
+        :class="[disabled ? 'btn--success' : 'btn--danger']"
+        type="button"
+        :aria-label="disabled ? t('show') : t('hide')"
+        :title="disabled ? t('show') : t('hide')"
+        @click.stop="emit('toggle-section')"
+      >
+        <font-awesome-icon :icon="['fas', disabled ? 'eye-slash' : 'eye']" />
       </button>
 
-      <!-- Editable Title if prop is set -->
       <template v-if="editableTitle">
-        <h3
-          v-if="!isEditingTitle"
-          class="section-name-label"
-          @click.stop="emit('start-edit-title')"
-          :title="langRef === 'de' ? 'Klicken zum Umbenennen' : 'Click to rename'"
-        >
+        <h3 v-if="!isEditingTitle" class="section-name-label" @click.stop="emit('start-edit-title')">
           {{ title }}
         </h3>
-        <input
+        <InputText
           v-else
-          type="text"
-          :value="editingTitleValue"
-          @input="emit('update-editing-value', $event.target.value)"
+          :model-value="editingTitleValue"
           class="section-name-input"
           :placeholder="titlePlaceholder"
+          @update:model-value="emit('update-editing-value', $event)"
           @click.stop
           @blur="emit('finish-edit-title')"
           @keyup.enter="emit('finish-edit-title')"
           @keyup.esc="emit('cancel-edit-title')"
         />
       </template>
-
-      <!-- Normal Title -->
       <h3 v-else>{{ title }}</h3>
 
-      <div style="margin-left:auto;display:flex;gap:6px">
-        <select :value="headerSize" @change="emit('header-size-change', $event.target.value)" class="header-size-select">
-          <option value="h2">H2</option>
-          <option value="h3">H3</option>
-          <option value="h4">H4</option>
-          <option value="null">{{ langRef === 'de' ? 'Kein Titel' : 'No Title' }}</option>
-        </select>
-        <slot name="controls"></slot>
-        <button
-          v-if="toggleable"
-          class="mini visibility-toggle"
-          :class="[disabled ? 'btn--success' : 'btn--danger']"
-          type="button"
-          :aria-label="disabled ? t('show') : t('hide')"
-          :title="disabled ? t('show') : t('hide')"
-          @click.stop="$emit('toggle-section')"
-        >
-          <font-awesome-icon :icon="['fas', disabled ? 'eye-slash' : 'eye']" />
-        </button>
+      <div class="section-head__actions">
+        <Select
+          :model-value="headerSize"
+          :options="headerSizeOptions"
+          option-label="label"
+          option-value="value"
+          class="header-size-select"
+          @update:model-value="emit('header-size-change', $event)"
+        />
+        <label class="section-complete-toggle" :title="t('markComplete')" @click.stop>
+          <input type="checkbox" :checked="completed" :aria-label="t('markComplete')" @change="emit('toggle-complete')" />
+        </label>
       </div>
     </div>
 
-    <div class="items">
-      <div class="item-row" v-for="(item, i) in items" :key="i">
-        <div v-if="schema.some(s=>s.type!=='textarea')" :class="['row', schema.length===2?'row-2':'', schema.length===3?'row-3':'', schema.length===4?'row-4':'']">
-          <label v-for="f in schema.filter(s=>s.type!=='textarea')" :key="f.key">
-            {{ f.label }}
-            <template v-if="f.type==='text'">
-              <input type="text" v-model="item[f.key]" :placeholder="f.placeholder||''"/>
-            </template>
-            <template v-else-if="f.type==='number'">
-              <input type="number" v-model.number="item[f.key]" :placeholder="f.placeholder||''"/>
-            </template>
-            <template v-else-if="f.type==='select'">
-              <select v-model="item[f.key]">
-                <option v-for="opt in f.options" :key="opt" :value="opt">{{ opt }}</option>
-              </select>
-            </template>
-          </label>
+    <Draggable v-model="items" item-key="id" handle=".entry-drag-handle" :animation="150" class="items" ghost-class="sortable-ghost" chosen-class="sortable-chosen">
+      <template #item="{ element: item, index }">
+        <div class="item-row" :class="{ 'item-row--hidden': item.hidden }">
+          <div class="item-row__actions">
+            <button class="mini entry-drag-handle" type="button" :aria-label="langRef === 'de' ? 'Eintrag verschieben' : 'Move entry'" :title="langRef === 'de' ? 'Eintrag verschieben' : 'Move entry'"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button>
+            <button class="mini visibility-toggle" :class="item.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="item.hidden ? t('show') : t('hide')" :title="item.hidden ? t('show') : t('hide')" @click="item.hidden = !item.hidden"><font-awesome-icon :icon="['fas', item.hidden ? 'eye-slash' : 'eye']" /></button>
+            <button type="button" class="mini btn--danger" :aria-label="t('remove')" :title="t('remove')" @click="removeAt(index)"><font-awesome-icon :icon="['fas', 'trash']" /></button>
+          </div>
+          <div class="item-row__content">
+            <div v-if="schema.some((field) => field.type !== 'textarea')" :class="['row', schema.length === 2 ? 'row-2' : '', schema.length === 3 ? 'row-3' : '', schema.length === 4 ? 'row-4' : '']">
+              <label v-for="field in schema.filter((entry) => entry.type !== 'textarea')" :key="field.key">
+                {{ field.label }}
+                <InputText v-if="field.type === 'text'" v-model="item[field.key]" :placeholder="field.placeholder || ''" fluid />
+                <InputNumber v-else-if="field.type === 'number'" v-model="item[field.key]" :placeholder="field.placeholder || ''" :use-grouping="false" fluid />
+                <Select v-else-if="field.type === 'select'" v-model="item[field.key]" :options="field.options" fluid />
+              </label>
+            </div>
+            <label v-for="field in schema.filter((entry) => entry.type === 'textarea')" :key="field.key">
+              {{ field.label }}
+              <MarkdownTextarea v-model="item[field.key]" :placeholder="field.placeholder || ''" :aria-label="field.label" :help="t('markdownTextareaHelp')" />
+            </label>
+          </div>
         </div>
-        <label v-for="f in schema.filter(s=>s.type==='textarea')" :key="f.key">
-          {{ f.label }}<textarea
-            :value="getTextareaValue(item, f.key)"
-            @input="setTextareaValue(item, f.key, $event.target.value)"
-            :placeholder="f.placeholder||''"></textarea>
-        </label>
-        <div><button type="button" class="mini btn--danger" @click="removeAt(i)">{{t('remove')}}</button></div>
-      </div>
-      <div class="add-button-wrapper">
-        <button v-if="addLabel" type="button" class="add-button mini btn--success" @click="add">{{ addLabel }}</button>
-      </div>
+      </template>
+    </Draggable>
+    <div class="add-button-wrapper">
+      <button v-if="addLabel" type="button" class="add-button mini btn--success" @click="add">{{ addLabel }}</button>
     </div>
   </section>
 </template>
 
 <style scoped>
-.section-name-label {
-  color: #9be8c7;
-  padding: 4px 8px;
-  font-size: 1rem;
-  font-weight: 600;
-  margin: 0;
-  cursor: pointer;
-  border-radius: 4px;
-  border: 1px solid transparent;
-  transition: all 0.2s ease;
-  user-select: none;
-}
-
-.section-name-label:hover {
-  background: rgba(16, 185, 129, 0.1);
-  border-color: #134e4a;
-}
-
-.section-name-input {
-  background: transparent;
-  border: 1px solid #134e4a;
-  color: #9be8c7;
-  padding: 4px 8px;
-  font-size: 1rem;
-  font-weight: 600;
-  border-radius: 4px;
-  min-width: 200px;
-  transition: all 0.2s ease;
-  width: 30%;
-}
-
-.section-name-input:hover {
-  border-color: #10b981;
-}
-
-.section-name-input:focus {
-  outline: none;
-  border-color: #10b981;
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
-}
-
-.header-size-select {
-  padding: 4px 8px;
-  border: 1px solid #134e4a;
-  background: #061017;
-  color: #9be8c7;
-  border-radius: 4px;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.header-size-select:hover {
-  border-color: #10b981;
-}
-
-.header-size-select:focus {
-  outline: none;
-  border-color: #10b981;
-}
+.section-head__actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.section-complete-toggle { display: inline-flex; align-items: center; cursor: pointer; }
+.section-complete-toggle input { width: 16px; height: 16px; accent-color: #86efac; cursor: pointer; }
+.item-row__actions { display: flex; flex-direction: column; align-items: center; gap: 6px; align-self: center; }
+.entry-drag-handle { cursor: grab; }
+.entry-drag-handle:active { cursor: grabbing; }
+.sortable-ghost { opacity: .4; }
+.sortable-chosen { outline: 1px solid #10b981; }
+.section-name-label { color: #9be8c7; padding: 4px 8px; font-size: 1rem; font-weight: 600; margin: 0; cursor: pointer; border-radius: 4px; border: 1px solid transparent; }
+.section-name-label:hover { background: rgba(16, 185, 129, .1); border-color: #134e4a; }
+.section-name-input { width: 30%; min-width: 200px; }
 </style>

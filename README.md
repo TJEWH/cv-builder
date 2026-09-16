@@ -17,7 +17,7 @@ Modern resume generator built with Vue 3 and Vite. Create professional CVs with 
 ### Content
 - **Personal Information**: Name, role, contact details (email, phone, website, LinkedIn)
 - **Sections**: About me, education, work experience, additional experience, projects
-- **Skills**: Categorized with level display (bars, dots, stars, percent) or as badges
+- **Sidebar Categories**: Add custom sidebar sections with badge, experience, or years-based skill displays
 - **Soft Skills**: With references to jobs
 - **Additional**: Languages, hobbies, certificates
 - **Custom Sections**: Create your own sections with freely definable fields
@@ -69,7 +69,8 @@ App runs at `http://localhost:5173`
 ### Basics
 - Fill sections with `+` button, remove with `×`
 - Eye icon (👁️) shows/hides sections
-- Drag & drop to reorder sections and entries
+- Use the right-side section handle to open the fixed Body/Sidebar reorder dialog
+- Use item handles to drag entries and sidebar skills directly
 - Auto-save saves all changes automatically
 
 ### Customize Design
@@ -78,10 +79,9 @@ App runs at `http://localhost:5173`
 - Header styles: clean, underline, leftbar, pill, stripe
 - All colors and typography individually adjustable
 
-### Skills
-- Categories with optional level types (bars, dots, stars, percent)
-- Without level = simple badge list
-- Slider for level rating
+### Sidebar Categories
+- Sidebar-only custom sections use a normal section header and optional skill levels
+- Without a level type, skills render as badges
 
 ### Soft Skills
 - Label, description + references to jobs
@@ -104,6 +104,7 @@ App runs at `http://localhost:5173`
 - **Vue 3.5** + **Vite 7.2**: Framework & build tool
 - **html2pdf.js**: PDF export (html2canvas + jsPDF)
 - **FontAwesome 7**: Icon system
+- **VueDraggable**: Handle-based section and item sorting
 - **Google Fonts**: Dynamic font loading
 - **LocalStorage**: Persistent storage and named browser configurations
 
@@ -117,6 +118,7 @@ App runs at `http://localhost:5173`
 npm run dev          # Dev server (http://localhost:5173)
 npm run build        # Production build
 npm run preview      # Test build
+npm test             # Content-state migration tests
 ```
 
 ### Extend Project
@@ -125,7 +127,7 @@ npm run preview      # Test build
 
 **Design Option**: State → DesignPanel input → CSS variable in `applyCSS()` → use CSS
 
-**New Skill Level**: Template in `SkillItem.vue` + dropdown in `SkillCategory.vue`
+**Sidebar Skill Display**: Template in `SkillItem.vue` + level configuration in `FormBuilder.vue`
 
 ### Debugging
 

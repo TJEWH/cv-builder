@@ -5,18 +5,14 @@ import { saveLocal } from '../composables/useStorage';
 const props = defineProps({
   state: { type: Object, required: true },
   lang: { type: String, default: 'de' },
-  movementMode: { type: String, default: 'drag' },
   onSave: { type: Function, default: () => {} },
+  onLoad: { type: Function, default: () => {} },
 });
-const emit = defineEmits(['update:lang', 'update:movementMode']);
+const emit = defineEmits(['update:lang']);
 
 const langRef = computed({
   get: () => props.lang || 'de',
   set: (value) => emit('update:lang', value),
-});
-const movementModeRef = computed({
-  get: () => props.movementMode || 'drag',
-  set: (value) => emit('update:movementMode', value),
 });
 const labels = computed(() => langRef.value === 'de' ? {
   saveAs: 'Speichern als',
@@ -31,7 +27,6 @@ const labels = computed(() => langRef.value === 'de' ? {
   loaded: 'Geladen.',
   missingName: 'Bitte Titel eingeben.',
   language: 'Sprache',
-  movement: 'Interaktion',
 } : {
   saveAs: 'Save as',
   newName: 'New configuration title',
@@ -45,7 +40,6 @@ const labels = computed(() => langRef.value === 'de' ? {
   loaded: 'Loaded.',
   missingName: 'Please enter a title.',
   language: 'Language',
-  movement: 'Interaction',
 });
 
 const configs = ref([]);
@@ -104,7 +98,7 @@ function loadCurrent() {
     const raw = localStorage.getItem(localDataKey(currentId.value));
     if (!raw) return;
     const stored = JSON.parse(raw);
-    Object.assign(props.state, stored.data || stored);
+    props.onLoad(stored.data || stored);
     props.onSave();
     backupMsg.value = labels.value.loaded;
   } catch (error) {
@@ -148,10 +142,6 @@ onMounted(refreshConfigs);
       <span>{{ labels.language }}</span>
       <button type="button" class="toggle" :class="{ 'is-on': langRef === 'en' }" @click="langRef = langRef === 'de' ? 'en' : 'de'">
         <span class="toggle-track"><span class="toggle-label">DE</span><span class="toggle-label">EN</span><span class="toggle-thumb"></span></span>
-      </button>
-      <span>{{ labels.movement }}</span>
-      <button type="button" class="toggle" :class="{ 'is-on': movementModeRef === 'drag' }" @click="movementModeRef = movementModeRef === 'buttons' ? 'drag' : 'buttons'">
-        <span class="toggle-track"><span class="toggle-label"><font-awesome-icon :icon="['fas', 'arrows-up-down']" /></span><span class="toggle-label"><font-awesome-icon :icon="['fas', 'hands']" /></span><span class="toggle-thumb"></span></span>
       </button>
     </div>
   </section>

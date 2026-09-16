@@ -93,7 +93,7 @@ const rowClass = (idx, refId) =>
         <div class="section-head" style="margin:0 0 6px;gap:8px; display:flex; align-items:center">
           <button class="caret mini" type="button" @click="open[idx] = !open[idx]">▾</button>
           <label style="flex:1">Soft Skill
-            <input type="text" v-model="s.label" placeholder="Communication" />
+            <InputText v-model="s.label" placeholder="Communication" fluid />
           </label>
           <button class="mini btn btn--danger" type="button" title="Entfernen" @click="removeSkill(idx)">✕</button>
         </div>

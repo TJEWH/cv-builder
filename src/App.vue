@@ -1,40 +1,50 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { debounce, loadLocal, saveLocal } from './composables/useStorage';
 import { useCvDesign } from './composables/useCvDesign';
 import { usePdfExport } from './composables/usePdfExport';
 import FormBuilder from './components/FormBuilder.vue';
 import CvPreview from './components/CvPreview.vue';
+import PdfPreview from './components/PdfPreview.vue';
+import PdfPagination from './components/PdfPagination.vue';
 import BackupManager from './components/BackupManager.vue';
 import DesignPanel from './components/DesignPanel.vue';
+import ExportOptionsPanel from './components/ExportOptionsPanel.vue';
 import { makeT } from './i18n/dict';
+import { normalizeContentState } from './composables/contentLayout';
+import {
+  DEFAULT_EXPORT_OPTIONS,
+  approximatePdfSizeFromPreview,
+  formatPdfBytes,
+  normalizeExportOptions,
+} from './composables/pdfImageEncoding';
 
 const state = reactive({
-  version: 1,
+  version: 6,
   disabled: [],
+  completedSections: [],
   lang: 'de',
   design: {
     h1: '22pt', h2: '12pt', h3: '10pt', bullets: '10.5pt', bulletStyle: 'disc',
-    ink: '#111827', accent: '#0f66d0', bg: '#ffffff', headerbg: '#CE9048', sidebarbg: '#CE9048',
+    ink: '#111827', graphicOpacity: 100, dateOpacity: 100,
     fontBody: 'Inter', fontHead: 'Inter', hstyle: 'clean', radius: '10px',
-    subtitle: '#0a9c91', graphic: '#4f46e5', dateColor: '#6b7280',
-    badgeBorderWidth: '1px', badgeBorderRadius: '6px', invertBadge: false, enableBoxShadow: false,
+    badgeBorderWidth: '1px', badgeBorderRadius: '6px',
     itemBorderWidth: '1px',
     sectionSpacing: '6mm', sectionSpacingBody: '6mm', sectionSpacingSidebar: '6mm',
-    sidebarWidth: '0.7fr', sidebarAlign: 'right', sidebarStyle: 'default', addExpColumns: '2',
+    sidebarWidth: '0.7fr', sidebarAlign: 'right', sidebarFillMode: 'start', headerLayoutStyle: 'separator', sidebarLayoutStyle: 'separator', contactLayout: 'side', separatorWidth: '1px',
+    pageMarginTop: '0mm', pageMarginRight: '0mm', pageMarginBottom: '0mm', pageMarginLeft: '0mm',
+    headerPaddingVertical: '12mm', headerPaddingHorizontal: '12mm',
+    contentPaddingVertical: '10mm', contentPaddingHorizontal: '12mm',
   },
-  contact: { name: '', location: '', role: '', email: '', phone: '', website: '', linkedin: '' },
+  exportOptions: { ...DEFAULT_EXPORT_OPTIONS },
+  contact: { name: '', location: '', role: '', email: '', phone: '', website: '', linkedin: '', github: '' },
   about: { text: '' },
   education: [],
-  experience: { jobs: [], addExp: [], projects: [] },
-  skills: [
-    { title: 'Programmiersprachen', levelType: null, items: [{ name: 'Python', levelValue: 0 }, { name: 'TypeScript', levelValue: 0 }, { name: 'Go', levelValue: 0 }] },
-    { title: 'Frameworks', levelType: null, items: [{ name: 'React', levelValue: 0 }, { name: 'Docker', levelValue: 0 }, { name: 'Kubernetes', levelValue: 0 }] },
-  ],
+  experience: { jobs: [] },
   languages: [],
-  certs: [],
-  hobbies: [{ name: 'Musik', details: '' }],
+  hobbies: [{ name: 'Musik' }],
   customSections: [],
+  sidebarSections: [],
   sectionNames: {},
   sectionHeaderSizes: {},
   softSkills: [
@@ -42,8 +52,8 @@ const state = reactive({
     { label: 'Kritisches Denken', desc: '', refs: [] },
     { label: 'Kreative Problemlösung', desc: '', refs: [] },
   ],
-  orderMain: ['about', 'education', 'jobs', 'addExp', 'projects'],
-  orderSide: ['skills', 'languages', 'hobbies', 'certs'],
+  bodyOrder: ['about', 'education', 'jobs'],
+  sidebarOrder: ['languages', 'hobbies'],
 });
 
 const lang = computed({
@@ -51,156 +61,327 @@ const lang = computed({
   set: (value) => { state.lang = value; },
 });
 const previewMode = ref(false);
-const sectionMovementMode = ref('drag');
+const fullPreviewView = ref('pdf');
+const previewPlacement = ref('side');
+const previewPages = ref([]);
+const previewPage = ref(1);
+const isPreviewRendering = ref(true);
+const pdfRenderSource = ref(null);
 const t = makeT(lang);
-
-const inlinePreviewViewport = ref(null);
-const inlinePreviewSize = ref({ width: 333, height: 472, scale: 0.42 });
-const previewPageSize = { width: 794, height: 1123 };
-let inlinePreviewObserver;
-let inlinePreviewPageObserver;
-
-function resizeInlinePreview() {
-  const viewport = inlinePreviewViewport.value;
-  if (!viewport) return;
-
-  const padding = 16;
-  const page = viewport.querySelector('.page');
-  const scale = Math.max(0.1, (viewport.clientWidth - padding) / previewPageSize.width);
-  const contentHeight = Math.max(page?.scrollHeight || 0, previewPageSize.height);
-  inlinePreviewSize.value = {
-    scale,
-    width: Math.floor(previewPageSize.width * scale),
-    height: Math.ceil(contentHeight * scale),
-  };
-}
-
-function bindInlinePreviewViewport(element) {
-  inlinePreviewObserver?.disconnect();
-  inlinePreviewPageObserver?.disconnect();
-  inlinePreviewViewport.value = element;
-  if (!element) return;
-  inlinePreviewObserver = new ResizeObserver(resizeInlinePreview);
-  inlinePreviewObserver.observe(element);
-  nextTick(() => {
-    if (inlinePreviewViewport.value !== element) return;
-    const page = element.querySelector('.page');
-    if (page) {
-      inlinePreviewPageObserver = new ResizeObserver(resizeInlinePreview);
-      inlinePreviewPageObserver.observe(page);
-    }
-    resizeInlinePreview();
-  });
-}
-
-onBeforeUnmount(() => {
-  inlinePreviewObserver?.disconnect();
-  inlinePreviewPageObserver?.disconnect();
-});
 
 const saveDebounced = debounce(() => saveLocal(JSON.parse(JSON.stringify(state))), 250);
 watch(state, saveDebounced, { deep: true });
 useCvDesign(() => state.design);
 
+function ensureDesignLayoutDefaults() {
+  state.design ||= {};
+  const legacyLayoutStyle = state.design.layoutStyle === 'separator' ? 'separator' : 'boxed';
+  const defaults = {
+    ink: '#111827',
+    graphicOpacity: 100,
+    dateOpacity: 100,
+    hstyle: 'clean',
+    sidebarFillMode: 'start',
+    headerLayoutStyle: legacyLayoutStyle,
+    sidebarLayoutStyle: legacyLayoutStyle,
+    contactLayout: 'side',
+    separatorWidth: '1px',
+    pageMarginTop: '0mm',
+    pageMarginRight: '0mm',
+    pageMarginBottom: '0mm',
+    pageMarginLeft: '0mm',
+    headerPaddingVertical: '12mm',
+    headerPaddingHorizontal: '12mm',
+    contentPaddingVertical: '10mm',
+    contentPaddingHorizontal: '12mm',
+  };
+
+  Object.entries(defaults).forEach(([key, value]) => {
+    if (state.design[key] == null) state.design[key] = value;
+  });
+  if (!['start', 'last-page', 'after-cover'].includes(state.design.sidebarFillMode)) {
+    state.design.sidebarFillMode = 'start';
+  }
+
+  ['accent', 'bg', 'headerbg', 'sidebarbg', 'subtitle', 'graphic', 'dateColor', 'invertBadge', 'enableBoxShadow', 'layoutStyle', 'addExpColumns'].forEach((key) => {
+    delete state.design[key];
+  });
+}
+
 function mergeIn(data) {
   if (!data) return;
 
   Object.assign(state, data);
-  state.experience ||= { jobs: [], addExp: [], projects: [] };
+  state.version = 6;
+  ensureDesignLayoutDefaults();
+  state.exportOptions = normalizeExportOptions(state.exportOptions);
+  state.completedSections = Array.isArray(state.completedSections) ? [...new Set(state.completedSections)] : [];
+  state.contact ||= {};
+  if (state.contact.github == null) state.contact.github = '';
+  state.experience ||= { jobs: [] };
   state.experience.jobs ||= [];
-  state.experience.addExp ||= [];
-  state.experience.projects ||= [];
-  state.skills ??= [];
-
-  const hasNewCustomSections = Array.isArray(data.customSections) && data.customSections.length > 0;
-  if (Array.isArray(data.custom) && data.custom.length > 0 && !hasNewCustomSections) {
-    const customSection = {
-      id: `custom_${Date.now()}`,
-      name: lang.value === 'de' ? 'Eigene Section' : 'Custom Section',
-      entries: data.custom,
-    };
-    state.customSections = [customSection];
-    state.orderMain = (state.orderMain || []).filter((key) => key !== 'custom');
-    if (!state.orderMain.includes(customSection.id)) state.orderMain.push(customSection.id);
-  }
+  normalizeContentState(state);
 }
 
-onMounted(async () => {
-  const cached = loadLocal();
-  if (cached) {
-    mergeIn(cached);
-    return;
-  }
+normalizeContentState(state);
 
+onMounted(async () => {
   try {
+    const cached = loadLocal();
+    if (cached) {
+      mergeIn(cached);
+      return;
+    }
+
     const response = await fetch(`${import.meta.env.BASE_URL}cv-defaults.json`, { cache: 'no-store' });
     if (!response.ok) throw new Error(`Failed to load defaults: ${response.status}`);
     mergeIn(await response.json());
   } catch (error) {
     console.warn('Failed to load default CV data', error);
+  } finally {
+    requestPdfPreview();
   }
 });
 
-const { exportToPdf } = usePdfExport();
+const { estimatePdfSize, exportToPdf, renderPdf } = usePdfExport();
 const isExporting = ref(false);
+const estimatedPdfBytes = ref(null);
+const pdfEstimateAccuracy = ref('');
+const isExactPdfEstimating = ref(false);
+const isPdfEstimateStale = ref(false);
+const pdfEstimateError = ref('');
+let previewRenderVersion = 0;
+let pdfEstimateRequest = 0;
+let pdfContentRevision = 0;
+
+function exportMarginMillimeters(value) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? Math.min(30, Math.max(0, parsed)) : 0;
+}
+
+function getPdfMargins(design = {}) {
+  return [
+    exportMarginMillimeters(design.pageMarginTop),
+    exportMarginMillimeters(design.pageMarginLeft),
+    exportMarginMillimeters(design.pageMarginBottom),
+    exportMarginMillimeters(design.pageMarginRight),
+  ];
+}
+
+function getPdfRenderOptions() {
+  return {
+    margin: getPdfMargins(state.design),
+    continuationTopPadding: exportMarginMillimeters(state.design?.contentPaddingVertical || '10mm'),
+    sidebarFillMode: state.design?.sidebarFillMode,
+  };
+}
+
+function getHybridPdfRenderOptions() {
+  const exportOptions = normalizeExportOptions(state.exportOptions);
+  return {
+    ...getPdfRenderOptions(),
+    image: exportOptions,
+  };
+}
+
+function getPdfSourceElement() {
+  return pdfRenderSource.value?.querySelector('.page') || null;
+}
+
+async function refreshPdfPreview(version) {
+  try {
+    await nextTick();
+    await document.fonts?.ready;
+    if (version !== previewRenderVersion) return;
+
+    const cvElement = getPdfSourceElement();
+    if (!cvElement) throw new Error('CV preview element not found');
+    const { pages } = await renderPdf(cvElement, getPdfRenderOptions());
+    if (version !== previewRenderVersion) return;
+
+    previewPages.value = pages;
+    previewPage.value = Math.min(Math.max(previewPage.value, 1), Math.max(pages.length, 1));
+    if (estimatedPdfBytes.value == null) updateApproximatePdfSizeEstimate();
+  } catch (error) {
+    if (version === previewRenderVersion) console.error('PDF preview failed:', error);
+  } finally {
+    if (version === previewRenderVersion) isPreviewRendering.value = false;
+  }
+}
+
+const schedulePdfPreview = debounce(() => refreshPdfPreview(previewRenderVersion), 500);
+
+function requestPdfPreview() {
+  previewRenderVersion += 1;
+  isPreviewRendering.value = true;
+  schedulePdfPreview();
+}
+
+const previewState = computed(() => ({
+  disabled: state.disabled,
+  completedSections: state.completedSections,
+  lang: state.lang,
+  design: state.design,
+  contact: state.contact,
+  about: state.about,
+  education: state.education,
+  experience: state.experience,
+  languages: state.languages,
+  hobbies: state.hobbies,
+  customSections: state.customSections,
+  sidebarSections: state.sidebarSections,
+  sectionNames: state.sectionNames,
+  sectionHeaderSizes: state.sectionHeaderSizes,
+  softSkills: state.softSkills,
+  bodyOrder: state.bodyOrder,
+  sidebarOrder: state.sidebarOrder,
+}));
+
+watch(previewState, () => {
+  pdfContentRevision += 1;
+  if (estimatedPdfBytes.value != null) {
+    isPdfEstimateStale.value = true;
+  }
+  requestPdfPreview();
+}, { deep: true, flush: 'post' });
+
+function updateApproximatePdfSizeEstimate() {
+  estimatedPdfBytes.value = approximatePdfSizeFromPreview(previewPages.value, state.exportOptions);
+  pdfEstimateAccuracy.value = 'approximate';
+  isPdfEstimateStale.value = false;
+  pdfEstimateError.value = '';
+}
+
+async function calculateExactPdfSizeEstimate() {
+  const request = ++pdfEstimateRequest;
+  isExactPdfEstimating.value = true;
+  pdfEstimateError.value = '';
+
+  try {
+    await nextTick();
+    const contentRevision = pdfContentRevision;
+    const cvElement = getPdfSourceElement();
+    if (!cvElement) throw new Error('CV preview element not found');
+    const bytes = await estimatePdfSize(cvElement, getHybridPdfRenderOptions());
+    if (request !== pdfEstimateRequest || contentRevision !== pdfContentRevision) return;
+    estimatedPdfBytes.value = bytes;
+    pdfEstimateAccuracy.value = 'exact';
+    isPdfEstimateStale.value = false;
+  } catch (error) {
+    if (request === pdfEstimateRequest) {
+      pdfEstimateError.value = error instanceof Error ? error.message : String(error);
+    }
+  } finally {
+    if (request === pdfEstimateRequest) isExactPdfEstimating.value = false;
+  }
+}
+
+const scheduleApproximatePdfSizeEstimate = debounce(updateApproximatePdfSizeEstimate, 120);
+
+watch(
+  () => [state.exportOptions?.format, state.exportOptions?.quality],
+  () => {
+    pdfEstimateRequest += 1;
+    isExactPdfEstimating.value = false;
+    scheduleApproximatePdfSizeEstimate();
+  },
+  { flush: 'post' },
+);
+
+const estimatedPdfSize = computed(() => formatPdfBytes(estimatedPdfBytes.value));
 
 async function handleExportPdf() {
   isExporting.value = true;
-  let exportElement;
   try {
     await nextTick();
-    const cvElement = document.querySelector('.cv-preview-export .page');
+    const cvElement = getPdfSourceElement();
     if (!cvElement) throw new Error('CV preview element not found');
     const filename = `${(state.contact?.name || 'CV').replace(/\s+/g, '_')}_CV`;
-    exportElement = cvElement;
-    cvElement.classList.add('pdf-export-source');
-    await exportToPdf(cvElement, filename);
+    await exportToPdf(cvElement, filename, getHybridPdfRenderOptions());
   } catch (error) {
     console.error('PDF export failed:', error);
   } finally {
-    exportElement?.classList.remove('pdf-export-source');
     isExporting.value = false;
   }
 }
+
 </script>
 
 <template>
   <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode }">
+    <div ref="pdfRenderSource" class="pdf-render-source" aria-hidden="true">
+      <CvPreview :state="state" export-source />
+    </div>
+
     <section v-if="previewMode" class="fullscreen-preview" aria-label="CV preview">
-      <div class="fullscreen-preview__content">
-        <div class="fullscreen-preview__page cv-preview-export">
-          <CvPreview :state="state" />
-        </div>
-        <div class="preview-actions preview-actions--full">
-          <button class="btn" type="button" @click="previewMode = false">{{ t('backToBuilder') }}</button>
-          <button class="btn btn--primary" type="button" @click="handleExportPdf" :disabled="isExporting">
-            <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
-            {{ isExporting ? t('exportingPdf') : t('downloadPdf') }}
-          </button>
-        </div>
+      <button class="btn fullscreen-preview__back" type="button" @click="previewMode = false">
+        <font-awesome-icon :icon="['fas', 'arrow-left']" />
+        {{ t('backToBuilder') }}
+      </button>
+
+      <div class="fullscreen-preview__actions">
+        <button class="btn" type="button" :aria-pressed="fullPreviewView === 'html'" @click="fullPreviewView = fullPreviewView === 'pdf' ? 'html' : 'pdf'">
+          <font-awesome-icon :icon="['fas', fullPreviewView === 'pdf' ? 'code' : 'file-pdf']" />
+          {{ fullPreviewView === 'pdf' ? t('showHtmlPreview') : t('showPdfPreview') }}
+        </button>
+        <button class="btn btn--primary" type="button" @click="handleExportPdf" :disabled="isExporting">
+          <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
+          <font-awesome-icon v-else :icon="['fas', 'download']" />
+          {{ isExporting ? t('exportingPdf') : t('downloadPdf') }}
+        </button>
       </div>
+
+      <div class="fullscreen-preview__content">
+        <PdfPreview v-if="fullPreviewView === 'pdf'" :page="previewPage" :pages="previewPages" :is-updating="isPreviewRendering" :lang="lang" />
+        <div v-else class="html-preview"><CvPreview :state="state" /></div>
+      </div>
+      <PdfPagination v-if="fullPreviewView === 'pdf'" v-model:page="previewPage" :pages="previewPages" :lang="lang" fullscreen />
     </section>
 
-    <section v-else class="builder-layout">
+    <section v-else class="builder-layout" :class="`builder-layout--${previewPlacement}`">
       <div class="builder-layout__controls">
         <BackupManager
           :state="state"
           v-model:lang="lang"
-          v-model:movementMode="sectionMovementMode"
           :onSave="saveDebounced"
+          :onLoad="mergeIn"
         />
-        <DesignPanel v-model="state.design" :lang="lang" />
-        <FormBuilder :state="state" :onSave="saveDebounced" :movementMode="sectionMovementMode" />
+        <FormBuilder :state="state" :onSave="saveDebounced" />
+        <DesignPanel
+          v-model="state.design"
+          :lang="lang"
+        />
+        <ExportOptionsPanel
+          v-model="state.exportOptions"
+          :estimate-size="estimatedPdfSize"
+          :estimate-accuracy="pdfEstimateAccuracy"
+          :is-exact-estimating="isExactPdfEstimating"
+          :is-estimate-stale="isPdfEstimateStale"
+          :estimate-error="pdfEstimateError"
+          :lang="lang"
+          @exact-estimate="calculateExactPdfSizeEstimate"
+        />
       </div>
 
       <aside class="inline-preview" aria-label="Live CV preview">
-        <div class="inline-preview__header">Live Preview</div>
-        <div ref="bindInlinePreviewViewport" class="inline-preview__viewport">
-          <div class="inline-preview__page cv-preview-export" :style="{ width: `${inlinePreviewSize.width}px`, height: `${inlinePreviewSize.height}px` }">
-            <CvPreview :state="state" />
-          </div>
+        <div class="inline-preview__header">
+          <span>{{ t('livePreview') }}</span>
+          <button
+            class="mini inline-preview__placement-toggle"
+            type="button"
+            :aria-pressed="previewPlacement === 'below'"
+            :aria-label="previewPlacement === 'side' ? t('movePreviewBelow') : t('movePreviewSide')"
+            :title="previewPlacement === 'side' ? t('movePreviewBelow') : t('movePreviewSide')"
+            @click="previewPlacement = previewPlacement === 'side' ? 'below' : 'side'"
+          >
+            <font-awesome-icon :icon="['fas', previewPlacement === 'side' ? 'arrow-down' : 'arrow-right']" />
+          </button>
+        </div>
+        <div class="inline-preview__viewport">
+          <PdfPreview :page="previewPage" :pages="previewPages" :is-updating="isPreviewRendering" :lang="lang" />
         </div>
         <div class="preview-actions">
+          <PdfPagination v-model:page="previewPage" :pages="previewPages" :lang="lang" />
           <button class="btn" type="button" @click="previewMode = true">{{ t('openPreview') }}</button>
           <button class="btn btn--primary" type="button" @click="handleExportPdf" :disabled="isExporting">
             <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
@@ -216,6 +397,13 @@ async function handleExportPdf() {
 .cv-builder-app {
   min-height: 100vh;
   padding: 24px;
+}
+
+.pdf-render-source {
+  position: fixed;
+  top: 0;
+  left: -240mm;
+  pointer-events: none;
 }
 
 .builder-layout {
@@ -238,6 +426,18 @@ async function handleExportPdf() {
   padding: 0;
 }
 
+.builder-layout--below {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.builder-layout--below .inline-preview {
+  position: relative;
+  top: auto;
+  grid-column: 1;
+  width: min(100%, 860px);
+  justify-self: center;
+}
+
 .inline-preview {
   position: sticky;
   top: 24px;
@@ -249,6 +449,10 @@ async function handleExportPdf() {
 }
 
 .inline-preview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 9px 12px;
   border-bottom: 1px dashed #113c34;
   color: #9be8c7;
@@ -256,42 +460,52 @@ async function handleExportPdf() {
   font-weight: 700;
 }
 
+.inline-preview__placement-toggle { flex: 0 0 auto; }
+
 .inline-preview__viewport {
   width: 100%;
   height: min(66vh, 520px);
   min-height: 320px;
   overflow: auto;
   background: #0b0f14;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding: 8px;
-}
-
-.inline-preview__page {
-  overflow: hidden;
-}
-
-.inline-preview__page > .page {
-  transform: scale(v-bind('inlinePreviewSize.scale'));
-  transform-origin: top left;
-}
-
-.inline-preview__page > .page.pdf-export-source {
-  transform: none;
+  display: grid;
+  place-items: center;
+  padding: 12px;
 }
 
 .fullscreen-preview {
+  position: relative;
+  min-height: 100vh;
   display: flex;
   justify-content: center;
-  padding: 16px 0;
+  padding: 84px 16px 32px;
 }
 
-.fullscreen-preview__content { display: grid; justify-items: center; padding-bottom: 88px; }
-.fullscreen-preview__page {
-  width: 210mm;
-  max-width: 100%;
+.fullscreen-preview__content { display: grid; width: min(100%, 860px); justify-items: center; }
+.html-preview { width: min(100%, 210mm); overflow: auto; background: #fff; }
+
+.fullscreen-preview__back,
+.fullscreen-preview__actions {
+  position: fixed;
+  z-index: 30;
+  top: 20px;
 }
+
+.fullscreen-preview__back {
+  left: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fullscreen-preview__actions {
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fullscreen-preview__actions .btn { display: inline-flex; align-items: center; gap: 8px; }
 
 .preview-actions {
   display: grid;
@@ -300,19 +514,8 @@ async function handleExportPdf() {
   padding: 10px;
   background: #061017;
 }
+.preview-actions .pdf-pagination { grid-column: 1 / -1; }
 .preview-actions .btn { width: 100%; }
-.preview-actions--full {
-  position: fixed;
-  z-index: 20;
-  bottom: 20px;
-  left: 50%;
-  width: min(calc(100% - 32px), 210mm);
-  transform: translateX(-50%);
-  border: 1px solid #2a3441;
-  border-radius: 10px;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, .35);
-}
-
 @media (max-width: 1180px) {
   .cv-builder-app {
     padding-right: 24px;
@@ -336,19 +539,23 @@ async function handleExportPdf() {
   }
 
   .fullscreen-preview {
+    min-height: 100dvh;
     justify-content: flex-start;
     overflow-x: auto;
+    padding: 72px 12px 20px;
   }
 
-  .fullscreen-preview__page {
-    max-width: none;
-  }
+  .fullscreen-preview__back,
+  .fullscreen-preview__actions { top: 12px; }
+  .fullscreen-preview__back { left: 12px; }
+  .fullscreen-preview__actions { right: 12px; }
+  .fullscreen-preview__back .svg-inline--fa,
+  .fullscreen-preview__actions .svg-inline--fa { margin: 0; }
+  .fullscreen-preview__back { font-size: 0; padding: 10px; }
+  .fullscreen-preview__back .svg-inline--fa { font-size: 14px; }
+  .fullscreen-preview__actions .btn { font-size: 0; padding: 10px; }
+  .fullscreen-preview__actions .btn .svg-inline--fa { font-size: 14px; }
+
 }
 
-@media print {
-  .inline-preview,
-  .preview-actions {
-    display: none !important;
-  }
-}
 </style>
