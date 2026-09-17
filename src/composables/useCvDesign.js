@@ -91,6 +91,7 @@ export function applyCvDesign(design = {}) {
   root.setProperty('--badge-border-radius', design.badgeBorderRadius || '6px');
   root.setProperty('--section-spacing-body', design.sectionSpacingBody || design.sectionSpacing || '6mm');
   root.setProperty('--section-spacing-sidebar', design.sectionSpacingSidebar || design.sectionSpacing || '6mm');
+  root.setProperty('--section-item-spacing', millimeters(design.itemSpacing, '3.5mm'));
   root.setProperty('--body-sidebar-spacing', millimeters(design.bodySidebarSpacing, '10mm'));
   root.setProperty('--sidebar-column-width', sidebarColumnWidth(design.sidebarWidth));
   const badgeMode = design.badgeMode === 'border' ? 'border' : 'solid';

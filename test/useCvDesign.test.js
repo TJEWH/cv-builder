@@ -37,3 +37,11 @@ test('uses the legacy vertical header padding for both sides', () => {
     assert.equal(properties.get('--header-padding-bottom'), '10mm');
   });
 });
+
+test('applies configurable spacing between body section items', () => {
+  withDocument((properties) => {
+    applyCvDesign({ itemSpacing: '6.5mm' });
+
+    assert.equal(properties.get('--section-item-spacing'), '6.5mm');
+  });
+});

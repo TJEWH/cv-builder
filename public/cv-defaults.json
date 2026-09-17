@@ -30,6 +30,7 @@
     "sectionSpacing": "6mm",
     "sectionSpacingBody": "6mm",
     "sectionSpacingSidebar": "6mm",
+    "itemSpacing": "3.5mm",
     "bodySidebarSpacing": "10mm",
     "sidebarWidth": "0.7fr",
     "sidebarAlign": "right",

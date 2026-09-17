@@ -12,7 +12,8 @@ html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
     --page-margin-right:0mm;
     --page-margin-bottom:0mm;
     --page-margin-left:0mm;
-    --header-padding-vertical:12mm;
+    --header-padding-top:12mm;
+    --header-padding-bottom:12mm;
     --header-padding-horizontal:12mm;
     --content-padding-vertical:10mm;
     --content-padding-horizontal:12mm;
@@ -29,6 +30,7 @@ html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
     --badge-border-radius:6px;
     --section-spacing-body:6mm;
     --section-spacing-sidebar:6mm;
+    --section-item-spacing:3.5mm;
     --body-sidebar-spacing:10mm;
     --box-shadow:none;
 }
@@ -238,8 +240,7 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--ink);text-transform:u
 :root[data-contact-layout="below"] .contact > div{display:inline-flex;align-items:center;flex-direction:row-reverse;gap:1.5mm}
 :root[data-contact-layout="below"] .contact-icon{margin-left:0}
 .timeline{position:relative;padding-left:7mm}
-.item{margin:0 0 3.5mm;display:flow-root;min-width:0}
-.custom-body-item{margin:0 0 2.5mm}
+.item{margin:0 0 var(--section-item-spacing);display:flow-root;min-width:0}
 .tags{display:flex;flex-wrap:wrap;gap:4px 6px}
 .tag{border:var(--badge-border-width) solid var(--badge-border-color);border-radius:var(--badge-border-radius);padding:0.5mm 2mm;font-size:8.6pt;background:var(--badge-bg);color:var(--badge-color);font-weight:700}
 .is-hidden{display:none!important}
@@ -257,9 +258,9 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--ink);text-transform:u
 .timeline > .item .item-title{position:relative}
 .timeline > .item .item-title::before{content:"";position:absolute;z-index:1;left:-5.803mm;top:50%;width:4mm;height:4mm;border:2px solid var(--accent);border-radius:50%;background:#fff;transform:translateY(-50%);}
 .timeline > .item:last-child{margin-bottom:0}
-.timeline--continued{margin-top:3.5mm}
+.timeline--continued{margin-top:var(--section-item-spacing)}
 /* Slight overlap prevents rasterized rounded line caps from leaving a seam. */
-.timeline--continued::before{top:-4.5mm}
+.timeline--continued::before{top:calc(0mm - var(--section-item-spacing) - 1mm)}
 .item ul{margin:1.5mm 0 0 4mm;padding:0;font-size:var(--bullet-size);list-style-type:disc}
 /* Apply bullet size and style to all ul elements in the CV (sidebar lists, etc.) */
 #cv_body ul, #cv_side ul{font-size:var(--bullet-size);list-style-type:disc}
