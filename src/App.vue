@@ -89,8 +89,6 @@ const savedConfigurations = ref([]);
 const selectedConfigurationId = ref('');
 const saveStatus = ref('saved');
 const backupManager = ref(null);
-const builderTopbar = ref(null);
-const builderTopbarHeight = ref(0);
 const builderGroups = computed(() => [
   { key: 'versions', label: t('versions'), icon: 'layer-group' },
   { key: 'content', label: t('content'), icon: 'table-cells-large' },
@@ -286,20 +284,6 @@ function mergeIn(data) {
 }
 
 normalizeContentState(state);
-
-let builderTopbarResizeObserver = null;
-function syncBuilderTopbarHeight() {
-  builderTopbarHeight.value = Math.ceil(builderTopbar.value?.getBoundingClientRect().height || 0);
-}
-
-onMounted(() => {
-  syncBuilderTopbarHeight();
-  if (typeof ResizeObserver === 'undefined' || !builderTopbar.value) return;
-  builderTopbarResizeObserver = new ResizeObserver(syncBuilderTopbarHeight);
-  builderTopbarResizeObserver.observe(builderTopbar.value);
-});
-
-onBeforeUnmount(() => builderTopbarResizeObserver?.disconnect());
 
 onMounted(async () => {
   try {
@@ -842,7 +826,7 @@ function toggleFullPreviewView() {
     </section>
 
     <section v-else class="builder-shell">
-      <header ref="builderTopbar" class="builder-topbar">
+      <header class="builder-topbar">
         <nav class="builder-topbar__tabs" role="tablist" :aria-label="t('content')">
           <button
             v-for="group in builderGroups"
@@ -878,7 +862,7 @@ function toggleFullPreviewView() {
         </div>
       </header>
 
-      <section class="builder-layout" :class="`builder-layout--${previewPlacement}`" :style="{ '--builder-topbar-height': `${builderTopbarHeight}px` }">
+      <section class="builder-layout" :class="`builder-layout--${previewPlacement}`">
         <div class="builder-layout__controls">
           <Transition name="builder-group">
             <BackupManager
@@ -969,9 +953,26 @@ function toggleFullPreviewView() {
 </template>
 
 <style>
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .cv-builder-app {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   padding: 24px;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.cv-builder-app.is-preview-mode {
+  overflow: auto;
 }
 
 .pdf-render-source {
@@ -983,15 +984,18 @@ function toggleFullPreviewView() {
 
 .builder-shell {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 14px;
+  height: 100%;
+  min-height: 0;
   max-width: 1540px;
   margin: 0 auto;
+  overflow: hidden;
 }
 
 .builder-topbar {
-  position: sticky;
+  position: relative;
   z-index: 20;
-  top: 12px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
@@ -1065,21 +1069,65 @@ function toggleFullPreviewView() {
 .builder-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
-  align-items: start;
+  align-items: stretch;
   gap: 20px;
+  height: 100%;
+  min-height: 0;
   margin: 0;
   max-width: none;
+  overflow: hidden;
 }
 
 .builder-layout__controls {
   position: relative;
   display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   gap: 0;
+  height: 100%;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   isolation: isolate;
 }
 
-.builder-group-panel { min-width: 0; }
+.builder-layout__controls .builder-group-panel {
+  display: flex;
+  flex-direction: column;
+  grid-area: 1 / 1;
+  align-self: start;
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.builder-group-panel > .group-panel__scroll-body,
+.builder-group-panel > .editor-panel__body,
+.builder-group-panel > .design-panel__scroll-body,
+.builder-group-panel .content-panel__scroll-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.builder-group-panel > .content-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.builder-group-panel > .group-panel__scroll-body::-webkit-scrollbar,
+.builder-group-panel > .editor-panel__body::-webkit-scrollbar,
+.builder-group-panel > .design-panel__scroll-body::-webkit-scrollbar,
+.builder-group-panel .content-panel__scroll-body::-webkit-scrollbar {
+  display: none;
+}
+
 .builder-group-enter-active, .builder-group-leave-active { transition: opacity .22s ease; }
 .builder-group-enter-active { position: relative; z-index: 1; }
 .builder-group-leave-active {
@@ -1098,21 +1146,28 @@ function toggleFullPreviewView() {
 
 .builder-layout--below {
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(260px, 40vh);
 }
 
 .builder-layout--below .inline-preview {
   position: relative;
   top: auto;
   grid-column: 1;
+  grid-row: 2;
   width: min(100%, 860px);
+  height: 100%;
   justify-self: center;
 }
 
 .inline-preview {
-  position: sticky;
-  top: calc(var(--builder-topbar-height, 0px) + 24px);
+  position: relative;
+  top: auto;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 10px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
   background: transparent;
 }
 
@@ -1130,11 +1185,15 @@ function toggleFullPreviewView() {
   position: relative;
   width: 100%;
   min-width: 0;
+  min-height: 0;
 }
 
 .inline-preview__scroll {
-  max-height: min(calc(100vh - var(--builder-topbar-height, 0px) - 116px), 520px);
+  display: block;
+  height: 100%;
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .inline-preview .pdf-preview {
@@ -1152,6 +1211,7 @@ function toggleFullPreviewView() {
 
 .inline-preview .pdf-preview__page {
   width: 100%;
+  height: auto;
   max-width: 794px;
   box-shadow: none;
 }
@@ -1225,12 +1285,14 @@ function toggleFullPreviewView() {
 
   .builder-layout {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(260px, 42vh);
   }
 
   .inline-preview {
     position: relative;
     top: auto;
     width: min(100%, 520px);
+    height: 100%;
     justify-self: center;
   }
 }
@@ -1240,7 +1302,7 @@ function toggleFullPreviewView() {
     padding: 16px;
   }
 
-  .builder-topbar { top: 6px; padding: 8px; }
+  .builder-topbar { padding: 8px; }
   .builder-topbar__tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .builder-topbar__tab { min-height: 56px; font-size: 10px; }
   .builder-topbar__utilities { display: grid; grid-template-columns: minmax(0, 1fr) auto; }

@@ -350,39 +350,39 @@ onMounted(refreshConfigs);
       <h2>{{ labels.versions }}</h2>
     </div>
 
-    <p class="backup-manager__selected"><span>{{ labels.selected }}:</span> <strong>{{ selectedName }}</strong></p>
+    <div class="group-panel__scroll-body">
+      <div class="backup-manager__actions">
+        <select :value="currentId" :aria-label="labels.versions" @change="onConfigurationChange">
+          <option value="">{{ labels.draft }}</option>
+          <option v-for="config in configs" :key="config.id" :value="config.id">{{ config.name }}</option>
+        </select>
+        <button type="button" class="btn" :disabled="!currentId" @click="loadConfig()">{{ labels.load }}</button>
+        <button type="button" class="btn btn--danger" :disabled="!currentId" @click="deleteCurrent">{{ labels.remove }}</button>
+      </div>
 
-    <div class="backup-manager__actions">
-      <select :value="currentId" :aria-label="labels.versions" @change="onConfigurationChange">
-        <option value="">{{ labels.draft }}</option>
-        <option v-for="config in configs" :key="config.id" :value="config.id">{{ config.name }}</option>
-      </select>
-      <button type="button" class="btn" :disabled="!currentId" @click="loadConfig()">{{ labels.load }}</button>
-      <button type="button" class="btn btn--danger" :disabled="!currentId" @click="deleteCurrent">{{ labels.remove }}</button>
-    </div>
+      <p class="backup-manager__hint">{{ labels.saveAsHint }}</p>
+      <div class="backup-manager__save-as">
+        <input v-model="newName" :placeholder="labels.newName" />
+        <button type="button" class="btn btn--success" @click="saveAs">{{ labels.saveAs }}</button>
+      </div>
 
-    <p class="backup-manager__hint">{{ labels.saveAsHint }}</p>
-    <div class="backup-manager__save-as">
-      <input v-model="newName" :placeholder="labels.newName" />
-      <button type="button" class="btn btn--success" @click="saveAs">{{ labels.saveAs }}</button>
-    </div>
-
-    <div class="backup-manager__file-actions">
-      <input ref="fileInput" class="backup-manager__file-input" type="file" accept="application/json,.json" @change="importJson" />
-      <button type="button" class="btn" @click="exportJson">{{ labels.exportJson }}</button>
-      <button type="button" class="btn" @click="chooseJsonFile">{{ labels.importJson }}</button>
-      <span v-if="backupMsg" class="note">{{ backupMsg }}</span>
+      <div class="backup-manager__file-actions">
+        <input ref="fileInput" class="backup-manager__file-input" type="file" accept="application/json,.json" @change="importJson" />
+        <button type="button" class="btn" @click="exportJson">{{ labels.exportJson }}</button>
+        <button type="button" class="btn" @click="chooseJsonFile">{{ labels.importJson }}</button>
+        <span v-if="backupMsg" class="note">{{ backupMsg }}</span>
+      </div>
     </div>
   </section>
 </template>
 
 <style scoped>
-.backup-manager { display: grid; gap: 10px; width: 100%; padding: 10px; border-radius: 10px; background: #113c34; }
+.backup-manager { width: 100%; padding: 10px; border-radius: 10px; background: #113c34; }
+.group-panel__scroll-body { display: grid; align-content: start; gap: 10px; min-height: 0; }
 .backup-manager__actions, .backup-manager__save-as, .backup-manager__file-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .backup-manager__actions select { flex: 1 1 220px; width: auto; }
 .backup-manager__save-as input { flex: 1 1 220px; width: auto; }
 .backup-manager__file-input { display: none; }
-.backup-manager__selected, .backup-manager__hint { margin: 0; color: var(--muted); font-size: 12px; }
-.backup-manager__selected strong { color: #d1fae5; }
+.backup-manager__hint { margin: 0; color: var(--muted); font-size: 12px; }
 .backup-manager__hint { line-height: 1.45; }
 </style>

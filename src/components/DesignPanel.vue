@@ -211,7 +211,8 @@ function pixels(value, fallback = 1) {
       <h2>{{ t('design') }}</h2>
     </div>
 
-    <section class="design-favorites">
+    <div class="design-panel__scroll-body">
+      <section class="design-favorites">
       <div class="design-favorites__header">
         <span><font-awesome-icon :icon="['fas', 'heart']" aria-hidden="true" /> Favorites</span>
         <button class="mini design-favorites__toggle" type="button" :class="{ 'is-active': favoritesMode }" :aria-pressed="favoritesMode" @click="favoritesMode = !favoritesMode">
@@ -260,9 +261,9 @@ function pixels(value, fallback = 1) {
         </section>
       </div>
       <p v-else class="design-favorites__empty">Choose controls to keep your most-used design settings here.</p>
-    </section>
+      </section>
 
-    <div class="editor-panel__body">
+      <div class="editor-panel__body">
       <section class="editor-subsection" :class="{ collapsed: sections.layout }" @click="onSubsectionClick('layout', $event)">
         <div class="section-head"><font-awesome-icon :icon="['fas', 'table-cells-large']" class="section-icon" aria-hidden="true" /><h4>Layout</h4></div>
         <div class="editor-subsection__body">
@@ -345,6 +346,7 @@ function pixels(value, fallback = 1) {
         </div>
       </section>
 
+      </div>
     </div>
   </section>
 </template>

@@ -273,6 +273,7 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
         <button id="content-tab-sidebar" class="content-tab" :class="{ active: activeContentTab === 'sidebar' }" type="button" role="tab" :aria-selected="activeContentTab === 'sidebar'" aria-controls="content-panel-sidebar" @click="activeContentTab = 'sidebar'"><span>{{ t('sidebar') }}</span><font-awesome-icon v-if="isContentTabComplete('sidebar')" class="content-tab__complete" :icon="['fas', 'check']" aria-hidden="true" /></button>
       </div>
 
+      <div class="content-panel__scroll-body">
       <Transition name="field-config">
         <section v-if="activeFieldConfigSection" class="field-config-dialog" role="region" :aria-label="t('fieldConfiguration')">
           <header class="field-config-dialog__header">
@@ -428,22 +429,23 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
             {{ t('addSection') }}
           </button>
       </section>
-    </section>
 
-    <section v-if="activeContentTab !== 'header'" class="section-group content-reorder" :aria-label="t('reorderSections')">
-      <div class="section-head">
-        <font-awesome-icon :icon="['fas', 'grip-vertical']" aria-hidden="true" />
-        <h3>{{ t('reorderSections') }}</h3>
-      </div>
-      <p>{{ t('reorderSectionsHelp') }}</p>
-      <Draggable :key="activeContentTab" :model-value="activeOrderRows" item-key="key" :animation="150" ghost-class="sortable-ghost" @update:model-value="updateActiveVisibleOrder">
-        <template #item="{ element }">
-          <div class="content-reorder__row">
-            <span><font-awesome-icon :icon="['fas', getIcon(element.key)]" /> {{ getSectionDisplayName(element.key) }}</span>
-            <font-awesome-icon class="content-reorder__drag-icon" :icon="['fas', 'grip-vertical']" aria-hidden="true" />
+        <section v-if="activeContentTab !== 'header'" class="section-group content-reorder" :aria-label="t('reorderSections')">
+          <div class="section-head">
+            <font-awesome-icon :icon="['fas', 'grip-vertical']" aria-hidden="true" />
+            <h3>{{ t('reorderSections') }}</h3>
           </div>
-        </template>
-      </Draggable>
+          <p>{{ t('reorderSectionsHelp') }}</p>
+          <Draggable :key="activeContentTab" :model-value="activeOrderRows" item-key="key" :animation="150" ghost-class="sortable-ghost" @update:modelValue="updateActiveVisibleOrder">
+            <template #item="{ element }">
+              <div class="content-reorder__row">
+                <span><font-awesome-icon :icon="['fas', getIcon(element.key)]" /> {{ getSectionDisplayName(element.key) }}</span>
+                <font-awesome-icon class="content-reorder__drag-icon" :icon="['fas', 'grip-vertical']" aria-hidden="true" />
+              </div>
+            </template>
+          </Draggable>
+        </section>
+      </div>
     </section>
   </form>
 </template>
@@ -457,6 +459,8 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
 .content-tab:focus-visible { outline: 2px solid #9be8c7; outline-offset: -3px; }
 .content-tab__complete { color: #86efac; }
 .content-tab-panel { min-width: 0; }
+.content-panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.content-panel__scroll-body { display: grid; align-content: start; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .content-reorder { display: grid; gap: 10px; margin-top: 10px; }
 .content-reorder p { margin: 0; color: var(--muted); }
 .content-reorder__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; padding: 8px 10px; border: 1px solid rgba(255, 255, 255, .1); border-radius: 6px; background: rgba(255, 255, 255, .04); cursor: grab; }
