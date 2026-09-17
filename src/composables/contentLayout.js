@@ -75,6 +75,10 @@ export function normalizeCustomBodyFields(fields) {
   return CUSTOM_BODY_FIELDS.filter((field) => selected.has(field));
 }
 
+function normalizeCustomBodyEntryMode(value) {
+  return value === 'textarea' ? 'textarea' : 'fields';
+}
+
 function normalizeCustomSections(state, migratedSections = []) {
   const customSections = ensureArray(state.customSections);
   const legacyCustom = customSections.length || !ensureArray(state.custom).length ? [] : [{
@@ -87,6 +91,8 @@ function normalizeCustomSections(state, migratedSections = []) {
     ...(section || {}),
     id: section?.id || createContentId('body'),
     name: section?.name || (state.lang === 'de' ? 'Neue Sektion' : 'New Section'),
+    entryMode: normalizeCustomBodyEntryMode(section?.entryMode),
+    text: normalizeMarkdownText(section?.text),
     fields: normalizeCustomBodyFields(section?.fields),
     entries: ensureIds(section?.entries, 'entry').map((entry) => ({
       ...entry,

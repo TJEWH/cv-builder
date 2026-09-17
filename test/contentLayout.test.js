@@ -106,6 +106,28 @@ test('normalizes configurable custom body fields without losing entry data', () 
   assert.equal(state.customSections[0].entries[0].desc, 'Session');
 });
 
+test('normalizes textarea custom sections without discarding configured fields or content', () => {
+  const state = {
+    customSections: [{
+      id: 'custom_text',
+      name: 'Notes',
+      entryMode: 'textarea',
+      text: 'Free-form **notes**',
+      fields: ['title', 'unknown', 'desc'],
+      entries: [{ title: 'Saved title', desc: 'Saved entry description' }],
+    }],
+    experience: {},
+  };
+
+  normalizeContentState(state);
+
+  assert.equal(state.customSections[0].entryMode, 'textarea');
+  assert.deepEqual(state.customSections[0].fields, ['title', 'desc']);
+  assert.equal(state.customSections[0].text, 'Free-form **notes**');
+  assert.equal(state.customSections[0].entries[0].title, 'Saved title');
+  assert.equal(state.customSections[0].entries[0].desc, 'Saved entry description');
+});
+
 test('normalizes sidebar skill sections without a configurable section header', () => {
   const state = {
     version: 2,

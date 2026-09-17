@@ -142,6 +142,8 @@ const addBodySection = () => {
   const section = {
     id: createContentId('body'),
     name: langRef.value === 'de' ? 'Neue Sektion' : 'New Section',
+    entryMode: 'fields',
+    text: '',
     fields: ['title', 'institution', 'place', 'start', 'end', 'tools', 'desc'],
     entries: [],
   };
@@ -205,6 +207,11 @@ const customBodyFieldOptions = computed(() => [
 const enabledCustomBodyFields = (section) => customBodyFieldOptions.value.filter((field) => section.fields.includes(field.key));
 const enabledCustomBodyTextFields = (section) => enabledCustomBodyFields(section).filter((field) => field.type === 'text');
 const isCustomBodyFieldEnabled = (section, key) => section.fields.includes(key);
+const usesCustomBodyTextarea = (section) => section.entryMode === 'textarea';
+const setCustomBodyEntryMode = (section, mode) => {
+  section.entryMode = mode === 'textarea' ? 'textarea' : 'fields';
+  props.onSave?.();
+};
 const setCustomBodyFieldEnabled = (section, key, enabled) => {
   const selected = new Set(section.fields);
   if (enabled) selected.add(key);
@@ -290,8 +297,12 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
           <h3>{{ t('fieldConfiguration') }}</h3>
           <button class="mini btn--danger" type="button" :aria-label="t('close')" :title="t('close')" @click="closeFieldConfig"><font-awesome-icon :icon="['fas', 'xmark']" /></button>
         </header>
-        <p>{{ t('fieldConfigurationHelp') }}</p>
-        <div class="field-config-options">
+        <div class="field-config-mode" role="radiogroup" :aria-label="t('fieldInputMode')">
+          <label class="field-config-option"><input type="radio" name="custom-field-mode" :checked="!usesCustomBodyTextarea(activeFieldConfigSection)" @change="setCustomBodyEntryMode(activeFieldConfigSection, 'fields')" />{{ t('fieldInputModeFields') }}</label>
+          <label class="field-config-option"><input type="radio" name="custom-field-mode" :checked="usesCustomBodyTextarea(activeFieldConfigSection)" @change="setCustomBodyEntryMode(activeFieldConfigSection, 'textarea')" />{{ t('fieldInputModeTextarea') }}</label>
+        </div>
+        <p>{{ usesCustomBodyTextarea(activeFieldConfigSection) ? t('textareaFieldHelp') : t('fieldConfigurationHelp') }}</p>
+        <div v-if="!usesCustomBodyTextarea(activeFieldConfigSection)" class="field-config-options">
           <label v-for="field in customBodyFieldOptions" :key="field.key" class="field-config-option">
             <input type="checkbox" :checked="isCustomBodyFieldEnabled(activeFieldConfigSection, field.key)" @change="setCustomBodyFieldEnabled(activeFieldConfigSection, field.key, $event.target.checked)" />
             {{ field.label }}
@@ -368,20 +379,23 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
                   <label class="section-complete-toggle" :title="t('markComplete')" @click.stop><input type="checkbox" :checked="isComplete(key)" :aria-label="t('markComplete')" @change="toggleComplete(key)" /></label>
                 </div>
               </div>
-              <Draggable v-model="getBodySection(key).entries" item-key="id" handle=".entry-drag-handle" :animation="150" class="items" ghost-class="sortable-ghost">
-                <template #item="{ element: entry, index }">
-                  <div class="item-row" :class="{ 'item-row--hidden': entry.hidden }">
-                    <div class="item-row__actions"><button class="mini entry-drag-handle" type="button"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button><button class="mini visibility-toggle" :class="entry.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="entry.hidden ? t('show') : t('hide')" :title="entry.hidden ? t('show') : t('hide')" @click="toggleItemHidden(entry)"><font-awesome-icon :icon="['fas', entry.hidden ? 'eye-slash' : 'eye']" /></button><button class="mini btn--danger" type="button" :aria-label="t('remove')" :title="t('remove')" @click="requestBodyEntryDeletion(getBodySection(key), index)"><font-awesome-icon :icon="['fas', 'trash']" /></button></div>
-                    <div class="item-row__content">
-                      <div v-if="enabledCustomBodyTextFields(getBodySection(key)).length" class="custom-body-entry__fields" :style="{ '--custom-body-field-count': enabledCustomBodyTextFields(getBodySection(key)).length }">
-                        <label v-for="field in enabledCustomBodyTextFields(getBodySection(key))" :key="field.key">{{ field.label }}<InputText v-model="entry[field.key]" :placeholder="field.placeholder" fluid /></label>
+              <label v-if="usesCustomBodyTextarea(getBodySection(key))" class="about-editor">{{ t('textarea') }}<MarkdownTextarea v-model="getBodySection(key).text" :help="t('markdownTextareaHelp')" :rows="6" /></label>
+              <template v-else>
+                <Draggable v-model="getBodySection(key).entries" item-key="id" handle=".entry-drag-handle" :animation="150" class="items" ghost-class="sortable-ghost">
+                  <template #item="{ element: entry, index }">
+                    <div class="item-row" :class="{ 'item-row--hidden': entry.hidden }">
+                      <div class="item-row__actions"><button class="mini entry-drag-handle" type="button"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button><button class="mini visibility-toggle" :class="entry.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="entry.hidden ? t('show') : t('hide')" :title="entry.hidden ? t('show') : t('hide')" @click="toggleItemHidden(entry)"><font-awesome-icon :icon="['fas', entry.hidden ? 'eye-slash' : 'eye']" /></button><button class="mini btn--danger" type="button" :aria-label="t('remove')" :title="t('remove')" @click="requestBodyEntryDeletion(getBodySection(key), index)"><font-awesome-icon :icon="['fas', 'trash']" /></button></div>
+                      <div class="item-row__content">
+                        <div v-if="enabledCustomBodyTextFields(getBodySection(key)).length" class="custom-body-entry__fields" :style="{ '--custom-body-field-count': enabledCustomBodyTextFields(getBodySection(key)).length }">
+                          <label v-for="field in enabledCustomBodyTextFields(getBodySection(key))" :key="field.key">{{ field.label }}<InputText v-model="entry[field.key]" :placeholder="field.placeholder" fluid /></label>
+                        </div>
+                        <label v-if="isCustomBodyFieldEnabled(getBodySection(key), 'desc')">{{ t('desc') }}<MarkdownTextarea v-model="entry.desc" :placeholder="customBodyFieldOptions.find((field) => field.key === 'desc').placeholder" :help="t('markdownTextareaHelp')" /></label>
                       </div>
-                      <label v-if="isCustomBodyFieldEnabled(getBodySection(key), 'desc')">{{ t('desc') }}<MarkdownTextarea v-model="entry.desc" :placeholder="customBodyFieldOptions.find((field) => field.key === 'desc').placeholder" :help="t('markdownTextareaHelp')" /></label>
                     </div>
-                  </div>
-                </template>
-              </Draggable>
-              <button type="button" class="add-item-row" @click="addBodyEntry(getBodySection(key))"><font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />{{ t('addItem') }}</button>
+                  </template>
+                </Draggable>
+                <button type="button" class="add-item-row" @click="addBodyEntry(getBodySection(key))"><font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />{{ t('addItem') }}</button>
+              </template>
             </section>
           </template>
           <button type="button" class="add-section-row" @click="addBodySection">
@@ -467,6 +481,7 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
 .field-config-dialog { width: min(420px, 100%); padding: 20px; border: 1px solid #10b981; border-radius: 12px; background: #0c131a; box-shadow: 0 24px 80px rgba(0, 0, 0, .5); }
 .field-config-dialog__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #134e4a; }
 .field-config-dialog__header h3 { margin: 0 0 12px; }
+.field-config-mode { display: flex; flex-wrap: wrap; gap: 8px 14px; }
 .field-config-options { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
 .field-config-option { display: inline-flex; align-items: center; gap: 6px; padding: 4px 0; color: #d1fae5; cursor: pointer; white-space: nowrap; }
 .field-config-option input { accent-color: #10b981; }
