@@ -529,10 +529,16 @@ function invalidateAnonymizedPdfPreview({ defer = false } = {}) {
   if (!defer && fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
 }
 
+const previewDesign = computed(() => Object.keys(state.design || {}).reduce((design, key) => {
+  if (key !== 'favoriteControls') design[key] = state.design[key];
+  return design;
+}, {}));
+
 const previewState = computed(() => ({
   disabled: state.disabled,
   lang: state.lang,
-  design: state.design,
+  // Favorite selection changes only the builder UI, never the CV itself.
+  design: previewDesign.value,
   contact: state.contact,
   about: state.about,
   education: state.education,
