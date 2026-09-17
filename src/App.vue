@@ -20,8 +20,7 @@ import {
   normalizeExportOptions,
 } from './composables/pdfImageEncoding';
 import {
-  createPdfSizeLayerInfo,
-  estimatePdfSizeFromLayerCache,
+  estimatePdfSizeFromCache,
   loadPdfSizeEstimateCache,
   recordPdfSizeMeasurement,
   savePdfSizeEstimateCache,
@@ -307,7 +306,8 @@ const { estimatePdfSize, exportToPdf, renderPdf, renderPreview } = usePdfExport(
 const isExporting = ref(false);
 const isAnonymizedExporting = ref(false);
 const estimatedPdfBytes = ref(null);
-const pdfEstimateAccuracy = ref('');
+const isPdfEstimateQualityScaled = ref(false);
+const pdfEstimateReferenceQuality = ref(null);
 const isExactPdfEstimating = ref(false);
 const isPdfEstimateStale = ref(false);
 const pdfEstimateError = ref('');
@@ -431,11 +431,7 @@ async function refreshPdfPreview(version) {
 
     previewPages.value = pages;
     previewPage.value = Math.min(Math.max(previewPage.value, 1), Math.max(pages.length, 1));
-    updateApproximatePdfSizeEstimate();
-
-    // Keep the inline path strictly preview-only. An automatic exact-size
-    // calibration uses the full export renderer and can monopolize the main
-    // thread on long CVs; users can still request it explicitly.
+    updateCachedPdfSizeEstimate();
   } catch (error) {
     if (version === previewRenderVersion) console.error('PDF preview failed:', error);
   } finally {
@@ -640,27 +636,19 @@ watch(anonymizedPreviewState, () => {
   invalidateAnonymizedPdfPreview();
 }, { deep: true, flush: 'post' });
 
-function updateApproximatePdfSizeEstimate() {
-  const estimate = estimatePdfSizeFromLayerCache(
-    pdfSizeEstimateCache.value,
-    createPdfSizeLayerInfo(state, previewPages.value),
-    state.exportOptions,
-  );
+function updateCachedPdfSizeEstimate() {
+  const estimate = estimatePdfSizeFromCache(pdfSizeEstimateCache.value, state.exportOptions);
   estimatedPdfBytes.value = estimate.bytes;
-  pdfEstimateAccuracy.value = estimate.source === 'cached-exact'
-    ? 'exact'
-    : ['cached-calibrated', 'similar-layer'].includes(estimate.source)
-      ? 'calibrated'
-      : 'heuristic';
+  isPdfEstimateQualityScaled.value = estimate.source === 'quality-scaled';
+  pdfEstimateReferenceQuality.value = estimate.referenceOptions?.quality ?? null;
+  if (estimate.bytes == null) isPdfEstimateStale.value = false;
   pdfEstimateError.value = '';
 }
 
 function cachePdfSizeMeasurement(measurement) {
   if (!measurement || !Number.isFinite(measurement.bytes)) return;
-  const layers = createPdfSizeLayerInfo(state, measurement.pages || previewPages.value);
   const nextCache = recordPdfSizeMeasurement(
     pdfSizeEstimateCache.value,
-    layers,
     state.exportOptions,
     measurement,
   );
@@ -668,10 +656,10 @@ function cachePdfSizeMeasurement(measurement) {
   savePdfSizeEstimateCache(nextCache);
 }
 
-async function calculateExactPdfSizeEstimate({ automatic = false } = {}) {
+async function calculateExactPdfSizeEstimate() {
   const request = ++pdfEstimateRequest;
   isExactPdfEstimating.value = true;
-  if (!automatic) pdfEstimateError.value = '';
+  pdfEstimateError.value = '';
 
   try {
     await nextTick();
@@ -682,12 +670,11 @@ async function calculateExactPdfSizeEstimate({ automatic = false } = {}) {
     if (request !== pdfEstimateRequest || contentRevision !== pdfContentRevision) return;
     cachePdfSizeMeasurement(measurement);
     estimatedPdfBytes.value = measurement.bytes;
-    pdfEstimateAccuracy.value = 'exact';
+    isPdfEstimateQualityScaled.value = false;
+    pdfEstimateReferenceQuality.value = normalizeExportOptions(state.exportOptions).quality;
     isPdfEstimateStale.value = false;
   } catch (error) {
-    // A background calibration must never replace a usable estimate with an
-    // error. The manual action remains explicit about failures.
-    if (!automatic && request === pdfEstimateRequest) {
+    if (request === pdfEstimateRequest) {
       pdfEstimateError.value = error instanceof Error ? error.message : String(error);
     }
   } finally {
@@ -695,14 +682,14 @@ async function calculateExactPdfSizeEstimate({ automatic = false } = {}) {
   }
 }
 
-const scheduleApproximatePdfSizeEstimate = debounce(updateApproximatePdfSizeEstimate, 120);
+const scheduleCachedPdfSizeEstimate = debounce(updateCachedPdfSizeEstimate, 120);
 
 watch(
   () => [state.exportOptions?.format, state.exportOptions?.quality],
   () => {
     pdfEstimateRequest += 1;
     isExactPdfEstimating.value = false;
-    scheduleApproximatePdfSizeEstimate();
+    scheduleCachedPdfSizeEstimate();
   },
   { flush: 'post' },
 );
@@ -720,7 +707,8 @@ async function handleExportPdf() {
     cachePdfSizeMeasurement(measurement);
     if (measurement) {
       estimatedPdfBytes.value = measurement.bytes;
-      pdfEstimateAccuracy.value = 'exact';
+      isPdfEstimateQualityScaled.value = false;
+      pdfEstimateReferenceQuality.value = normalizeExportOptions(state.exportOptions).quality;
       isPdfEstimateStale.value = false;
     }
   } catch (error) {
@@ -899,7 +887,8 @@ function toggleFullPreviewView() {
               class="builder-group-panel"
               v-model="state.exportOptions"
               :estimate-size="estimatedPdfSize"
-              :estimate-accuracy="pdfEstimateAccuracy"
+              :is-estimate-quality-scaled="isPdfEstimateQualityScaled"
+              :estimate-reference-quality="pdfEstimateReferenceQuality"
               :is-exact-estimating="isExactPdfEstimating"
               :is-estimate-stale="isPdfEstimateStale"
               :estimate-error="pdfEstimateError"

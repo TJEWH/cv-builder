@@ -10,7 +10,6 @@ import {
   rasterizePdfOverlay,
 } from './pdfTextOverlay.js';
 import {
-  encodedPdfImageByteLength,
   encodePdfPageImage,
   imageMimeType,
   normalizeExportOptions,
@@ -433,57 +432,6 @@ function isUniformCanvas(pageCanvas, pageContext) {
   }
 }
 
-/**
- * Capture a deliberately small description of an already-rendered graphics
- * slice. This does not encode another image: it samples the page canvas that
- * appendPdfPages has just created for the preview/PDF path. The estimate
- * cache stores only these aggregate numbers, never image data or CV text.
- */
-function sampleGraphicsFingerprint(pageCanvas, pageContext) {
-  const rows = Math.min(24, Math.max(1, pageCanvas.height));
-  const columns = Math.min(36, Math.max(1, pageCanvas.width));
-  const palette = new Set();
-  let samples = 0;
-  let ink = 0;
-  let edges = 0;
-
-  try {
-    for (let row = 0; row < rows; row += 1) {
-      const y = Math.min(pageCanvas.height - 1, Math.floor((row + 0.5) * pageCanvas.height / rows));
-      const pixels = pageContext.getImageData(0, y, pageCanvas.width, 1).data;
-      let previousColor = null;
-
-      for (let column = 0; column < columns; column += 1) {
-        const x = Math.min(pageCanvas.width - 1, Math.floor((column + 0.5) * pageCanvas.width / columns));
-        const offset = x * 4;
-        const red = pixels[offset];
-        const green = pixels[offset + 1];
-        const blue = pixels[offset + 2];
-        const alpha = pixels[offset + 3];
-        // 5-bit RGB is sufficient to distinguish graphics complexity while
-        // retaining a compact, non-reconstructable fingerprint.
-        const color = `${red >> 3}:${green >> 3}:${blue >> 3}:${alpha >> 4}`;
-        palette.add(color);
-        if (alpha < 250 || red < 245 || green < 245 || blue < 245) ink += 1;
-        if (previousColor != null && color !== previousColor) edges += 1;
-        previousColor = color;
-        samples += 1;
-      }
-    }
-  } catch {
-    // Pixel reads can be disallowed by a tainted third-party image. Keep a
-    // conservative empty fingerprint; the estimator will use its fallback.
-    return { samples: 0, inkRatio: 0, edgeRatio: 0, paletteSize: 0 };
-  }
-
-  return {
-    samples,
-    inkRatio: samples ? ink / samples : 0,
-    edgeRatio: samples ? edges / samples : 0,
-    paletteSize: palette.size,
-  };
-}
-
 async function appendPdfPages(canvas, pdf, options, continuationPadding, {
   preserveBlankPages = false,
   previewOnly = false,
@@ -531,9 +479,6 @@ async function appendPdfPages(canvas, pdf, options, continuationPadding, {
     pageContext.drawImage(canvas, 0, sourceY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
 
     const hasGraphics = !isUniformCanvas(pageCanvas, pageContext);
-    const graphicsFingerprint = hasGraphics
-      ? sampleGraphicsFingerprint(pageCanvas, pageContext)
-      : { samples: 0, inkRatio: 0, edgeRatio: 0, paletteSize: 0 };
     if (hasGraphics || preserveBlankPages) {
       const pageImage = hasGraphics && !previewOnly
         ? encodePdfPageImage(pageCanvas, options.image)
@@ -553,7 +498,6 @@ async function appendPdfPages(canvas, pdf, options, continuationPadding, {
       }
 
       pages.push({
-        imageData: pageImage?.data || null,
         previewData: createPagePreview(pageCanvas, {
           pageWidth,
           pageHeight,
@@ -572,7 +516,6 @@ async function appendPdfPages(canvas, pdf, options, continuationPadding, {
         renderedHeight,
         leftOffset: marginLeft,
         topOffset,
-        graphicsFingerprint,
       });
     }
 
@@ -652,22 +595,17 @@ export function usePdfExport() {
       invisibleText: true,
       drawMarkers: false,
     });
-    return { pdf, pages, overlay };
+    return { pdf };
   };
 
-  const outputMeasurement = (pdf, pages, overlay) => ({
+  const outputMeasurement = (pdf) => ({
     bytes: pdf.output('blob').size,
-    graphicsBytes: pages.reduce((total, page) => total + encodedPdfImageByteLength(page.imageData), 0),
-    pageCount: pages.length,
-    textGlyphs: overlay?.text?.length || 0,
-    linkCount: new Set(overlay?.text?.map((fragment) => fragment.href).filter(Boolean) || []).size,
-    pages,
   });
 
   const exportToPdf = async (element, filename = 'cv', options = {}) => {
     try {
-      const { pdf, pages, overlay } = await renderHybridPdf(element, options);
-      const measurement = outputMeasurement(pdf, pages, overlay);
+      const { pdf } = await renderHybridPdf(element, options);
+      const measurement = outputMeasurement(pdf);
       pdf.save(`${filename}.pdf`);
       return measurement;
     } catch (error) {
@@ -677,8 +615,8 @@ export function usePdfExport() {
   };
 
   const estimatePdfSize = async (element, options = {}) => {
-    const { pdf, pages, overlay } = await renderHybridPdf(element, options);
-    return outputMeasurement(pdf, pages, overlay);
+    const { pdf } = await renderHybridPdf(element, options);
+    return outputMeasurement(pdf);
   };
 
   const exportToPdfNewTab = async (element, filename = 'cv', options = {}) => {
@@ -698,7 +636,6 @@ export function usePdfExport() {
   return {
     renderPdf,
     renderPreview,
-    renderHybridPdf,
     exportToPdf,
     estimatePdfSize,
     exportToPdfNewTab,

@@ -39,18 +39,6 @@ export function formatPdfBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-export function encodedPdfImageByteLength(data) {
-  if (data instanceof Uint8Array || data instanceof ArrayBuffer) return data.byteLength;
-  if (typeof data !== 'string') return 0;
-  const dataUrl = data;
-  const separator = dataUrl.indexOf(',');
-  if (separator === -1) return 0;
-  const payload = dataUrl.slice(separator + 1).replace(/\s/g, '');
-  if (!payload) return 0;
-  const padding = payload.endsWith('==') ? 2 : (payload.endsWith('=') ? 1 : 0);
-  return Math.max(0, Math.floor((payload.length * 3) / 4) - padding);
-}
-
 function isDataUrlOfType(dataUrl, mimeType) {
   return typeof dataUrl === 'string' && dataUrl.startsWith(`data:${mimeType};`);
 }

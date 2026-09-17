@@ -2,145 +2,89 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PDF_SIZE_ESTIMATE_CACHE_KEY,
-  PDF_SIZE_ESTIMATE_TTL_MS,
-  createPdfSizeLayerInfo,
-  estimatePdfSizeFromLayerCache,
-  hasFreshPdfSizeCalibration,
+  estimatePdfSizeFromCache,
   loadPdfSizeEstimateCache,
-  needsPdfSizeGroundTruth,
   normalizePdfSizeEstimateCache,
   recordPdfSizeMeasurement,
 } from '../src/composables/pdfSizeEstimateCache.js';
 
 const now = 1_750_000_000_000;
-const state = {
-  design: { fontBody: 'Inter', graphicOpacity: 100 },
-  exportOptions: { format: 'png', quality: 100 },
-  contact: { email: 'test@example.com', website: 'https://example.com' },
-  about: { text: 'A short profile with selectable text.' },
-  education: [],
-  experience: { jobs: [] },
-  languages: [],
-  hobbies: [],
-  customSections: [],
-  sidebarSections: [],
-};
+const png100 = { format: 'png', quality: 100 };
+const jpeg90 = { format: 'jpeg', quality: 90 };
 
-const pages = [{
-  canvasWidth: 2400,
-  sourceTop: 0,
-  sourceBottom: 3400,
-  contentWidth: 210,
-  topOffset: 0,
-  graphicsFingerprint: { samples: 864, inkRatio: 0.18, edgeRatio: 0.12, paletteSize: 9 },
-}];
+test('uses the latest exact size for the selected export quality', () => {
+  const first = recordPdfSizeMeasurement([], png100, { bytes: 512_345 }, now);
+  const cache = recordPdfSizeMeasurement(first, png100, { bytes: 498_765 }, now + 1_000);
 
-const measurement = {
-  bytes: 512_345,
-  graphicsBytes: 470_000,
-  textGlyphs: 95,
-  linkCount: 2,
-};
-
-test('layer signatures ignore export settings and page image data', () => {
-  const before = createPdfSizeLayerInfo(state, [{ ...pages[0], imageData: 'data:image/png;base64,first' }]);
-  const changedExportState = { ...state, exportOptions: { format: 'jpeg', quality: 80 } };
-  const after = createPdfSizeLayerInfo(changedExportState, [{ ...pages[0], imageData: 'data:image/png;base64,second' }]);
-
-  assert.equal(before.signature, after.signature);
-  assert.equal(before.graphicsPixels, 8_160_000);
-  assert.deepEqual(before.graphicsFingerprint, pages[0].graphicsFingerprint);
+  assert.equal(cache.entries.length, 1);
+  assert.deepEqual(estimatePdfSizeFromCache(cache, png100), {
+    bytes: 498_765,
+    source: 'cached-exact',
+    referenceOptions: png100,
+  });
 });
 
-test('a fresh matching calibration is exact and suppresses background ground truth', () => {
-  const layers = createPdfSizeLayerInfo(state, pages);
-  const cache = recordPdfSizeMeasurement([], layers, state.exportOptions, measurement, now);
+test('scales the latest exact size for the selected quality within its export format', () => {
+  const pngCache = recordPdfSizeMeasurement([], png100, { bytes: 512_345 }, now);
+  const cache = recordPdfSizeMeasurement(pngCache, jpeg90, { bytes: 183_200 }, now + 1_000);
 
-  assert.deepEqual(
-    estimatePdfSizeFromLayerCache(cache, layers, state.exportOptions, now + 100),
-    { bytes: measurement.bytes, source: 'cached-exact' },
-  );
-  assert.equal(hasFreshPdfSizeCalibration(cache, layers, state.exportOptions, now + 100), true);
-  assert.equal(needsPdfSizeGroundTruth(cache, layers, state.exportOptions, now + 100), false);
+  assert.equal(cache.entries.length, 2);
+  assert.deepEqual(estimatePdfSizeFromCache(cache, { format: 'png', quality: 95 }), {
+    bytes: 486_728,
+    source: 'quality-scaled',
+    referenceOptions: png100,
+  });
+  assert.deepEqual(estimatePdfSizeFromCache(cache, jpeg90), {
+    bytes: 183_200,
+    source: 'cached-exact',
+    referenceOptions: jpeg90,
+  });
+  assert.deepEqual(estimatePdfSizeFromCache(cache, { format: 'webp', quality: 90 }), {
+    bytes: null,
+    source: 'unavailable',
+    referenceOptions: null,
+  });
 });
 
-test('calibrations and shared exporter profiles expire after one hour', () => {
-  const layers = createPdfSizeLayerInfo(state, pages);
-  const cache = recordPdfSizeMeasurement([], layers, state.exportOptions, measurement, now);
-  const expiredAt = now + PDF_SIZE_ESTIMATE_TTL_MS;
-
-  assert.equal(hasFreshPdfSizeCalibration(cache, layers, state.exportOptions, expiredAt), false);
-  assert.equal(needsPdfSizeGroundTruth(cache, layers, state.exportOptions, expiredAt), true);
-  assert.equal(
-    estimatePdfSizeFromLayerCache(cache, layers, state.exportOptions, expiredAt).source,
-    'cached-calibrated',
-  );
-});
-
-test('shared static PDF overhead is retained while new dynamic measurements are recorded', () => {
-  const layers = createPdfSizeLayerInfo(state, pages);
-  const first = recordPdfSizeMeasurement([], layers, state.exportOptions, measurement, now);
-  const second = recordPdfSizeMeasurement(first, layers, { format: 'jpeg', quality: 95 }, {
-    ...measurement,
-    bytes: 180_000,
-    graphicsBytes: 130_000,
-  }, now + 1_000);
-
-  assert.deepEqual(second.staticProfile, first.staticProfile);
-  assert.equal(second.entries.length, 2);
-  assert.equal(second.entries[0].graphicsBytes, 130_000);
-  assert.equal(second.entries[0].layers.textGlyphs, measurement.textGlyphs);
-});
-
-test('a same-CV measurement calibrates a changed image option without rendering', () => {
-  const layers = createPdfSizeLayerInfo(state, pages);
-  const cache = recordPdfSizeMeasurement([], layers, { format: 'png', quality: 100 }, measurement, now);
-  const prediction = estimatePdfSizeFromLayerCache(cache, layers, { format: 'png', quality: 95 }, now + 100);
-
-  assert.equal(prediction.source, 'cached-calibrated');
-  assert.ok(prediction.bytes > 0);
-  assert.ok(prediction.bytes < measurement.bytes);
-});
-
-test('a compatible layer profile is used before the no-cache heuristic fallback', () => {
-  const layers = createPdfSizeLayerInfo(state, pages);
-  const cache = recordPdfSizeMeasurement([], layers, state.exportOptions, measurement, now);
-  const changedState = {
-    ...state,
-    about: { text: `${state.about.text} A nearby content change.` },
+test('drops obsolete prediction data while retaining a legacy exact size', () => {
+  const legacy = {
+    version: 2,
+    staticProfile: { fixedBytes: 16_000 },
+    entries: [{
+      signature: 'old-signature',
+      layers: { graphicsPixels: 8_160_000 },
+      options: png100,
+      bytes: 512_345,
+      graphicsBytes: 470_000,
+      createdAt: now,
+    }],
   };
-  const nearbyLayers = createPdfSizeLayerInfo(changedState, pages);
 
-  assert.equal(
-    estimatePdfSizeFromLayerCache(cache, nearbyLayers, state.exportOptions, now + 100).source,
-    'similar-layer',
-  );
-  assert.equal(
-    estimatePdfSizeFromLayerCache([], layers, state.exportOptions, now).source,
-    'layer-heuristic',
-  );
+  assert.deepEqual(normalizePdfSizeEstimateCache(legacy), {
+    version: 3,
+    entries: [{ options: png100, bytes: 512_345, createdAt: now }],
+  });
 });
 
-test('migrates legacy array caches into the timestamped two-layer schema', () => {
-  const layers = createPdfSizeLayerInfo(state, pages);
+test('migrates legacy storage into the compact reference cache', () => {
   const legacy = [{
-    signature: layers.signature,
-    layers,
-    options: state.exportOptions,
-    bytes: measurement.bytes,
-    graphicsBytes: measurement.graphicsBytes,
+    signature: 'old-signature',
+    layers: { graphicsPixels: 8_160_000 },
+    options: png100,
+    bytes: 512_345,
+    graphicsBytes: 470_000,
     createdAt: now,
   }];
-  const values = new Map([['cv-pdf-size-estimate-cache-v1', JSON.stringify(legacy)]]);
+  const values = new Map([['cv-pdf-size-estimate-cache-v2', JSON.stringify(legacy)]]);
   const storage = {
     getItem: (key) => values.get(key) || null,
     setItem: (key, value) => values.set(key, value),
   };
+
   const cache = loadPdfSizeEstimateCache(storage);
 
-  assert.equal(cache.version, 2);
+  assert.equal(cache.version, 3);
   assert.equal(cache.entries.length, 1);
-  assert.equal(cache.staticProfile, null);
-  assert.equal(normalizePdfSizeEstimateCache(cache).entries[0].signature, layers.signature);
-  assert.equal(JSON.parse(storage.getItem(PDF_SIZE_ESTIMATE_CACHE_KEY)).version, 2);
+  assert.equal(estimatePdfSizeFromCache(cache, png100).bytes, 512_345);
+  assert.equal(JSON.parse(storage.getItem(PDF_SIZE_ESTIMATE_CACHE_KEY)).version, 3);
 });

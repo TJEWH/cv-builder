@@ -6,7 +6,8 @@ import { normalizeExportOptions } from '../composables/pdfImageEncoding';
 const props = defineProps({
   modelValue: { type: Object, default: () => ({ format: 'png', quality: 100 }) },
   estimateSize: { type: String, default: '' },
-  estimateAccuracy: { type: String, default: '' },
+  isEstimateQualityScaled: { type: Boolean, default: false },
+  estimateReferenceQuality: { type: Number, default: null },
   isExactEstimating: { type: Boolean, default: false },
   isEstimateStale: { type: Boolean, default: false },
   estimateError: { type: String, default: '' },
@@ -29,17 +30,16 @@ const qualityLabel = computed(() => {
   return t('imageQuality');
 });
 
-const estimateAccuracyLabel = computed(() => {
-  if (props.estimateAccuracy === 'exact') return t('exactEstimateResult');
-  if (props.estimateAccuracy === 'calibrated') return t('calibratedEstimate');
-  return t('heuristicEstimate');
-});
 </script>
 
 <template>
   <section class="section-group editor-panel export-options-panel">
     <div class="section-head editor-panel__header editor-panel__header--centered">
       <h2>{{ t('export') }}</h2>
+      <button class="mini panel-header-action export-options-panel__exact" type="button" :disabled="isExactEstimating" @click="$emit('exactEstimate')">
+        <font-awesome-icon :icon="['fas', isExactEstimating ? 'spinner' : 'calculator']" :spin="isExactEstimating" />
+        {{ t('exactEstimate') }}
+      </button>
     </div>
 
     <div class="editor-panel__body">
@@ -61,13 +61,11 @@ const estimateAccuracyLabel = computed(() => {
         <strong v-if="estimateSize">{{ estimateSize }}</strong>
         <strong v-else-if="isExactEstimating">{{ t('calculatingEstimate') }}</strong>
         <strong v-else>{{ t('estimateUnavailable') }}</strong>
-        <span v-if="estimateSize && !isExactEstimating" class="export-estimate__accuracy">{{ estimateAccuracyLabel }}</span>
+        <span v-if="estimateSize && !isExactEstimating" class="export-estimate__accuracy">
+          {{ isEstimateQualityScaled ? t('qualityScaledEstimate') : t('lastCachedEstimate') }}<template v-if="isEstimateQualityScaled && estimateReferenceQuality != null"> ({{ estimateReferenceQuality }}%)</template>
+        </span>
         <span v-else-if="estimateSize" class="export-estimate__accuracy">{{ t('calculatingEstimate') }}</span>
         <span v-if="isEstimateStale && !isExactEstimating" class="export-estimate__stale">{{ t('estimateStaleContent') }}</span>
-        <button class="mini export-estimate__exact" type="button" :disabled="isExactEstimating" @click="$emit('exactEstimate')">
-          <font-awesome-icon :icon="['fas', isExactEstimating ? 'spinner' : 'calculator']" :spin="isExactEstimating" />
-          {{ t('exactEstimate') }}
-        </button>
       </div>
       <p v-if="estimateError" class="export-estimate__error">{{ estimateError }}</p>
     </div>
@@ -80,6 +78,6 @@ const estimateAccuracyLabel = computed(() => {
 .export-estimate--error { color: #ffaaaa; }
 .export-estimate__accuracy { color: var(--muted); font-size: 11px; }
 .export-estimate__stale { color: #f0cd86; font-size: 11px; }
-.export-estimate__exact { margin-left: auto; }
+.export-options-panel__exact { white-space: nowrap; }
 .export-estimate__error { margin: 6px 0 0; color: #ffaaaa; font-size: 11px; }
 </style>
