@@ -41,5 +41,12 @@ const content = computed(() => {
 .markdown-content__prose { margin: 1.5mm 0 0 }
 .markdown-bullets li { white-space: pre-line; }
 .markdown-content__prose a,
-.markdown-bullets a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.markdown-bullets a {
+  color: inherit;
+  /* html2canvas does not reliably apply text-underline-offset. A padded border
+     keeps the link rule visibly below its glyphs in the rasterized PDF. */
+  padding-bottom: 0px;
+  border-bottom: 1px solid currentColor;
+  text-decoration: none;
+}
 </style>
