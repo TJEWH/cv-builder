@@ -452,7 +452,7 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
 
 <style scoped>
 .content-column { display: grid; gap: 0; min-width: 0; }
-.content-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.content-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid rgba(148, 163, 184, .24); }
 .content-tab { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; padding: 8px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); cursor: pointer; font: inherit; font-weight: 600; }
 .content-tab:hover, .content-tab:focus-visible { background: rgba(16, 185, 129, .1); color: #d1fae5; }
 .content-tab.active { border-bottom-color: #27f3a2; color: #9be8c7; }

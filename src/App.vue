@@ -845,6 +845,9 @@ function toggleFullPreviewView() {
         </nav>
 
         <div class="builder-topbar__utilities">
+          <button class="builder-topbar__language-toggle" type="button" :class="{ 'is-on': lang === 'en' }" :aria-label="t('language')" @click="toggleLanguage">
+            <span class="builder-topbar__language-track"><span>DE</span><span>EN</span><span class="builder-topbar__language-thumb"></span></span>
+          </button>
           <label class="builder-topbar__configuration">
             <font-awesome-icon :icon="['fas', 'layer-group']" aria-hidden="true" />
             <select :value="selectedConfigurationId" :aria-label="t('versions')" @change="selectConfiguration">
@@ -852,9 +855,6 @@ function toggleFullPreviewView() {
               <option v-for="configuration in savedConfigurations" :key="configuration.id" :value="configuration.id">{{ configuration.name }}</option>
             </select>
           </label>
-          <button class="builder-topbar__language-toggle" type="button" :class="{ 'is-on': lang === 'en' }" :aria-label="t('language')" @click="toggleLanguage">
-            <span class="builder-topbar__language-track"><span>DE</span><span>EN</span><span class="builder-topbar__language-thumb"></span></span>
-          </button>
           <output class="builder-topbar__save-status" :class="`is-${saveStatus}`" aria-live="polite">
             <font-awesome-icon :icon="['fas', saveStatusIcon]" :spin="saveStatus === 'saving'" />
             {{ saveStatusLabel }}
@@ -1145,18 +1145,52 @@ body,
 }
 
 .builder-layout--below {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) minmax(260px, 40vh);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.builder-layout--below::-webkit-scrollbar { display: none; }
+
+.builder-layout--below .builder-layout__controls {
+  flex: 0 0 auto;
+  height: auto;
+  overflow: visible;
+  grid-template-rows: auto;
+}
+
+.builder-layout--below .builder-layout__controls .builder-group-panel {
+  height: auto;
+  max-height: none;
+  overflow: visible;
+}
+
+.builder-layout--below .builder-group-panel > .group-panel__scroll-body,
+.builder-layout--below .builder-group-panel > .editor-panel__body,
+.builder-layout--below .builder-group-panel > .design-panel__scroll-body,
+.builder-layout--below .builder-group-panel .content-panel__scroll-body {
+  overflow: visible;
 }
 
 .builder-layout--below .inline-preview {
   position: relative;
   top: auto;
-  grid-column: 1;
-  grid-row: 2;
-  width: min(100%, 860px);
-  height: 100%;
-  justify-self: center;
+  flex: 0 0 auto;
+  align-self: center;
+  width: min(100%, 680px);
+  height: auto;
+  overflow: visible;
+}
+
+.builder-layout--below .inline-preview__viewport,
+.builder-layout--below .inline-preview__scroll {
+  height: auto;
+  overflow: visible;
 }
 
 .inline-preview {

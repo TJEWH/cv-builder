@@ -86,6 +86,8 @@ body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f1
 }
 .builder .content-section.disabled{background:#113c34;border-top-color:#134e4a}
 .builder .content-section.completed{background:rgba(134,239,172,.12);border-top-color:rgba(134,239,172,.6)}
+.builder .content-tab-panel.content-section,
+.builder .content-tab-panel > .content-section:first-child{border-top:0}
 .builder .content-section > .section-head{
     min-height:38px;
     margin:0 0 8px;
