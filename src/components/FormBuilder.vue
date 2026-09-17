@@ -262,6 +262,29 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
       @cancel="cancelDeletion"
       @confirm="confirmDeletion"
     />
+    <Teleport to="body">
+      <Transition name="field-config">
+        <div v-if="activeFieldConfigSection" class="field-config-backdrop" @click.self="closeFieldConfig">
+          <section class="field-config-dialog" role="dialog" aria-modal="true" aria-labelledby="field-config-title">
+            <header class="field-config-dialog__header">
+              <h3 id="field-config-title">{{ t('fieldConfiguration') }}</h3>
+              <button class="mini btn--danger" type="button" :aria-label="t('close')" :title="t('close')" @click="closeFieldConfig"><font-awesome-icon :icon="['fas', 'xmark']" /></button>
+            </header>
+            <div class="field-config-mode" role="radiogroup" :aria-label="t('fieldInputMode')">
+              <label class="field-config-option"><input type="radio" name="custom-field-mode" :checked="!usesCustomBodyTextarea(activeFieldConfigSection)" @change="setCustomBodyEntryMode(activeFieldConfigSection, 'fields')" />{{ t('fieldInputModeFields') }}</label>
+              <label class="field-config-option"><input type="radio" name="custom-field-mode" :checked="usesCustomBodyTextarea(activeFieldConfigSection)" @change="setCustomBodyEntryMode(activeFieldConfigSection, 'textarea')" />{{ t('fieldInputModeTextarea') }}</label>
+            </div>
+            <p>{{ usesCustomBodyTextarea(activeFieldConfigSection) ? t('textareaFieldHelp') : t('fieldConfigurationHelp') }}</p>
+            <div v-if="!usesCustomBodyTextarea(activeFieldConfigSection)" class="field-config-options">
+              <label v-for="field in customBodyFieldOptions" :key="field.key" class="field-config-option">
+                <input type="checkbox" :checked="isCustomBodyFieldEnabled(activeFieldConfigSection, field.key)" @change="setCustomBodyFieldEnabled(activeFieldConfigSection, field.key, $event.target.checked)" />
+                {{ field.label }}
+              </label>
+            </div>
+          </section>
+        </div>
+      </Transition>
+    </Teleport>
     <section class="body section-group editor-panel content-panel">
       <div class="section-head editor-panel__header editor-panel__header--centered">
         <h2>{{ t('content') }}</h2>
@@ -274,25 +297,6 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
       </div>
 
       <div class="content-panel__scroll-body">
-      <Transition name="field-config">
-        <section v-if="activeFieldConfigSection" class="field-config-dialog" role="region" :aria-label="t('fieldConfiguration')">
-          <header class="field-config-dialog__header">
-            <h3>{{ t('fieldConfiguration') }}</h3>
-            <button class="mini btn--danger" type="button" :aria-label="t('close')" :title="t('close')" @click="closeFieldConfig"><font-awesome-icon :icon="['fas', 'xmark']" /></button>
-          </header>
-          <div class="field-config-mode" role="radiogroup" :aria-label="t('fieldInputMode')">
-            <label class="field-config-option"><input type="radio" name="custom-field-mode" :checked="!usesCustomBodyTextarea(activeFieldConfigSection)" @change="setCustomBodyEntryMode(activeFieldConfigSection, 'fields')" />{{ t('fieldInputModeFields') }}</label>
-            <label class="field-config-option"><input type="radio" name="custom-field-mode" :checked="usesCustomBodyTextarea(activeFieldConfigSection)" @change="setCustomBodyEntryMode(activeFieldConfigSection, 'textarea')" />{{ t('fieldInputModeTextarea') }}</label>
-          </div>
-          <p>{{ usesCustomBodyTextarea(activeFieldConfigSection) ? t('textareaFieldHelp') : t('fieldConfigurationHelp') }}</p>
-          <div v-if="!usesCustomBodyTextarea(activeFieldConfigSection)" class="field-config-options">
-            <label v-for="field in customBodyFieldOptions" :key="field.key" class="field-config-option">
-              <input type="checkbox" :checked="isCustomBodyFieldEnabled(activeFieldConfigSection, field.key)" @change="setCustomBodyFieldEnabled(activeFieldConfigSection, field.key, $event.target.checked)" />
-              {{ field.label }}
-            </label>
-          </div>
-        </section>
-      </Transition>
 
       <section v-show="activeContentTab === 'header'" id="content-panel-header" class="section-group content-section content-tab-panel" role="tabpanel" aria-labelledby="content-tab-header" :class="{ disabled: isHidden('header'), completed: isComplete('header') }">
         <div class="section-head">
@@ -471,15 +475,18 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
 .about-editor { display: grid; gap: 4px; }
 .sidebar-skill-row__content { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; }
 .custom-body-entry__fields { display: grid; grid-template-columns: repeat(var(--custom-body-field-count), minmax(0, 1fr)); gap: 8px; }
-.field-config-dialog { display: grid; gap: 12px; width: min(100% - 20px, 720px); margin: 10px; padding: 16px; border: 1px solid #10b981; border-radius: 10px; background: #0c131a; box-shadow: 0 12px 36px rgba(0, 0, 0, .35); }
-.field-config-dialog__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #134e4a; }
-.field-config-dialog__header h3 { margin: 0 0 12px; }
+.field-config-backdrop { position: fixed; inset: 0; z-index: 1010; display: grid; place-items: center; padding: 16px; background: rgba(2, 6, 23, .72); }
+.field-config-dialog { display: grid; gap: 10px; width: min(100%, 560px); max-height: min(100%, 560px); overflow: auto; padding: 12px; border: 1px solid #10b981; border-radius: 8px; background: #0c131a; box-shadow: 0 18px 48px rgba(0, 0, 0, .5); }
+.field-config-dialog__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 8px; border-bottom: 1px solid #134e4a; }
+.field-config-dialog__header h3 { margin: 0; color: #d1fae5; font-size: .95rem; }
 .field-config-dialog p { margin: 0; color: var(--muted); }
-.field-config-mode { display: flex; flex-wrap: wrap; gap: 8px 14px; }
-.field-config-options { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
-.field-config-option { display: inline-flex; align-items: center; gap: 6px; padding: 4px 0; color: #d1fae5; cursor: pointer; white-space: nowrap; }
+.field-config-mode { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+.field-config-options { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.field-config-option { display: inline-flex; align-items: center; gap: 6px; padding: 2px 0; color: #d1fae5; cursor: pointer; white-space: nowrap; }
 .field-config-option input { accent-color: #10b981; }
-.field-config-enter-active, .field-config-leave-active { transition: opacity .2s ease, grid-template-rows .2s ease, margin .2s ease; }
+.field-config-enter-active, .field-config-leave-active { transition: opacity .2s ease; }
+.field-config-enter-active .field-config-dialog, .field-config-leave-active .field-config-dialog { transition: transform .2s ease; }
 .field-config-enter-from, .field-config-leave-to { opacity: 0; }
+.field-config-enter-from .field-config-dialog, .field-config-leave-to .field-config-dialog { transform: translateY(8px) scale(.98); }
 @media (max-width: 640px) { .sidebar-skill-row__content, .custom-body-entry__fields { grid-template-columns: 1fr; } }
 </style>

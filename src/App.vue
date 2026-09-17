@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { debounce, loadLocal, saveLocal } from './composables/useStorage';
 import { useCvDesign } from './composables/useCvDesign';
 import { usePdfExport } from './composables/usePdfExport';
+import { createPreviewRenderSlot } from './composables/pdfRenderTask.js';
 import FormBuilder from './components/FormBuilder.vue';
 import CvPreview from './components/CvPreview.vue';
 import PdfPreview from './components/PdfPreview.vue';
@@ -302,7 +303,10 @@ onMounted(async () => {
   }
 });
 
-const { estimatePdfSize, exportToPdf, renderPdf, renderPreview } = usePdfExport();
+const { estimatePdfSize, exportToPdf, renderPreview } = usePdfExport();
+const inlineRenderSlot = createPreviewRenderSlot();
+const fullRenderSlot = createPreviewRenderSlot();
+const anonymizedRenderSlot = createPreviewRenderSlot();
 const isExporting = ref(false);
 const isAnonymizedExporting = ref(false);
 const estimatedPdfBytes = ref(null);
@@ -348,10 +352,6 @@ function getPdfRenderOptions(options = {}) {
   };
 }
 
-function getInlinePdfPreviewRenderOptions({ detailed = false } = {}) {
-  return getPdfRenderOptions({ html2canvas: { scale: detailed ? 1 : 0.2 } });
-}
-
 function getHybridPdfRenderOptions() {
   const exportOptions = normalizeExportOptions(state.exportOptions);
   return {
@@ -370,70 +370,24 @@ function getAnonymizedPdfSourceElement() {
 
 const anonymizedState = computed(() => createAnonymizedState(state));
 
-function waitForPreviewPaint() {
-  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-}
-
-function hasPendingBuilderInput() {
-  return navigator.scheduling?.isInputPending?.({ includeContinuous: true }) ?? false;
-}
-
-function waitForPreviewIdle(maxWait = 400) {
-  return new Promise((resolve) => {
-    const deadline = performance.now() + maxWait;
-    const schedule = () => {
-      const run = () => {
-        // Some browsers may continue reporting pending input after focus has
-        // already left the builder. Do not let that status starve the inline
-        // preview forever; the fast pass should always get a chance to paint.
-        if (hasPendingBuilderInput() && performance.now() < deadline) {
-          schedule();
-          return;
-        }
-        resolve();
-      };
-
-      if ('requestIdleCallback' in window) {
-        window.requestIdleCallback(run, { timeout: Math.max(1, deadline - performance.now()) });
-      } else {
-        window.setTimeout(run, Math.min(50, Math.max(0, deadline - performance.now())));
-      }
-    };
-
-    schedule();
-  });
-}
-
 async function refreshPdfPreview(version) {
+  if (version !== previewRenderVersion) return;
+  const signal = inlineRenderSlot.start();
   try {
     await nextTick();
     await document.fonts?.ready;
-    await waitForPreviewIdle();
     if (version !== previewRenderVersion) return;
 
     const cvElement = getPdfSourceElement();
     if (!cvElement) throw new Error('CV preview element not found');
-    const { pages: fastPages } = await renderPreview(cvElement, getInlinePdfPreviewRenderOptions());
-    if (version !== previewRenderVersion) return;
-
-    previewPages.value = fastPages;
-    previewPage.value = Math.min(Math.max(previewPage.value, 1), Math.max(fastPages.length, 1));
-
-    // Let the low-resolution page reach the screen before beginning the more
-    // expensive inline refinement pass, and only run it once the builder is
-    // idle again.
-    await waitForPreviewPaint();
-    await waitForPreviewIdle();
-    if (version !== previewRenderVersion) return;
-
-    const { pages } = await renderPreview(cvElement, getInlinePdfPreviewRenderOptions({ detailed: true }));
+    const { pages } = await renderPreview(cvElement, getPdfRenderOptions({ html2canvas: { scale: 1 }, signal }));
     if (version !== previewRenderVersion) return;
 
     previewPages.value = pages;
     previewPage.value = Math.min(Math.max(previewPage.value, 1), Math.max(pages.length, 1));
     updateCachedPdfSizeEstimate();
   } catch (error) {
-    if (version === previewRenderVersion) console.error('PDF preview failed:', error);
+    if (!signal.aborted && version === previewRenderVersion) console.error('PDF preview failed:', error);
   } finally {
     if (version === previewRenderVersion) isPreviewRendering.value = false;
   }
@@ -442,6 +396,8 @@ async function refreshPdfPreview(version) {
 const schedulePdfPreview = debounce((version) => refreshPdfPreview(version), 100);
 
 async function refreshFullPdfPreview(renderVersion, sourceVersion) {
+  if (renderVersion !== fullPreviewRenderVersion || sourceVersion !== fullPreviewSourceVersion) return;
+  const signal = fullRenderSlot.start();
   try {
     await nextTick();
     await document.fonts?.ready;
@@ -449,13 +405,13 @@ async function refreshFullPdfPreview(renderVersion, sourceVersion) {
 
     const cvElement = getPdfSourceElement();
     if (!cvElement) throw new Error('Full CV preview element not found');
-    const { pages } = await renderPdf(cvElement, getPdfRenderOptions());
+    const { pages } = await renderPreview(cvElement, getPdfRenderOptions({ signal }));
     if (renderVersion !== fullPreviewRenderVersion || sourceVersion !== fullPreviewSourceVersion) return;
 
     fullPreviewPages.value = pages;
     renderedFullPreviewSourceVersion = sourceVersion;
   } catch (error) {
-    if (renderVersion === fullPreviewRenderVersion) console.error('Full PDF preview failed:', error);
+    if (!signal.aborted && renderVersion === fullPreviewRenderVersion) console.error('Full PDF preview failed:', error);
   } finally {
     if (renderVersion === fullPreviewRenderVersion) isFullPreviewRendering.value = false;
   }
@@ -467,12 +423,19 @@ const scheduleFullPdfPreview = debounce((renderVersion, sourceVersion) => (
 
 function requestFullPdfPreview() {
   if (renderedFullPreviewSourceVersion === fullPreviewSourceVersion && fullPreviewPages.value.length) return;
+  fullRenderSlot.cancel();
   const renderVersion = ++fullPreviewRenderVersion;
   isFullPreviewRendering.value = true;
   scheduleFullPdfPreview(renderVersion, fullPreviewSourceVersion);
 }
 
 function invalidatePdfPreview() {
+  inlineRenderSlot.cancel();
+  fullRenderSlot.cancel();
+  schedulePdfPreview.cancel();
+  scheduleFullPdfPreview.cancel();
+  fullPreviewRenderVersion += 1;
+  isFullPreviewRendering.value = false;
   const version = ++previewRenderVersion;
   fullPreviewSourceVersion += 1;
   fullPreviewPages.value = [];
@@ -490,6 +453,8 @@ function requestPdfPreview() {
 }
 
 async function refreshAnonymizedPdfPreview(renderVersion, sourceVersion) {
+  if (renderVersion !== anonymizedPreviewRenderVersion || sourceVersion !== anonymizedSourceVersion) return;
+  const signal = anonymizedRenderSlot.start();
   try {
     await nextTick();
     await document.fonts?.ready;
@@ -497,14 +462,14 @@ async function refreshAnonymizedPdfPreview(renderVersion, sourceVersion) {
 
     const cvElement = getAnonymizedPdfSourceElement();
     if (!cvElement) throw new Error('Anonymized CV preview element not found');
-    const { pages } = await renderPdf(cvElement, getPdfRenderOptions());
+    const { pages } = await renderPreview(cvElement, getPdfRenderOptions({ signal }));
     if (renderVersion !== anonymizedPreviewRenderVersion || sourceVersion !== anonymizedSourceVersion) return;
 
     anonymizedPreviewPages.value = pages;
     anonymizedPreviewPage.value = Math.min(Math.max(anonymizedPreviewPage.value, 1), Math.max(pages.length, 1));
     renderedAnonymizedSourceVersion = sourceVersion;
   } catch (error) {
-    if (renderVersion === anonymizedPreviewRenderVersion) console.error('Anonymized PDF preview failed:', error);
+    if (!signal.aborted && renderVersion === anonymizedPreviewRenderVersion) console.error('Anonymized PDF preview failed:', error);
   } finally {
     if (renderVersion === anonymizedPreviewRenderVersion) isAnonymizedPreviewRendering.value = false;
   }
@@ -516,18 +481,28 @@ const scheduleAnonymizedPdfPreview = debounce((renderVersion, sourceVersion) => 
 
 function requestAnonymizedPdfPreview() {
   if (renderedAnonymizedSourceVersion === anonymizedSourceVersion && anonymizedPreviewPages.value.length) return;
+  anonymizedRenderSlot.cancel();
   const renderVersion = ++anonymizedPreviewRenderVersion;
   isAnonymizedPreviewRendering.value = true;
   scheduleAnonymizedPdfPreview(renderVersion, anonymizedSourceVersion);
 }
 
 function invalidateAnonymizedPdfPreview({ defer = false } = {}) {
+  anonymizedRenderSlot.cancel();
+  scheduleAnonymizedPdfPreview.cancel();
+  anonymizedPreviewRenderVersion += 1;
+  isAnonymizedPreviewRendering.value = false;
   anonymizedSourceVersion += 1;
   anonymizedPreviewPages.value = [];
   anonymizedPreviewPage.value = 1;
   renderedAnonymizedSourceVersion = -1;
   if (!defer && fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
 }
+
+onBeforeUnmount(() => {
+  invalidatePdfPreview();
+  invalidateAnonymizedPdfPreview({ defer: true });
+});
 
 const previewDesign = computed(() => Object.keys(state.design || {}).reduce((design, key) => {
   if (key !== 'favoriteControls') design[key] = state.design[key];

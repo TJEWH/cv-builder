@@ -135,6 +135,20 @@ npm test             # Content-state migration tests
 - **Console**: `localStorage.getItem('cv-session')` for saved data
 - **Saved data**: inspect `localStorage.getItem('cv-session')` in the browser console
 
+### Preview scheduling
+
+Preview renders are cancelable: a newer content change aborts the previous job,
+retaining the last complete image until the replacement is ready. The DOM-based
+renderer cannot run in a Web Worker, so `pdfRenderTask.js` schedules short,
+background-priority batches with a timer fallback, and preview image encoding
+uses asynchronous `toBlob`.
+
+`build/responsivePdfRenderer.js` adds checkpoints to html2canvas's DOM clone,
+parser and painter, and html2pdf's page-break loop without changing their layout
+rules. These dependencies are pinned; when upgrading them, review the guarded
+adapter and run `npm test` and `npm run build`. Check rapid section lock/unlock
+during rendering in the browser as well (development and production builds).
+
 ---
 
 ## 🚀 Deployment

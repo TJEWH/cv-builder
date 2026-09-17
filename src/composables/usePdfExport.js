@@ -1,5 +1,6 @@
-import html2pdf from 'html2pdf.js';
+import html2pdf from 'html2pdf.js/src/index.js';
 import { jsPDF } from 'jspdf';
+import { createPdfRenderTask } from './pdfRenderTask.js';
 import {
   createPdfPageGeometry,
   resolveLastPageSidebarPlacement,
@@ -34,6 +35,8 @@ function normaliseMargins(margin) {
 function mergePdfOptions(options = {}) {
   const defaultOptions = {
     margin: 0,
+    // The hybrid text overlay owns links; html2pdf's link scan is unused.
+    enableLinks: false,
     image: { format: 'jpeg', quality: 100 },
     html2canvas: {
       scale: 3,
@@ -42,6 +45,7 @@ function mergePdfOptions(options = {}) {
       scrollY: 0,
       scrollX: 0,
       imageTimeout: 0,
+      logging: false,
     },
     jsPDF: {
       unit: 'mm',
@@ -308,27 +312,43 @@ function canvasPageCount(canvas, pdf, options, continuationPadding) {
 }
 
 async function renderSourceCanvas(element, options, captureOverlay) {
-  options.html2canvas.windowHeight = element.scrollHeight;
+  const task = options.renderTask;
+  await task.checkpoint(true);
   let overlay = null;
-  const existingOnclone = options.html2canvas.onclone;
-  if (captureOverlay) {
-    // html2canvas creates an additional iframe clone immediately before
-    // painting. Its reference element and its ceil()ed CSS bounds are the
-    // actual source of the raster pixels, so capture text only at this point.
-    options.html2canvas.onclone = async (documentClone, clonedElement) => {
-      await existingOnclone?.(documentClone, clonedElement);
-      overlay = captureOverlay(clonedElement);
-    };
-  }
   const worker = html2pdf().set(options).from(element);
-
   // html2pdf's pagebreak plugin runs while preparing its private source
   // clone. It may insert padding before a section with break-inside: avoid;
-  // html2canvas then clones that prepared tree and invokes the callback above.
-  await worker.toContainer();
-  await worker.toCanvas();
-  const canvas = await worker.get('canvas');
-  return captureOverlay ? { canvas, overlay } : canvas;
+  // html2canvas then clones that prepared tree and invokes onclone below.
+  try {
+    await task.wait(worker.toContainer());
+    task.check();
+    const container = await worker.get('container');
+    const head = element.ownerDocument.head;
+    const canvasOptions = {
+      ...options.html2canvas,
+      renderTask: task,
+      windowHeight: element.scrollHeight,
+      // Only clone the CV, its ancestors and styles/fonts, not the entire
+      // builder, other previews or another render's temporary DOM.
+      ignoreElements: (node) => (
+        options.html2canvas.ignoreElements?.(node)
+        || !(node === head || head.contains(node) || node.contains(container) || container.contains(node))
+      ),
+      onclone: async (documentClone, clonedElement) => {
+        task.check();
+        await options.html2canvas.onclone?.(documentClone, clonedElement);
+        // Capture in html2canvas's final clone so text coordinates match pixels.
+        if (captureOverlay) overlay = captureOverlay(clonedElement);
+      },
+    };
+    await worker.set({ html2canvas: canvasOptions });
+    await task.wait(worker.toCanvas());
+    task.check();
+    const canvas = await worker.get('canvas');
+    return captureOverlay ? { canvas, overlay } : canvas;
+  } finally {
+    worker.prop.overlay?.remove();
+  }
 }
 
 async function renderFullWidthBodyCanvas(element, options) {
@@ -371,7 +391,7 @@ async function preparePositionedPdfSource(element, options, pdf, continuationPad
   positionSidebarForPdf(element, options, pdf);
 }
 
-function createPagePreview(pageCanvas, dimensions, image) {
+async function createPagePreview(pageCanvas, dimensions, image, task) {
   const {
     pageWidth,
     pageHeight,
@@ -398,15 +418,28 @@ function createPagePreview(pageCanvas, dimensions, image) {
     Math.round((pageCanvas.height / pageCanvas.width) * contentWidth * contentScale * scale),
   );
 
-  return previewCanvas.toDataURL(imageMimeType(image.format), image.quality / 100);
+  // toDataURL synchronously encodes on the UI thread. Let the browser encode
+  // asynchronously, retaining data URLs so existing preview lifetimes work.
+  const blob = await task.wait(new Promise((resolve, reject) => {
+    previewCanvas.toBlob((value) => value ? resolve(value) : reject(new Error('PDF preview encoding failed')),
+      imageMimeType(image.format), image.quality / 100);
+  }));
+  return task.wait(new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  }));
 }
 
-function isUniformCanvas(pageCanvas, pageContext) {
+async function isUniformCanvas(pageCanvas, pageContext, task) {
   try {
     const [red, green, blue, alpha] = pageContext.getImageData(0, 0, 1, 1).data;
     const scanHeight = 64;
 
     for (let y = 0; y < pageCanvas.height; y += scanHeight) {
+      const pause = task.checkpoint();
+      if (pause) await pause;
       const rowPixels = pageContext.getImageData(
         0,
         y,
@@ -425,7 +458,8 @@ function isUniformCanvas(pageCanvas, pageContext) {
     }
 
     return true;
-  } catch {
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error;
     // Preserve the page if the browser disallows pixel inspection for any
     // reason (for example, a tainted canvas from a third-party image).
     return false;
@@ -463,6 +497,7 @@ async function appendPdfPages(canvas, pdf, options, continuationPadding, {
   let pageIndex = 0;
 
   while (canvas.height - sourceY > trailingSliceTolerance) {
+    await options.renderTask.checkpoint(true);
     const isContinuation = pageIndex > 0;
     const topOffset = marginTop + (isContinuation ? safeContinuationPadding : 0);
     const availableHeight = firstPageHeight - (isContinuation ? safeContinuationPadding : 0);
@@ -478,7 +513,7 @@ async function appendPdfPages(canvas, pdf, options, continuationPadding, {
     pageContext.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
     pageContext.drawImage(canvas, 0, sourceY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
 
-    const hasGraphics = !isUniformCanvas(pageCanvas, pageContext);
+    const hasGraphics = !await isUniformCanvas(pageCanvas, pageContext, options.renderTask);
     if (hasGraphics || preserveBlankPages) {
       const pageImage = hasGraphics && !previewOnly
         ? encodePdfPageImage(pageCanvas, options.image)
@@ -498,14 +533,14 @@ async function appendPdfPages(canvas, pdf, options, continuationPadding, {
       }
 
       pages.push({
-        previewData: createPagePreview(pageCanvas, {
+        previewData: await createPagePreview(pageCanvas, {
           pageWidth,
           pageHeight,
           contentWidth,
           contentScale,
           leftOffset: marginLeft,
           topOffset,
-        }, options.image),
+        }, options.image, options.renderTask),
         sourceTop: sourceY,
         sourceBottom: sourceY + sliceHeight,
         canvasWidth: canvas.width,
@@ -532,6 +567,26 @@ async function appendPdfPages(canvas, pdf, options, continuationPadding, {
  * coordinates in the source element's unscaled CSS coordinate system.
  */
 async function renderRasterPdf(element, options = {}, captureOverlay, { previewOnly = false } = {}) {
+  const task = createPdfRenderTask(options.signal);
+  try {
+    await task.checkpoint(true);
+    // Placement adjusts sidebar heights. Work on a private snapshot so edits,
+    // cancellation and simultaneous export/preview jobs never mutate Vue's DOM.
+    const sourceHost = task.own(element.parentElement.cloneNode(false));
+    sourceHost.inert = true;
+    sourceHost.removeAttribute('id');
+    sourceHost.setAttribute('aria-hidden', 'true');
+    Object.assign(sourceHost.style, { position: 'fixed', top: '0', left: '-100000px', pointerEvents: 'none' });
+    const source = element.cloneNode(true);
+    sourceHost.appendChild(source);
+    element.ownerDocument.body.appendChild(sourceHost);
+    return await renderRasterSnapshot(source, { ...options, renderTask: task }, captureOverlay, { previewOnly });
+  } finally {
+    task.dispose();
+  }
+}
+
+async function renderRasterSnapshot(element, options, captureOverlay, { previewOnly }) {
   const mergedOptions = mergePdfOptions({
     ...options,
     html2canvas: {
