@@ -5,7 +5,8 @@ import SectionList from './SectionList.vue';
 import MarkdownTextarea from './MarkdownTextarea.vue';
 import ConfirmDeletionDialog from './ConfirmDeletionDialog.vue';
 import { makeT } from '../i18n/dict.js';
-import { createContentId, normalizeContentState } from '../composables/contentLayout.js';
+import sectionIcons from '../i18n/sectionIcons.js';
+import { createContentId, normalizeContentState, reorderVisibleSectionOrder } from '../composables/contentLayout.js';
 
 const props = defineProps({
   state: { type: Object, required: true },
@@ -70,6 +71,18 @@ const toggleComplete = (key) => {
   else props.state.completedSections.splice(index, 1);
   props.onSave?.();
 };
+const updateVisibleOrder = (orderName, rows) => {
+  props.state[orderName] = reorderVisibleSectionOrder(
+    props.state[orderName],
+    props.state.disabled,
+    rows.map((row) => row.key),
+  );
+  props.onSave?.();
+};
+const bodyOrderRows = computed(() => props.state.bodyOrder.filter((key) => !isHidden(key)).map((key) => ({ key })));
+const sidebarOrderRows = computed(() => props.state.sidebarOrder.filter((key) => !isHidden(key)).map((key) => ({ key })));
+const activeOrderRows = computed(() => activeContentTab.value === 'body' ? bodyOrderRows.value : sidebarOrderRows.value);
+const updateActiveVisibleOrder = (rows) => updateVisibleOrder(activeContentTab.value === 'body' ? 'bodyOrder' : 'sidebarOrder', rows);
 const toggleDisabled = (key) => {
   const index = props.state.disabled.indexOf(key);
   if (index === -1) props.state.disabled.push(key);
@@ -82,6 +95,7 @@ const getCustomSection = (id) => getBodySection(id) || getSidebarSection(id);
 const activeFieldConfigSection = computed(() => getBodySection(fieldConfigSectionId.value));
 const getSectionDisplayName = (key) => getCustomSection(key)?.name || props.state.sectionNames[key] || builtInNames.value[key] || key;
 const getDefaultName = (key) => builtInNames.value[key] || (langRef.value === 'de' ? 'Neue Sektion' : 'New Section');
+const getIcon = (key) => getCustomSection(key) ? 'folder-open' : (sectionIcons[key] || 'folder-open');
 const isCollapsed = (key) => Object.hasOwn(collapsed, key) ? collapsed[key] : customCollapsed[key] ?? true;
 const toggleCollapsed = (key) => {
   if (Object.hasOwn(collapsed, key)) collapsed[key] = !collapsed[key];
@@ -415,6 +429,22 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
           </button>
       </section>
     </section>
+
+    <section v-if="activeContentTab !== 'header'" class="section-group content-reorder" :aria-label="t('reorderSections')">
+      <div class="section-head">
+        <font-awesome-icon :icon="['fas', 'grip-vertical']" aria-hidden="true" />
+        <h3>{{ t('reorderSections') }}</h3>
+      </div>
+      <p>{{ t('reorderSectionsHelp') }}</p>
+      <Draggable :key="activeContentTab" :model-value="activeOrderRows" item-key="key" :animation="150" ghost-class="sortable-ghost" @update:model-value="updateActiveVisibleOrder">
+        <template #item="{ element }">
+          <div class="content-reorder__row">
+            <span><font-awesome-icon :icon="['fas', getIcon(element.key)]" /> {{ getSectionDisplayName(element.key) }}</span>
+            <font-awesome-icon class="content-reorder__drag-icon" :icon="['fas', 'grip-vertical']" aria-hidden="true" />
+          </div>
+        </template>
+      </Draggable>
+    </section>
   </form>
 </template>
 
@@ -427,6 +457,12 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
 .content-tab:focus-visible { outline: 2px solid #9be8c7; outline-offset: -3px; }
 .content-tab__complete { color: #86efac; }
 .content-tab-panel { min-width: 0; }
+.content-reorder { display: grid; gap: 10px; margin-top: 10px; }
+.content-reorder p { margin: 0; color: var(--muted); }
+.content-reorder__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; padding: 8px 10px; border: 1px solid rgba(255, 255, 255, .1); border-radius: 6px; background: rgba(255, 255, 255, .04); cursor: grab; }
+.content-reorder__row:active { cursor: grabbing; }
+.content-reorder__row span { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.content-reorder__drag-icon { color: var(--muted); pointer-events: none; }
 .add-section-row { width: 100%; min-height: 54px; padding: 8px; border: 0; border-top: 1px dashed #2a6a60; border-bottom: 1px dashed #2a6a60; }
 .about-editor { display: grid; gap: 4px; }
 .sidebar-skill-row__content { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; }
