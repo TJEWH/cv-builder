@@ -45,3 +45,25 @@ test('applies configurable spacing between body section items', () => {
     assert.equal(properties.get('--section-item-spacing'), '6.5mm');
   });
 });
+
+test('sidebar bottom padding applies only to content-sized sidebars, the default', () => {
+  withDocument((properties) => {
+    applyCvDesign({});
+    assert.equal(properties.get('--sidebar-bottom-padding'), '6mm');
+    applyCvDesign({ sidebarBottomPadding: '18mm' });
+    assert.equal(properties.get('--sidebar-bottom-padding'), '18mm');
+    applyCvDesign({ sidebarHeightMode: 'content', sidebarBottomPadding: '0mm' });
+    assert.equal(properties.get('--sidebar-bottom-padding'), '0mm');
+    applyCvDesign({ sidebarHeightMode: 'full-page', sidebarBottomPadding: '18mm' });
+    assert.equal(properties.get('--sidebar-bottom-padding'), '6mm');
+  });
+});
+
+test('sidebar bottom padding clamps oversized values and rejects invalid values', () => {
+  withDocument((properties) => {
+    for (const [value, expected] of [['90mm', '30mm'], ['-1mm', '6mm'], ['invalid', '6mm']]) {
+      applyCvDesign({ sidebarBottomPadding: value });
+      assert.equal(properties.get('--sidebar-bottom-padding'), expected);
+    }
+  });
+});
