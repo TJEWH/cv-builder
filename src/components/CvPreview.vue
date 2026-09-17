@@ -46,11 +46,17 @@ const isHiddenFor = (key) => {
   return false;
 };
 const hasVisibleSidebarContent = computed(() => sidebarKeys.value.some((key) => !isHiddenFor(key)));
-const formatMeta = ({ start, end, place }) => {
+const stateLabel = (state) => ({
+  planned: t('planned'),
+  ongoing: t('ongoing'),
+  complete: t('complete'),
+}[state] || '');
+const formatMeta = ({ start, end, place, state }) => {
   const values = [];
   const range = [start, end].filter(Boolean).join(t('rangeSep'));
   if (range) values.push(range);
   if (place) values.push(place);
+  if (stateLabel(state)) values.push(stateLabel(state));
   return values.join(t('dotSep'));
 };
 const customFieldEnabled = (section, field) => section.fields?.includes(field) ?? true;
@@ -62,6 +68,7 @@ const formatCustomMeta = (section, entry) => {
   ].filter(Boolean).join(t('rangeSep'));
   if (range) values.push(range);
   if (customFieldEnabled(section, 'place') && entry.place) values.push(entry.place);
+  if (customFieldEnabled(section, 'state') && stateLabel(entry.state)) values.push(stateLabel(entry.state));
   return values.join(t('dotSep'));
 };
 const hasCustomInstitution = (section, entry) => (
@@ -158,9 +165,9 @@ onBeforeUnmount(() => {
             <div class="section-lead">
               <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
               <MarkdownContent v-if="getBodySection(key).entryMode === 'textarea'" :value="getBodySection(key).text" :anonymized="anonymized" />
-              <CvBodyItem v-else-if="visibleItems(getBodySection(key).entries).length" kind="custom" :item="visibleItems(getBodySection(key).entries)[0]" :meta="formatCustomMeta(getBodySection(key), visibleItems(getBodySection(key).entries)[0])" :institution="hasCustomInstitution(getBodySection(key), visibleItems(getBodySection(key).entries)[0])" :show-title="customFieldEnabled(getBodySection(key), 'title')" :show-description="customFieldEnabled(getBodySection(key), 'desc')" :show-tools="customFieldEnabled(getBodySection(key), 'tools')" :anonymized="anonymized" />
+              <CvBodyItem v-else-if="visibleItems(getBodySection(key).entries).length" kind="custom" :item="visibleItems(getBodySection(key).entries)[0]" :meta="formatCustomMeta(getBodySection(key), visibleItems(getBodySection(key).entries)[0])" :institution="hasCustomInstitution(getBodySection(key), visibleItems(getBodySection(key).entries)[0])" :show-title="customFieldEnabled(getBodySection(key), 'title')" :show-description="customFieldEnabled(getBodySection(key), 'desc')" :anonymized="anonymized" />
             </div>
-            <div v-if="getBodySection(key).entryMode !== 'textarea' && visibleItems(getBodySection(key).entries).length > 1"><CvBodyItem v-for="entry in visibleItems(getBodySection(key).entries).slice(1)" :key="entry.id" kind="custom" :item="entry" :meta="formatCustomMeta(getBodySection(key), entry)" :institution="hasCustomInstitution(getBodySection(key), entry)" :show-title="customFieldEnabled(getBodySection(key), 'title')" :show-description="customFieldEnabled(getBodySection(key), 'desc')" :show-tools="customFieldEnabled(getBodySection(key), 'tools')" :anonymized="anonymized" /></div>
+            <div v-if="getBodySection(key).entryMode !== 'textarea' && visibleItems(getBodySection(key).entries).length > 1"><CvBodyItem v-for="entry in visibleItems(getBodySection(key).entries).slice(1)" :key="entry.id" kind="custom" :item="entry" :meta="formatCustomMeta(getBodySection(key), entry)" :institution="hasCustomInstitution(getBodySection(key), entry)" :show-title="customFieldEnabled(getBodySection(key), 'title')" :show-description="customFieldEnabled(getBodySection(key), 'desc')" :anonymized="anonymized" /></div>
           </template>
         </section>
       </div>

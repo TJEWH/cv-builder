@@ -10,17 +10,15 @@ defineProps({
   institution: { type: Boolean, default: false },
   showTitle: { type: Boolean, default: true },
   showDescription: { type: Boolean, default: true },
-  showTools: { type: Boolean, default: true },
 });
 </script>
 
 <template>
   <article class="item" :class="{ 'experience-item': kind === 'jobs', 'education-item': kind === 'education', 'custom-body-item': kind === 'custom', 'custom-body-item--with-institution': kind === 'custom' && institution }">
     <template v-if="kind === 'jobs'">
-      <div v-if="item.company || meta || item.tools" class="item-details">
+      <div v-if="item.company || meta" class="item-details">
         <div v-if="item.company" class="item-sub">{{ item.company }}</div>
         <div v-if="meta" class="item-meta">{{ meta }}</div>
-        <div v-if="item.tools" class="item-tools">{{ item.tools }}</div>
       </div>
       <h3 class="item-title">{{ item.title }}</h3>
       <MarkdownContent :value="item.bullets" :anonymized="anonymized" />
@@ -37,10 +35,9 @@ defineProps({
       </div>
     </template>
     <template v-else>
-      <div v-if="institution || meta || (showTools && item.tools)" class="item-details">
+      <div v-if="institution || meta" class="item-details">
         <div v-if="institution" class="item-sub">{{ item.institution }}</div>
         <div v-if="meta" class="item-meta">{{ meta }}</div>
-        <div v-if="showTools && item.tools" class="item-tools">{{ item.tools }}</div>
       </div>
       <h3 v-if="showTitle" class="item-title">{{ item.title }}</h3>
       <MarkdownContent v-if="showDescription" :value="item.desc" :anonymized="anonymized" />

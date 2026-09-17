@@ -71,7 +71,7 @@ App runs at `http://localhost:5173/cv-builder/`
 ### Basics
 - Fill sections with `+` button, remove with `×`
 - Eye icon (👁️) shows/hides sections
-- Reorder sections using the handles in the container below the Body/Sidebar editors
+- Turn on Reorder at the top right of Content to drag the Body/Sidebar section cards directly (or use arrow keys on a handle); turning it off restores expanded editors
 - Use item handles to drag entries and sidebar skills directly
 - Auto-save saves all changes automatically
 

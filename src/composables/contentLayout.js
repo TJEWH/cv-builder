@@ -3,7 +3,8 @@ import { normalizeAnonymizationState } from './anonymization.js';
 
 export const BODY_SECTION_KEYS = ['about', 'education', 'jobs'];
 export const SIDEBAR_SECTION_KEYS = ['languages', 'hobbies'];
-export const CUSTOM_BODY_FIELDS = ['title', 'institution', 'place', 'start', 'end', 'tools', 'desc'];
+export const ITEM_STATES = ['planned', 'ongoing', 'complete'];
+export const CUSTOM_BODY_FIELDS = ['title', 'institution', 'place', 'start', 'end', 'state', 'desc'];
 
 let generatedId = 0;
 
@@ -46,33 +47,24 @@ function normalizedOrder(order, allowed) {
   return [...ordered, ...allowed.filter((key) => !known.has(key))];
 }
 
-/**
- * Replace only the visible entries of a section order, preserving hidden
- * entries in their existing positions.
- */
-export function reorderVisibleSectionOrder(order, disabled, reorderedVisible) {
-  const currentOrder = ensureArray(order);
-  const disabledKeys = new Set(ensureArray(disabled));
-  const visibleKeys = currentOrder.filter((key) => !disabledKeys.has(key));
-  const visibleKeySet = new Set(visibleKeys);
-  const seen = new Set();
-  const requestedOrder = ensureArray(reorderedVisible).filter((key) => {
-    if (!visibleKeySet.has(key) || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  const completeVisibleOrder = [...requestedOrder, ...visibleKeys.filter((key) => !seen.has(key))];
-  let visibleIndex = 0;
-
-  return currentOrder.map((key) => (
-    disabledKeys.has(key) ? key : completeVisibleOrder[visibleIndex++]
-  ));
+export function moveSectionInOrder(order, key, direction) {
+  const index = order.indexOf(key);
+  const target = index + direction;
+  if (index < 0 || ![-1, 1].includes(direction) || target < 0 || target >= order.length) return order;
+  const result = [...order];
+  [result[index], result[target]] = [result[target], result[index]];
+  return result;
 }
 
 export function normalizeCustomBodyFields(fields) {
   if (!Array.isArray(fields)) return [...CUSTOM_BODY_FIELDS];
-  const selected = new Set(fields);
+  // Status replaces the retired Tools field in existing custom sections.
+  const selected = new Set(fields.map((field) => field === 'tools' ? 'state' : field));
   return CUSTOM_BODY_FIELDS.filter((field) => selected.has(field));
+}
+
+export function normalizeItemState(value) {
+  return ITEM_STATES.includes(value) ? value : 'planned';
 }
 
 function normalizeCustomBodyEntryMode(value) {
@@ -94,12 +86,15 @@ function normalizeCustomSections(state, migratedSections = []) {
     entryMode: normalizeCustomBodyEntryMode(section?.entryMode),
     text: normalizeMarkdownText(section?.text),
     fields: normalizeCustomBodyFields(section?.fields),
-    entries: ensureIds(section?.entries, 'entry').map((entry) => ({
-      ...entry,
-      institution: entry.institution || '',
-      tools: entry.tools || '',
-      desc: normalizeMarkdownText(entry.desc),
-    })),
+    entries: ensureIds(section?.entries, 'entry').map((entry) => {
+      const { tools, ...item } = entry;
+      return {
+        ...item,
+        institution: item.institution || '',
+        state: normalizeItemState(item.state),
+        desc: normalizeMarkdownText(item.desc),
+      };
+    }),
   }));
 
   delete state.custom;
@@ -242,11 +237,14 @@ export function normalizeContentState(state) {
   };
   state.experience ||= {};
   state.education = ensureIds(state.education, 'education').map((item) => normalizeEducationItem(item, migrateLegacyEducation));
-  state.experience.jobs = ensureIds(state.experience.jobs, 'job').map((item) => ({
-    ...item,
-    tools: item.tools || '',
-    bullets: normalizeMarkdownText(item.bullets),
-  }));
+  state.experience.jobs = ensureIds(state.experience.jobs, 'job').map((entry) => {
+    const { tools, ...item } = entry;
+    return {
+      ...item,
+      state: normalizeItemState(item.state),
+      bullets: normalizeMarkdownText(item.bullets),
+    };
+  });
   state.languages = ensureIds(state.languages, 'language');
   state.hobbies = normalizeHobbies(state.hobbies);
 

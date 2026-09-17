@@ -1,14 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizeContentState, reorderVisibleSectionOrder } from '../src/composables/contentLayout.js';
+import { moveSectionInOrder, normalizeContentState } from '../src/composables/contentLayout.js';
 
-test('reorders visible sections while preserving hidden section positions', () => {
+test('moves section cards without mutating the previous order or dropping hidden/custom sections', () => {
   const order = ['about', 'education', 'jobs', 'research'];
 
   assert.deepEqual(
-    reorderVisibleSectionOrder(order, ['education'], ['research', 'jobs', 'about']),
-    ['research', 'education', 'jobs', 'about'],
+    moveSectionInOrder(order, 'education', 1),
+    ['about', 'jobs', 'education', 'research'],
   );
+  assert.deepEqual(moveSectionInOrder(order, 'research', -1), ['about', 'education', 'research', 'jobs']);
+  assert.deepEqual(order, ['about', 'education', 'jobs', 'research']);
+});
+
+test('section keyboard moves stop at the boundaries and ignore invalid moves', () => {
+  const order = ['languages', 'hobbies'];
+  for (const [key, direction] of [['languages', -1], ['hobbies', 1], ['missing', 1], ['languages', 2]]) {
+    assert.equal(moveSectionInOrder(order, key, direction), order);
+  }
 });
 
 test('defaults legacy CVs to breakable body sections', () => {
@@ -79,14 +88,14 @@ test('converts a legacy custom array to a single body-only custom section', () =
   assert.equal(state.custom, undefined);
   assert.equal(state.customSections.length, 1);
   assert.equal(state.customSections[0].name, 'Eigene Sektion');
-  assert.deepEqual(state.customSections[0].fields, ['title', 'institution', 'place', 'start', 'end', 'tools', 'desc']);
+  assert.deepEqual(state.customSections[0].fields, ['title', 'institution', 'place', 'start', 'end', 'state', 'desc']);
   assert.equal(state.customSections[0].entries[0].institution, '');
   assert.equal(state.customSections[0].entries[0].title, 'Vortrag');
   assert.ok(state.bodyOrder.includes(state.customSections[0].id));
   assert.deepEqual(state.sidebarSections, []);
 });
 
-test('normalizes configurable custom body fields without losing entry data', () => {
+test('replaces retired tools with a selectable state in custom sections', () => {
   const state = {
     version: 4,
     customSections: [{
@@ -100,10 +109,25 @@ test('normalizes configurable custom body fields without losing entry data', () 
 
   normalizeContentState(state);
 
-  assert.deepEqual(state.customSections[0].fields, ['title', 'end', 'tools']);
+  assert.deepEqual(state.customSections[0].fields, ['title', 'end', 'state']);
   assert.equal(state.customSections[0].entries[0].place, 'Berlin');
-  assert.equal(state.customSections[0].entries[0].tools, 'Vue, Vite');
+  assert.equal(state.customSections[0].entries[0].state, 'planned');
+  assert.equal(state.customSections[0].entries[0].tools, undefined);
   assert.equal(state.customSections[0].entries[0].desc, 'Session');
+});
+
+test('normalizes job states and removes retired tools from saved entries', () => {
+  const state = {
+    experience: { jobs: [
+      { title: 'Old role', tools: 'Vue, Vite', state: 'invalid' },
+      { title: 'Current role', state: 'ongoing' },
+    ] },
+  };
+
+  normalizeContentState(state);
+
+  assert.deepEqual(state.experience.jobs.map((item) => item.state), ['planned', 'ongoing']);
+  assert.equal(state.experience.jobs[0].tools, undefined);
 });
 
 test('normalizes textarea custom sections without discarding configured fields or content', () => {

@@ -5,8 +5,7 @@ import SectionList from './SectionList.vue';
 import MarkdownTextarea from './MarkdownTextarea.vue';
 import ConfirmDeletionDialog from './ConfirmDeletionDialog.vue';
 import { makeT } from '../i18n/dict.js';
-import sectionIcons from '../i18n/sectionIcons.js';
-import { createContentId, normalizeContentState, reorderVisibleSectionOrder } from '../composables/contentLayout.js';
+import { createContentId, moveSectionInOrder, normalizeContentState } from '../composables/contentLayout.js';
 
 const props = defineProps({
   state: { type: Object, required: true },
@@ -18,6 +17,7 @@ const langRef = computed(() => props.state.lang || 'de');
 const t = makeT(langRef);
 const fieldConfigSectionId = ref(null);
 const activeContentTab = ref('body');
+const reorderMode = ref(false);
 const collapsed = reactive({
   about: true,
   education: true,
@@ -68,17 +68,12 @@ const toggleComplete = (key) => {
   if (index === -1) props.state.completedSections.push(key);
   else props.state.completedSections.splice(index, 1);
 };
-const updateVisibleOrder = (orderName, rows) => {
-  props.state[orderName] = reorderVisibleSectionOrder(
-    props.state[orderName],
-    props.state.disabled,
-    rows.map((row) => row.key),
-  );
+const moveSection = (orderName, key, direction, event) => {
+  if (!reorderMode.value) return;
+  const handle = event.currentTarget;
+  props.state[orderName] = moveSectionInOrder(props.state[orderName], key, direction);
+  nextTick(() => handle.focus());
 };
-const bodyOrderRows = computed(() => props.state.bodyOrder.filter((key) => !isHidden(key)).map((key) => ({ key })));
-const sidebarOrderRows = computed(() => props.state.sidebarOrder.filter((key) => !isHidden(key)).map((key) => ({ key })));
-const activeOrderRows = computed(() => activeContentTab.value === 'body' ? bodyOrderRows.value : sidebarOrderRows.value);
-const updateActiveVisibleOrder = (rows) => updateVisibleOrder(activeContentTab.value === 'body' ? 'bodyOrder' : 'sidebarOrder', rows);
 const toggleDisabled = (key) => {
   const index = props.state.disabled.indexOf(key);
   if (index === -1) props.state.disabled.push(key);
@@ -90,9 +85,9 @@ const getCustomSection = (id) => getBodySection(id) || getSidebarSection(id);
 const activeFieldConfigSection = computed(() => getBodySection(fieldConfigSectionId.value));
 const getSectionDisplayName = (key) => getCustomSection(key)?.name || props.state.sectionNames[key] || builtInNames.value[key] || key;
 const getDefaultName = (key) => builtInNames.value[key] || (langRef.value === 'de' ? 'Neue Sektion' : 'New Section');
-const getIcon = (key) => getCustomSection(key) ? 'folder-open' : (sectionIcons[key] || 'folder-open');
-const isCollapsed = (key) => Object.hasOwn(collapsed, key) ? collapsed[key] : customCollapsed[key] ?? true;
+const isCollapsed = (key) => reorderMode.value || (Object.hasOwn(collapsed, key) ? collapsed[key] : customCollapsed[key] ?? true);
 const toggleCollapsed = (key) => {
+  if (reorderMode.value) return;
   if (Object.hasOwn(collapsed, key)) collapsed[key] = !collapsed[key];
   else customCollapsed[key] = !isCollapsed(key);
 };
@@ -102,6 +97,7 @@ const onHeaderClick = (key, event) => {
 };
 
 const startEditSectionName = (key) => {
+  if (reorderMode.value) return;
   const custom = getCustomSection(key);
   editingSection.id = key;
   editingSection.value = custom?.name || props.state.sectionNames[key] || '';
@@ -121,6 +117,16 @@ const finishEditSectionName = (key) => {
   editingSection.value = '';
 };
 const cancelEditSectionName = () => { editingSection.id = null; editingSection.value = ''; };
+const toggleReorderMode = () => {
+  if (editingSection.id) finishEditSectionName(editingSection.id);
+  closeFieldConfig();
+  reorderMode.value = !reorderMode.value;
+};
+const selectContentTab = (tab) => {
+  activeContentTab.value = tab;
+  // Header/contact fields are not part of either sortable section column.
+  if (tab === 'header') reorderMode.value = false;
+};
 const editableTitleProps = (key) => ({
   editableTitle: true,
   isEditingTitle: editingSection.id === key,
@@ -138,7 +144,7 @@ const addBodySection = () => {
     name: langRef.value === 'de' ? 'Neue Sektion' : 'New Section',
     entryMode: 'fields',
     text: '',
-    fields: ['title', 'institution', 'place', 'start', 'end', 'tools', 'desc'],
+    fields: ['title', 'institution', 'place', 'start', 'end', 'state', 'desc'],
     entries: [],
   };
   props.state.customSections.push(section);
@@ -169,7 +175,7 @@ const deleteCustomSection = (section, area) => {
   props.state.keepTogetherSections = props.state.keepTogetherSections.filter((key) => key !== section.id);
   delete customCollapsed[section.id];
 };
-const addBodyEntry = (section) => section.entries.push({ id: createContentId('entry'), hidden: false, title: '', institution: '', place: '', start: '', end: '', tools: '', desc: '' });
+const addBodyEntry = (section) => section.entries.push({ id: createContentId('entry'), hidden: false, title: '', institution: '', place: '', start: '', end: '', state: 'planned', desc: '' });
 const removeBodyEntry = (section, index) => section.entries.splice(index, 1);
 const addSidebarItem = (section) => section.items.push({ id: createContentId('skill'), hidden: false, name: '', levelValue: 0 });
 const removeSidebarItem = (section, index) => section.items.splice(index, 1);
@@ -185,16 +191,21 @@ const cancelDeletion = () => { pendingDeletion.value = null; };
 const toggleItemHidden = (item) => { item.hidden = !item.hidden; };
 const closeFieldConfig = () => { fieldConfigSectionId.value = null; };
 const openFieldConfig = (section) => { fieldConfigSectionId.value = section.id; };
+const itemStateOptions = computed(() => [
+  { label: t('planned'), value: 'planned' },
+  { label: t('ongoing'), value: 'ongoing' },
+  { label: t('complete'), value: 'complete' },
+]);
 const customBodyFieldOptions = computed(() => [
   { key: 'title', label: t('title'), type: 'text', placeholder: t('customSectionPH') },
   { key: 'institution', label: t('institution'), type: 'text', placeholder: 'Organisation' },
   { key: 'place', label: t('place'), type: 'text', placeholder: 'Berlin' },
   { key: 'start', label: t('start'), type: 'text', placeholder: '04.2024' },
   { key: 'end', label: t('end'), type: 'text', placeholder: t('current') },
-  { key: 'tools', label: t('tools'), type: 'text', placeholder: 'Vue, TypeScript, Figma' },
+  { key: 'state', label: t('state'), type: 'select', options: itemStateOptions.value },
   { key: 'desc', label: t('desc'), type: 'textarea', placeholder: '' },
 ]);
-const enabledCustomBodyTextFields = (section) => customBodyFieldOptions.value.filter((field) => field.type === 'text' && section.fields.includes(field.key));
+const enabledCustomBodyEntryFields = (section) => customBodyFieldOptions.value.filter((field) => field.type !== 'textarea' && section.fields.includes(field.key));
 const isCustomBodyFieldEnabled = (section, key) => section.fields.includes(key);
 const usesCustomBodyTextarea = (section) => section.entryMode === 'textarea';
 const setCustomBodyEntryMode = (section, mode) => {
@@ -228,7 +239,7 @@ const jobsSchema = computed(() => [
   { label: t('place'), key: 'place', type: 'text', placeholder: 'Berlin' },
   { label: t('start'), key: 'start', type: 'text', placeholder: '05.2021' },
   { label: t('end'), key: 'end', type: 'text', placeholder: t('current') },
-  { label: t('tools'), key: 'tools', type: 'text', placeholder: 'Vue, TypeScript, Figma' },
+  { label: t('state'), key: 'state', type: 'select', options: itemStateOptions.value, optionLabel: 'label', optionValue: 'value' },
   { label: t('bulletsLabel'), key: 'bullets', type: 'textarea', placeholder: t('tasksPH') },
 ]);
 const languagesSchema = computed(() => [
@@ -272,15 +283,16 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
         </div>
       </Transition>
     </Teleport>
-    <section class="body section-group editor-panel content-panel">
+    <section class="body section-group editor-panel content-panel" :class="{ 'is-reordering': reorderMode && activeContentTab !== 'header' }">
       <div class="section-head editor-panel__header editor-panel__header--centered">
         <h2>{{ t('content') }}</h2>
+        <button class="mini panel-header-action content-reorder-toggle" type="button" :class="{ 'is-active': reorderMode && activeContentTab !== 'header' }" :aria-label="t('reorderSections')" :aria-pressed="reorderMode && activeContentTab !== 'header'" :disabled="activeContentTab === 'header'" @click="toggleReorderMode"><font-awesome-icon :icon="['fas', 'grip-vertical']" aria-hidden="true" />{{ t('reorder') }}</button>
       </div>
 
       <div class="content-tabs" role="tablist" :aria-label="t('content')">
-        <button id="content-tab-header" class="content-tab" :class="{ active: activeContentTab === 'header' }" type="button" role="tab" :aria-selected="activeContentTab === 'header'" aria-controls="content-panel-header" @click="activeContentTab = 'header'"><span>{{ t('header') }}</span><font-awesome-icon v-if="isContentTabComplete('header')" class="content-tab__complete" :icon="['fas', 'check']" aria-hidden="true" /></button>
-        <button id="content-tab-body" class="content-tab" :class="{ active: activeContentTab === 'body' }" type="button" role="tab" :aria-selected="activeContentTab === 'body'" aria-controls="content-panel-body" @click="activeContentTab = 'body'"><span>{{ t('body') }}</span><font-awesome-icon v-if="isContentTabComplete('body')" class="content-tab__complete" :icon="['fas', 'check']" aria-hidden="true" /></button>
-        <button id="content-tab-sidebar" class="content-tab" :class="{ active: activeContentTab === 'sidebar' }" type="button" role="tab" :aria-selected="activeContentTab === 'sidebar'" aria-controls="content-panel-sidebar" @click="activeContentTab = 'sidebar'"><span>{{ t('sidebar') }}</span><font-awesome-icon v-if="isContentTabComplete('sidebar')" class="content-tab__complete" :icon="['fas', 'check']" aria-hidden="true" /></button>
+        <button id="content-tab-header" class="content-tab" :class="{ active: activeContentTab === 'header' }" type="button" role="tab" :aria-selected="activeContentTab === 'header'" aria-controls="content-panel-header" @click="selectContentTab('header')"><span>{{ t('header') }}</span><font-awesome-icon v-if="isContentTabComplete('header')" class="content-tab__complete" :icon="['fas', 'check']" aria-hidden="true" /></button>
+        <button id="content-tab-body" class="content-tab" :class="{ active: activeContentTab === 'body' }" type="button" role="tab" :aria-selected="activeContentTab === 'body'" aria-controls="content-panel-body" @click="selectContentTab('body')"><span>{{ t('body') }}</span><font-awesome-icon v-if="isContentTabComplete('body')" class="content-tab__complete" :icon="['fas', 'check']" aria-hidden="true" /></button>
+        <button id="content-tab-sidebar" class="content-tab" :class="{ active: activeContentTab === 'sidebar' }" type="button" role="tab" :aria-selected="activeContentTab === 'sidebar'" aria-controls="content-panel-sidebar" @click="selectContentTab('sidebar')"><span>{{ t('sidebar') }}</span><font-awesome-icon v-if="isContentTabComplete('sidebar')" class="content-tab__complete" :icon="['fas', 'check']" aria-hidden="true" /></button>
       </div>
 
       <div class="content-panel__scroll-body">
@@ -297,8 +309,10 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
         <div class="grid-3"><label>{{ t('website') }}<InputText v-model="state.contact.website" type="url" placeholder="https://alexmuster.dev" fluid /></label><label>{{ t('linkedin') }}<InputText v-model="state.contact.linkedin" type="url" placeholder="https://linkedin.com/in/alexmuster" fluid /></label><label>{{ t('github') }}<InputText v-model="state.contact.github" type="url" placeholder="https://github.com/alexmuster" fluid /></label></div>
       </section>
 
-      <section v-show="activeContentTab === 'body'" id="content-panel-body" class="content-tab-panel content-column" role="tabpanel" aria-labelledby="content-tab-body">
-          <template v-for="key in state.bodyOrder" :key="key">
+      <Draggable v-show="activeContentTab === 'body'" id="content-panel-body" v-model="state.bodyOrder" :item-key="key => key" tag="section" class="content-tab-panel content-column" role="tabpanel" aria-labelledby="content-tab-body" :disabled="!reorderMode" handle=".content-section-card" :animation="150" ghost-class="sortable-ghost">
+          <template #item="{ element: key }">
+            <div class="content-section-card" :data-section-key="key">
+              <button v-if="reorderMode" class="section-drag-handle" type="button" :aria-label="`${t('moveSection')}: ${getSectionDisplayName(key)}`" :title="t('moveSection')" @click.stop @keydown.up.prevent.stop="moveSection('bodyOrder', key, -1, $event)" @keydown.down.prevent.stop="moveSection('bodyOrder', key, 1, $event)"><font-awesome-icon :icon="['fas', 'grip-vertical']" aria-hidden="true" /></button>
             <section v-if="key === 'about'" class="section-group content-section" :class="{ disabled: isHidden(key), completed: isComplete(key), collapsed: isCollapsed(key) }">
               <div class="section-head" @click="onHeaderClick(key, $event)">
                 <button class="mini visibility-toggle" :class="isHidden(key) ? 'btn--success' : 'btn--danger'" type="button" @click.stop="toggleDisabled(key)"><font-awesome-icon :icon="['fas', isHidden(key) ? 'eye-slash' : 'eye']" /></button>
@@ -351,8 +365,8 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
                         <div class="item-row" :class="{ 'item-row--hidden': entry.hidden }">
                           <div class="item-row__actions"><button class="mini entry-drag-handle" type="button"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button><button class="mini visibility-toggle" :class="entry.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="entry.hidden ? t('show') : t('hide')" :title="entry.hidden ? t('show') : t('hide')" @click="toggleItemHidden(entry)"><font-awesome-icon :icon="['fas', entry.hidden ? 'eye-slash' : 'eye']" /></button><button class="mini btn--danger" type="button" :aria-label="t('remove')" :title="t('remove')" @click="requestBodyEntryDeletion(getBodySection(key), index)"><font-awesome-icon :icon="['fas', 'trash']" /></button></div>
                           <div class="item-row__content">
-                            <div v-if="enabledCustomBodyTextFields(getBodySection(key)).length" class="custom-body-entry__fields" :style="{ '--custom-body-field-count': enabledCustomBodyTextFields(getBodySection(key)).length }">
-                              <label v-for="field in enabledCustomBodyTextFields(getBodySection(key))" :key="field.key">{{ field.label }}<InputText v-model="entry[field.key]" :placeholder="field.placeholder" fluid /></label>
+                            <div v-if="enabledCustomBodyEntryFields(getBodySection(key)).length" class="custom-body-entry__fields" :style="{ '--custom-body-field-count': enabledCustomBodyEntryFields(getBodySection(key)).length }">
+                              <label v-for="field in enabledCustomBodyEntryFields(getBodySection(key))" :key="field.key">{{ field.label }}<InputText v-if="field.type === 'text'" v-model="entry[field.key]" :placeholder="field.placeholder" fluid /><Select v-else-if="field.type === 'select'" v-model="entry[field.key]" :options="field.options" option-label="label" option-value="value" fluid /></label>
                             </div>
                             <label v-if="isCustomBodyFieldEnabled(getBodySection(key), 'desc')">{{ t('desc') }}<MarkdownTextarea v-model="entry.desc" :placeholder="customBodyFieldOptions.find((field) => field.key === 'desc').placeholder" :help="t('markdownTextareaHelp')" /></label>
                           </div>
@@ -364,15 +378,20 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
                 </div>
               </div>
             </section>
+            </div>
           </template>
-          <button type="button" class="add-section-row" @click="addBodySection">
+          <template #footer>
+          <button v-if="!reorderMode" type="button" class="add-section-row" @click="addBodySection">
             <font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />
             {{ t('addSection') }}
           </button>
-      </section>
+          </template>
+      </Draggable>
 
-      <section v-show="activeContentTab === 'sidebar'" id="content-panel-sidebar" class="content-tab-panel content-column" role="tabpanel" aria-labelledby="content-tab-sidebar">
-          <template v-for="key in state.sidebarOrder" :key="key">
+      <Draggable v-show="activeContentTab === 'sidebar'" id="content-panel-sidebar" v-model="state.sidebarOrder" :item-key="key => key" tag="section" class="content-tab-panel content-column" role="tabpanel" aria-labelledby="content-tab-sidebar" :disabled="!reorderMode" handle=".content-section-card" :animation="150" ghost-class="sortable-ghost">
+          <template #item="{ element: key }">
+            <div class="content-section-card" :data-section-key="key">
+              <button v-if="reorderMode" class="section-drag-handle" type="button" :aria-label="`${t('moveSection')}: ${getSectionDisplayName(key)}`" :title="t('moveSection')" @click.stop @keydown.up.prevent.stop="moveSection('sidebarOrder', key, -1, $event)" @keydown.down.prevent.stop="moveSection('sidebarOrder', key, 1, $event)"><font-awesome-icon :icon="['fas', 'grip-vertical']" aria-hidden="true" /></button>
             <SectionList
               v-if="key === 'languages'"
               class="content-section"
@@ -414,28 +433,15 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
                 </div>
               </div>
             </section>
+            </div>
           </template>
-          <button type="button" class="add-section-row" @click="addSidebarSection">
+          <template #footer>
+          <button v-if="!reorderMode" type="button" class="add-section-row" @click="addSidebarSection">
             <font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />
             {{ t('addSection') }}
           </button>
-      </section>
-
-        <section v-if="activeContentTab !== 'header'" class="section-group content-reorder" :aria-label="t('reorderSections')">
-          <div class="section-head">
-            <font-awesome-icon :icon="['fas', 'grip-vertical']" aria-hidden="true" />
-            <h3>{{ t('reorderSections') }}</h3>
-          </div>
-          <p>{{ t('reorderSectionsHelp') }}</p>
-          <Draggable :key="activeContentTab" :model-value="activeOrderRows" item-key="key" :animation="150" ghost-class="sortable-ghost" @update:modelValue="updateActiveVisibleOrder">
-            <template #item="{ element }">
-              <div class="content-reorder__row">
-                <span><font-awesome-icon :icon="['fas', getIcon(element.key)]" /> {{ getSectionDisplayName(element.key) }}</span>
-                <font-awesome-icon class="content-reorder__drag-icon" :icon="['fas', 'grip-vertical']" aria-hidden="true" />
-              </div>
-            </template>
-          </Draggable>
-        </section>
+          </template>
+      </Draggable>
       </div>
     </section>
   </form>
@@ -452,12 +458,17 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
 .content-tab-panel { min-width: 0; }
 .content-panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .content-panel__scroll-body { display: grid; align-content: start; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
-.content-reorder { display: grid; gap: 10px; margin-top: 10px; }
-.content-reorder p { margin: 0; color: var(--muted); }
-.content-reorder__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; padding: 8px 10px; border: 1px solid rgba(255, 255, 255, .1); border-radius: 6px; background: rgba(255, 255, 255, .04); cursor: grab; }
-.content-reorder__row:active { cursor: grabbing; }
-.content-reorder__row span { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.content-reorder__drag-icon { color: var(--muted); pointer-events: none; }
+.content-reorder-toggle { display: inline-flex; align-items: center; gap: 6px; }
+.content-reorder-toggle.is-active { color: #d1fae5; background: #17664f; border-color: #34d399; }
+.content-reorder-toggle:disabled { border-color: #18332e; background: #0b2520; color: #52736b; cursor: not-allowed; opacity: .65; }
+.content-reorder-toggle:disabled:hover { background: #0b2520; }
+.content-section-card { position: relative; min-width: 0; }
+.section-drag-handle { position: absolute; top: 13px; left: 8px; z-index: 1; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; box-shadow: none; cursor: grab; touch-action: none; }
+.section-drag-handle:focus-visible { outline: 2px solid #9be8c7; outline-offset: 2px; }
+.is-reordering .content-section-card { cursor: grab; }
+.is-reordering .content-section-card:active, .section-drag-handle:active { cursor: grabbing; }
+.is-reordering .content-section-card :deep(.section-head) { padding-left: 28px; pointer-events: none; }
+.is-reordering .content-section-card :deep(.section-head__actions), .is-reordering .content-section-card :deep(.visibility-toggle) { display: none; }
 .add-section-row { width: 100%; min-height: 54px; padding: 8px; border: 0; border-top: 1px dashed #2a6a60; border-bottom: 1px dashed #2a6a60; }
 .about-editor { display: grid; gap: 4px; }
 .sidebar-skill-row__content { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; }

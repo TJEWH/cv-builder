@@ -58,7 +58,10 @@ const add = () => {
   const entry = { id: createContentId(props.sectionKey || 'entry'), hidden: false };
   props.schema.forEach((field) => {
     if (field.type === 'number') entry[field.key] = 0;
-    else if (field.type === 'select' && field.options?.length) entry[field.key] = field.options[0];
+    else if (field.type === 'select' && field.options?.length) {
+      const defaultOption = field.options[0];
+      entry[field.key] = field.optionValue ? defaultOption?.[field.optionValue] : defaultOption;
+    }
     else entry[field.key] = '';
   });
   items.value = [...items.value, entry];
@@ -150,7 +153,7 @@ const confirmRemoveAt = () => {
                     {{ field.label }}
                     <InputText v-if="field.type === 'text'" v-model="item[field.key]" :placeholder="field.placeholder || ''" fluid />
                     <InputNumber v-else-if="field.type === 'number'" v-model="item[field.key]" :placeholder="field.placeholder || ''" :use-grouping="false" fluid />
-                    <Select v-else-if="field.type === 'select'" v-model="item[field.key]" :options="field.options" fluid />
+                    <Select v-else-if="field.type === 'select'" v-model="item[field.key]" :options="field.options" :option-label="field.optionLabel" :option-value="field.optionValue" fluid />
                   </label>
                 </div>
                 <label v-for="field in textareaFields" :key="field.key">
