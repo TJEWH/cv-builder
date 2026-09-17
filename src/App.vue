@@ -121,6 +121,9 @@ function ensureDesignLayoutDefaults() {
   if (!['solid', 'border'].includes(state.design.badgeMode)) {
     state.design.badgeMode = 'solid';
   }
+  if (!['clean', 'underline', 'leftbar', 'pill'].includes(state.design.hstyle)) {
+    state.design.hstyle = 'clean';
+  }
   [
     ['pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft'],
     ['headerContentPaddingVerticalLinked', 'headerPaddingVertical', 'contentPaddingVertical'],

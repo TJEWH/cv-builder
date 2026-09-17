@@ -17,7 +17,7 @@ const t = makeT(langRef);
 
 const bodyFonts = ['Browallia New', 'Century Gothic', 'Inter', 'Source Sans 3', 'IBM Plex Sans', 'Work Sans', 'Nunito Sans', 'Rubik', 'Merriweather Sans', 'Hind'];
 const headFonts = ['Browallia New', 'Century Gothic', 'Inter', 'Montserrat', 'Poppins', 'Raleway', 'Space Grotesk'];
-const hStyles = ['clean', 'underline', 'leftbar', 'pill', 'stripe'];
+const hStyles = ['clean', 'underline', 'leftbar', 'pill'];
 const sections = reactive({
   typography: true,
   colors: true,
