@@ -19,6 +19,7 @@ const bodyFonts = ['Browallia New', 'Century Gothic', 'Inter', 'Source Sans 3', 
 const headFonts = ['Browallia New', 'Century Gothic', 'Inter', 'Montserrat', 'Poppins', 'Raleway', 'Space Grotesk'];
 const hStyles = ['clean', 'underline', 'leftbar', 'pill'];
 const favoritesMode = ref(false);
+const isContentHeight = computed(() => design.value.sidebarHeightMode !== 'full-page');
 const favoriteLinks = {
   pageMarginVertical: { linkKey: 'pageMarginVerticalLinked', primaryKey: 'pageMarginTop', secondaryKey: 'pageMarginBottom' },
   pageMarginHorizontal: { linkKey: 'pageMarginHorizontalLinked', primaryKey: 'pageMarginRight', secondaryKey: 'pageMarginLeft' },
@@ -39,6 +40,8 @@ const favoriteOptions = [
   { key: 'sidebarAlign', label: 'Sidebar Position', type: 'select', options: [{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }] },
   { key: 'sidebarLayoutStyle', label: 'Sidebar Style', type: 'select', options: [{ value: 'boxed', label: 'Boxed' }, { value: 'separator', label: 'Separator' }] },
   { key: 'sidebarFillMode', label: 'Sidebar Start', type: 'select', options: [{ value: 'start', label: 'Fill from start' }, { value: 'last-page', label: 'Fill from last PDF page' }, { value: 'after-cover', label: 'Skip cover page' }] },
+  { key: 'sidebarHeightMode', label: 'Sidebar Height', type: 'select', options: [{ value: 'content', label: 'Fit content' }, { value: 'full-page', label: 'Full page' }] },
+  { key: 'sidebarBottomPadding', label: 'Sidebar Bottom Padding', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 6 },
   { key: 'sectionSpacingBody', label: 'Body Section Spacing', type: 'range', min: 2, max: 20, step: 1, unit: 'mm', fallback: 6 },
   { key: 'sectionSpacingSidebar', label: 'Sidebar Section Spacing', type: 'range', min: 2, max: 20, step: 1, unit: 'mm', fallback: 6 },
   { key: 'itemSpacing', label: 'Section Item Spacing', type: 'range', min: 0, max: 12, step: 0.5, unit: 'mm', fallback: 3.5 },
@@ -47,7 +50,7 @@ const favoriteOptions = [
   { key: 'h2', label: 'H2 Font Size', type: 'range', min: 10, max: 20, step: 1, unit: 'pt', fallback: 12 },
   { key: 'h3', label: 'H3 Font Size', type: 'range', min: 8, max: 16, step: 1, unit: 'pt', fallback: 10 },
   { key: 'bullets', label: 'Bullet Font Size', type: 'range', min: 8, max: 14, step: 0.5, unit: 'pt', fallback: 10.5 },
-  { key: 'fontBody', label: 'Body Font', type: 'select', options: [{ value: '', label: '(System)' }, ...bodyFonts.map((value) => ({ value, label: value }))] },
+  { key: 'fontBody', label: 'Body Font', type: 'select', options: bodyFonts.map((value) => ({ value, label: value })) },
   { key: 'fontHead', label: 'Headings Font', type: 'select', options: [{ value: '', label: '(Body font)' }, ...headFonts.map((value) => ({ value, label: value }))] },
   { key: 'ink', label: 'Font Color', type: 'color' },
   { key: 'graphicOpacity', label: 'Graphic Opacity', type: 'range', min: 0, max: 100, step: 1, suffix: '%', fallback: 100 },
@@ -56,7 +59,8 @@ const favoriteOptions = [
   { key: 'badgeBorderRadius', label: 'Badge Border Radius', type: 'range', min: 0, max: 20, step: 1, unit: 'px', fallback: 6 },
 ];
 const favoriteKeys = computed(() => (Array.isArray(design.value.favoriteControls) ? design.value.favoriteControls : []));
-const selectedFavoriteOptions = computed(() => favoriteOptions.filter((option) => favoriteKeys.value.includes(option.key)));
+const availableFavoriteOptions = computed(() => favoriteOptions.filter((option) => option.key !== 'sidebarBottomPadding' || isContentHeight.value));
+const selectedFavoriteOptions = computed(() => availableFavoriteOptions.value.filter((option) => favoriteKeys.value.includes(option.key)));
 const isFavorite = (key) => favoriteKeys.value.includes(key);
 const favoriteOptionByKey = new Map(favoriteOptions.map((option) => [option.key, option]));
 const favoriteSectionLabels = {
@@ -72,7 +76,7 @@ const favoriteSectionOrder = ['layout', 'header', 'sidebar', 'spacing', 'typogra
 function favoriteSection(option) {
   if (['hstyle', 'pageMarginTop', 'pageMarginBottom', 'pageMarginRight', 'pageMarginLeft'].includes(option.key)) return 'layout';
   if (['contactLayout', 'headerLayoutStyle', 'headerPaddingBottom', 'headerBottomMargin'].includes(option.key)) return 'header';
-  if (['sidebarWidth', 'sidebarAlign', 'sidebarLayoutStyle', 'sidebarFillMode'].includes(option.key)) return 'sidebar';
+  if (['sidebarWidth', 'sidebarAlign', 'sidebarLayoutStyle', 'sidebarFillMode', 'sidebarHeightMode', 'sidebarBottomPadding'].includes(option.key)) return 'sidebar';
   if (['separatorWidth', 'sectionSpacingBody', 'sectionSpacingSidebar', 'itemSpacing', 'bodySidebarSpacing'].includes(option.key)) return 'spacing';
   if (['h1', 'h2', 'h3', 'bullets', 'fontBody', 'fontHead'].includes(option.key)) return 'typography';
   if (['ink', 'graphicOpacity', 'dateOpacity'].includes(option.key)) return 'colors';
@@ -223,7 +227,7 @@ function pixels(value, fallback = 1) {
       </div>
 
       <div v-if="favoritesMode" class="design-favorites__picker" aria-label="Choose favorite controls">
-        <label v-for="option in favoriteOptions" :key="option.key">
+        <label v-for="option in availableFavoriteOptions" :key="option.key">
           <input type="checkbox" :checked="isFavorite(option.key)" @change="setFavorite(option.key, $event.target.checked)">
           {{ option.label }}
         </label>
@@ -308,7 +312,8 @@ function pixels(value, fallback = 1) {
       <section class="editor-subsection" :class="{ collapsed: sections.sidebar }" @click="onSubsectionClick('sidebar', $event)">
         <div class="section-head"><font-awesome-icon :icon="['fas', 'table-columns']" class="section-icon" aria-hidden="true" /><h4>Sidebar Layout</h4></div>
         <div class="editor-subsection__body grid-3"><label>Sidebar Width: {{ design.sidebarWidth }}<input type="range" min="0.1" max="3.0" step="0.1" :value="parseFloat(design.sidebarWidth)" @input="design.sidebarWidth = $event.target.value + 'fr'"></label><label>Sidebar Position<select v-model="design.sidebarAlign"><option value="left">Links</option><option value="right">Rechts</option></select></label><label>Sidebar Style<select v-model="design.sidebarLayoutStyle"><option value="boxed">Boxed</option><option value="separator">Separator</option></select></label></div>
-        <div class="editor-subsection__body grid-3 subsection-row"><label>Sidebar Start<select v-model="design.sidebarFillMode"><option value="start">Fill from start</option><option value="last-page">Fill from last PDF page</option><option value="after-cover">Skip cover page</option></select></label></div>
+        <div class="editor-subsection__body grid-3 subsection-row"><label>Sidebar Start<select v-model="design.sidebarFillMode"><option value="start">Fill from start</option><option value="last-page">Fill from last PDF page</option><option value="after-cover">Skip cover page</option></select></label><label>Sidebar Height<select v-model="design.sidebarHeightMode"><option value="content">Fit content</option><option value="full-page">Full page</option></select></label><label v-if="isContentHeight">Sidebar Bottom Padding: {{ design.sidebarBottomPadding || '6mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.sidebarBottomPadding, 6)" @input="setMillimeters('sidebarBottomPadding', $event.target.value)"></label></div>
+        <p class="editor-subsection__body spacing-hint">Fit content lets the body use the full width below the sidebar.</p>
       </section>
 
       <section class="editor-subsection" :class="{ collapsed: sections.spacing }" @click="onSubsectionClick('spacing', $event)">
@@ -329,9 +334,10 @@ function pixels(value, fallback = 1) {
             <label>Bullet Point Font Size: {{ design.bullets }}<input type="range" min="8" max="14" step="0.5" :value="parseFloat(design.bullets)" @input="design.bullets = $event.target.value + 'pt'"></label>
           </div>
           <div class="grid-3 subsection-row">
-            <label>Body-Font<select v-model="design.fontBody"><option :value="''">(System)</option><option v-for="font in bodyFonts" :key="font" :value="font">{{ font }}</option></select></label>
+            <label>Body-Font<select v-model="design.fontBody"><option v-for="font in bodyFonts" :key="font" :value="font">{{ font }}</option></select></label>
             <label>Headings-Font<select v-model="design.fontHead"><option :value="''">(wie Body)</option><option v-for="font in headFonts" :key="font" :value="font">{{ font }}</option></select></label>
           </div>
+          <p class="note">{{ t('webfontHelp') }}</p>
         </div>
       </section>
 

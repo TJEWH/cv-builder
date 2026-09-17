@@ -13,19 +13,20 @@ function replaceOnce(source, before, after) {
 
 /**
  * html2canvas 1.4.1 has synchronous DOM cloning/parsing and a microtask-only
- * painter. Keep its rendering/layout algorithms intact, adding checkpoints at
- * node boundaries. Exact-match guards and tests deliberately fail on incompatible
+ * painter. Retain its layout/paint coordinates but record vector commands,
+ * adding checkpoints at node boundaries. Exact-match guards fail on incompatible
  * upgrades instead of silently shipping a blocking or incorrectly patched build.
  * The upstream source/license remains in the dependency, not a vendored copy.
  */
 export function makeCanvasCooperative(source) {
   const change = (before, after) => { source = replaceOnce(source, before, after); };
+  // SVG is emitted as SVG/PDF paths, so bitmap SVG capability probing is unused.
+  change('var value = testSVG(document);', 'var value = true;');
   change('context = new Context(contextOptions, windowBounds);',
-    'context = new Context(contextOptions, windowBounds); context.renderTask = opts.renderTask; context.recordCanvas = opts.recordCanvas;');
-  // A per-render observer can retain vector paint commands while the native
-  // canvas still provides exactly the same pixels and pagination measurements.
-  change('_this.fontMetrics = new FontMetrics(document);',
-    '_this.fontMetrics = new FontMetrics(document); if (context.recordCanvas) _this.ctx = context.recordCanvas(_this.ctx, _this.canvas);');
+    'context = new Context(contextOptions, windowBounds); context.renderTask = opts.renderTask; context.createVectorContext = opts.createVectorContext;');
+  // Retain the mature DOM/CSS painter, but replace its bitmap surface entirely.
+  change("_this._activeEffects = [];\n        _this.canvas = options.canvas ? options.canvas : document.createElement('canvas');\n        _this.ctx = _this.canvas.getContext('2d');",
+    '_this._activeEffects = [];\n        _this.canvas = { width: 0, height: 0, style: {} };\n        _this.ctx = context.createVectorContext(_this.canvas);');
   change('this.documentElement = this.cloneNode(element.ownerDocument.documentElement, false);',
     'this.ready = this.cloneNode(element.ownerDocument.documentElement, false).then(root => { this.documentElement = root; });');
   change('var iframe = createIFrameContainer(ownerDocument, windowSize);',
@@ -95,13 +96,6 @@ export function makeCanvasCooperative(source) {
   return source;
 }
 
-export function makePagebreaksCooperative(source) {
-  source = replaceOnce(source, 'function toContainer_pagebreak()', 'async function toContainer_pagebreak()');
-  source = replaceOnce(source, 'Array.prototype.forEach.call(els, function pagebreak_loop(el) {',
-    'for (const el of els) { const pause = this.opt.renderTask?.checkpoint(); if (pause) await pause;');
-  return replaceOnce(source, '    });\n  });\n};', '    }\n  });\n};');
-}
-
 export default function responsivePdfRenderer() {
   return {
     name: 'responsive-pdf-renderer',
@@ -111,19 +105,6 @@ export default function responsivePdfRenderer() {
       if (id === `\0${canvasId}`) {
         return makeCanvasCooperative(readFileSync(require.resolve('html2canvas/dist/html2canvas.esm.js'), 'utf8'));
       }
-    },
-    transform(source, id) {
-      // Vite adds version queries to excluded dependencies during development.
-      id = id.split('?')[0];
-      if (id.endsWith('/html2pdf.js/src/worker.js')) {
-        source = replaceOnce(source, "from 'html2canvas'", `from '${canvasId}'`);
-        source = replaceOnce(source, 'document.body.appendChild(this.prop.overlay);',
-          'this.prop.overlay.inert = true; document.body.appendChild(this.prop.overlay); this.opt.renderTask?.own(this.prop.overlay);');
-        source = replaceOnce(source, 'document.body.removeChild(this.prop.overlay);', 'this.prop.overlay.remove();');
-        return replaceOnce(source, "position: 'fixed', overflow: 'hidden', zIndex: 1000,",
-          "position: 'fixed', overflow: 'hidden', zIndex: 1000, pointerEvents: 'none',");
-      }
-      if (id.endsWith('/html2pdf.js/src/plugin/pagebreaks.js')) return makePagebreaksCooperative(source);
     },
   };
 }

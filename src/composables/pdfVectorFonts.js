@@ -3,7 +3,7 @@ import { decompressVectorFont } from './pdfFontDecompression.js';
 const resourceCaches = new WeakMap();
 let fontSerial = 0;
 const cleanFamily = (value) => value.trim().replace(/^(['"])(.*)\1$/, '$2');
-const fontError = (detail) => new Error(`Vector PDF: ${detail}. Choose a downloadable font in Design or use a raster PDF format.`);
+const fontError = (detail) => new Error(`PDF: ${detail}. Choose a downloadable font in Design and ensure its webfont has loaded.`);
 
 function descriptor(block, name) {
   return block.match(new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([^;]+)`, 'i'))?.[1].trim() || '';

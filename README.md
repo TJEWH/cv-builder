@@ -23,7 +23,7 @@ Modern resume generator built with Vue 3 and Vite. Create professional CVs with 
 - **Custom Sections**: Create your own sections with freely definable fields
 
 ### Design
-- **Layouts**: Sidebar left/right, adjustable column ratio and starting page
+- **Layouts**: Sidebar left/right, adjustable column ratio and starting page; content-sized height by default with adjustable bottom padding, or full-page height. The body returns to full width below a content-sized sidebar
 - **Colors**: Font color with separate graphic and date opacity
 - **Fonts**: Google Fonts integration for body and headings
 - **Typography**: H1-H3 and bullet font sizes
@@ -43,9 +43,10 @@ Modern resume generator built with Vue 3 and Vite. Create professional CVs with 
 - **Drag & Drop**: Reorder sections and entries
 
 ### Export
-- **PDF Export**: PNG/JPEG/WebP-backed PDFs or direct-download **Vector PDF** with visible selectable text, clickable links and vector SVG icons
-- **Consistent Layout**: Both export paths share the same painting coordinates, page slices, margins and sidebar positioning; vector output does not embed rasterized pages or an invisible text layer
-- **Vector Fonts**: Uses the selected downloadable Google fonts (internet access required), including font weights and Unicode subsets. System-only fonts or missing glyphs show an actionable error instead of silently substituting a different face
+- **PDF Export**: Direct-download vector PDF with visible selectable text, clickable links and vector SVG icons
+- **Vector Previews**: Inline and full-size previews reuse the same scalable SVG pages; no raster images, quality settings, size estimates, or higher-resolution replacement render
+- **Consistent Layout**: SVG previews and PDF downloads share one vector paint list, page slices, margins and sidebar positioning
+- **Vector Fonts**: Uses the selected downloadable Google fonts (internet access required), including font weights and Unicode subsets. Legacy “System” body-font selections migrate to Inter. Other unsupported fonts or missing glyphs show an actionable error instead of silently substituting a different face
 - **Page-Break Control**: Intelligent page breaks
 - **GDPR Compliant**: No cloud, all data local
 
@@ -97,7 +98,7 @@ App runs at `http://localhost:5173/cv-builder/`
 ## 🛠 Tech Stack
 
 - **Vue 3.5** + **Vite 7.2**: Framework & build tool
-- **html2pdf.js**: PDF export (html2canvas + jsPDF)
+- **html2canvas layout adapter**: Cooperative DOM/CSS parsing and vector paint recording; no page canvas is allocated or raster-painted
 - **PDFKit + Fontkit**: Lazy-loaded browser-only vector PDF export; no server or print dialog required, compatible with GitHub Pages
 - **FontAwesome 7**: Icon system
 - **VueDraggable**: Handle-based section and item sorting
@@ -133,14 +134,16 @@ npm test             # Content, PDF geometry, rendering and storage tests
 ### Preview scheduling
 
 Preview renders are cancelable: a newer content change aborts the previous job,
-retaining the last complete image until the replacement is ready. The DOM-based
+retaining the last complete vector preview until the replacement is ready. The DOM-based
 renderer cannot run in a Web Worker, so `pdfRenderTask.js` schedules short,
-background-priority batches with a timer fallback, and preview image encoding
-uses asynchronous `toBlob`.
+background-priority batches with a timer fallback. Inline and full-screen views
+reuse the same SVG pages; opening a larger view does not render again.
 
 `build/responsivePdfRenderer.js` adds checkpoints to html2canvas's DOM clone,
-parser and painter, and html2pdf's page-break loop without changing their layout
-rules. These dependencies are pinned; when upgrading them, review the guarded
+parser and painter. Its bitmap surface is replaced with a vector command recorder;
+a 1×1 native context is used only for font measurement and CSS state normalization.
+Page-break spacing lives in `pdfPageBreaks.js`. The layout dependency is pinned;
+when upgrading it, review the guarded
 adapter and run `npm test` and `npm run build`. Check rapid section lock/unlock
 during rendering in the browser as well (development and production builds).
 

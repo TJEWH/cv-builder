@@ -1,5 +1,5 @@
 // Capture link rectangles in the same final clone that supplies the painter.
-// Unlike the raster export, vector output needs annotations, not a text overlay.
+// Previews and downloads share these clickable areas.
 export function capturePdfLinks(root) {
   const bounds = root.getBoundingClientRect();
   return {

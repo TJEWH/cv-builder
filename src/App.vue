@@ -10,22 +10,10 @@ import PdfPreview from './components/PdfPreview.vue';
 import PdfPagination from './components/PdfPagination.vue';
 import BackupManager from './components/BackupManager.vue';
 import DesignPanel from './components/DesignPanel.vue';
-import ExportOptionsPanel from './components/ExportOptionsPanel.vue';
 import AnonymizationPanel from './components/AnonymizationPanel.vue';
 import { makeT } from './i18n/dict';
 import { normalizeContentState } from './composables/contentLayout';
 import { createAnonymizedState } from './composables/anonymization';
-import {
-  DEFAULT_EXPORT_OPTIONS,
-  formatPdfBytes,
-  normalizeExportOptions,
-} from './composables/pdfImageEncoding';
-import {
-  estimatePdfSizeFromCache,
-  loadPdfSizeEstimateCache,
-  recordPdfSizeMeasurement,
-  savePdfSizeEstimateCache,
-} from './composables/pdfSizeEstimateCache';
 
 const state = reactive({
   version: 7,
@@ -39,14 +27,13 @@ const state = reactive({
     fontBody: 'Inter', fontHead: 'Inter', hstyle: 'clean',
     badgeMode: 'solid', badgeBorderWidth: '1px', badgeBorderRadius: '6px',
     sectionSpacing: '6mm', sectionSpacingBody: '6mm', sectionSpacingSidebar: '6mm', itemSpacing: '3.5mm',
-    sidebarWidth: '0.7fr', sidebarAlign: 'right', sidebarFillMode: 'start', headerLayoutStyle: 'separator', sidebarLayoutStyle: 'separator', contactLayout: 'side', separatorWidth: '1px',
+    sidebarWidth: '0.7fr', sidebarAlign: 'right', sidebarFillMode: 'start', sidebarHeightMode: 'content', sidebarBottomPadding: '6mm', headerLayoutStyle: 'separator', sidebarLayoutStyle: 'separator', contactLayout: 'side', separatorWidth: '1px',
     pageMarginTop: '12mm', pageMarginRight: '12mm', pageMarginBottom: '12mm', pageMarginLeft: '12mm',
     pageMarginHorizontalLinked: true, pageMarginVerticalLinked: true,
     headerPaddingBottom: '12mm', headerBottomMargin: '12mm', headerBottomSpacingLinked: true,
     bodySidebarSpacing: '10mm',
     favoriteControls: [],
   },
-  exportOptions: { ...DEFAULT_EXPORT_OPTIONS },
   anonymization: { excludedSections: [], excludedItems: [] },
   contact: { name: '', location: '', role: '', email: '', phone: '', website: '', linkedin: '', github: '' },
   about: { text: '' },
@@ -75,8 +62,6 @@ const previewPlacement = ref('side');
 const previewPages = ref([]);
 const previewPage = ref(1);
 const isPreviewRendering = ref(true);
-const fullPreviewPages = ref([]);
-const isFullPreviewRendering = ref(false);
 const pdfRenderSource = ref(null);
 const anonymizedPreviewPages = ref([]);
 const anonymizedPreviewPage = ref(1);
@@ -93,7 +78,6 @@ const builderGroups = computed(() => [
   { key: 'versions', label: t('versions'), icon: 'layer-group' },
   { key: 'content', label: t('content'), icon: 'table-cells-large' },
   { key: 'design', label: t('design'), icon: 'palette' },
-  { key: 'export', label: t('export'), icon: 'file-pdf' },
   { key: 'privacy', label: t('privacy'), icon: 'user-secret' },
 ]);
 const saveStatusLabel = computed(() => t({
@@ -185,6 +169,8 @@ function migrateLegacySpacing(design) {
 
 function ensureDesignLayoutDefaults() {
   state.design ||= {};
+  // Legacy system-font selections cannot be embedded in vector PDFs.
+  state.design.fontBody ||= 'Inter';
   const legacyLayoutStyle = state.design.layoutStyle === 'separator' ? 'separator' : 'boxed';
   migrateLegacySpacing(state.design);
   const defaults = {
@@ -193,6 +179,8 @@ function ensureDesignLayoutDefaults() {
     dateOpacity: 100,
     hstyle: 'clean',
     sidebarFillMode: 'start',
+    sidebarHeightMode: 'content',
+    sidebarBottomPadding: '6mm',
     headerLayoutStyle: legacyLayoutStyle,
     sidebarLayoutStyle: legacyLayoutStyle,
     contactLayout: 'side',
@@ -215,6 +203,9 @@ function ensureDesignLayoutDefaults() {
   });
   if (!['start', 'last-page', 'after-cover'].includes(state.design.sidebarFillMode)) {
     state.design.sidebarFillMode = 'start';
+  }
+  if (!['full-page', 'content'].includes(state.design.sidebarHeightMode)) {
+    state.design.sidebarHeightMode = 'content';
   }
   if (!['solid', 'border'].includes(state.design.badgeMode)) {
     state.design.badgeMode = 'solid';
@@ -252,11 +243,10 @@ function mergeIn(data) {
   ['disabled', 'completedSections', 'keepTogetherSections', 'education', 'languages', 'hobbies', 'customSections', 'sidebarSections', 'bodyOrder', 'sidebarOrder'].forEach((key) => {
     if (!Array.isArray(nextState[key])) nextState[key] = defaults[key];
   });
-  ['design', 'exportOptions', 'anonymization', 'contact', 'about', 'experience', 'sectionNames', 'sectionHeaderSizes'].forEach((key) => {
+  ['design', 'anonymization', 'contact', 'about', 'experience', 'sectionNames', 'sectionHeaderSizes'].forEach((key) => {
     if (!isStateRecord(nextState[key])) nextState[key] = defaults[key];
   });
   nextState.design = { ...defaults.design, ...nextState.design };
-  nextState.exportOptions = { ...defaults.exportOptions, ...nextState.exportOptions };
   nextState.anonymization = { ...defaults.anonymization, ...nextState.anonymization };
   nextState.contact = { ...defaults.contact, ...nextState.contact };
   nextState.about = { ...defaults.about, ...nextState.about };
@@ -269,7 +259,6 @@ function mergeIn(data) {
   Object.assign(state, nextState);
   state.version = 7;
   ensureDesignLayoutDefaults();
-  state.exportOptions = normalizeExportOptions(state.exportOptions);
   state.completedSections = Array.isArray(state.completedSections) ? [...new Set(state.completedSections)] : [];
   state.contact ||= {};
   if (state.contact.github == null) state.contact.github = '';
@@ -298,26 +287,13 @@ onMounted(async () => {
   }
 });
 
-const { estimatePdfSize, exportToPdf, renderPreview } = usePdfExport();
+const { exportToPdf, renderPreview } = usePdfExport();
 const inlineRenderSlot = createPreviewRenderSlot();
-const fullRenderSlot = createPreviewRenderSlot();
 const anonymizedRenderSlot = createPreviewRenderSlot();
 const isExporting = ref(false);
 const isAnonymizedExporting = ref(false);
 const pdfExportError = ref('');
-const estimatedPdfBytes = ref(null);
-const isPdfEstimateQualityScaled = ref(false);
-const pdfEstimateReferenceQuality = ref(null);
-const isExactPdfEstimating = ref(false);
-const isPdfEstimateStale = ref(false);
-const pdfEstimateError = ref('');
-const pdfSizeEstimateCache = ref(loadPdfSizeEstimateCache());
 let previewRenderVersion = 0;
-let pdfEstimateRequest = 0;
-let pdfContentRevision = 0;
-let fullPreviewSourceVersion = 0;
-let fullPreviewRenderVersion = 0;
-let renderedFullPreviewSourceVersion = -1;
 let anonymizedSourceVersion = 0;
 let anonymizedPreviewRenderVersion = 0;
 let renderedAnonymizedSourceVersion = -1;
@@ -344,15 +320,8 @@ function getPdfRenderOptions(options = {}) {
     margin: getPdfMargins(state.design),
     continuationTopPadding: exportMarginMillimeters(state.design?.headerBottomMargin || '12mm'),
     sidebarFillMode: state.design?.sidebarFillMode,
+    sidebarHeightMode: state.design?.sidebarHeightMode,
     ...options,
-  };
-}
-
-function getExportPdfRenderOptions() {
-  const exportOptions = normalizeExportOptions(state.exportOptions);
-  return {
-    ...getPdfRenderOptions(),
-    image: exportOptions,
   };
 }
 
@@ -371,17 +340,15 @@ async function refreshPdfPreview(version) {
   const signal = inlineRenderSlot.start();
   try {
     await nextTick();
-    await document.fonts?.ready;
     if (version !== previewRenderVersion) return;
 
     const cvElement = getPdfSourceElement();
     if (!cvElement) throw new Error('CV preview element not found');
-    const { pages } = await renderPreview(cvElement, getPdfRenderOptions({ html2canvas: { scale: 1 }, signal }));
+    const { pages } = await renderPreview(cvElement, getPdfRenderOptions({ signal }));
     if (version !== previewRenderVersion) return;
 
     previewPages.value = pages;
     previewPage.value = Math.min(Math.max(previewPage.value, 1), Math.max(pages.length, 1));
-    updateCachedPdfSizeEstimate();
   } catch (error) {
     if (!signal.aborted && version === previewRenderVersion) console.error('PDF preview failed:', error);
   } finally {
@@ -391,61 +358,16 @@ async function refreshPdfPreview(version) {
 
 const schedulePdfPreview = debounce((version) => refreshPdfPreview(version), 100);
 
-async function refreshFullPdfPreview(renderVersion, sourceVersion) {
-  if (renderVersion !== fullPreviewRenderVersion || sourceVersion !== fullPreviewSourceVersion) return;
-  const signal = fullRenderSlot.start();
-  try {
-    await nextTick();
-    await document.fonts?.ready;
-    if (renderVersion !== fullPreviewRenderVersion || sourceVersion !== fullPreviewSourceVersion) return;
-
-    const cvElement = getPdfSourceElement();
-    if (!cvElement) throw new Error('Full CV preview element not found');
-    const { pages } = await renderPreview(cvElement, getPdfRenderOptions({ signal }));
-    if (renderVersion !== fullPreviewRenderVersion || sourceVersion !== fullPreviewSourceVersion) return;
-
-    fullPreviewPages.value = pages;
-    renderedFullPreviewSourceVersion = sourceVersion;
-  } catch (error) {
-    if (!signal.aborted && renderVersion === fullPreviewRenderVersion) console.error('Full PDF preview failed:', error);
-  } finally {
-    if (renderVersion === fullPreviewRenderVersion) isFullPreviewRendering.value = false;
-  }
-}
-
-const scheduleFullPdfPreview = debounce((renderVersion, sourceVersion) => (
-  refreshFullPdfPreview(renderVersion, sourceVersion)
-), 100);
-
-function requestFullPdfPreview() {
-  if (renderedFullPreviewSourceVersion === fullPreviewSourceVersion && fullPreviewPages.value.length) return;
-  fullRenderSlot.cancel();
-  const renderVersion = ++fullPreviewRenderVersion;
-  isFullPreviewRendering.value = true;
-  scheduleFullPdfPreview(renderVersion, fullPreviewSourceVersion);
-}
-
 function invalidatePdfPreview() {
   inlineRenderSlot.cancel();
-  fullRenderSlot.cancel();
   schedulePdfPreview.cancel();
-  scheduleFullPdfPreview.cancel();
-  fullPreviewRenderVersion += 1;
-  isFullPreviewRendering.value = false;
-  const version = ++previewRenderVersion;
-  fullPreviewSourceVersion += 1;
-  fullPreviewPages.value = [];
-  renderedFullPreviewSourceVersion = -1;
-  return version;
+  return ++previewRenderVersion;
 }
 
 function requestPdfPreview() {
   const version = invalidatePdfPreview();
   isPreviewRendering.value = true;
   schedulePdfPreview(version);
-  if (previewMode.value && fullPreviewView.value === 'pdf' && fullPreviewVariant.value === 'normal') {
-    requestFullPdfPreview();
-  }
 }
 
 async function refreshAnonymizedPdfPreview(renderVersion, sourceVersion) {
@@ -453,7 +375,6 @@ async function refreshAnonymizedPdfPreview(renderVersion, sourceVersion) {
   const signal = anonymizedRenderSlot.start();
   try {
     await nextTick();
-    await document.fonts?.ready;
     if (renderVersion !== anonymizedPreviewRenderVersion || sourceVersion !== anonymizedSourceVersion) return;
 
     const cvElement = getAnonymizedPdfSourceElement();
@@ -586,10 +507,6 @@ function onPreviewInputBlur(event) {
 }
 
 watch(previewState, () => {
-  pdfContentRevision += 1;
-  if (estimatedPdfBytes.value != null) {
-    isPdfEstimateStale.value = true;
-  }
   if (isSliderPreviewUpdateDeferred) {
     sliderPreviewUpdatePending = true;
     invalidatePdfPreview();
@@ -613,65 +530,6 @@ watch(anonymizedPreviewState, () => {
   invalidateAnonymizedPdfPreview();
 }, { deep: true, flush: 'post' });
 
-function updateCachedPdfSizeEstimate() {
-  const estimate = estimatePdfSizeFromCache(pdfSizeEstimateCache.value, state.exportOptions);
-  estimatedPdfBytes.value = estimate.bytes;
-  isPdfEstimateQualityScaled.value = estimate.source === 'quality-scaled';
-  pdfEstimateReferenceQuality.value = estimate.referenceOptions?.quality ?? null;
-  if (estimate.bytes == null) isPdfEstimateStale.value = false;
-  pdfEstimateError.value = '';
-}
-
-function cachePdfSizeMeasurement(measurement, exportOptions) {
-  if (!measurement || !Number.isFinite(measurement.bytes)) return;
-  const nextCache = recordPdfSizeMeasurement(
-    pdfSizeEstimateCache.value,
-    exportOptions,
-    measurement,
-  );
-  pdfSizeEstimateCache.value = nextCache;
-  savePdfSizeEstimateCache(nextCache);
-}
-
-async function calculateExactPdfSizeEstimate() {
-  const request = ++pdfEstimateRequest;
-  isExactPdfEstimating.value = true;
-  pdfEstimateError.value = '';
-
-  try {
-    await nextTick();
-    const contentRevision = pdfContentRevision;
-    const cvElement = getPdfSourceElement();
-    if (!cvElement) throw new Error('CV preview element not found');
-    const renderOptions = getExportPdfRenderOptions();
-    const measurement = await estimatePdfSize(cvElement, renderOptions);
-    if (request !== pdfEstimateRequest || contentRevision !== pdfContentRevision) return;
-    cachePdfSizeMeasurement(measurement, renderOptions.image);
-    updateCachedPdfSizeEstimate();
-    isPdfEstimateStale.value = false;
-  } catch (error) {
-    if (request === pdfEstimateRequest) {
-      pdfEstimateError.value = error instanceof Error ? error.message : String(error);
-    }
-  } finally {
-    if (request === pdfEstimateRequest) isExactPdfEstimating.value = false;
-  }
-}
-
-const scheduleCachedPdfSizeEstimate = debounce(updateCachedPdfSizeEstimate, 120);
-
-watch(
-  () => [state.exportOptions?.format, state.exportOptions?.quality],
-  () => {
-    pdfEstimateRequest += 1;
-    isExactPdfEstimating.value = false;
-    scheduleCachedPdfSizeEstimate();
-  },
-  { flush: 'post' },
-);
-
-const estimatedPdfSize = computed(() => formatPdfBytes(estimatedPdfBytes.value));
-
 async function handleExportPdf() {
   isExporting.value = true;
   pdfExportError.value = '';
@@ -679,17 +537,8 @@ async function handleExportPdf() {
     await nextTick();
     const cvElement = getPdfSourceElement();
     if (!cvElement) throw new Error('CV preview element not found');
-    const contentRevision = pdfContentRevision;
-    const renderOptions = getExportPdfRenderOptions();
     const filename = `${(state.contact?.name || 'CV').replace(/\s+/g, '_')}_CV`;
-    const measurement = await exportToPdf(cvElement, filename, renderOptions);
-    if (measurement) {
-      // The builder remains editable during export. Cache against the options
-      // used for that PDF, then display an estimate for the current options.
-      cachePdfSizeMeasurement(measurement, renderOptions.image);
-      updateCachedPdfSizeEstimate();
-      isPdfEstimateStale.value = estimatedPdfBytes.value != null && contentRevision !== pdfContentRevision;
-    }
+    await exportToPdf(cvElement, filename, getPdfRenderOptions());
   } catch (error) {
     pdfExportError.value = error instanceof Error ? error.message : String(error);
   } finally {
@@ -704,7 +553,7 @@ async function handleAnonymizedExportPdf() {
     await nextTick();
     const cvElement = getAnonymizedPdfSourceElement();
     if (!cvElement) throw new Error('Anonymized CV preview element not found');
-    await exportToPdf(cvElement, 'anonymized-cv', getExportPdfRenderOptions());
+    await exportToPdf(cvElement, 'anonymized-cv', getPdfRenderOptions());
   } catch (error) {
     pdfExportError.value = error instanceof Error ? error.message : String(error);
   } finally {
@@ -716,7 +565,7 @@ const isAnonymizedFullPreview = computed(() => fullPreviewVariant.value === 'ano
 const activeFullPreviewPages = computed(() => (
   isAnonymizedFullPreview.value
     ? anonymizedPreviewPages.value
-    : (fullPreviewPages.value.length ? fullPreviewPages.value : previewPages.value)
+    : previewPages.value
 ));
 const activeFullPreviewPage = computed({
   get: () => (isAnonymizedFullPreview.value ? anonymizedPreviewPage.value : previewPage.value),
@@ -726,25 +575,17 @@ const activeFullPreviewPage = computed({
   },
 });
 const isActiveFullPreviewRendering = computed(() => (
-  isAnonymizedFullPreview.value ? isAnonymizedPreviewRendering.value : isFullPreviewRendering.value
+  isAnonymizedFullPreview.value ? isAnonymizedPreviewRendering.value : isPreviewRendering.value
 ));
 
 function toggleAnonymizedFullPreview() {
   fullPreviewVariant.value = isAnonymizedFullPreview.value ? 'normal' : 'anonymized';
   if (fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
-  else if (fullPreviewView.value === 'pdf') requestFullPdfPreview();
 }
 
 function openFullPreview() {
   previewMode.value = true;
-  if (fullPreviewView.value === 'pdf' && fullPreviewVariant.value === 'normal') requestFullPdfPreview();
-}
-
-function toggleFullPreviewView() {
-  fullPreviewView.value = fullPreviewView.value === 'pdf' ? 'html' : 'pdf';
-  if (fullPreviewView.value !== 'pdf') return;
   if (isAnonymizedFullPreview.value) requestAnonymizedPdfPreview();
-  else requestFullPdfPreview();
 }
 
 </script>
@@ -769,7 +610,7 @@ function toggleFullPreviewView() {
       </button>
 
       <div class="fullscreen-preview__actions">
-        <button class="btn" type="button" :aria-pressed="fullPreviewView === 'html'" @click="toggleFullPreviewView">
+        <button class="btn" type="button" :aria-pressed="fullPreviewView === 'html'" @click="fullPreviewView = fullPreviewView === 'pdf' ? 'html' : 'pdf'">
           <font-awesome-icon :icon="['fas', fullPreviewView === 'pdf' ? 'code' : 'file-pdf']" />
           {{ fullPreviewView === 'pdf' ? t('showHtmlPreview') : t('showPdfPreview') }}
         </button>
@@ -862,22 +703,6 @@ function toggleFullPreviewView() {
               class="builder-group-panel"
               v-model="state.design"
               :lang="lang"
-            />
-          </Transition>
-          <Transition name="builder-group">
-            <ExportOptionsPanel
-              v-show="activeBuilderGroup === 'export'"
-              id="builder-group-export"
-              class="builder-group-panel"
-              v-model="state.exportOptions"
-              :estimate-size="estimatedPdfSize"
-              :is-estimate-quality-scaled="isPdfEstimateQualityScaled"
-              :estimate-reference-quality="pdfEstimateReferenceQuality"
-              :is-exact-estimating="isExactPdfEstimating"
-              :is-estimate-stale="isPdfEstimateStale"
-              :estimate-error="pdfEstimateError"
-              :lang="lang"
-              @exact-estimate="calculateExactPdfSizeEstimate"
             />
           </Transition>
           <Transition name="builder-group">
@@ -1001,7 +826,7 @@ body,
 
 .builder-topbar__tabs {
   display: grid;
-  grid-template-columns: repeat(5, minmax(76px, 1fr));
+  grid-template-columns: repeat(4, minmax(76px, 1fr));
   gap: 8px;
   min-width: 0;
 }

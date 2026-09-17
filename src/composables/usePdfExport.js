@@ -1,80 +1,33 @@
-import html2pdf from 'html2pdf.js/src/index.js';
-import { jsPDF } from 'jspdf';
+import paintLayout from 'virtual:responsive-html2canvas';
 import { createPdfRenderTask } from './pdfRenderTask.js';
-import {
-  createPdfPageSlices,
-  createPdfPageGeometry,
-  resolveLastPageSidebarPlacement,
-} from './pdfPageGeometry.js';
-import {
-  capturePdfOverlay,
-  drawPdfOverlay,
-  rasterizePdfOverlay,
-} from './pdfTextOverlay.js';
-import {
-  encodePdfPageImage,
-  imageMimeType,
-  normalizeExportOptions,
-} from './pdfImageEncoding.js';
+import { createPdfPageSlices, createPdfPageGeometry, resolveLastPageSidebarPlacement } from './pdfPageGeometry.js';
 import { createPdfCanvasRecording } from './pdfCanvasRecording.js';
 import { capturePdfLinks } from './pdfVectorLinks.js';
+import { renderVectorPreview } from './pdfVectorPreview.js';
+import { applyPdfPageBreaks } from './pdfPageBreaks.js';
+import { updateTimelineRails } from './timelineLayout.js';
+import { fitDeferredSidebarToContent } from './pdfSidebarHeight.js';
 
-// html2canvas rounds source dimensions to device pixels. Keeping the deferred
-// sidebar a couple of CSS pixels inside its final page prevents that rounding
-// from becoming a tiny, otherwise empty continuation page.
+// Keep the established A4 geometry and subpixel coordinate precision. This is
+// a vector coordinate grid, not a bitmap resolution or image quality setting.
+const PAGE_WIDTH = 595.28 * 25.4 / 72;
+const PAGE_HEIGHT = 841.89 * 25.4 / 72;
+const PAINT_SCALE = 3;
 const PDF_LAYOUT_END_BUFFER = 2;
 
-function normaliseMargins(margin) {
+function normaliseMargins(margin = 0) {
   if (Array.isArray(margin)) {
     if (margin.length === 4) return margin.map((value) => Number(value) || 0);
-    if (margin.length === 2) return [Number(margin[0]) || 0, Number(margin[1]) || 0, Number(margin[0]) || 0, Number(margin[1]) || 0];
+    if (margin.length === 2) return [margin[0], margin[1], margin[0], margin[1]].map((value) => Number(value) || 0);
   }
-
-  const value = Number(margin) || 0;
-  return [value, value, value, value];
+  return Array(4).fill(Number(margin) || 0);
 }
 
-function mergePdfOptions(options = {}) {
-  const defaultOptions = {
-    margin: 0,
-    // Each exporter owns its annotations; html2pdf's link scan is unused.
-    enableLinks: false,
-    image: { format: 'jpeg', quality: 100 },
-    html2canvas: {
-      scale: 3,
-      useCORS: true,
-      letterRendering: true,
-      scrollY: 0,
-      scrollX: 0,
-      imageTimeout: 0,
-      logging: false,
-    },
-    jsPDF: {
-      unit: 'mm',
-      format: 'a4',
-      orientation: 'portrait',
-      compress: true,
-    },
-  };
-
-  return {
-    ...defaultOptions,
-    ...options,
-    image: normalizeExportOptions({ ...defaultOptions.image, ...(options.image || {}) }),
-    html2canvas: { ...defaultOptions.html2canvas, ...(options.html2canvas || {}) },
-    jsPDF: { ...defaultOptions.jsPDF, ...(options.jsPDF || {}) },
-  };
-}
-
-function previewScaleFor(width) {
-  return Math.min(1, 1400 / width);
-}
-
-function createSourcePageGeometry(element, options, pdf) {
+function createSourcePageGeometry(element, options) {
   const sourceBounds = element.getBoundingClientRect();
   const [marginTop, marginLeft, marginBottom, marginRight] = normaliseMargins(options.margin);
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
+  const pageWidth = PAGE_WIDTH;
+  const pageHeight = PAGE_HEIGHT;
   const contentWidth = pageWidth - marginLeft - marginRight;
   const firstPageHeight = pageHeight - marginTop - marginBottom;
   const continuationPadding = Math.min(
@@ -163,6 +116,7 @@ function applyDeferredSidebarPlacement(element, sidebar, geometry, {
   lastPage,
   firstPageSidebarTop,
   terminalContentPadding = 0,
+  heightMode,
 }) {
   resetSidebarPlacement(sidebar);
   const outerSidebarTop = sidebarSourceBounds(element, sidebar).top;
@@ -175,9 +129,10 @@ function applyDeferredSidebarPlacement(element, sidebar, geometry, {
   sidebar.style.height = `${Math.max(0, sidebarEnd - outerSidebarTop)}px`;
   sidebar.style.setProperty('--sidebar-deferred-start', `${deferredStart}px`);
   sidebar.style.setProperty('--sidebar-deferred-min-height', `${Math.max(0, sidebarEnd - sidebarTop)}px`);
+  if (heightMode !== 'full-page') fitDeferredSidebarToContent(element);
 }
 
-function positionLastPageSidebar(element, sidebar, geometry, initialFinalPage) {
+function positionLastPageSidebar(element, sidebar, geometry, initialFinalPage, heightMode) {
   const content = element.querySelector?.('.content');
   const originalBottomPadding = computedContentBottomPadding(content);
   if (content) content.style.paddingBottom = '0px';
@@ -204,6 +159,7 @@ function positionLastPageSidebar(element, sidebar, geometry, initialFinalPage) {
         startPage,
         lastPage: sidebarLastPage,
         firstPageSidebarTop,
+        heightMode,
       });
       measuredPrimaryBottom = primaryContentSourceBottom(element);
       return geometry.pageIndexForSourceY(Math.max(0, measuredPrimaryBottom - 0.01));
@@ -224,12 +180,13 @@ function positionLastPageSidebar(element, sidebar, geometry, initialFinalPage) {
     lastPage: placement.sidebarLastPage,
     firstPageSidebarTop,
     terminalContentPadding: finalBottomPadding,
+    heightMode,
   });
 
   return placement;
 }
 
-function positionSidebarAfterCover(element, sidebar, geometry) {
+function positionSidebarAfterCover(element, sidebar, geometry, heightMode) {
   const content = element.querySelector?.('.content');
   if (content) content.style.paddingBottom = '0px';
 
@@ -244,16 +201,17 @@ function positionSidebarAfterCover(element, sidebar, geometry) {
     startPage: 1,
     lastPage,
     firstPageSidebarTop: naturalSidebarBounds.top,
+    heightMode,
   });
 }
 
-function positionSidebarForPdf(element, options, pdf, initialFinalPage) {
+function positionSidebarForPdf(element, options, initialFinalPage) {
   element.querySelector?.('.content')?.style.removeProperty('padding-bottom');
   const sidebar = element.querySelector?.('#cv_side');
   if (!sidebar) return;
 
   resetSidebarPagePlacement(element, sidebar);
-  const geometry = createSourcePageGeometry(element, options, pdf);
+  const geometry = createSourcePageGeometry(element, options);
   if (!geometry) return;
 
   const fillMode = ['last-page', 'after-cover'].includes(options.sidebarFillMode)
@@ -261,358 +219,130 @@ function positionSidebarForPdf(element, options, pdf, initialFinalPage) {
     : 'start';
 
   if (fillMode === 'start') {
-    reserveSidebarColumnThroughItsLastPage(element, sidebar, geometry);
+    if (options.sidebarHeightMode === 'full-page') reserveSidebarColumnThroughItsLastPage(element, sidebar, geometry);
     return;
   }
 
   if (fillMode === 'after-cover') {
-    positionSidebarAfterCover(element, sidebar, geometry);
+    positionSidebarAfterCover(element, sidebar, geometry, options.sidebarHeightMode);
     return;
   }
 
-  return positionLastPageSidebar(element, sidebar, geometry, initialFinalPage);
+  return positionLastPageSidebar(element, sidebar, geometry, initialFinalPage, options.sidebarHeightMode);
 }
 
-function sourcePageSlices(canvas, pdf, options, continuationPadding) {
+function sourcePageSlices(canvas, options, continuationPadding) {
   return createPdfPageSlices({
     width: canvas.width,
     height: canvas.height,
-    pageWidth: pdf.internal.pageSize.getWidth(),
-    pageHeight: pdf.internal.pageSize.getHeight(),
+    pageWidth: PAGE_WIDTH,
+    pageHeight: PAGE_HEIGHT,
     margins: normaliseMargins(options.margin),
     continuationTopPadding: continuationPadding,
   });
 }
 
-async function renderSourceCanvas(element, options, captureOverlay) {
-  const task = options.renderTask;
+
+async function prepareLayoutContainer(element, options) {
+  const { renderTask: task } = options;
+  const [, left, , right] = normaliseMargins(options.margin);
+  const host = task.own(document.createElement('div'));
+  host.className = 'pdf-layout-snapshot';
+  host.inert = true;
+  host.setAttribute('aria-hidden', 'true');
+  Object.assign(host.style, { position: 'fixed', top: '0', left: '0', opacity: '0', pointerEvents: 'none', zIndex: '-1' });
+  const container = document.createElement('div');
+  Object.assign(container.style, { width: (PAGE_WIDTH - left - right) + 'mm', backgroundColor: 'white' });
+  container.appendChild(element.cloneNode(true));
+  host.appendChild(container);
+  document.body.appendChild(host);
+  const [top, , bottom] = normaliseMargins(options.margin);
+  const syncSidebarHeight = options.sidebarHeightMode !== 'full-page'
+    ? () => fitDeferredSidebarToContent(container)
+    : undefined;
+  syncSidebarHeight?.();
+  await applyPdfPageBreaks(container, Math.floor((PAGE_HEIGHT - top - bottom) * 96 / 25.4), task, syncSidebarHeight);
+  updateTimelineRails(container);
+  return { host, container };
+}
+
+async function measurePreparedSource(element, options) {
+  const { host, container } = await prepareLayoutContainer(element, options);
+  try {
+    const bounds = container.getBoundingClientRect();
+    return { width: Math.ceil(bounds.width) * PAINT_SCALE, height: Math.ceil(bounds.height) * PAINT_SCALE };
+  } finally { host.remove(); }
+}
+
+async function preparePositionedSource(element, options) {
+  const sidebar = element.querySelector('#cv_side');
+  if (options.sidebarFillMode === 'last-page' && sidebar) {
+    resetSidebarPagePlacement(element, sidebar);
+    sidebar.style.display = 'none';
+    let dimensions;
+    try { dimensions = await measurePreparedSource(element, options); }
+    finally { sidebar.style.display = ''; }
+    const finalPage = sourcePageSlices(dimensions, options, options.continuationTopPadding).length - 1;
+    positionSidebarForPdf(element, options, finalPage);
+  } else positionSidebarForPdf(element, options);
+}
+
+async function captureVectorSnapshot(element, options, task) {
   await task.checkpoint(true);
-  let overlay = null;
-  const worker = html2pdf().set(options).from(element);
-  // html2pdf's pagebreak plugin runs while preparing its private source
-  // clone. It may insert padding before a section with break-inside: avoid;
-  // html2canvas then clones that prepared tree and invokes onclone below.
+  const sourceHost = task.own(element.parentElement.cloneNode(false));
+  sourceHost.inert = true;
+  sourceHost.removeAttribute('id');
+  sourceHost.setAttribute('aria-hidden', 'true');
+  Object.assign(sourceHost.style, { position: 'fixed', top: '0', left: '-100000px', pointerEvents: 'none' });
+  const source = element.cloneNode(true);
+  sourceHost.appendChild(source);
+  document.body.appendChild(sourceHost);
+  const renderOptions = { ...options, renderTask: task };
+  await preparePositionedSource(source, renderOptions);
+  const { host, container } = await prepareLayoutContainer(source, renderOptions);
+  const recording = createPdfCanvasRecording();
+  let links;
   try {
-    await task.wait(worker.toContainer());
-    task.check();
-    const container = await worker.get('container');
-    const head = element.ownerDocument.head;
-    const canvasOptions = {
-      ...options.html2canvas,
-      renderTask: task,
-      windowHeight: element.scrollHeight,
-      // Only clone the CV, its ancestors and styles/fonts, not the entire
-      // builder, other previews or another render's temporary DOM.
-      ignoreElements: (node) => (
-        options.html2canvas.ignoreElements?.(node)
-        || !(node === head || head.contains(node) || node.contains(container) || container.contains(node))
-      ),
-      onclone: async (documentClone, clonedElement) => {
-        task.check();
-        await options.html2canvas.onclone?.(documentClone, clonedElement);
-        // Capture in html2canvas's final clone so text coordinates match pixels.
-        if (captureOverlay) overlay = captureOverlay(clonedElement);
-      },
-    };
-    await worker.set({ html2canvas: canvasOptions });
-    await task.wait(worker.toCanvas());
-    task.check();
-    const canvas = await worker.get('canvas');
-    return { canvas, overlay };
-  } finally {
-    worker.prop.overlay?.remove();
-  }
+    const head = document.head;
+    const canvas = await task.wait(paintLayout(container, {
+      scale: PAINT_SCALE, useCORS: true, scrollX: 0, scrollY: 0, logging: false,
+      windowWidth: source.scrollWidth, windowHeight: source.scrollHeight,
+      renderTask: task, createVectorContext: recording.createContext,
+      ignoreElements: (node) => !(node === head || head.contains(node) || node.contains(container) || container.contains(node)),
+      onclone: (_, clone) => { task.check(); links = capturePdfLinks(clone); },
+    }));
+    const pages = sourcePageSlices(canvas, options, options.continuationTopPadding);
+    return { recording, canvas, pages, links, fontStyleUrls: links.fontStyleUrls, loadedFaces: links.loadedFaces, pageWidth: PAGE_WIDTH, pageHeight: PAGE_HEIGHT, task };
+  } finally { host.remove(); }
 }
 
-async function renderFullWidthBodyCanvas(element, options) {
-  const sidebar = element.querySelector?.('#cv_side');
-  if (!sidebar) return renderSourceCanvas(element, options);
-
-  resetSidebarPagePlacement(element, sidebar);
-  sidebar.style.display = 'none';
-
-  try {
-    return await renderSourceCanvas(element, options);
-  } finally {
-    sidebar.style.display = '';
-  }
-}
-
-/**
- * Apply the exact page/sidebar placement used by the raster preview before
- * capturing the source canvas. Both download formats share this routine so
- * their graphics cannot drift from the established page placement.
- */
-async function preparePositionedPdfSource(element, options, pdf, continuationPadding) {
-  if (options.sidebarFillMode === 'last-page' && element.querySelector?.('#cv_side')) {
-    const { canvas: fullWidthBodyCanvas } = await renderFullWidthBodyCanvas(element, options);
-    const targetFinalPage = sourcePageSlices(
-      fullWidthBodyCanvas,
-      pdf,
-      options,
-      continuationPadding,
-    ).length - 1;
-
-    // The placement resolver already performs a fixed-point reflow pass.
-    // Re-targeting it from a canvas page count caused a fractional trailing
-    // canvas slice to advance the sidebar on every pass (3 → 4 → … → 11).
-    positionSidebarForPdf(element, options, pdf, targetFinalPage);
-    return;
-  }
-
-  positionSidebarForPdf(element, options, pdf);
-}
-
-async function createPagePreview(pageCanvas, dimensions, image, task) {
-  const {
-    pageWidth,
-    pageHeight,
-    contentWidth,
-    contentScale,
-    leftOffset,
-    topOffset,
-  } = dimensions;
-  const scale = previewScaleFor(pageWidth * contentScale);
-  const previewCanvas = document.createElement('canvas');
-  previewCanvas.width = Math.max(1, Math.round(pageWidth * contentScale * scale));
-  previewCanvas.height = Math.max(1, Math.round(pageHeight * contentScale * scale));
-  const previewContext = previewCanvas.getContext('2d');
-
-  if (!previewContext) throw new Error('PDF preview canvas could not be created');
-
-  previewContext.fillStyle = '#ffffff';
-  previewContext.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
-  previewContext.drawImage(
-    pageCanvas,
-    Math.round(leftOffset * contentScale * scale),
-    Math.round(topOffset * contentScale * scale),
-    Math.round(contentWidth * contentScale * scale),
-    Math.round((pageCanvas.height / pageCanvas.width) * contentWidth * contentScale * scale),
-  );
-
-  // toDataURL synchronously encodes on the UI thread. Let the browser encode
-  // asynchronously, retaining data URLs so existing preview lifetimes work.
-  const blob = await task.wait(new Promise((resolve, reject) => {
-    previewCanvas.toBlob((value) => value ? resolve(value) : reject(new Error('PDF preview encoding failed')),
-      imageMimeType(image.format), image.quality / 100);
-  }));
-  return task.wait(new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  }));
-}
-
-async function isUniformCanvas(pageCanvas, pageContext, task) {
-  try {
-    const [red, green, blue, alpha] = pageContext.getImageData(0, 0, 1, 1).data;
-    const scanHeight = 64;
-
-    for (let y = 0; y < pageCanvas.height; y += scanHeight) {
-      const pause = task.checkpoint();
-      if (pause) await pause;
-      const rowPixels = pageContext.getImageData(
-        0,
-        y,
-        pageCanvas.width,
-        Math.min(scanHeight, pageCanvas.height - y),
-      ).data;
-
-      for (let index = 0; index < rowPixels.length; index += 4) {
-        if (
-          rowPixels[index] !== red
-          || rowPixels[index + 1] !== green
-          || rowPixels[index + 2] !== blue
-          || rowPixels[index + 3] !== alpha
-        ) return false;
-      }
-    }
-
-    return true;
-  } catch (error) {
-    if (error?.name === 'AbortError') throw error;
-    // Preserve the page if the browser disallows pixel inspection for any
-    // reason (for example, a tainted canvas from a third-party image).
-    return false;
-  }
-}
-
-async function appendPdfPages(canvas, pdf, options, continuationPadding, {
-  previewOnly = false,
-  vectorOnly = false,
-} = {}) {
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-  const slices = sourcePageSlices(canvas, pdf, options, continuationPadding);
-
-  const pageCanvas = document.createElement('canvas');
-  const pageContext = pageCanvas.getContext('2d');
-  if (!pageContext) throw new Error('PDF canvas could not be created');
-
-  const pages = [];
-  for (const slice of slices) {
-    await options.renderTask.checkpoint(true);
-    const { sourceTop: sourceY, sourceBottom, contentWidth, leftOffset, topOffset } = slice;
-    const sliceHeight = sourceBottom - sourceY;
-    const contentScale = canvas.width / contentWidth;
-    const renderedHeight = (sliceHeight * contentWidth) / canvas.width;
-
-    pageCanvas.width = canvas.width;
-    pageCanvas.height = sliceHeight;
-    pageContext.fillStyle = '#ffffff';
-    pageContext.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-    pageContext.drawImage(canvas, 0, sourceY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
-
-    const hasGraphics = !await isUniformCanvas(pageCanvas, pageContext, options.renderTask);
-    if (hasGraphics) {
-      if (!previewOnly && !vectorOnly) {
-        const pageImage = encodePdfPageImage(pageCanvas, options.image);
-        if (pages.length > 0) pdf.addPage();
-        pdf.addImage(
-          pageImage.data,
-          pageImage.format,
-          leftOffset,
-          topOffset,
-          contentWidth,
-          renderedHeight,
-        );
-      }
-
-      pages.push({
-        ...slice,
-        // Exports and exact-size measurements need page geometry, not preview
-        // images. Avoid encoding an extra image for each exported page.
-        previewData: previewOnly ? await createPagePreview(pageCanvas, {
-          pageWidth,
-          pageHeight,
-          contentWidth,
-          contentScale,
-          leftOffset,
-          topOffset,
-        }, options.image, options.renderTask) : undefined,
-      });
-    }
-  }
-
-  return pages;
-}
-
-/**
- * Share layout and pagination between previews and both export formats.
- * Annotations and text geometry come from html2canvas's final clone.
- */
-async function renderPdfSnapshot(element, options = {}, captureOverlay, { previewOnly = false } = {}) {
-  const task = createPdfRenderTask(options.signal);
-  try {
-    await task.checkpoint(true);
-    // Placement adjusts sidebar heights. Work on a private snapshot so edits,
-    // cancellation and simultaneous export/preview jobs never mutate Vue's DOM.
-    const sourceHost = task.own(element.parentElement.cloneNode(false));
-    sourceHost.inert = true;
-    sourceHost.removeAttribute('id');
-    sourceHost.setAttribute('aria-hidden', 'true');
-    Object.assign(sourceHost.style, { position: 'fixed', top: '0', left: '-100000px', pointerEvents: 'none' });
-    const source = element.cloneNode(true);
-    sourceHost.appendChild(source);
-    element.ownerDocument.body.appendChild(sourceHost);
-    return await renderPositionedSnapshot(source, { ...options, renderTask: task }, captureOverlay, { previewOnly });
-  } finally {
-    task.dispose();
-  }
-}
-
-async function renderPositionedSnapshot(element, options, captureOverlay, { previewOnly }) {
-  const mergedOptions = mergePdfOptions({
-    ...options,
-    html2canvas: {
-      ...(options.html2canvas || {}),
-      windowWidth: element.scrollWidth,
-    },
-  });
-  const pdf = new jsPDF(mergedOptions.jsPDF);
-  const vectorOnly = !previewOnly && mergedOptions.image.format === 'vector';
-  // Preview images remain raster regardless of the download format.
-  if (previewOnly && mergedOptions.image.format === 'vector') {
-    mergedOptions.image = { format: 'png', quality: 100 };
-  }
-  await preparePositionedPdfSource(
-    element,
-    mergedOptions,
-    pdf,
-    options.continuationTopPadding,
-  );
-  const recording = vectorOnly ? createPdfCanvasRecording() : null;
-  if (recording) mergedOptions.html2canvas.recordCanvas = recording.wrap;
-  const { canvas, overlay } = await renderSourceCanvas(element, mergedOptions, vectorOnly ? capturePdfLinks : captureOverlay);
-  const pages = await appendPdfPages(
-    canvas,
-    pdf,
-    mergedOptions,
-    options.continuationTopPadding,
-    { previewOnly, vectorOnly },
-  );
-  if (vectorOnly) {
-    // Keep the larger vector/font libraries off the normal preview code path.
-    const { renderVectorPdf } = await import('./pdfVectorExport.js');
-    const blob = await renderVectorPdf({
-      recording, canvas, pages, links: overlay, fontStyleUrls: overlay.fontStyleUrls, loadedFaces: overlay.loadedFaces,
-      pageWidth: pdf.internal.pageSize.getWidth(),
-      pageHeight: pdf.internal.pageSize.getHeight(),
-      task: options.renderTask,
-    });
-    return { blob, pages };
-  }
-  return { pdf, pages, overlay: overlay ? rasterizePdfOverlay(overlay, canvas) : null };
-}
-
-/**
- * Export PDF files and preview images from the same positioned source.
- */
+/** One vector paint capture feeds scalable SVG previews and direct PDF files. */
 export function usePdfExport() {
-  const renderPreview = async (element, options = {}) => {
-    if (!element) throw new Error('No element provided for PDF preview');
-    return renderPdfSnapshot(element, options, undefined, { previewOnly: true });
-  };
+  async function render(element, options = {}, output) {
+    if (!element) throw new Error('CV preview element not found');
+    const task = createPdfRenderTask(options.signal);
+    try {
+      await task.wait(document.fonts?.ready);
+      const snapshot = await captureVectorSnapshot(element, options, task);
+      return await output(snapshot);
+    } finally { task.dispose(); }
+  }
 
-  const renderExportPdf = async (element, options = {}) => {
-    if (!element) throw new Error('No element provided for PDF export');
-    await document.fonts?.ready;
-    // Both formats share layout and painting coordinates. Only raster PDFs
-    // receive an invisible selectable overlay; vectors contain visible text.
-    const result = await renderPdfSnapshot(
-      element,
-      options,
-      capturePdfOverlay,
-    );
-    if (result.blob) return result.blob;
-    await drawPdfOverlay(result.pdf, result.overlay, result.pages);
-    return result.pdf.output('blob');
-  };
-
-  const exportToPdf = async (element, filename = 'cv', options = {}) => {
-    const blob = await renderExportPdf(element, options);
+  const renderPreview = (element, options) => render(element, options, renderVectorPreview);
+  const exportToPdf = async (element, filename = 'cv', options) => {
+    const blob = await render(element, options, async (snapshot) => {
+      const { renderVectorPdf } = await import('./pdfVectorExport.js');
+      return renderVectorPdf(snapshot);
+    });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `${filename}.pdf`;
+    anchor.download = filename + '.pdf';
     anchor.hidden = true;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
-    // Downloads may consume the URL after click() returns (notably Safari).
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    return { bytes: blob.size };
   };
-
-  const estimatePdfSize = async (element, options = {}) => {
-    const blob = await renderExportPdf(element, options);
-    return { bytes: blob.size };
-  };
-
-  return {
-    renderPreview,
-    exportToPdf,
-    estimatePdfSize,
-  };
+  return { renderPreview, exportToPdf };
 }

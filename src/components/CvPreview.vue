@@ -1,10 +1,11 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, onMounted, onUpdated, ref, watch } from 'vue';
 import { makeT } from '../i18n/dict.js';
 import SkillItem from './skills/SkillItem.vue';
 import MarkdownContent from './MarkdownContent.vue';
 import CvBodyItem from './CvBodyItem.vue';
 import { hasMarkdownText } from '../composables/markdownText.js';
+import { updateTimelineRails } from '../composables/timelineLayout.js';
 
 const props = defineProps({
   state: { type: Object, required: true },
@@ -66,10 +67,37 @@ const formatCustomMeta = (section, entry) => {
 const hasCustomInstitution = (section, entry) => (
   customFieldEnabled(section, 'institution') && Boolean(String(entry.institution || '').trim())
 );
+
+const page = ref(null);
+let timelineObserver;
+let timelineFrame;
+const refreshTimelines = () => {
+  cancelAnimationFrame(timelineFrame);
+  timelineFrame = requestAnimationFrame(() => updateTimelineRails(page.value));
+};
+const observeTimelines = () => {
+  timelineObserver?.disconnect();
+  if (!page.value) return;
+  for (const element of [page.value, ...page.value.querySelectorAll('.timeline > .item')]) {
+    timelineObserver?.observe(element);
+  }
+  refreshTimelines();
+};
+onMounted(() => {
+  timelineObserver = new ResizeObserver(refreshTimelines);
+  observeTimelines();
+});
+onUpdated(observeTimelines);
+// Mirroring the sidebar can move items without changing their dimensions.
+watch(() => props.state.design, refreshTimelines, { deep: true, flush: 'post' });
+onBeforeUnmount(() => {
+  timelineObserver?.disconnect();
+  cancelAnimationFrame(timelineFrame);
+});
 </script>
 
 <template>
-  <div class="page" :class="{ 'pdf-export-source': exportSource }" role="document">
+  <div ref="page" class="page" :class="{ 'pdf-export-source': exportSource }" role="document">
     <header v-if="!isDisabled('header')" class="header">
       <div class="title"><h1 class="name">{{ state.contact.name || '-' }}</h1><p class="role">{{ state.contact.role }}</p></div>
       <address class="contact">
@@ -105,6 +133,7 @@ const hasCustomInstitution = (section, entry) => (
 
       <div id="cv_main">
         <section v-for="key in bodyKeys" :key="key" class="section" :class="{ 'is-hidden': isHiddenFor(key), 'section--keep-together': isKeptTogether(key) }">
+          <svg v-if="key === 'jobs' || key === 'education'" class="timeline-rail" aria-hidden="true"><path /></svg>
           <template v-if="key === 'about'">
             <div class="section-lead">
               <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>

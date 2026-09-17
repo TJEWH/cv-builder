@@ -13,10 +13,6 @@ function nativeContext() {
       assert.equal(this, context);
       return { width: text.length * 6 };
     },
-    getImageData() {
-      assert.equal(this, context);
-      return { data: new Uint8ClampedArray(4) };
-    },
   };
   for (const method of ['save', 'restore', 'scale', 'translate', 'beginPath', 'moveTo', 'lineTo', 'stroke', 'fill', 'fillRect', 'fillText', 'strokeText', 'drawImage', 'setLineDash']) {
     context[method] = function (...args) {
@@ -28,11 +24,11 @@ function nativeContext() {
   return { context, calls };
 }
 
-test('records paint order while forwarding every operation to the native context', () => {
+test('records paint order without executing native drawing or allocating a page bitmap', () => {
   const { context, calls } = nativeContext();
   const recording = createPdfCanvasRecording();
   const proxy = recording.wrap(context);
-  assert.equal(proxy.scale(3, 3), 'scale-result');
+  assert.equal(proxy.scale(3, 3), undefined);
   proxy.translate(-10, -20);
   proxy.fillStyle = '#123456';
   proxy.save();
@@ -46,19 +42,19 @@ test('records paint order while forwarding every operation to the native context
     { type: 'call', method: 'scale', args: [3, 3] },
     { type: 'call', method: 'translate', args: [-10, -20] },
     { type: 'set', property: 'fillStyle', value: '#123456' },
-    ...calls.slice(2).map((call) => ({ type: 'call', ...call })),
+    ...['save', 'beginPath', 'moveTo', 'lineTo', 'stroke', 'restore'].map((method) => ({ type: 'call', method, args: method === 'moveTo' ? [1, 2] : method === 'lineTo' ? [3, 4] : [] })),
   ]);
   assert.equal(context.fillStyle, '#123456');
   assert.equal(proxy.canvas, context.canvas);
   assert.equal(recording.wrap(context), proxy);
+  assert.deepEqual(calls.map(({ method }) => method), ['save', 'restore']);
 });
 
-test('measurements and pixel inspection remain native and are not recorded', () => {
+test('font measurements remain native and are not recorded', () => {
   const { context } = nativeContext();
   const recording = createPdfCanvasRecording();
   const proxy = recording.wrap(context);
   assert.deepEqual(proxy.measureText('four'), { width: 24 });
-  assert.equal(proxy.getImageData().data.length, 4);
   assert.equal(recording.records.length, 0);
 });
 
@@ -88,16 +84,15 @@ test('text operations retain exact coordinates and cache normalized font descrip
   assert.deepEqual(recording.records[1], {
     type: 'call', method: 'fillText', args: ['Hello', 10.25, 23.5], font: descriptor,
     fontString: 'italic 600 14.5px "Source Sans 3", sans-serif',
-    metrics: { width: 30, actualBoundingBoxAscent: undefined, actualBoundingBoxDescent: undefined, fontBoundingBoxAscent: undefined, fontBoundingBoxDescent: undefined },
+    metrics: { width: 30, actualBoundingBoxAscent: undefined, actualBoundingBoxDescent: undefined },
   });
   assert.deepEqual(recording.records[2].args, ['World', 15, 24, 100]);
   assert.equal(recording.records[1].font, recording.records[2].font);
-  assert.deepEqual([...recording.fonts.values()], [descriptor]);
 });
 
-test('captures browser text width and ink/font bounds without changing them', () => {
+test('captures browser text width and ink bounds without changing them', () => {
   const { context } = nativeContext();
-  const metrics = { width: 31.875, actualBoundingBoxAscent: 10.25, actualBoundingBoxDescent: 2.5, fontBoundingBoxAscent: 12, fontBoundingBoxDescent: 3 };
+  const metrics = { width: 31.875, actualBoundingBoxAscent: 10.25, actualBoundingBoxDescent: 2.5 };
   context.measureText = function (text) {
     assert.equal(this, context);
     assert.equal(text, 'Sample');
@@ -134,13 +129,13 @@ test('snapshots mutable argument arrays without copying SVG image objects', () =
   assert.equal(recording.records[1].args[0], image);
 });
 
-test('native failures propagate without recording paint that did not happen', () => {
+test('never calls a native paint method even if that method would fail', () => {
   const { context } = nativeContext();
   context.fill = () => { throw new Error('Native failure'); };
   const recording = createPdfCanvasRecording();
   const proxy = recording.wrap(context);
-  assert.throws(() => proxy.fill(), /Native failure/);
-  assert.equal(recording.records.length, 0);
+  assert.doesNotThrow(() => proxy.fill());
+  assert.deepEqual(recording.records, [{ type: 'call', method: 'fill', args: [] }]);
 });
 
 test('different recordings never intercept each other or modify native methods', () => {

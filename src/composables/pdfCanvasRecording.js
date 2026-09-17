@@ -7,8 +7,8 @@ const recordedMethods = new Set([
 ]);
 const recordedTextMetrics = [
   'width', 'actualBoundingBoxAscent', 'actualBoundingBoxDescent',
-  'fontBoundingBoxAscent', 'fontBoundingBoxDescent',
 ];
+const stateMethods = new Set(['save', 'restore', 'setLineDash']);
 
 function fontDescriptor(font, declaration) {
   if (declaration) declaration.font = font;
@@ -26,9 +26,8 @@ function fontDescriptor(font, declaration) {
 }
 
 /**
- * Observe the existing painter rather than changing its drawing or metrics.
- * The native raster remains available for identical page/blank-page detection;
- * the recorded operations can independently produce a vector export.
+ * Record paint commands without executing any raster drawing. A tiny native
+ * context is used only for CSS state normalization and browser font metrics.
  */
 export function createPdfCanvasRecording() {
   const records = [];
@@ -50,7 +49,7 @@ export function createPdfCanvasRecording() {
 
         const bound = recordedMethods.has(property)
           ? (...args) => {
-            const result = Reflect.apply(value, target, args);
+            const result = stateMethods.has(property) ? Reflect.apply(value, target, args) : undefined;
             const record = {
               type: 'call',
               method: property,
@@ -86,5 +85,13 @@ export function createPdfCanvasRecording() {
     return proxy;
   }
 
-  return { records, fonts, wrap };
+  function createContext(surface, documentRef = document) {
+    const measurement = documentRef.createElement('canvas');
+    measurement.width = measurement.height = 1;
+    const context = measurement.getContext('2d');
+    if (!context) throw new Error('Browser font measurement is unavailable');
+    return wrap(context, { ...surface, ownerDocument: documentRef });
+  }
+
+  return { records, createContext, wrap };
 }

@@ -116,7 +116,7 @@ test('uses an explicit stylesheet snapshot instead of the current document links
 });
 
 test('PDFKit keeps fontkit instances with otherwise identical metadata distinct', async () => {
-  const bytes = readFileSync(new URL('../src/assets/pdf-fonts/Inter-Regular.ttf', import.meta.url));
+  const bytes = readFileSync(new URL('./fixtures/Inter-Regular.ttf', import.meta.url));
   const css = faceCss({ weight: '300', url: 'shared.woff2' }) + faceCss({ weight: '700', url: 'shared.woff2' });
   const { options } = fixture(css, { createFont: () => createFont(bytes).getVariation({ opsz: 14 }) });
   const resolver = await createVectorFontResolver(options);

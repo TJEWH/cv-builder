@@ -44,7 +44,7 @@ const content = computed(() => {
 .markdown-bullets a {
   color: inherit;
   /* html2canvas does not reliably apply text-underline-offset. A padded border
-     keeps the link rule visibly below its glyphs in the rasterized PDF. */
+     keeps the link rule visibly below its glyphs in the PDF. */
   padding-bottom: 0px;
   border-bottom: 1px solid currentColor;
   text-decoration: none;

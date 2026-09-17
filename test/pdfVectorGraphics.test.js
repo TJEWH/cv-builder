@@ -77,7 +77,7 @@ test('fails explicitly for unsupported paints instead of silently rasterizing th
   const { call, graphics } = fixture();
   graphics.apply({ type: 'set', property: 'fillStyle', value: {} });
   assert.throws(() => call('fillRect', 0, 0, 10, 10), /gradients or patterns/);
-  assert.throws(() => call('drawImage', { src: 'https://example.com/photo.webp', width: 10, height: 10 }, 0, 0), /SVG, PNG and JPEG/);
+  assert.throws(() => call('drawImage', { src: 'https://example.com/photo.webp', width: 10, height: 10 }, 0, 0), /requires SVG/);
 });
 
 test('embeds SVG icons as vector paths, including cropped and transformed images', async () => {

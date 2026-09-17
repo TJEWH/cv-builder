@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
-import { renderVectorPdf, vectorTextIntersectsPage } from '../src/composables/pdfVectorExport.js';
+import { renderVectorPdf } from '../src/composables/pdfVectorExport.js';
+import { vectorTextIntersectsPage } from '../src/composables/pdfVectorText.js';
 
 const page = { sourceTop: 0, sourceBottom: 100, canvasWidth: 100, contentWidth: 100, leftOffset: 10, topOffset: 10 };
 const task = { wait: (promise) => Promise.resolve(promise), checkpoint() {} };
@@ -60,7 +61,7 @@ test('text intersection uses the active scale and transform before choosing a pa
 });
 
 test('embeds visible selectable font text only on its own page and retains clickable links', async (t) => {
-  const font = readFileSync(new URL('../src/assets/pdf-fonts/Inter-Regular.ttf', import.meta.url));
+  const font = readFileSync(new URL('./fixtures/Inter-Regular.ttf', import.meta.url));
   t.mock.method(globalThis, 'fetch', async (url) => new Response(url.endsWith('.css')
     ? "@font-face { font-family: Inter; font-weight: 400; src: url('./inter.ttf'); }"
     : font));

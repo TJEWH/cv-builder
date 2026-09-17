@@ -10,8 +10,8 @@ function pageIndex(value) {
 const TRAILING_SLICE_TOLERANCE_MILLIMETERS = 0.75;
 
 /**
- * Split the rendered source using the same integer pixel boundaries for raster
- * and vector exports. Margins follow html2pdf's [top, left, bottom, right] order.
+ * Split vector paint coordinates into pages using the established subpixel
+ * boundaries. Margins follow [top, left, bottom, right] order.
  */
 export function createPdfPageSlices({
   width,

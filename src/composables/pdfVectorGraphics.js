@@ -151,7 +151,7 @@ export function createVectorGraphicsContext(doc) {
   }
 
   function drawImage(image, ...coordinates) {
-    const source = image.currentSrc || image.src || image.toDataURL?.();
+    const source = image.currentSrc || image.src;
     const width = image.naturalWidth || image.width;
     const height = image.naturalHeight || image.height;
     let sx = 0, sy = 0, sw = width, sh = height, dx, dy, dw = width, dh = height;
@@ -162,23 +162,23 @@ export function createVectorGraphicsContext(doc) {
     if (!source || !width || !height) throw new Error('Vector export could not read an image.');
     if (!sw || !sh || !dw || !dh) return;
     const svg = svgSource(source);
-    if (!svg && !/^data:image\/(png|jpeg);/i.test(source)) {
-      throw new Error('Vector export supports SVG, PNG and JPEG images only.');
-    }
+    if (!svg) throw new Error('Vector rendering requires SVG graphics.');
     withPaint(() => {
       doc.rect(dx, dy, dw, dh).clip();
       doc.translate(dx - sx * dw / sw, dy - sy * dh / sh).scale(dw / sw, dh / sh);
-      if (svg) {
-        // html2canvas copies computed margins onto its SVG image root. Native
-        // drawImage offsets that viewport inside the image's unchanged crop.
-        // SVG-to-PDFKit ignores root CSS margins, so replay that offset here.
-        doc.translate(...svgRootMargins(svg));
-        SVGtoPDF(doc, svg, 0, 0, {
-          width, height, assumePt: true,
-          colorCallback: (color) => [color[0], color[1] * state.globalAlpha],
-          warningCallback: (warning) => { throw new Error(`Vector SVG export: ${warning}`); },
-        });
-      } else doc.image(source, 0, 0, { width, height });
+      // html2canvas copies computed margins onto its SVG image root. Native
+      // drawImage offsets that viewport inside the image's unchanged crop.
+      // SVG-to-PDFKit ignores root CSS margins, so replay that offset here.
+      doc.translate(...svgRootMargins(svg));
+      if (doc.svg) {
+        doc.svg(svg, width, height, state.globalAlpha);
+        return;
+      }
+      SVGtoPDF(doc, svg, 0, 0, {
+        width, height, assumePt: true,
+        colorCallback: (color) => [color[0], color[1] * state.globalAlpha],
+        warningCallback: (warning) => { throw new Error(`Vector SVG export: ${warning}`); },
+      });
     });
   }
 

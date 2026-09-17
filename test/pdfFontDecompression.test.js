@@ -24,7 +24,7 @@ test('passes through existing SFNT font bytes without copying or decoding', asyn
 });
 
 test('decodes a real WOFF2 variable font before instancing and PDF subsetting', async () => {
-  const source = readFileSync(new URL('../src/assets/pdf-fonts/Inter-Regular.ttf', import.meta.url));
+  const source = readFileSync(new URL('./fixtures/Inter-Regular.ttf', import.meta.url));
   const woff2 = await compress(source);
   assert.deepEqual([...woff2.slice(0, 4)], [0x77, 0x4f, 0x46, 0x32]);
   const sfnt = await decompressVectorFont(woff2);
@@ -50,7 +50,7 @@ test('adapts only the pinned dependency signatures', () => {
 });
 
 test('retains simple and compound variable glyph contours when subsetting', async () => {
-  const bytes = readFileSync(new URL('../src/assets/pdf-fonts/Inter-Regular.ttf', import.meta.url));
+  const bytes = readFileSync(new URL('./fixtures/Inter-Regular.ttf', import.meta.url));
   const { create } = await adaptedFontkit();
   for (const opsz of [18, 32]) {
     const font = create(bytes).getVariation({ opsz });
@@ -74,7 +74,7 @@ test('retains simple and compound variable glyph contours when subsetting', asyn
 });
 
 test('raises simple-glyph limits to cover flattened variable compound glyphs', async () => {
-  const bytes = readFileSync(new URL('../src/assets/pdf-fonts/Inter-Regular.ttf', import.meta.url));
+  const bytes = readFileSync(new URL('./fixtures/Inter-Regular.ttf', import.meta.url));
   const { create } = await adaptedFontkit();
   const font = create(bytes).getVariation({ opsz: 18 });
   // Exercise families whose composite outlines exceed their simple-glyph limits.

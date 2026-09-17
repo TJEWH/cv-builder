@@ -206,8 +206,9 @@ textarea{min-height:64px}
 .name{margin:0;font-weight:800;font-size:var(--h1-size);font-family:var(--font-head),sans-serif;color:var(--accent)}
 .role{margin:.5mm 0 0;color:var(--subtitle)}
 .contact{display:grid;gap:2mm;justify-items:end;text-align:right;font-size:9.5pt}
+.contact > div{display:flex;align-items:center;gap:8px}
 .contact a{color:inherit;text-decoration:none;border-bottom:0.5pt solid rgba(0,0,0,.2)}
-.contact-icon{margin-left: 8px;opacity: 0.6;width: 22px;height:12px;text-align:center;shape-rendering:geometricPrecision;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+.contact-icon{flex:none;opacity:0.6;width:22px;height:12px;text-align:center;shape-rendering:geometricPrecision;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 .content{display:flow-root}
 .content p{white-space:pre-line}
 #cv_main{min-width:0}
@@ -219,27 +220,26 @@ textarea{min-height:64px}
 #cv_side[data-pdf-deferred] .sidebar-content{position:absolute;top:var(--sidebar-deferred-start);left:0;right:0;min-height:var(--sidebar-deferred-min-height);background:#ffffff;box-shadow:none}
 h2{margin:0 0 4mm;font-size:var(--h2-size);color:var(--accent);text-transform:uppercase;letter-spacing:.6px;font-family:var(--font-head),sans-serif;text-shadow:var(--box-shadow)}
 h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--ink);text-transform:uppercase;letter-spacing:.5px;font-family:var(--font-head),sans-serif}
-#cv_main .section{margin:0 0 var(--section-spacing-body)}
-/* html2pdf honors break-inside: avoid, but not break-after: avoid; the lead wraps a heading with its first entry. */
+#cv_main .section{position:relative;margin:0 0 var(--section-spacing-body)}
+/* Keep a heading with its first entry using the shared CSS page-break pass. */
 #cv_main .section--keep-together,#cv_main .section-lead,#cv_main .item{break-inside:avoid;page-break-inside:avoid}
 #cv_main .section-lead > :is(h2,h3,h4){break-after:avoid;page-break-after:avoid}
 #cv_side .section{break-inside:avoid;margin:0 0 var(--section-spacing-sidebar)}
 
 /* Boxed layout */
 #cv_side{background:#ffffff;box-shadow:none}
-:root[data-sidebar-layout-style="boxed"] #cv_side{padding:6mm;border-radius:10px}
-:root[data-sidebar-layout-style="boxed"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm;border-radius:10px}
+:root[data-sidebar-layout-style="boxed"] #cv_side{padding:6mm 6mm var(--sidebar-bottom-padding,6mm);border-radius:10px}
+:root[data-sidebar-layout-style="boxed"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 6mm var(--sidebar-bottom-padding,6mm);border-radius:10px}
 
 /* Separator layout */
 :root[data-header-layout-style="separator"] .header{background:#ffffff;border-radius:0;border-bottom:var(--separator-width) solid var(--accent);box-shadow:none}
-:root[data-sidebar-layout-style="separator"] #cv_side{padding:6mm 0 6mm 6mm;background:#ffffff;border-left:var(--separator-width) solid var(--accent);border-radius:0;box-shadow:none}
-:root[data-sidebar-layout-style="separator"][data-sidebar-align="left"] #cv_side{padding:6mm 6mm 6mm 0;border-right:var(--separator-width) solid var(--accent);border-left:0}
-:root[data-sidebar-layout-style="separator"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 0 6mm 6mm;background:#ffffff;border-left:var(--separator-width) solid var(--accent);border-radius:0;box-shadow:none}
-:root[data-sidebar-layout-style="separator"][data-sidebar-align="left"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 6mm 6mm 0;border-right:var(--separator-width) solid var(--accent);border-left:0}
+:root[data-sidebar-layout-style="separator"] #cv_side{padding:6mm 0 var(--sidebar-bottom-padding,6mm) 6mm;background:#ffffff;border-left:var(--separator-width) solid var(--accent);border-radius:0;box-shadow:none}
+:root[data-sidebar-layout-style="separator"][data-sidebar-align="left"] #cv_side{padding:6mm 6mm var(--sidebar-bottom-padding,6mm) 0;border-right:var(--separator-width) solid var(--accent);border-left:0}
+:root[data-sidebar-layout-style="separator"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 0 var(--sidebar-bottom-padding,6mm) 6mm;background:#ffffff;border-left:var(--separator-width) solid var(--accent);border-radius:0;box-shadow:none}
+:root[data-sidebar-layout-style="separator"][data-sidebar-align="left"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 6mm var(--sidebar-bottom-padding,6mm) 0;border-right:var(--separator-width) solid var(--accent);border-left:0}
 :root[data-contact-layout="below"] .header{grid-template-columns:1fr}
 :root[data-contact-layout="below"] .contact{display:flex;align-items:center;gap:4mm;justify-content:flex-start;text-align:left;white-space:nowrap}
 :root[data-contact-layout="below"] .contact > div{display:inline-flex;align-items:center;flex-direction:row-reverse;gap:1.5mm}
-:root[data-contact-layout="below"] .contact-icon{margin-left:0}
 .timeline{position:relative;padding-left:7mm}
 .item{margin:0 0 var(--section-item-spacing);display:flow-root;min-width:0}
 .tags{display:flex;flex-wrap:wrap;gap:4px 6px}
@@ -254,14 +254,12 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--ink);text-transform:u
 :root[data-hstyle="leftbar"] h2{border-left:4px solid var(--accent);padding-left:3mm}
 :root[data-hstyle="pill"] h2{background:var(--accent-soft);padding:2mm 3mm;border-radius:999px;text-transform:none;letter-spacing:.2px}
 
-.timeline:before{content:"";position:absolute;left:2.8mm;top:2.5mm;bottom:0;width:3px;background:var(--accent);border-radius:10px;}
+.timeline-rail{position:absolute;inset:0;overflow:visible;pointer-events:none;fill:none;stroke:var(--accent);stroke-width:3px;stroke-linecap:round;stroke-linejoin:round}
 .timeline > .item{position:relative}
 .timeline > .item .item-title{position:relative}
 .timeline > .item .item-title::before{content:"";position:absolute;z-index:1;left:-5.803mm;top:50%;width:4mm;height:4mm;border:2px solid var(--accent);border-radius:50%;background:#fff;transform:translateY(-50%);}
 .timeline > .item:last-child{margin-bottom:0}
 .timeline--continued{margin-top:var(--section-item-spacing)}
-/* Slight overlap prevents rasterized rounded line caps from leaving a seam. */
-.timeline--continued::before{top:calc(0mm - var(--section-item-spacing) - 1mm)}
 .item ul{margin:1.5mm 0 0 4mm;padding:0;font-size:var(--bullet-size);list-style-type:disc}
 /* Apply bullet size and style to all ul elements in the CV (sidebar lists, etc.) */
 #cv_body ul, #cv_side ul{font-size:var(--bullet-size);list-style-type:disc}
