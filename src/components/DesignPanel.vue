@@ -60,6 +60,22 @@ function setLinkedMillimeters(linkKey, primaryKey, secondaryKey, value) {
   if (isLinked(linkKey)) design.value[secondaryKey] = normalized;
 }
 
+function setHeaderContentVerticalLinked(linked) {
+  design.value.headerContentPaddingVerticalLinked = linked;
+  if (!linked) return;
+  const value = design.value.headerPaddingTop || '12mm';
+  design.value.headerPaddingTop = value;
+  design.value.headerPaddingBottom = value;
+  design.value.contentPaddingVertical = value;
+}
+
+function setLinkedHeaderContentVerticalMillimeters(value) {
+  const normalized = `${Math.max(0, Number.parseFloat(value) || 0)}mm`;
+  design.value.headerPaddingTop = normalized;
+  design.value.headerPaddingBottom = normalized;
+  design.value.contentPaddingVertical = normalized;
+}
+
 function pixels(value, fallback = 1) {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? Math.min(5, Math.max(0.5, parsed)) : fallback;
@@ -95,8 +111,12 @@ function pixels(value, fallback = 1) {
             <h5>Padding</h5>
             <div class="grid-2">
               <div class="linked-control">
-                <div class="linked-control__heading"><span>{{ isLinked('headerContentPaddingVerticalLinked') ? 'Header / Content Vertical' : 'Header Vertical' }}: {{ design.headerPaddingVertical || '12mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('headerContentPaddingVerticalLinked') ? 'Unlink header and content vertical padding' : 'Link header and content vertical padding'" :aria-pressed="isLinked('headerContentPaddingVerticalLinked')" :title="isLinked('headerContentPaddingVerticalLinked') ? 'Header and content vertical padding linked' : 'Header and content vertical padding independent'" @click="setLinked('headerContentPaddingVerticalLinked', 'headerPaddingVertical', 'contentPaddingVertical', !isLinked('headerContentPaddingVerticalLinked'))"><font-awesome-icon :icon="['fas', isLinked('headerContentPaddingVerticalLinked') ? 'link' : 'link-slash']" /></button></div>
-                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('headerContentPaddingVerticalLinked') ? 'Header and content vertical padding' : 'Header vertical padding'" :value="millimeters(design.headerPaddingVertical, 12)" @input="setLinkedMillimeters('headerContentPaddingVerticalLinked', 'headerPaddingVertical', 'contentPaddingVertical', $event.target.value)">
+                <div class="linked-control__heading"><span>{{ isLinked('headerContentPaddingVerticalLinked') ? 'Header / Content Vertical' : 'Header Vertical' }}<template v-if="isLinked('headerContentPaddingVerticalLinked')">: {{ design.headerPaddingTop || '12mm' }}</template></span><button class="mini link-toggle" type="button" :aria-label="isLinked('headerContentPaddingVerticalLinked') ? 'Unlink header and content vertical padding' : 'Link header top, bottom, and content vertical padding'" :aria-pressed="isLinked('headerContentPaddingVerticalLinked')" :title="isLinked('headerContentPaddingVerticalLinked') ? 'Header top, bottom, and content vertical padding linked' : 'Header top, bottom, and content vertical padding independent'" @click="setHeaderContentVerticalLinked(!isLinked('headerContentPaddingVerticalLinked'))"><font-awesome-icon :icon="['fas', isLinked('headerContentPaddingVerticalLinked') ? 'link' : 'link-slash']" /></button></div>
+                <input v-if="isLinked('headerContentPaddingVerticalLinked')" type="range" min="0" max="30" step="1" aria-label="Header and content vertical padding" :value="millimeters(design.headerPaddingTop, 12)" @input="setLinkedHeaderContentVerticalMillimeters($event.target.value)">
+                <template v-else>
+                  <label>Header Top: {{ design.headerPaddingTop || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.headerPaddingTop, 12)" @input="setMillimeters('headerPaddingTop', $event.target.value)"></label>
+                  <label>Header Bottom: {{ design.headerPaddingBottom || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.headerPaddingBottom, 12)" @input="setMillimeters('headerPaddingBottom', $event.target.value)"></label>
+                </template>
               </div>
               <div class="linked-control">
                 <div class="linked-control__heading"><span>{{ isLinked('headerContentPaddingHorizontalLinked') ? 'Header / Content Horizontal' : 'Header Horizontal' }}: {{ design.headerPaddingHorizontal || '12mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('headerContentPaddingHorizontalLinked') ? 'Unlink header and content horizontal padding' : 'Link header and content horizontal padding'" :aria-pressed="isLinked('headerContentPaddingHorizontalLinked')" :title="isLinked('headerContentPaddingHorizontalLinked') ? 'Header and content horizontal padding linked' : 'Header and content horizontal padding independent'" @click="setLinked('headerContentPaddingHorizontalLinked', 'headerPaddingHorizontal', 'contentPaddingHorizontal', !isLinked('headerContentPaddingHorizontalLinked'))"><font-awesome-icon :icon="['fas', isLinked('headerContentPaddingHorizontalLinked') ? 'link' : 'link-slash']" /></button></div>

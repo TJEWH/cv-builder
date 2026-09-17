@@ -195,7 +195,7 @@ textarea{min-height:64px}
 }
 .header{
     display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;
-    padding:var(--header-padding-vertical) var(--header-padding-horizontal);
+    padding:var(--header-padding-top) var(--header-padding-horizontal) var(--header-padding-bottom);
     background:#ffffff;
     border-radius: var(--header-radius) var(--header-radius) 0 0;
     box-shadow:var(--box-shadow);

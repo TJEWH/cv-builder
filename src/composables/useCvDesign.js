@@ -81,7 +81,8 @@ export function applyCvDesign(design = {}) {
   root.setProperty('--page-margin-right', millimeters(design.pageMarginRight, '0mm'));
   root.setProperty('--page-margin-bottom', millimeters(design.pageMarginBottom, '0mm'));
   root.setProperty('--page-margin-left', millimeters(design.pageMarginLeft, '0mm'));
-  root.setProperty('--header-padding-vertical', millimeters(design.headerPaddingVertical, '12mm'));
+  root.setProperty('--header-padding-top', millimeters(design.headerPaddingTop ?? design.headerPaddingVertical, '12mm'));
+  root.setProperty('--header-padding-bottom', millimeters(design.headerPaddingBottom ?? design.headerPaddingVertical, '12mm'));
   root.setProperty('--header-padding-horizontal', millimeters(design.headerPaddingHorizontal, '12mm'));
   root.setProperty('--content-padding-vertical', millimeters(design.contentPaddingVertical, '10mm'));
   root.setProperty('--content-padding-horizontal', millimeters(design.contentPaddingHorizontal, '12mm'));

@@ -41,7 +41,7 @@ const state = reactive({
     sectionSpacing: '6mm', sectionSpacingBody: '6mm', sectionSpacingSidebar: '6mm',
     sidebarWidth: '0.7fr', sidebarAlign: 'right', sidebarFillMode: 'start', headerLayoutStyle: 'separator', sidebarLayoutStyle: 'separator', contactLayout: 'side', separatorWidth: '1px',
     pageMarginTop: '0mm', pageMarginRight: '0mm', pageMarginBottom: '0mm', pageMarginLeft: '0mm', pageMarginHorizontalLinked: true,
-    headerPaddingVertical: '12mm', headerPaddingHorizontal: '12mm',
+    headerPaddingTop: '12mm', headerPaddingBottom: '12mm', headerPaddingHorizontal: '12mm',
     contentPaddingVertical: '12mm', contentPaddingHorizontal: '12mm',
     headerContentPaddingVerticalLinked: true, headerContentPaddingHorizontalLinked: true,
     bodySidebarSpacing: '10mm',
@@ -89,6 +89,7 @@ useCvDesign(() => state.design);
 function ensureDesignLayoutDefaults() {
   state.design ||= {};
   const legacyLayoutStyle = state.design.layoutStyle === 'separator' ? 'separator' : 'boxed';
+  const legacyHeaderPaddingVertical = state.design.headerPaddingVertical;
   const defaults = {
     ink: '#111827',
     graphicOpacity: 100,
@@ -103,7 +104,8 @@ function ensureDesignLayoutDefaults() {
     pageMarginRight: '0mm',
     pageMarginBottom: '0mm',
     pageMarginLeft: '0mm',
-    headerPaddingVertical: '12mm',
+    headerPaddingTop: legacyHeaderPaddingVertical ?? '12mm',
+    headerPaddingBottom: legacyHeaderPaddingVertical ?? '12mm',
     headerPaddingHorizontal: '12mm',
     contentPaddingVertical: '12mm',
     contentPaddingHorizontal: '12mm',
@@ -124,9 +126,14 @@ function ensureDesignLayoutDefaults() {
   if (!['clean', 'underline', 'leftbar', 'pill'].includes(state.design.hstyle)) {
     state.design.hstyle = 'clean';
   }
+  if (typeof state.design.headerContentPaddingVerticalLinked !== 'boolean') {
+    state.design.headerContentPaddingVerticalLinked = (
+      state.design.headerPaddingTop === state.design.contentPaddingVertical
+      && state.design.headerPaddingBottom === state.design.contentPaddingVertical
+    );
+  }
   [
     ['pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft'],
-    ['headerContentPaddingVerticalLinked', 'headerPaddingVertical', 'contentPaddingVertical'],
     ['headerContentPaddingHorizontalLinked', 'headerPaddingHorizontal', 'contentPaddingHorizontal'],
   ].forEach(([linkKey, primaryKey, secondaryKey]) => {
     if (typeof state.design[linkKey] !== 'boolean') {
@@ -134,7 +141,7 @@ function ensureDesignLayoutDefaults() {
     }
   });
 
-  ['accent', 'bg', 'headerbg', 'sidebarbg', 'subtitle', 'graphic', 'dateColor', 'invertBadge', 'enableBoxShadow', 'layoutStyle', 'addExpColumns', 'bulletStyle', 'radius', 'itemBorderWidth'].forEach((key) => {
+  ['accent', 'bg', 'headerbg', 'sidebarbg', 'subtitle', 'graphic', 'dateColor', 'invertBadge', 'enableBoxShadow', 'layoutStyle', 'addExpColumns', 'bulletStyle', 'radius', 'itemBorderWidth', 'headerPaddingVertical'].forEach((key) => {
     delete state.design[key];
   });
 }
