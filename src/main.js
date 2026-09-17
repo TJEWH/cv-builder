@@ -8,15 +8,90 @@ import Textarea from 'primevue/textarea';
 import App from './App.vue';
 import './assets/cv.css';
 
-// FontAwesome setup
 import { library } from '@fortawesome/fontawesome-svg-core';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-// Import ALL solid icons
-import { fas } from '@fortawesome/free-solid-svg-icons';
-import { fab } from '@fortawesome/free-brands-svg-icons';
+import {
+  faArrowDown,
+  faArrowLeft,
+  faArrowRight,
+  faArrowsLeftRightToLine,
+  faBriefcase,
+  faCalculator,
+  faCheck,
+  faChevronLeft,
+  faChevronRight,
+  faCode,
+  faDownload,
+  faEnvelope,
+  faEye,
+  faEyeSlash,
+  faFilePdf,
+  faFont,
+  faGlobe,
+  faGraduationCap,
+  faGripVertical,
+  faHeart,
+  faInfoCircle,
+  faLanguage,
+  faLink,
+  faLinkSlash,
+  faLocationDot,
+  faLock,
+  faLockOpen,
+  faPalette,
+  faPhone,
+  faPlus,
+  faSpinner,
+  faTableCellsLarge,
+  faTableColumns,
+  faTag,
+  faTrash,
+  faUserSecret,
+  faXmark,
+} from '@fortawesome/free-solid-svg-icons';
+import { faGithub, faLinkedin } from '@fortawesome/free-brands-svg-icons';
 
-// Add all solid icons and brands to the library
-library.add(fas, fab);
+library.add(
+  faArrowDown,
+  faArrowLeft,
+  faArrowRight,
+  faArrowsLeftRightToLine,
+  faBriefcase,
+  faCalculator,
+  faCheck,
+  faChevronLeft,
+  faChevronRight,
+  faCode,
+  faDownload,
+  faEnvelope,
+  faEye,
+  faEyeSlash,
+  faFilePdf,
+  faFont,
+  faGithub,
+  faGlobe,
+  faGraduationCap,
+  faGripVertical,
+  faHeart,
+  faInfoCircle,
+  faLanguage,
+  faLinkedin,
+  faLink,
+  faLinkSlash,
+  faLocationDot,
+  faLock,
+  faLockOpen,
+  faPalette,
+  faPhone,
+  faPlus,
+  faSpinner,
+  faTableCellsLarge,
+  faTableColumns,
+  faTag,
+  faTrash,
+  faUserSecret,
+  faXmark,
+);
 
 const app = createApp(App);
 app.use(PrimeVue, {

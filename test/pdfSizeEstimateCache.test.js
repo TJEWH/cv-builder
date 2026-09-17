@@ -24,7 +24,6 @@ const state = {
   hobbies: [],
   customSections: [],
   sidebarSections: [],
-  softSkills: [],
 };
 
 const pages = [{

@@ -118,16 +118,5 @@
   ],
   "bodyOrder": ["about", "education", "jobs", "body_default_additional", "body_default_projects", "body_default_custom"],
   "sidebarOrder": ["languages", "hobbies", "sidebar_default_certificates"],
-  "disabled": [],
-  "softSkills": [
-    { "label": "Analytisches Denken", "desc": "", "refs": [] },
-    { "label": "Anpassungsfähigkeit", "desc": "", "refs": [] },
-    { "label": "Kritisches Denken", "desc": "", "refs": [] },
-    { "label": "Kreative Problemlösung", "desc": "", "refs": [] },
-    { "label": "Kommunikationsstärke", "desc": "", "refs": [] },
-    { "label": "Emotionale Intelligenz", "desc": "", "refs": [] },
-    { "label": "Teamfähigkeit", "desc": "", "refs": [] },
-    { "label": "Digitale Kompetenz", "desc": "", "refs": [] },
-    { "label": "Entrepreneurship", "desc": "", "refs": [] }
-  ]
+  "disabled": []
 }

@@ -1,6 +1,5 @@
 // Centralized dictionary for language translation (i18n)
 export const dict = {
-    openPdf:            {de: 'PDF öffnen', en: 'open PDF'},
     openPreview:        {de: 'Vorschau öffnen', en: 'Open preview'},
     showHtmlPreview:    {de: 'Raw HTML anzeigen', en: 'Show Raw HTML'},
     showPdfPreview:     {de: 'PDF anzeigen', en: 'Show PDF'},
@@ -24,15 +23,10 @@ export const dict = {
     calculatingEstimate:{de: 'Berechne exakt…', en: 'Calculating exact size…'},
     estimateUnavailable:{de: 'Noch nicht berechnet', en: 'Not calculated yet'},
     estimateStaleContent: {de: 'Inhalt geändert – exakte Größe neu berechnen', en: 'Content changed — calculate again'},
-    approximateEstimate: {de: 'Schnelle Schätzung', en: 'Quick estimate'},
     calibratedEstimate: {de: 'Kalibrierte Schätzung', en: 'Calibrated estimate'},
     heuristicEstimate: {de: 'Heuristische Schätzung', en: 'Heuristic estimate'},
     exactEstimateResult: {de: 'Exakt', en: 'Exact'},
     exactEstimate:      {de: 'Exakte Größe berechnen', en: 'Calculate exact size'},
-    previewNotFound:    {de: 'Vorschau konnte nicht gefunden werden. Bitte stelle sicher, dass die Vorschau aktiviert ist.', en: 'Preview not found. Please make sure the preview is enabled.'},
-    showPreview:        {de: 'Vorschau anzeigen', en: 'show preview'},
-    hidePreview:        {de: 'Vorschau ausblenden', en: 'hide preview'},
-    livePreview:        {de: 'Live-Vorschau', en: 'Live preview'},
     previousPage:       {de: 'Vorherige Seite', en: 'Previous page'},
     nextPage:           {de: 'Nächste Seite', en: 'Next page'},
     previewPagination:  {de: 'Seitennavigation der Vorschau', en: 'Preview page navigation'},
@@ -45,45 +39,23 @@ export const dict = {
     movePreviewSide:    {de: 'Vorschau neben dem Builder anzeigen', en: 'Move preview beside the builder'},
     design:             {de: 'Design', en: 'Design'},
     content:            {de: 'Inhalt', en: 'Content'},
-    collapseAll:        {de: 'Alle einklappen', en: 'Collapse all'},
-    expandAll:          {de: 'Alle ausklappen', en: 'Expand all'},
     body:               {de: 'Body', en: 'Body'},
     sidebar:            {de: 'Sidebar', en: 'Sidebar'},
     reorder:            {de: 'Reihenfolge', en: 'Reorder'},
-    groupHidden:        {de: 'Ausgeblendete gruppieren', en: 'Group hidden'},
     fields:             {de: 'Felder', en: 'Fields'},
     fieldConfiguration: {de: 'Felder konfigurieren', en: 'Configure fields'},
     fieldConfigurationHelp: {de: 'Wähle die Felder aus, die jeder Eintrag dieser Sektion enthalten soll.', en: 'Choose the fields each entry in this section should contain.'},
     close:              {de: 'Schließen', en: 'Close'},
     reorderSections:    {de: 'Sektionen sortieren', en: 'Reorder sections'},
     reorderSectionsHelp:{de: 'Ziehe eine Sektion am Griff, um ihre Reihenfolge innerhalb ihrer Spalte zu ändern.', en: 'Drag a section by its handle to change its order within that column.'},
-    newSidebarSection:  {de: 'Neue Sidebar-Sektion', en: 'New sidebar section'},
     levelType:          {de: 'Level-Typ', en: 'Level type'},
     skillName:          {de: 'Name', en: 'Name'},
     levelValue:         {de: 'Level-Wert', en: 'Level value'},
-    addSkill:           {de: '+ Fähigkeit', en: '+ Skill'},
-
-    // Toggles / captions
-    storageCaption:     {de: 'Speicherort', en: 'Storage'},
-    browser:            {de: 'Browser', en: 'Browser'},
-    project:            {de: 'Projekt', en: 'Project'},
-    languageCaption:    {de: 'Sprache', en: 'Language'},
-    deShort:            {de: 'DE', en: 'DE'},
-    enShort:            {de: 'EN', en: 'EN'},
     german:             {de: 'Deutsch', en: 'German'},
-    english:            {de: 'Englisch', en: 'English'},
 
     // Generic buttons / messages
-    load:               {de: 'Laden', en: 'Load'},
-    save:               {de: 'Speichern', en: 'Save'},
-    newSection:         {de: 'Neue Sektion', en: 'New section'},
     addSection:         {de: 'Sektion hinzufügen', en: 'Add section'},
     addItem:            {de: 'Eintrag hinzufügen', en: 'Add item'},
-    add:                {de: 'Hinzufügen', en: 'Add'},
-    addEntry:           {de: 'Eintrag hinzufügen', en: 'Add entry'},
-    entryCSV:           {de: 'Einträge (komma-getrennt)', en: 'Entries (comma-separated)'},
-    addLanguage:        {de: 'Sprache hinzufügen', en: 'Add language'},
-    addSkillType:       {de: 'Gruppe hinzufügen', en: 'Add skill type'},
     show:               {de: 'Einblenden', en: 'Show'},
     hide:               {de: 'Ausblenden', en: 'Hide'},
     remove:             {de: 'Entfernen', en: 'Remove'},
@@ -93,26 +65,6 @@ export const dict = {
     confirmDeleteItem:  {de: 'Diesen Eintrag wirklich löschen?', en: 'Delete this item?'},
     confirmDeleteSection: {de: 'Diese Sektion und alle ihre Einträge wirklich löschen?', en: 'Delete this section and all of its items?'},
 
-    // Status messages
-    loading:            {de: 'Lädt…', en: 'Loading…'},
-    editing:            {de: 'Bearbeiten…', en: 'Editing…'},
-    saved:              {de: 'Gesichert', en: 'Saved'},
-    loadedLast:         {de: 'Letzte Session geladen', en: 'Loaded last session'},
-    backupBrowserFallback: {
-        de: 'Backup (Browser) geladen (Datei-Modus nicht verfügbar)',
-        en: 'Backup (browser) loaded (file mode not available)'
-    },
-    backupBrowser:      {de: 'Backup-Datei geladen', en: 'Backup file loaded'},
-    backupProject:      {de: 'Projekt-Datei geladen', en: 'Project file loaded'},
-    defaultLoaded:      {de: 'Standard-Daten geladen', en: 'Default data loaded'},
-    defaultFailed:      {de: 'Standard-Daten konnten nicht geladen werden', en: 'Failed to load default data'},
-    savedProjectDevSrv: {de: 'Gespeichert im Projekt (Dev-Server).', en: 'Saved to project (dev server).'},
-    savedProjectFsApi:  {de: 'Gespeichert im Projekt (FS-API).', en: 'Saved to project (FS-API).'},
-    savedBrowserOPFS:   {de: 'Im Browser (OPFS) gespeichert.', en: 'Saved in browser (OPFS).'},
-    savedBrowserLs:     {de: 'Im Browser (LocalStorage) gespeichert.', en: 'Saved in browser (LocalStorage).'},
-    saveError:          {de: 'Backup fehlgeschlagen', en: 'Backup failed.'},
-    backupNotFound:     {de: 'Keine Backup-Datei gefunden', en: 'No backup file found'},
-
     // Section titles
     header:          { de:'Header', en:'Header' },
     headerTitle:     { de:'Kontakt', en:'Contact' },
@@ -121,8 +73,6 @@ export const dict = {
     educationTitle:  { de:'Ausbildung', en:'Education' },
     languagesTitle:  { de:'Sprachen', en:'Languages' },
     hobbiesTitle:    { de:'Hobbys', en:'Hobbies' },
-    customTitle:     { de:'Eigene Sektionen', en:'Custom Sections' },
-    softSkillsTitle: { de:'Soft Skills – Checkliste', en:'Soft Skills – Checklist' },
 
     // Field labels – Header
     name:           { de:'Name', en:'Name' },
@@ -159,34 +109,11 @@ export const dict = {
     // Languages
     languageName:   { de:'Sprache', en:'Language' },
     level:          { de:'Niveau',  en:'Level' },
-    level_native:   { de:'Muttersprache', en:'Native' },
 
     // Placeholder
     current:            { de:'heute', en:'current' },
     tasksPH:            { de:'Skalierung von X\nEinführung CI/CD\nMentoring', en:'Scaling X\nIntroduce CI/CD\nMentoring' },
     customSectionPH:    { de:'Konferenzen / Ehrenamt / …', en:'Conferences / Volunteering / …' },
-    aboutPH:            { de:'Kurzbeschreibung über mich…', en:'Short description about me…' },
-
-    // Hobbies
-    hobbyDesc:      { de:'Hobbys - Details', en:'Hobbies - details' },
-
-    // Soft skills checklist items
-    analyticThinking:       { de:'Analytisches Denken', en:'Analytic Thinking' },
-    adaptability:           { de:'Anpassungsfähigkeit', en:'Adaptability' },
-    criticalThinking:       { de:'Kritisches Denken', en:'Critical Thinking' },
-    problemSolving:         { de:'Kreative Problemlösung', en:'Creative Problem Solving' },
-    communicationSkills:    { de:'Kommunikationsstärke', en:'Communication Skills' },
-    emotionalIntelligence:  { de:'Emotionale Intelligenz', en:'Emotional Intelligence' },
-    teamwork:               { de:'Teamfähigkeit', en:'Teamwork' },
-    digitalCompetence:      { de:'Digitale Kompetenz', en:'Digital Competence' },
-    entrepreneurship:       { de:'Entrepreneurship', en:'Entrepreneurship' },
-
-    // Preview section headings (if you want different wording)
-    subHeaderJobXP:         { de:'Berufserfahrung', en:'Professional Experience' },
-    subHeaderAddXP:         { de:'Weitere Erfahrung', en:'Personal Experience' },
-
-    includeAddExp:     { de:'Erfahrung einbinden', en:'include Experience' },
-    includeProjects:        { de:'Projekte einbinden', en:'include Projects' },
     // Formatting tokens
     dotSep: { de:' · ', en:' · ' },
     rangeSep:{ de:' – ', en:' – ' },

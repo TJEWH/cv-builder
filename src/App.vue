@@ -58,11 +58,6 @@ const state = reactive({
   sidebarSections: [],
   sectionNames: {},
   sectionHeaderSizes: {},
-  softSkills: [
-    { label: 'Anpassungsfähigkeit', desc: '', refs: [] },
-    { label: 'Kritisches Denken', desc: '', refs: [] },
-    { label: 'Kreative Problemlösung', desc: '', refs: [] },
-  ],
   bodyOrder: ['about', 'education', 'jobs'],
   sidebarOrder: ['languages', 'hobbies'],
 });
@@ -418,7 +413,6 @@ const previewState = computed(() => ({
   sectionNames: state.sectionNames,
   sectionHeaderSizes: state.sectionHeaderSizes,
   keepTogetherSections: state.keepTogetherSections,
-  softSkills: state.softSkills,
   bodyOrder: state.bodyOrder,
   sidebarOrder: state.sidebarOrder,
 }));

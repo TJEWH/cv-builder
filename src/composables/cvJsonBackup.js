@@ -12,7 +12,6 @@ const CV_STATE_KEYS = [
   'hobbies',
   'customSections',
   'sidebarSections',
-  'softSkills',
   'design',
 ];
 

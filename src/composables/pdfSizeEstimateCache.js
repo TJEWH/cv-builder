@@ -179,7 +179,6 @@ export function createPdfSizeLayerInfo(state = {}, pages = []) {
     hobbies: state.hobbies,
     customSections: state.customSections,
     sidebarSections: state.sidebarSections,
-    softSkills: state.softSkills,
     sectionNames: state.sectionNames,
   };
   const text = countText(textLayers);
