@@ -40,10 +40,9 @@ const state = reactive({
     badgeMode: 'solid', badgeBorderWidth: '1px', badgeBorderRadius: '6px',
     sectionSpacing: '6mm', sectionSpacingBody: '6mm', sectionSpacingSidebar: '6mm', itemSpacing: '3.5mm',
     sidebarWidth: '0.7fr', sidebarAlign: 'right', sidebarFillMode: 'start', headerLayoutStyle: 'separator', sidebarLayoutStyle: 'separator', contactLayout: 'side', separatorWidth: '1px',
-    pageMarginTop: '0mm', pageMarginRight: '0mm', pageMarginBottom: '0mm', pageMarginLeft: '0mm', pageMarginHorizontalLinked: true,
-    headerPaddingTop: '12mm', headerPaddingBottom: '12mm', headerPaddingHorizontal: '12mm',
-    contentPaddingVertical: '12mm', contentPaddingHorizontal: '12mm',
-    headerContentPaddingVerticalLinked: true, headerContentPaddingHorizontalLinked: true,
+    pageMarginTop: '12mm', pageMarginRight: '12mm', pageMarginBottom: '12mm', pageMarginLeft: '12mm',
+    pageMarginHorizontalLinked: true, pageMarginVerticalLinked: true,
+    headerPaddingBottom: '12mm', headerBottomMargin: '12mm', headerBottomSpacingLinked: true,
     bodySidebarSpacing: '10mm',
   },
   exportOptions: { ...DEFAULT_EXPORT_OPTIONS },
@@ -86,10 +85,51 @@ const saveDebounced = debounce(() => saveLocal(JSON.parse(JSON.stringify(state))
 watch(state, saveDebounced, { deep: true });
 useCvDesign(() => state.design);
 
+function designMillimeters(value, fallback = 0) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : fallback;
+}
+
+function addDesignMillimeters(...values) {
+  return `${values.reduce((total, value) => total + designMillimeters(value), 0)}mm`;
+}
+
+function hasOwnDesignProperty(design, key) {
+  return Object.prototype.hasOwnProperty.call(design, key);
+}
+
+function migrateLegacySpacing(design) {
+  const legacySpacingKeys = [
+    'headerPaddingTop',
+    'headerPaddingVertical',
+    'headerPaddingHorizontal',
+    'contentPaddingVertical',
+    'contentPaddingHorizontal',
+    'headerContentPaddingVerticalLinked',
+    'headerContentPaddingHorizontalLinked',
+  ];
+  if (!legacySpacingKeys.some((key) => hasOwnDesignProperty(design, key))) return;
+
+  const legacyHeaderVertical = design.headerPaddingVertical;
+  const headerTop = design.headerPaddingTop ?? legacyHeaderVertical ?? '12mm';
+  const headerBottom = design.headerPaddingBottom ?? legacyHeaderVertical ?? '12mm';
+  const contentVertical = design.contentPaddingVertical ?? '12mm';
+  const contentHorizontal = design.contentPaddingHorizontal ?? design.headerPaddingHorizontal ?? '12mm';
+
+  // Page margins now own the outer whitespace. This preserves the effective
+  // inset of older layouts before removing their separate horizontal controls.
+  design.pageMarginTop = addDesignMillimeters(design.pageMarginTop, headerTop);
+  design.pageMarginBottom = addDesignMillimeters(design.pageMarginBottom, contentVertical);
+  design.pageMarginRight = addDesignMillimeters(design.pageMarginRight, contentHorizontal);
+  design.pageMarginLeft = addDesignMillimeters(design.pageMarginLeft, contentHorizontal);
+  design.headerPaddingBottom = headerBottom;
+  design.headerBottomMargin ??= contentVertical;
+}
+
 function ensureDesignLayoutDefaults() {
   state.design ||= {};
   const legacyLayoutStyle = state.design.layoutStyle === 'separator' ? 'separator' : 'boxed';
-  const legacyHeaderPaddingVertical = state.design.headerPaddingVertical;
+  migrateLegacySpacing(state.design);
   const defaults = {
     ink: '#111827',
     graphicOpacity: 100,
@@ -100,15 +140,12 @@ function ensureDesignLayoutDefaults() {
     sidebarLayoutStyle: legacyLayoutStyle,
     contactLayout: 'side',
     separatorWidth: '1px',
-    pageMarginTop: '0mm',
-    pageMarginRight: '0mm',
-    pageMarginBottom: '0mm',
-    pageMarginLeft: '0mm',
-    headerPaddingTop: legacyHeaderPaddingVertical ?? '12mm',
-    headerPaddingBottom: legacyHeaderPaddingVertical ?? '12mm',
-    headerPaddingHorizontal: '12mm',
-    contentPaddingVertical: '12mm',
-    contentPaddingHorizontal: '12mm',
+    pageMarginTop: '12mm',
+    pageMarginRight: '12mm',
+    pageMarginBottom: '12mm',
+    pageMarginLeft: '12mm',
+    headerPaddingBottom: '12mm',
+    headerBottomMargin: '12mm',
     itemSpacing: '3.5mm',
     bodySidebarSpacing: '10mm',
     badgeMode: 'solid',
@@ -127,22 +164,17 @@ function ensureDesignLayoutDefaults() {
   if (!['clean', 'underline', 'leftbar', 'pill'].includes(state.design.hstyle)) {
     state.design.hstyle = 'clean';
   }
-  if (typeof state.design.headerContentPaddingVerticalLinked !== 'boolean') {
-    state.design.headerContentPaddingVerticalLinked = (
-      state.design.headerPaddingTop === state.design.contentPaddingVertical
-      && state.design.headerPaddingBottom === state.design.contentPaddingVertical
-    );
-  }
   [
     ['pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft'],
-    ['headerContentPaddingHorizontalLinked', 'headerPaddingHorizontal', 'contentPaddingHorizontal'],
+    ['pageMarginVerticalLinked', 'pageMarginTop', 'pageMarginBottom'],
+    ['headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin'],
   ].forEach(([linkKey, primaryKey, secondaryKey]) => {
     if (typeof state.design[linkKey] !== 'boolean') {
       state.design[linkKey] = state.design[primaryKey] === state.design[secondaryKey];
     }
   });
 
-  ['accent', 'bg', 'headerbg', 'sidebarbg', 'subtitle', 'graphic', 'dateColor', 'invertBadge', 'enableBoxShadow', 'layoutStyle', 'addExpColumns', 'bulletStyle', 'radius', 'itemBorderWidth', 'headerPaddingVertical'].forEach((key) => {
+  ['accent', 'bg', 'headerbg', 'sidebarbg', 'subtitle', 'graphic', 'dateColor', 'invertBadge', 'enableBoxShadow', 'layoutStyle', 'addExpColumns', 'bulletStyle', 'radius', 'itemBorderWidth', 'headerRadius', 'headerPadYmm', 'headerPaddingTop', 'headerPaddingVertical', 'headerPaddingHorizontal', 'contentPaddingVertical', 'contentPaddingHorizontal', 'headerContentPaddingVerticalLinked', 'headerContentPaddingHorizontalLinked'].forEach((key) => {
     delete state.design[key];
   });
 }
@@ -220,7 +252,7 @@ function getPdfMargins(design = {}) {
 function getPdfRenderOptions(options = {}) {
   return {
     margin: getPdfMargins(state.design),
-    continuationTopPadding: exportMarginMillimeters(state.design?.contentPaddingVertical || '10mm'),
+    continuationTopPadding: exportMarginMillimeters(state.design?.headerBottomMargin || '12mm'),
     sidebarFillMode: state.design?.sidebarFillMode,
     ...options,
   };

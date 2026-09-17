@@ -8,15 +8,12 @@ html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
     --bg:#ffffff;
     --h1-size:22pt;--h2-size:12pt;--h3-size:10pt;--bullet-size:10.5pt;
     --header-radius: 12px;
-    --page-margin-top:0mm;
-    --page-margin-right:0mm;
-    --page-margin-bottom:0mm;
-    --page-margin-left:0mm;
-    --header-padding-top:12mm;
+    --page-margin-top:12mm;
+    --page-margin-right:12mm;
+    --page-margin-bottom:12mm;
+    --page-margin-left:12mm;
     --header-padding-bottom:12mm;
-    --header-padding-horizontal:12mm;
-    --content-padding-vertical:10mm;
-    --content-padding-horizontal:12mm;
+    --header-bottom-margin:12mm;
     --separator-width:1px;
     --subtitle:#111827;
     --graphic:rgba(17,24,39,1);
@@ -197,7 +194,8 @@ textarea{min-height:64px}
 }
 .header{
     display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;
-    padding:var(--header-padding-top) var(--header-padding-horizontal) var(--header-padding-bottom);
+    margin-bottom:var(--header-bottom-margin);
+    padding:0 0 var(--header-padding-bottom);
     background:#ffffff;
     border-radius: var(--header-radius) var(--header-radius) 0 0;
     box-shadow:var(--box-shadow);
@@ -207,7 +205,7 @@ textarea{min-height:64px}
 .contact{display:grid;gap:2mm;justify-items:end;text-align:right;font-size:9.5pt}
 .contact a{color:inherit;text-decoration:none;border-bottom:0.5pt solid rgba(0,0,0,.2)}
 .contact-icon{margin-left: 8px;opacity: 0.6;width: 22px;height:12px;text-align:center;shape-rendering:geometricPrecision;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
-.content{display:flow-root;padding:var(--content-padding-vertical) var(--content-padding-horizontal)}
+.content{display:flow-root}
 .content p{white-space:pre-line}
 #cv_main{min-width:0}
 #cv_main, #cv_main *{min-width:0}

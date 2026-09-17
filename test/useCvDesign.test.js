@@ -20,21 +20,21 @@ function withDocument(run) {
   }
 }
 
-test('applies independent header top and bottom padding', () => {
+test('applies independent header bottom padding and margin', () => {
   withDocument((properties) => {
-    applyCvDesign({ headerPaddingTop: '8mm', headerPaddingBottom: '16mm' });
+    applyCvDesign({ headerPaddingBottom: '8mm', headerBottomMargin: '16mm' });
 
-    assert.equal(properties.get('--header-padding-top'), '8mm');
-    assert.equal(properties.get('--header-padding-bottom'), '16mm');
+    assert.equal(properties.get('--header-padding-bottom'), '8mm');
+    assert.equal(properties.get('--header-bottom-margin'), '16mm');
   });
 });
 
-test('uses the legacy vertical header padding for both sides', () => {
+test('applies independent vertical page margins', () => {
   withDocument((properties) => {
-    applyCvDesign({ headerPaddingVertical: '10mm' });
+    applyCvDesign({ pageMarginTop: '10mm', pageMarginBottom: '18mm' });
 
-    assert.equal(properties.get('--header-padding-top'), '10mm');
-    assert.equal(properties.get('--header-padding-bottom'), '10mm');
+    assert.equal(properties.get('--page-margin-top'), '10mm');
+    assert.equal(properties.get('--page-margin-bottom'), '18mm');
   });
 });
 

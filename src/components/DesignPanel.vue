@@ -60,22 +60,6 @@ function setLinkedMillimeters(linkKey, primaryKey, secondaryKey, value) {
   if (isLinked(linkKey)) design.value[secondaryKey] = normalized;
 }
 
-function setHeaderContentVerticalLinked(linked) {
-  design.value.headerContentPaddingVerticalLinked = linked;
-  if (!linked) return;
-  const value = design.value.headerPaddingTop || '12mm';
-  design.value.headerPaddingTop = value;
-  design.value.headerPaddingBottom = value;
-  design.value.contentPaddingVertical = value;
-}
-
-function setLinkedHeaderContentVerticalMillimeters(value) {
-  const normalized = `${Math.max(0, Number.parseFloat(value) || 0)}mm`;
-  design.value.headerPaddingTop = normalized;
-  design.value.headerPaddingBottom = normalized;
-  design.value.contentPaddingVertical = normalized;
-}
-
 function pixels(value, fallback = 1) {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? Math.min(5, Math.max(0.5, parsed)) : fallback;
@@ -98,37 +82,28 @@ function pixels(value, fallback = 1) {
           <div class="layout-control-group subsection-row">
             <h5>Page Margins</h5>
             <div class="grid-2">
-              <label>Top: {{ design.pageMarginTop || '0mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginTop, 0)" @input="setMillimeters('pageMarginTop', $event.target.value)"></label>
               <div class="linked-control">
-                <div class="linked-control__heading"><span>{{ isLinked('pageMarginHorizontalLinked') ? 'Horizontal' : 'Right' }}: {{ design.pageMarginRight || '0mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('pageMarginHorizontalLinked') ? 'Unlink right and left page margins' : 'Link right and left page margins'" :aria-pressed="isLinked('pageMarginHorizontalLinked')" :title="isLinked('pageMarginHorizontalLinked') ? 'Right and left margins linked' : 'Right and left margins independent'" @click="setLinked('pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft', !isLinked('pageMarginHorizontalLinked'))"><font-awesome-icon :icon="['fas', isLinked('pageMarginHorizontalLinked') ? 'link' : 'link-slash']" /></button></div>
-                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('pageMarginHorizontalLinked') ? 'Horizontal page margin' : 'Right page margin'" :value="millimeters(design.pageMarginRight, 0)" @input="setLinkedMillimeters('pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft', $event.target.value)">
+                <div class="linked-control__heading"><span>{{ isLinked('pageMarginVerticalLinked') ? 'Vertical' : 'Top' }}: {{ design.pageMarginTop || '12mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('pageMarginVerticalLinked') ? 'Unlink top and bottom page margins' : 'Link top and bottom page margins'" :aria-pressed="isLinked('pageMarginVerticalLinked')" :title="isLinked('pageMarginVerticalLinked') ? 'Top and bottom margins linked' : 'Top and bottom margins independent'" @click="setLinked('pageMarginVerticalLinked', 'pageMarginTop', 'pageMarginBottom', !isLinked('pageMarginVerticalLinked'))"><font-awesome-icon :icon="['fas', isLinked('pageMarginVerticalLinked') ? 'link' : 'link-slash']" /></button></div>
+                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('pageMarginVerticalLinked') ? 'Vertical page margin' : 'Top page margin'" :value="millimeters(design.pageMarginTop, 12)" @input="setLinkedMillimeters('pageMarginVerticalLinked', 'pageMarginTop', 'pageMarginBottom', $event.target.value)">
               </div>
-              <label>Bottom: {{ design.pageMarginBottom || '0mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginBottom, 0)" @input="setMillimeters('pageMarginBottom', $event.target.value)"></label>
-              <label v-if="!isLinked('pageMarginHorizontalLinked')">Left: {{ design.pageMarginLeft || '0mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginLeft, 0)" @input="setMillimeters('pageMarginLeft', $event.target.value)"></label>
+              <div class="linked-control">
+                <div class="linked-control__heading"><span>{{ isLinked('pageMarginHorizontalLinked') ? 'Horizontal' : 'Right' }}: {{ design.pageMarginRight || '12mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('pageMarginHorizontalLinked') ? 'Unlink right and left page margins' : 'Link right and left page margins'" :aria-pressed="isLinked('pageMarginHorizontalLinked')" :title="isLinked('pageMarginHorizontalLinked') ? 'Right and left margins linked' : 'Right and left margins independent'" @click="setLinked('pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft', !isLinked('pageMarginHorizontalLinked'))"><font-awesome-icon :icon="['fas', isLinked('pageMarginHorizontalLinked') ? 'link' : 'link-slash']" /></button></div>
+                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('pageMarginHorizontalLinked') ? 'Horizontal page margin' : 'Right page margin'" :value="millimeters(design.pageMarginRight, 12)" @input="setLinkedMillimeters('pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft', $event.target.value)">
+              </div>
+              <label v-if="!isLinked('pageMarginVerticalLinked')">Bottom: {{ design.pageMarginBottom || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginBottom, 12)" @input="setMillimeters('pageMarginBottom', $event.target.value)"></label>
+              <label v-if="!isLinked('pageMarginHorizontalLinked')">Left: {{ design.pageMarginLeft || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginLeft, 12)" @input="setMillimeters('pageMarginLeft', $event.target.value)"></label>
             </div>
           </div>
           <div class="layout-control-group subsection-row">
-            <h5>Padding</h5>
+            <h5>Header Spacing</h5>
             <div class="grid-2">
               <div class="linked-control">
-                <div class="linked-control__heading"><span>{{ isLinked('headerContentPaddingVerticalLinked') ? 'Header / Content Vertical' : 'Header Vertical' }}<template v-if="isLinked('headerContentPaddingVerticalLinked')">: {{ design.headerPaddingTop || '12mm' }}</template></span><button class="mini link-toggle" type="button" :aria-label="isLinked('headerContentPaddingVerticalLinked') ? 'Unlink header and content vertical padding' : 'Link header top, bottom, and content vertical padding'" :aria-pressed="isLinked('headerContentPaddingVerticalLinked')" :title="isLinked('headerContentPaddingVerticalLinked') ? 'Header top, bottom, and content vertical padding linked' : 'Header top, bottom, and content vertical padding independent'" @click="setHeaderContentVerticalLinked(!isLinked('headerContentPaddingVerticalLinked'))"><font-awesome-icon :icon="['fas', isLinked('headerContentPaddingVerticalLinked') ? 'link' : 'link-slash']" /></button></div>
-                <input v-if="isLinked('headerContentPaddingVerticalLinked')" type="range" min="0" max="30" step="1" aria-label="Header and content vertical padding" :value="millimeters(design.headerPaddingTop, 12)" @input="setLinkedHeaderContentVerticalMillimeters($event.target.value)">
-                <template v-else>
-                  <label>Header Top: {{ design.headerPaddingTop || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.headerPaddingTop, 12)" @input="setMillimeters('headerPaddingTop', $event.target.value)"></label>
-                  <label>Header Bottom: {{ design.headerPaddingBottom || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.headerPaddingBottom, 12)" @input="setMillimeters('headerPaddingBottom', $event.target.value)"></label>
-                </template>
+                <div class="linked-control__heading"><span>{{ isLinked('headerBottomSpacingLinked') ? 'Header Bottom Spacing' : 'Header Bottom Padding' }}: {{ design.headerPaddingBottom || '12mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('headerBottomSpacingLinked') ? 'Unlink header bottom padding and margin' : 'Link header bottom padding and margin'" :aria-pressed="isLinked('headerBottomSpacingLinked')" :title="isLinked('headerBottomSpacingLinked') ? 'Header bottom padding and margin linked' : 'Header bottom padding and margin independent'" @click="setLinked('headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin', !isLinked('headerBottomSpacingLinked'))"><font-awesome-icon :icon="['fas', isLinked('headerBottomSpacingLinked') ? 'link' : 'link-slash']" /></button></div>
+                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('headerBottomSpacingLinked') ? 'Header bottom spacing' : 'Header bottom padding'" :value="millimeters(design.headerPaddingBottom, 12)" @input="setLinkedMillimeters('headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin', $event.target.value)">
               </div>
-              <div class="linked-control">
-                <div class="linked-control__heading"><span>{{ isLinked('headerContentPaddingHorizontalLinked') ? 'Header / Content Horizontal' : 'Header Horizontal' }}: {{ design.headerPaddingHorizontal || '12mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('headerContentPaddingHorizontalLinked') ? 'Unlink header and content horizontal padding' : 'Link header and content horizontal padding'" :aria-pressed="isLinked('headerContentPaddingHorizontalLinked')" :title="isLinked('headerContentPaddingHorizontalLinked') ? 'Header and content horizontal padding linked' : 'Header and content horizontal padding independent'" @click="setLinked('headerContentPaddingHorizontalLinked', 'headerPaddingHorizontal', 'contentPaddingHorizontal', !isLinked('headerContentPaddingHorizontalLinked'))"><font-awesome-icon :icon="['fas', isLinked('headerContentPaddingHorizontalLinked') ? 'link' : 'link-slash']" /></button></div>
-                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('headerContentPaddingHorizontalLinked') ? 'Header and content horizontal padding' : 'Header horizontal padding'" :value="millimeters(design.headerPaddingHorizontal, 12)" @input="setLinkedMillimeters('headerContentPaddingHorizontalLinked', 'headerPaddingHorizontal', 'contentPaddingHorizontal', $event.target.value)">
-              </div>
-              <template v-if="!isLinked('headerContentPaddingVerticalLinked')">
-                <label>Content Vertical: {{ design.contentPaddingVertical || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.contentPaddingVertical, 12)" @input="setMillimeters('contentPaddingVertical', $event.target.value)"></label>
-              </template>
-              <template v-if="!isLinked('headerContentPaddingHorizontalLinked')">
-                <label>Content Horizontal: {{ design.contentPaddingHorizontal || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.contentPaddingHorizontal, 12)" @input="setMillimeters('contentPaddingHorizontal', $event.target.value)"></label>
-              </template>
+              <label v-if="!isLinked('headerBottomSpacingLinked')">Header Bottom Margin: {{ design.headerBottomMargin || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.headerBottomMargin, 12)" @input="setMillimeters('headerBottomMargin', $event.target.value)"></label>
             </div>
+            <p class="spacing-hint">With a separator header, padding is above the line and margin is below it.</p>
           </div>
         </div>
       </section>
@@ -188,4 +163,5 @@ function pixels(value, fallback = 1) {
 .link-toggle { width: 28px; min-width: 28px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .link-toggle[aria-pressed="true"] { border-color: #27f3a2; color: #9be8c7; }
 .linked-control { display: grid; gap: 4px; }
+.spacing-hint { margin: 6px 0 0; color: var(--muted); font-size: 9pt; }
 </style>
