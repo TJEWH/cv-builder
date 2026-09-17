@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { debounce, loadLocal, saveLocal } from './composables/useStorage';
 import { useCvDesign } from './composables/useCvDesign';
 import { usePdfExport } from './composables/usePdfExport';
@@ -32,7 +32,7 @@ const state = reactive({
   disabled: [],
   completedSections: [],
   keepTogetherSections: [],
-  lang: 'de',
+  lang: 'en',
   design: {
     h1: '22pt', h2: '12pt', h3: '10pt', bullets: '10.5pt',
     ink: '#111827', graphicOpacity: 100, dateOpacity: 100,
@@ -44,6 +44,7 @@ const state = reactive({
     pageMarginHorizontalLinked: true, pageMarginVerticalLinked: true,
     headerPaddingBottom: '12mm', headerBottomMargin: '12mm', headerBottomSpacingLinked: true,
     bodySidebarSpacing: '10mm',
+    favoriteControls: [],
   },
   exportOptions: { ...DEFAULT_EXPORT_OPTIONS },
   anonymization: { excludedSections: [], excludedItems: [] },
@@ -60,9 +61,12 @@ const state = reactive({
   bodyOrder: ['about', 'education', 'jobs'],
   sidebarOrder: ['languages', 'hobbies'],
 });
+const stateKeys = Object.keys(state);
+const initialState = JSON.parse(JSON.stringify(state));
+const createInitialState = () => JSON.parse(JSON.stringify(initialState));
 
 const lang = computed({
-  get: () => state.lang ?? 'de',
+  get: () => state.lang ?? 'en',
   set: (value) => { state.lang = value; },
 });
 const previewMode = ref(false);
@@ -80,9 +84,69 @@ const isAnonymizedPreviewRendering = ref(false);
 const anonymizedPdfRenderSource = ref(null);
 const fullPreviewVariant = ref('normal');
 const t = makeT(lang);
+const activeBuilderGroup = ref('content');
+const savedConfigurations = ref([]);
+const selectedConfigurationId = ref('');
+const saveStatus = ref('saved');
+const backupManager = ref(null);
+const builderTopbar = ref(null);
+const builderTopbarHeight = ref(0);
+const builderGroups = computed(() => [
+  { key: 'versions', label: t('versions'), icon: 'layer-group' },
+  { key: 'content', label: t('content'), icon: 'table-cells-large' },
+  { key: 'design', label: t('design'), icon: 'palette' },
+  { key: 'export', label: t('export'), icon: 'file-pdf' },
+  { key: 'privacy', label: t('privacy'), icon: 'user-secret' },
+]);
+const saveStatusLabel = computed(() => t({
+  saving: 'saving',
+  saved: 'saved',
+  error: 'saveFailed',
+}[saveStatus.value] || 'saved'));
+const saveStatusIcon = computed(() => (
+  saveStatus.value === 'saving' ? 'spinner' : saveStatus.value === 'error' ? 'xmark' : 'check'
+));
 
-const saveDebounced = debounce(() => saveLocal(JSON.parse(JSON.stringify(state))), 250);
-watch(state, saveDebounced, { deep: true });
+function persistState() {
+  try {
+    const stateSnapshot = JSON.parse(JSON.stringify(state));
+    const versionSaveResult = backupManager.value?.saveCurrent?.();
+    const saved = typeof versionSaveResult === 'boolean'
+      ? versionSaveResult
+      : saveLocal(stateSnapshot);
+    saveStatus.value = saved ? 'saved' : 'error';
+  } catch (error) {
+    console.warn('Failed to save CV state', error);
+    saveStatus.value = 'error';
+  }
+}
+
+const saveDebounced = debounce(persistState, 250);
+function scheduleStateSave() {
+  if (isSliderPreviewUpdateDeferred) {
+    sliderSaveUpdatePending = true;
+    saveStatus.value = 'saving';
+    return;
+  }
+  saveStatus.value = 'saving';
+  saveDebounced();
+}
+
+function selectConfiguration(event) {
+  const nextId = event.target.value;
+  if (nextId === selectedConfigurationId.value) return;
+  if (!backupManager.value?.selectConfiguration(nextId)) event.target.value = selectedConfigurationId.value;
+}
+
+function handleConfigurationSaveResult(saved) {
+  saveStatus.value = saved ? 'saved' : 'error';
+}
+
+function toggleLanguage() {
+  lang.value = lang.value === 'de' ? 'en' : 'de';
+}
+
+watch(state, scheduleStateSave, { deep: true });
 useCvDesign(() => state.design);
 
 function designMillimeters(value, fallback = 0) {
@@ -150,6 +214,7 @@ function ensureDesignLayoutDefaults() {
     bodySidebarSpacing: '10mm',
     badgeMode: 'solid',
     badgeBorderWidth: '1px',
+    favoriteControls: [],
   };
 
   Object.entries(defaults).forEach(([key, value]) => {
@@ -179,10 +244,36 @@ function ensureDesignLayoutDefaults() {
   });
 }
 
-function mergeIn(data) {
-  if (!data) return;
+function isStateRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
 
-  Object.assign(state, data);
+function mergeIn(data) {
+  if (!isStateRecord(data)) return;
+
+  const defaults = createInitialState();
+  const nextState = createInitialState();
+  stateKeys.forEach((key) => {
+    if (Object.hasOwn(data, key)) nextState[key] = data[key];
+  });
+  ['disabled', 'completedSections', 'keepTogetherSections', 'education', 'languages', 'hobbies', 'customSections', 'sidebarSections', 'bodyOrder', 'sidebarOrder'].forEach((key) => {
+    if (!Array.isArray(nextState[key])) nextState[key] = defaults[key];
+  });
+  ['design', 'exportOptions', 'anonymization', 'contact', 'about', 'experience', 'sectionNames', 'sectionHeaderSizes'].forEach((key) => {
+    if (!isStateRecord(nextState[key])) nextState[key] = defaults[key];
+  });
+  nextState.design = { ...defaults.design, ...nextState.design };
+  nextState.exportOptions = { ...defaults.exportOptions, ...nextState.exportOptions };
+  nextState.anonymization = { ...defaults.anonymization, ...nextState.anonymization };
+  nextState.contact = { ...defaults.contact, ...nextState.contact };
+  nextState.about = { ...defaults.about, ...nextState.about };
+  nextState.experience = { ...defaults.experience, ...nextState.experience };
+  if (typeof nextState.lang !== 'string') nextState.lang = 'en';
+
+  Object.keys(state).forEach((key) => {
+    if (!stateKeys.includes(key)) delete state[key];
+  });
+  Object.assign(state, nextState);
   state.version = 7;
   ensureDesignLayoutDefaults();
   state.exportOptions = normalizeExportOptions(state.exportOptions);
@@ -190,15 +281,29 @@ function mergeIn(data) {
   state.contact ||= {};
   if (state.contact.github == null) state.contact.github = '';
   state.experience ||= { jobs: [] };
-  state.experience.jobs ||= [];
+  if (!Array.isArray(state.experience.jobs)) state.experience.jobs = [];
   normalizeContentState(state);
 }
 
 normalizeContentState(state);
 
+let builderTopbarResizeObserver = null;
+function syncBuilderTopbarHeight() {
+  builderTopbarHeight.value = Math.ceil(builderTopbar.value?.getBoundingClientRect().height || 0);
+}
+
+onMounted(() => {
+  syncBuilderTopbarHeight();
+  if (typeof ResizeObserver === 'undefined' || !builderTopbar.value) return;
+  builderTopbarResizeObserver = new ResizeObserver(syncBuilderTopbarHeight);
+  builderTopbarResizeObserver.observe(builderTopbar.value);
+});
+
+onBeforeUnmount(() => builderTopbarResizeObserver?.disconnect());
+
 onMounted(async () => {
   try {
-    const cached = loadLocal();
+    const cached = backupManager.value?.restoreActiveConfig?.() || loadLocal();
     if (cached) {
       mergeIn(cached);
       return;
@@ -234,6 +339,7 @@ let anonymizedPreviewRenderVersion = 0;
 let renderedAnonymizedSourceVersion = -1;
 let isSliderPreviewUpdateDeferred = false;
 let sliderPreviewUpdatePending = false;
+let sliderSaveUpdatePending = false;
 
 function exportMarginMillimeters(value) {
   const parsed = Number.parseFloat(value);
@@ -492,13 +598,31 @@ function onPreviewSliderPointerDown(event) {
 
 function commitDeferredSliderPreview() {
   if (!isSliderPreviewUpdateDeferred) return;
+  const shouldRefreshPreview = sliderPreviewUpdatePending;
+  const shouldSave = sliderSaveUpdatePending;
   isSliderPreviewUpdateDeferred = false;
-  if (!sliderPreviewUpdatePending) return;
-
   sliderPreviewUpdatePending = false;
-  requestPdfPreview();
-  if (fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
+  sliderSaveUpdatePending = false;
+
+  if (shouldRefreshPreview) {
+    requestPdfPreview();
+    if (fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
+  }
+  if (shouldSave) scheduleStateSave();
 }
+
+function flushStateSave() {
+  if (isSliderPreviewUpdateDeferred && sliderSaveUpdatePending) {
+    isSliderPreviewUpdateDeferred = false;
+    sliderSaveUpdatePending = false;
+    persistState();
+    return;
+  }
+  saveDebounced.flush?.();
+}
+
+onMounted(() => window.addEventListener('pagehide', flushStateSave));
+onBeforeUnmount(() => window.removeEventListener('pagehide', flushStateSave));
 
 function onPreviewInputBlur(event) {
   if (isTextEntryInput(event.target)) requestPdfPreview();
@@ -717,38 +841,102 @@ function toggleFullPreviewView() {
       <PdfPagination v-if="fullPreviewView === 'pdf'" v-model:page="activeFullPreviewPage" :pages="activeFullPreviewPages" :lang="lang" fullscreen />
     </section>
 
-    <section v-else class="builder-layout" :class="`builder-layout--${previewPlacement}`">
-      <div class="builder-layout__controls">
-        <BackupManager
-          :state="state"
-          v-model:lang="lang"
-          :onSave="saveDebounced"
-          :onLoad="mergeIn"
-        />
-        <FormBuilder :state="state" :onSave="saveDebounced" />
-        <DesignPanel
-          v-model="state.design"
-          :lang="lang"
-        />
-        <ExportOptionsPanel
-          v-model="state.exportOptions"
-          :estimate-size="estimatedPdfSize"
-          :estimate-accuracy="pdfEstimateAccuracy"
-          :is-exact-estimating="isExactPdfEstimating"
-          :is-estimate-stale="isPdfEstimateStale"
-          :estimate-error="pdfEstimateError"
-          :lang="lang"
-          @exact-estimate="calculateExactPdfSizeEstimate"
-        />
-        <AnonymizationPanel
-          :state="state"
-          :is-exporting="isAnonymizedExporting"
-          :lang="lang"
-          @export="handleAnonymizedExportPdf"
-        />
-      </div>
+    <section v-else class="builder-shell">
+      <header ref="builderTopbar" class="builder-topbar">
+        <nav class="builder-topbar__tabs" role="tablist" :aria-label="t('content')">
+          <button
+            v-for="group in builderGroups"
+            :key="group.key"
+            class="builder-topbar__tab"
+            :class="{ 'is-active': activeBuilderGroup === group.key }"
+            type="button"
+            role="tab"
+            :aria-selected="activeBuilderGroup === group.key"
+            :aria-controls="`builder-group-${group.key}`"
+            @click="activeBuilderGroup = group.key"
+          >
+            <font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" />
+            <span>{{ group.label }}</span>
+          </button>
+        </nav>
 
-      <aside class="inline-preview" aria-label="Live CV preview">
+        <div class="builder-topbar__utilities">
+          <label class="builder-topbar__configuration">
+            <font-awesome-icon :icon="['fas', 'layer-group']" aria-hidden="true" />
+            <select :value="selectedConfigurationId" :aria-label="t('versions')" @change="selectConfiguration">
+              <option value="">{{ t('currentDraft') }}</option>
+              <option v-for="configuration in savedConfigurations" :key="configuration.id" :value="configuration.id">{{ configuration.name }}</option>
+            </select>
+          </label>
+          <button class="builder-topbar__language-toggle" type="button" :class="{ 'is-on': lang === 'en' }" :aria-label="t('language')" @click="toggleLanguage">
+            <span class="builder-topbar__language-track"><span>DE</span><span>EN</span><span class="builder-topbar__language-thumb"></span></span>
+          </button>
+          <output class="builder-topbar__save-status" :class="`is-${saveStatus}`" aria-live="polite">
+            <font-awesome-icon :icon="['fas', saveStatusIcon]" :spin="saveStatus === 'saving'" />
+            {{ saveStatusLabel }}
+          </output>
+        </div>
+      </header>
+
+      <section class="builder-layout" :class="`builder-layout--${previewPlacement}`" :style="{ '--builder-topbar-height': `${builderTopbarHeight}px` }">
+        <div class="builder-layout__controls">
+          <Transition name="builder-group">
+            <BackupManager
+              v-show="activeBuilderGroup === 'versions'"
+              id="builder-group-versions"
+              ref="backupManager"
+              class="builder-group-panel"
+              :state="state"
+              :lang="lang"
+              :selected-id="selectedConfigurationId"
+              :on-save="scheduleStateSave"
+              :on-load="mergeIn"
+              @update:selected-id="selectedConfigurationId = $event"
+              @configs-change="savedConfigurations = $event"
+              @save-result="handleConfigurationSaveResult"
+            />
+          </Transition>
+          <Transition name="builder-group">
+            <FormBuilder v-show="activeBuilderGroup === 'content'" id="builder-group-content" class="builder-group-panel" :state="state" :on-save="scheduleStateSave" />
+          </Transition>
+          <Transition name="builder-group">
+            <DesignPanel
+              v-show="activeBuilderGroup === 'design'"
+              id="builder-group-design"
+              class="builder-group-panel"
+              v-model="state.design"
+              :lang="lang"
+            />
+          </Transition>
+          <Transition name="builder-group">
+            <ExportOptionsPanel
+              v-show="activeBuilderGroup === 'export'"
+              id="builder-group-export"
+              class="builder-group-panel"
+              v-model="state.exportOptions"
+              :estimate-size="estimatedPdfSize"
+              :estimate-accuracy="pdfEstimateAccuracy"
+              :is-exact-estimating="isExactPdfEstimating"
+              :is-estimate-stale="isPdfEstimateStale"
+              :estimate-error="pdfEstimateError"
+              :lang="lang"
+              @exact-estimate="calculateExactPdfSizeEstimate"
+            />
+          </Transition>
+          <Transition name="builder-group">
+            <AnonymizationPanel
+              v-show="activeBuilderGroup === 'privacy'"
+              id="builder-group-privacy"
+              class="builder-group-panel"
+              :state="state"
+              :is-exporting="isAnonymizedExporting"
+              :lang="lang"
+              @export="handleAnonymizedExportPdf"
+            />
+          </Transition>
+        </div>
+
+        <aside class="inline-preview" aria-label="Live CV preview">
         <div class="inline-preview__actions">
           <button class="btn" type="button" @click="openFullPreview">{{ t('openPreview') }}</button>
           <button class="btn btn--primary" type="button" @click="handleExportPdf" :disabled="isExporting">
@@ -774,7 +962,8 @@ function toggleFullPreviewView() {
         <div class="inline-preview__pagination">
           <PdfPagination v-model:page="previewPage" :pages="previewPages" :lang="lang" />
         </div>
-      </aside>
+        </aside>
+      </section>
     </section>
   </main>
 </template>
@@ -792,20 +981,105 @@ function toggleFullPreviewView() {
   pointer-events: none;
 }
 
+.builder-shell {
+  display: grid;
+  gap: 14px;
+  max-width: 1540px;
+  margin: 0 auto;
+}
+
+.builder-topbar {
+  position: sticky;
+  z-index: 20;
+  top: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #113c34;
+  border-radius: 12px;
+  background: rgba(6, 20, 31, .96);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .22);
+  backdrop-filter: blur(12px);
+}
+
+.builder-topbar__tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(76px, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.builder-topbar__tab {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  min-height: 66px;
+  padding: 8px;
+  border: 1px solid #134e4a;
+  border-radius: 9px;
+  background: #06141f;
+  color: #9bb3ad;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  transition: border-color .2s ease, background .2s ease, color .2s ease, transform .2s ease, box-shadow .2s ease;
+}
+
+.builder-topbar__tab .svg-inline--fa { font-size: 17px; }
+.builder-topbar__tab:hover,
+.builder-topbar__tab:focus-visible { border-color: #2a6a60; background: #0a1c26; color: #d1fae5; }
+.builder-topbar__tab:focus-visible { outline: 2px solid #9be8c7; outline-offset: 2px; }
+.builder-topbar__tab.is-active { border-color: #27f3a2; background: rgba(16, 185, 129, .16); color: #d1fae5; box-shadow: inset 0 0 0 1px rgba(39, 243, 162, .18); }
+.builder-topbar__tab:active { transform: translateY(1px); }
+
+.builder-topbar__utilities {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.builder-topbar__configuration {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: #9be8c7;
+}
+
+.builder-topbar__configuration select { width: min(190px, 22vw); min-width: 128px; }
+.builder-topbar__language-toggle { border: 0; padding: 0; background: transparent; cursor: pointer; }
+.builder-topbar__language-track { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 72px; height: 30px; border: 1px solid #134e4a; border-radius: 999px; background: #06141f; color: #cbd5e1; font-size: 10px; }
+.builder-topbar__language-track > span:not(.builder-topbar__language-thumb) { z-index: 1; display: grid; place-items: center; }
+.builder-topbar__language-thumb { position: absolute; inset: 2px calc(50% + 1px) 2px 2px; border: 1px solid rgba(255, 255, 255, .12); border-radius: 999px; background: rgba(255, 255, 255, .12); transition: inset .2s ease; }
+.builder-topbar__language-toggle.is-on .builder-topbar__language-thumb { inset: 2px 2px 2px calc(50% + 1px); }
+.builder-topbar__language-toggle.is-on .builder-topbar__language-track { border-color: rgba(16, 185, 129, .45); background: rgba(16, 185, 129, .15); }
+.builder-topbar__language-toggle:focus-visible { outline: 2px solid #9be8c7; outline-offset: 2px; border-radius: 999px; }
+.builder-topbar__save-status { display: inline-flex; align-items: center; gap: 6px; min-width: 88px; color: #9be8c7; font-size: 11px; white-space: nowrap; }
+.builder-topbar__save-status.is-saving { color: #f0cd86; }
+.builder-topbar__save-status.is-error { color: #fca5a5; }
+
 .builder-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
   align-items: start;
   gap: 20px;
-  margin: 0 auto;
-  max-width: 1540px;
+  margin: 0;
+  max-width: none;
 }
 
 .builder-layout__controls {
   display: grid;
-  gap: 20px;
+  gap: 0;
   min-width: 0;
 }
+
+.builder-group-panel { min-width: 0; }
+.builder-group-enter-active, .builder-group-leave-active { transition: opacity .22s ease; }
+.builder-group-enter-from, .builder-group-leave-to { opacity: 0; }
 
 .builder-layout__controls .workbench {
   max-width: none;
@@ -826,7 +1100,7 @@ function toggleFullPreviewView() {
 
 .inline-preview {
   position: sticky;
-  top: 24px;
+  top: calc(var(--builder-topbar-height, 0px) + 24px);
   display: grid;
   gap: 10px;
   background: transparent;
@@ -849,7 +1123,7 @@ function toggleFullPreviewView() {
 }
 
 .inline-preview__scroll {
-  max-height: min(66vh, 520px);
+  max-height: min(calc(100vh - var(--builder-topbar-height, 0px) - 116px), 520px);
   overflow: auto;
 }
 
@@ -936,6 +1210,9 @@ function toggleFullPreviewView() {
     padding-right: 24px;
   }
 
+  .builder-topbar { grid-template-columns: 1fr; }
+  .builder-topbar__utilities { justify-content: space-between; }
+
   .builder-layout {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -952,6 +1229,13 @@ function toggleFullPreviewView() {
   .cv-builder-app {
     padding: 16px;
   }
+
+  .builder-topbar { top: 6px; padding: 8px; }
+  .builder-topbar__tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .builder-topbar__tab { min-height: 56px; font-size: 10px; }
+  .builder-topbar__utilities { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+  .builder-topbar__configuration select { width: 100%; }
+  .builder-topbar__save-status { grid-column: 1 / -1; justify-content: center; }
 
   .fullscreen-preview {
     min-height: 100dvh;

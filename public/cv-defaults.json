@@ -1,5 +1,6 @@
 {
   "version": 7,
+  "lang": "en",
   "exportOptions": {
     "format": "png",
     "quality": 100
@@ -19,7 +20,6 @@
     "fontBody": "Inter",
     "fontHead": "Inter",
     "hstyle": "clean",
-    "lang": "de",
     "badgeMode": "solid",
     "badgeBorderWidth": "1px",
     "badgeBorderRadius": "6px",

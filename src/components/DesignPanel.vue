@@ -1,10 +1,10 @@
 <script setup>
-import { computed, reactive } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { makeT } from '../i18n/dict';
 
 const props = defineProps({
   modelValue: { type: Object, required: true },
-  lang: { type: String, default: 'de' },
+  lang: { type: String, default: 'en' },
 });
 const emit = defineEmits(['update:modelValue']);
 
@@ -12,12 +12,149 @@ const design = computed({
   get: () => props.modelValue,
   set: (value) => emit('update:modelValue', value),
 });
-const langRef = computed(() => props.lang || 'de');
+const langRef = computed(() => props.lang || 'en');
 const t = makeT(langRef);
 
 const bodyFonts = ['Browallia New', 'Century Gothic', 'Inter', 'Source Sans 3', 'IBM Plex Sans', 'Work Sans', 'Nunito Sans', 'Rubik', 'Merriweather Sans', 'Hind'];
 const headFonts = ['Browallia New', 'Century Gothic', 'Inter', 'Montserrat', 'Poppins', 'Raleway', 'Space Grotesk'];
 const hStyles = ['clean', 'underline', 'leftbar', 'pill'];
+const favoritesMode = ref(false);
+const favoriteLinks = {
+  pageMarginVertical: { linkKey: 'pageMarginVerticalLinked', primaryKey: 'pageMarginTop', secondaryKey: 'pageMarginBottom' },
+  pageMarginHorizontal: { linkKey: 'pageMarginHorizontalLinked', primaryKey: 'pageMarginRight', secondaryKey: 'pageMarginLeft' },
+  headerBottomSpacing: { linkKey: 'headerBottomSpacingLinked', primaryKey: 'headerPaddingBottom', secondaryKey: 'headerBottomMargin' },
+};
+const favoriteOptions = [
+  { key: 'contactLayout', label: 'Contact Layout', type: 'select', options: [{ value: 'side', label: 'Right column' }, { value: 'below', label: 'Below title (one row)' }] },
+  { key: 'separatorWidth', label: 'Separator Width', type: 'range', min: 0.5, max: 5, step: 0.5, unit: 'px', fallback: 1 },
+  { key: 'hstyle', label: 'Heading Style', type: 'select', options: hStyles.map((value) => ({ value, label: value })) },
+  { key: 'headerLayoutStyle', label: 'Header Style', type: 'select', options: [{ value: 'boxed', label: 'Boxed' }, { value: 'separator', label: 'Separator' }] },
+  { key: 'pageMarginTop', label: 'Page Margin Top', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 12, link: favoriteLinks.pageMarginVertical },
+  { key: 'pageMarginBottom', label: 'Page Margin Bottom', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 12, link: favoriteLinks.pageMarginVertical },
+  { key: 'pageMarginRight', label: 'Page Margin Right', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 12, link: favoriteLinks.pageMarginHorizontal },
+  { key: 'pageMarginLeft', label: 'Page Margin Left', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 12, link: favoriteLinks.pageMarginHorizontal },
+  { key: 'headerPaddingBottom', label: 'Header Bottom Padding', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 12, link: favoriteLinks.headerBottomSpacing },
+  { key: 'headerBottomMargin', label: 'Header Bottom Margin', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 12, link: favoriteLinks.headerBottomSpacing },
+  { key: 'sidebarWidth', label: 'Sidebar Width', type: 'range', min: 0.1, max: 3, step: 0.1, unit: 'fr', fallback: 0.7 },
+  { key: 'sidebarAlign', label: 'Sidebar Position', type: 'select', options: [{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }] },
+  { key: 'sidebarLayoutStyle', label: 'Sidebar Style', type: 'select', options: [{ value: 'boxed', label: 'Boxed' }, { value: 'separator', label: 'Separator' }] },
+  { key: 'sidebarFillMode', label: 'Sidebar Start', type: 'select', options: [{ value: 'start', label: 'Fill from start' }, { value: 'last-page', label: 'Fill from last PDF page' }, { value: 'after-cover', label: 'Skip cover page' }] },
+  { key: 'sectionSpacingBody', label: 'Body Section Spacing', type: 'range', min: 2, max: 20, step: 1, unit: 'mm', fallback: 6 },
+  { key: 'sectionSpacingSidebar', label: 'Sidebar Section Spacing', type: 'range', min: 2, max: 20, step: 1, unit: 'mm', fallback: 6 },
+  { key: 'itemSpacing', label: 'Section Item Spacing', type: 'range', min: 0, max: 12, step: 0.5, unit: 'mm', fallback: 3.5 },
+  { key: 'bodySidebarSpacing', label: 'Body / Sidebar Spacing', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 10 },
+  { key: 'h1', label: 'H1 Font Size', type: 'range', min: 18, max: 30, step: 1, unit: 'pt', fallback: 22 },
+  { key: 'h2', label: 'H2 Font Size', type: 'range', min: 10, max: 20, step: 1, unit: 'pt', fallback: 12 },
+  { key: 'h3', label: 'H3 Font Size', type: 'range', min: 8, max: 16, step: 1, unit: 'pt', fallback: 10 },
+  { key: 'bullets', label: 'Bullet Font Size', type: 'range', min: 8, max: 14, step: 0.5, unit: 'pt', fallback: 10.5 },
+  { key: 'fontBody', label: 'Body Font', type: 'select', options: [{ value: '', label: '(System)' }, ...bodyFonts.map((value) => ({ value, label: value }))] },
+  { key: 'fontHead', label: 'Headings Font', type: 'select', options: [{ value: '', label: '(Body font)' }, ...headFonts.map((value) => ({ value, label: value }))] },
+  { key: 'ink', label: 'Font Color', type: 'color' },
+  { key: 'graphicOpacity', label: 'Graphic Opacity', type: 'range', min: 0, max: 100, step: 1, suffix: '%', fallback: 100 },
+  { key: 'dateOpacity', label: 'Date Opacity', type: 'range', min: 0, max: 100, step: 1, suffix: '%', fallback: 100 },
+  { key: 'badgeMode', label: 'Badge Mode', type: 'select', options: [{ value: 'solid', label: 'Solid' }, { value: 'border', label: 'Border' }] },
+  { key: 'badgeBorderRadius', label: 'Badge Border Radius', type: 'range', min: 0, max: 20, step: 1, unit: 'px', fallback: 6 },
+];
+const favoriteKeys = computed(() => (Array.isArray(design.value.favoriteControls) ? design.value.favoriteControls : []));
+const selectedFavoriteOptions = computed(() => favoriteOptions.filter((option) => favoriteKeys.value.includes(option.key)));
+const isFavorite = (key) => favoriteKeys.value.includes(key);
+const favoriteOptionByKey = new Map(favoriteOptions.map((option) => [option.key, option]));
+const favoriteSectionLabels = {
+  layout: 'Layout',
+  header: 'Header',
+  sidebar: 'Sidebar Layout',
+  spacing: 'Spacing',
+  typography: 'Typography',
+  colors: 'Colors',
+  badges: 'Badges & Items',
+};
+const favoriteSectionOrder = ['layout', 'header', 'sidebar', 'spacing', 'typography', 'colors', 'badges'];
+function favoriteSection(option) {
+  if (['hstyle', 'pageMarginTop', 'pageMarginBottom', 'pageMarginRight', 'pageMarginLeft'].includes(option.key)) return 'layout';
+  if (['contactLayout', 'headerLayoutStyle', 'headerPaddingBottom', 'headerBottomMargin'].includes(option.key)) return 'header';
+  if (['sidebarWidth', 'sidebarAlign', 'sidebarLayoutStyle', 'sidebarFillMode'].includes(option.key)) return 'sidebar';
+  if (['separatorWidth', 'sectionSpacingBody', 'sectionSpacingSidebar', 'itemSpacing', 'bodySidebarSpacing'].includes(option.key)) return 'spacing';
+  if (['h1', 'h2', 'h3', 'bullets', 'fontBody', 'fontHead'].includes(option.key)) return 'typography';
+  if (['ink', 'graphicOpacity', 'dateOpacity'].includes(option.key)) return 'colors';
+  return 'badges';
+}
+function favoritePairLabel(linkKey) {
+  return {
+    pageMarginVerticalLinked: 'Vertical Page Margins',
+    pageMarginHorizontalLinked: 'Horizontal Page Margins',
+    headerBottomSpacingLinked: 'Header Bottom Spacing',
+  }[linkKey] || 'Linked controls';
+}
+function favoriteShortLabel(option) {
+  return {
+    pageMarginTop: 'Top', pageMarginBottom: 'Bottom',
+    pageMarginRight: 'Right', pageMarginLeft: 'Left',
+    headerPaddingBottom: 'Padding', headerBottomMargin: 'Margin',
+  }[option.key] || option.label;
+}
+const favoriteRows = computed(() => {
+  const rows = new Map();
+  const handledLinks = new Set();
+  const add = (section, entry) => {
+    if (!rows.has(section)) rows.set(section, []);
+    rows.get(section).push(entry);
+  };
+
+  selectedFavoriteOptions.value.forEach((option) => {
+    const section = favoriteSection(option);
+    const hasFavoritePair = option.link && isFavorite(option.link.primaryKey) && isFavorite(option.link.secondaryKey);
+    if (!hasFavoritePair || handledLinks.has(option.link.linkKey)) {
+      if (!option.link || !isFavorite(option.link.primaryKey) || option.key === option.link.primaryKey) add(section, { type: 'single', option });
+      return;
+    }
+
+    const primary = favoriteOptionByKey.get(option.link.primaryKey);
+    const secondary = favoriteOptionByKey.get(option.link.secondaryKey);
+    handledLinks.add(option.link.linkKey);
+    add(section, {
+      type: 'linked',
+      key: option.link.linkKey,
+      label: favoritePairLabel(option.link.linkKey),
+      link: option.link,
+      options: [primary, secondary],
+    });
+  });
+
+  return favoriteSectionOrder.filter((key) => rows.has(key)).map((key) => ({ key, label: favoriteSectionLabels[key], entries: rows.get(key) }));
+});
+function setFavorite(key, enabled) {
+  const next = new Set(favoriteKeys.value);
+  if (enabled) next.add(key);
+  else next.delete(key);
+  design.value.favoriteControls = favoriteOptions.filter((option) => next.has(option.key)).map((option) => option.key);
+}
+function favoriteValue(option) {
+  const value = design.value[option.key];
+  if (option.type !== 'range') return value ?? '';
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : option.fallback;
+}
+function favoriteValueLabel(option) {
+  const value = favoriteValue(option);
+  return option.type === 'range' ? `${value}${option.unit || option.suffix || ''}` : value;
+}
+function setFavoriteValue(option, value) {
+  if (option.type !== 'range') {
+    design.value[option.key] = value;
+    return;
+  }
+
+  const nextValue = option.unit ? `${value}${option.unit}` : Number(value);
+  design.value[option.key] = nextValue;
+  if (option.link && isLinked(option.link.linkKey)) {
+    const pairedKey = option.link.primaryKey === option.key ? option.link.secondaryKey : option.link.primaryKey;
+    design.value[pairedKey] = nextValue;
+  }
+}
+function toggleFavoriteLink(link) {
+  const { linkKey, primaryKey, secondaryKey } = link;
+  setLinked(linkKey, primaryKey, secondaryKey, !isLinked(linkKey));
+}
 const sections = reactive({
   typography: true,
   colors: true,
@@ -25,6 +162,7 @@ const sections = reactive({
   badges: true,
   sidebar: true,
   layout: true,
+  header: true,
 });
 function toggleSection(key) {
   sections[key] = !sections[key];
@@ -73,12 +211,62 @@ function pixels(value, fallback = 1) {
       <h3>{{ t('design') }}</h3>
     </div>
 
+    <section class="design-favorites">
+      <div class="design-favorites__header">
+        <span><font-awesome-icon :icon="['fas', 'heart']" aria-hidden="true" /> Favorites</span>
+        <button class="mini design-favorites__toggle" type="button" :class="{ 'is-active': favoritesMode }" :aria-pressed="favoritesMode" @click="favoritesMode = !favoritesMode">
+          <font-awesome-icon :icon="['fas', favoritesMode ? 'check' : 'sliders']" aria-hidden="true" />
+          {{ favoritesMode ? 'Done' : 'Customize' }}
+        </button>
+      </div>
+
+      <div v-if="favoritesMode" class="design-favorites__picker" aria-label="Choose favorite controls">
+        <label v-for="option in favoriteOptions" :key="option.key">
+          <input type="checkbox" :checked="isFavorite(option.key)" @change="setFavorite(option.key, $event.target.checked)">
+          {{ option.label }}
+        </label>
+      </div>
+
+      <div v-if="favoriteRows.length" class="design-favorites__rows">
+        <section v-for="row in favoriteRows" :key="row.key" class="design-favorites__row">
+          <h4>{{ row.label }}</h4>
+          <div class="design-favorites__controls">
+            <template v-for="entry in row.entries" :key="entry.type === 'linked' ? entry.key : entry.option.key">
+              <div v-if="entry.type === 'linked'" class="design-favorites__control design-favorites__control--linked">
+                <div class="design-favorites__paired-controls">
+                  <div class="design-favorites__linked-slider">
+                    <div class="design-favorites__linked-slider-heading">
+                      <span>{{ isLinked(entry.link.linkKey) ? entry.label : favoriteShortLabel(entry.options[0]) }}: {{ favoriteValueLabel(entry.options[0]) }}</span>
+                      <button class="mini link-toggle" type="button" :aria-label="isLinked(entry.link.linkKey) ? `Unlink ${entry.label.toLowerCase()}` : `Link ${entry.label.toLowerCase()}`" :aria-pressed="isLinked(entry.link.linkKey)" @click="toggleFavoriteLink(entry.link)"><font-awesome-icon :icon="['fas', isLinked(entry.link.linkKey) ? 'link' : 'link-slash']" /></button>
+                    </div>
+                    <input type="range" :aria-label="isLinked(entry.link.linkKey) ? entry.label : entry.options[0].label" :min="entry.options[0].min" :max="entry.options[0].max" :step="entry.options[0].step" :value="favoriteValue(entry.options[0])" @input="setFavoriteValue(entry.options[0], $event.target.value)">
+                  </div>
+                  <label v-if="!isLinked(entry.link.linkKey)">
+                    <span>{{ favoriteShortLabel(entry.options[1]) }}: {{ favoriteValueLabel(entry.options[1]) }}</span>
+                    <input type="range" :aria-label="entry.options[1].label" :min="entry.options[1].min" :max="entry.options[1].max" :step="entry.options[1].step" :value="favoriteValue(entry.options[1])" @input="setFavoriteValue(entry.options[1], $event.target.value)">
+                  </label>
+                </div>
+              </div>
+              <div v-else class="design-favorites__control">
+                <div class="design-favorites__control-label"><span>{{ entry.option.label }}<template v-if="entry.option.type === 'range'">: {{ favoriteValueLabel(entry.option) }}</template></span></div>
+                <input v-if="entry.option.type === 'range'" type="range" :aria-label="entry.option.label" :min="entry.option.min" :max="entry.option.max" :step="entry.option.step" :value="favoriteValue(entry.option)" @input="setFavoriteValue(entry.option, $event.target.value)">
+                <input v-else-if="entry.option.type === 'color'" type="color" :aria-label="entry.option.label" :value="favoriteValue(entry.option) || '#111827'" @input="setFavoriteValue(entry.option, $event.target.value)">
+                <select v-else :aria-label="entry.option.label" :value="favoriteValue(entry.option)" @change="setFavoriteValue(entry.option, $event.target.value)">
+                  <option v-for="choice in entry.option.options" :key="choice.value" :value="choice.value">{{ choice.label }}</option>
+                </select>
+              </div>
+            </template>
+          </div>
+        </section>
+      </div>
+      <p v-else class="design-favorites__empty">Choose controls to keep your most-used design settings here.</p>
+    </section>
+
     <div class="editor-panel__body">
       <section class="editor-subsection" :class="{ collapsed: sections.layout }" @click="onSubsectionClick('layout', $event)">
         <div class="section-head"><font-awesome-icon :icon="['fas', 'table-cells-large']" class="section-icon" aria-hidden="true" /><h4>Layout</h4></div>
         <div class="editor-subsection__body">
-          <div class="grid-2"><label>Contact Layout<select v-model="design.contactLayout"><option value="side">Right column</option><option value="below">Below title (one row)</option></select></label><label>Separator Width: {{ pixels(design.separatorWidth) }}px<input type="range" min="0.5" max="5" step="0.5" :value="pixels(design.separatorWidth)" @input="design.separatorWidth = $event.target.value + 'px'"></label></div>
-          <div class="grid-2 subsection-row"><label>Heading-Style<select v-model="design.hstyle"><option v-for="style in hStyles" :key="style" :value="style">{{ style }}</option></select></label><label>Header Style<select v-model="design.headerLayoutStyle"><option value="boxed">Boxed</option><option value="separator">Separator</option></select></label></div>
+          <div class="grid-2"><label>Heading-Style<select v-model="design.hstyle"><option v-for="style in hStyles" :key="style" :value="style">{{ style }}</option></select></label><span /></div>
           <div class="layout-control-group subsection-row">
             <h5>Page Margins</h5>
             <div class="grid-2">
@@ -94,8 +282,15 @@ function pixels(value, fallback = 1) {
               <label v-if="!isLinked('pageMarginHorizontalLinked')">Left: {{ design.pageMarginLeft || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginLeft, 12)" @input="setMillimeters('pageMarginLeft', $event.target.value)"></label>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section class="editor-subsection" :class="{ collapsed: sections.header }" @click="onSubsectionClick('header', $event)">
+        <div class="section-head"><font-awesome-icon :icon="['fas', 'table-cells-large']" class="section-icon" aria-hidden="true" /><h4>Header</h4></div>
+        <div class="editor-subsection__body">
+          <div class="grid-2"><label>Contact Layout<select v-model="design.contactLayout"><option value="side">Right column</option><option value="below">Below title (one row)</option></select></label><label>Header Style<select v-model="design.headerLayoutStyle"><option value="boxed">Boxed</option><option value="separator">Separator</option></select></label></div>
           <div class="layout-control-group subsection-row">
-            <h5>Header Spacing</h5>
+            <h5>Header Bottom Spacing</h5>
             <div class="grid-2">
               <div class="linked-control">
                 <div class="linked-control__heading"><span>{{ isLinked('headerBottomSpacingLinked') ? 'Header Bottom Spacing' : 'Header Bottom Padding' }}: {{ design.headerPaddingBottom || '12mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('headerBottomSpacingLinked') ? 'Unlink header bottom padding and margin' : 'Link header bottom padding and margin'" :aria-pressed="isLinked('headerBottomSpacingLinked')" :title="isLinked('headerBottomSpacingLinked') ? 'Header bottom padding and margin linked' : 'Header bottom padding and margin independent'" @click="setLinked('headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin', !isLinked('headerBottomSpacingLinked'))"><font-awesome-icon :icon="['fas', isLinked('headerBottomSpacingLinked') ? 'link' : 'link-slash']" /></button></div>
@@ -116,7 +311,7 @@ function pixels(value, fallback = 1) {
 
       <section class="editor-subsection" :class="{ collapsed: sections.spacing }" @click="onSubsectionClick('spacing', $event)">
         <div class="section-head"><font-awesome-icon :icon="['fas', 'arrows-left-right-to-line']" class="section-icon" aria-hidden="true" /><h4>Spacing</h4></div>
-        <div class="editor-subsection__body grid-3"><label>Body Section Spacing: {{ design.sectionSpacingBody || design.sectionSpacing }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingBody || design.sectionSpacing)" @input="design.sectionSpacingBody = $event.target.value + 'mm'"></label><label>Sidebar Section Spacing: {{ design.sectionSpacingSidebar || design.sectionSpacing }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingSidebar || design.sectionSpacing)" @input="design.sectionSpacingSidebar = $event.target.value + 'mm'"></label><label>Section Item Spacing: {{ design.itemSpacing || '3.5mm' }}<input type="range" min="0" max="12" step="0.5" :value="millimeters(design.itemSpacing, 3.5)" @input="setMillimeters('itemSpacing', $event.target.value)"></label></div>
+        <div class="editor-subsection__body grid-3"><label>Separator Width: {{ pixels(design.separatorWidth) }}px<input type="range" min="0.5" max="5" step="0.5" :value="pixels(design.separatorWidth)" @input="design.separatorWidth = $event.target.value + 'px'"></label><label>Body Section Spacing: {{ design.sectionSpacingBody || design.sectionSpacing }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingBody || design.sectionSpacing)" @input="design.sectionSpacingBody = $event.target.value + 'mm'"></label><label>Sidebar Section Spacing: {{ design.sectionSpacingSidebar || design.sectionSpacing }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingSidebar || design.sectionSpacing)" @input="design.sectionSpacingSidebar = $event.target.value + 'mm'"></label></div>
         <div class="editor-subsection__body grid-3 subsection-row"><label>Body / Sidebar Spacing: {{ design.bodySidebarSpacing || '10mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.bodySidebarSpacing, 10)" @input="setMillimeters('bodySidebarSpacing', $event.target.value)"></label></div>
       </section>
 
@@ -155,6 +350,28 @@ function pixels(value, fallback = 1) {
 </template>
 
 <style scoped>
+.design-favorites { display: grid; gap: 10px; margin: 0 10px 10px; padding: 12px; border: 1px solid #1c6255; border-radius: 8px; background: rgba(6, 20, 31, .52); }
+.design-favorites__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #d1fae5; font-size: 10pt; font-weight: 700; }
+.design-favorites__header span { display: inline-flex; align-items: center; gap: 7px; }
+.design-favorites__header .svg-inline--fa { color: #fb7185; }
+.design-favorites__toggle { display: inline-flex; align-items: center; gap: 6px; }
+.design-favorites__toggle.is-active { border-color: #27f3a2; background: rgba(16, 185, 129, .16); color: #d1fae5; }
+.design-favorites__picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 7px 12px; padding-top: 10px; border-top: 1px solid #134e4a; }
+.design-favorites__picker label { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+.design-favorites__picker input { width: 16px; height: 16px; accent-color: #27f3a2; }
+.design-favorites__rows { display: grid; gap: 12px; }
+.design-favorites__row { display: grid; gap: 7px; padding-top: 10px; border-top: 1px solid #134e4a; }
+.design-favorites__row h4 { margin: 0; color: var(--muted); font-size: 9pt; text-transform: uppercase; letter-spacing: .4px; }
+.design-favorites__controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.design-favorites__control { display: grid; gap: 4px; }
+.design-favorites__control--linked { grid-column: span 2; }
+.design-favorites__control-label { display: flex; align-items: center; justify-content: space-between; gap: 6px; color: #78d1b8; font-size: 10pt; }
+.design-favorites__control-label .link-toggle { flex: 0 0 auto; }
+.design-favorites__paired-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.design-favorites__linked-slider { display: grid; gap: 4px; }
+.design-favorites__linked-slider-heading { display: flex; align-items: center; gap: 6px; color: #78d1b8; font-size: 10pt; }
+.design-favorites__paired-controls label { display: grid; gap: 4px; color: #78d1b8; font-size: 10pt; }
+.design-favorites__empty { margin: 0; color: var(--muted); font-size: 12px; }
 .editor-subsection h4 { margin: 0; color: #9be8c7; font-size: 10pt; text-transform: uppercase; letter-spacing: .5px; }
 .editor-subsection > .section-head > .section-icon { width: 34px; color: var(--muted); text-align: center; }
 .subsection-row { margin-top: 8px; }
@@ -164,4 +381,5 @@ function pixels(value, fallback = 1) {
 .link-toggle[aria-pressed="true"] { border-color: #27f3a2; color: #9be8c7; }
 .linked-control { display: grid; gap: 4px; }
 .spacing-hint { margin: 6px 0 0; color: var(--muted); font-size: 9pt; }
+@media (max-width: 640px) { .design-favorites { margin-inline: 0; } .design-favorites__picker, .design-favorites__controls, .design-favorites__paired-controls { grid-template-columns: 1fr; } .design-favorites__control--linked { grid-column: auto; } }
 </style>

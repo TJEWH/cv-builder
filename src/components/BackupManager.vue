@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { saveLocal } from '../composables/useStorage';
+import { loadLocal, saveLocal } from '../composables/useStorage';
 import {
   MAX_CV_JSON_FILE_BYTES,
   createCvJsonBackup,
@@ -9,20 +9,18 @@ import {
 
 const props = defineProps({
   state: { type: Object, required: true },
-  lang: { type: String, default: 'de' },
+  lang: { type: String, default: 'en' },
+  selectedId: { type: String, default: '' },
   onSave: { type: Function, default: () => {} },
   onLoad: { type: Function, default: () => {} },
 });
-const emit = defineEmits(['update:lang']);
+const emit = defineEmits(['update:selectedId', 'configs-change', 'save-result']);
 
-const langRef = computed({
-  get: () => props.lang || 'de',
-  set: (value) => emit('update:lang', value),
-});
+const langRef = computed(() => props.lang || 'en');
 const labels = computed(() => langRef.value === 'de' ? {
+  versions: 'Versionen',
   saveAs: 'Speichern als',
   newName: 'Titel neue Konfiguration',
-  save: 'Speichern',
   load: 'Laden',
   remove: 'Löschen',
   exportJson: 'JSON exportieren',
@@ -30,7 +28,8 @@ const labels = computed(() => langRef.value === 'de' ? {
   confirmLoad: 'Aktuelle Änderungen gehen verloren. Diese Konfiguration laden?',
   confirmImport: 'Aktuelle Änderungen gehen verloren. Diese JSON-Datei laden?',
   confirmDelete: 'Diese Konfiguration wirklich löschen?',
-  empty: '— keine Konfigurationen —',
+  draft: 'Aktueller Entwurf',
+  selected: 'Ausgewählt',
   saved: 'Gespeichert.',
   loaded: 'Geladen.',
   exported: 'JSON-Datei heruntergeladen.',
@@ -38,11 +37,13 @@ const labels = computed(() => langRef.value === 'de' ? {
   invalidFile: 'Die Datei ist keine unterstützte CV-JSON-Datei.',
   fileTooLarge: 'Die JSON-Datei ist zu groß.',
   missingName: 'Bitte Titel eingeben.',
-  language: 'Sprache',
+  missingDraft: 'Es gibt noch keinen gespeicherten Entwurf.',
+  saveFailed: 'Speichern fehlgeschlagen. Bitte Speicherplatz und Browser-Einstellungen prüfen.',
+  saveAsHint: 'Eine neue Konfiguration ist im Grunde eine Kopie der aktuell ausgewählten Konfiguration beziehungsweise des aktuellen Entwurfs.',
 } : {
+  versions: 'Versions',
   saveAs: 'Save as',
   newName: 'New configuration title',
-  save: 'Save',
   load: 'Load',
   remove: 'Delete',
   exportJson: 'Export JSON',
@@ -50,7 +51,8 @@ const labels = computed(() => langRef.value === 'de' ? {
   confirmLoad: 'Loading replaces your current changes. Continue?',
   confirmImport: 'Loading this JSON file replaces your current changes. Continue?',
   confirmDelete: 'Delete this configuration?',
-  empty: '— no configurations —',
+  draft: 'Current draft',
+  selected: 'Selected',
   saved: 'Saved.',
   loaded: 'Loaded.',
   exported: 'JSON file downloaded.',
@@ -58,16 +60,54 @@ const labels = computed(() => langRef.value === 'de' ? {
   invalidFile: 'The file is not a supported CV JSON file.',
   fileTooLarge: 'The JSON file is too large.',
   missingName: 'Please enter a title.',
-  language: 'Language',
+  missingDraft: 'There is no saved draft yet.',
+  saveFailed: 'Saving failed. Check available storage and browser settings.',
+  saveAsHint: 'A new configuration is effectively a copy of the currently selected configuration or current draft.',
 });
 
 const configs = ref([]);
-const currentId = ref('');
 const newName = ref('');
 const backupMsg = ref('');
 const fileInput = ref(null);
 const localIndexKey = 'CV_CONF_INDEX';
+const localActiveKey = 'CV_CONF_ACTIVE_ID';
 const localDataKey = (id) => `CV_CONF_DATA:${id}`;
+
+function readStorage(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function writeStorage(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (error) {
+    console.warn(`Failed to write ${key}`, error);
+    return false;
+  }
+}
+function removeStorage(key) {
+  try {
+    localStorage.removeItem(key);
+    return true;
+  } catch (error) {
+    console.warn(`Failed to remove ${key}`, error);
+    return false;
+  }
+}
+
+function setCurrentId(value) {
+  const id = value || '';
+  const persisted = id ? writeStorage(localActiveKey, id) : removeStorage(localActiveKey);
+  emit('update:selectedId', id);
+  return persisted;
+}
+const currentId = computed({
+  get: () => props.selectedId || '',
+  set: setCurrentId,
+});
+const selectedName = computed(() => (
+  configs.value.find((item) => item.id === currentId.value)?.name || labels.value.draft
+));
 
 function slug(value) {
   return String(value || '')
@@ -76,60 +116,180 @@ function slug(value) {
 }
 
 function readIndex() {
-  try { return JSON.parse(localStorage.getItem(localIndexKey) || '[]'); } catch { return []; }
+  try {
+    const parsed = JSON.parse(readStorage(localIndexKey) || '[]');
+    return Array.isArray(parsed)
+      ? parsed.filter((item) => item && typeof item.id === 'string' && typeof item.name === 'string')
+      : [];
+  } catch {
+    return [];
+  }
 }
-function writeIndex(items) { localStorage.setItem(localIndexKey, JSON.stringify(items)); }
-function refreshConfigs(preferredId = currentId.value) {
+function writeIndex(items) { return writeStorage(localIndexKey, JSON.stringify(items)); }
+function refreshConfigs() {
   const items = readIndex();
   configs.value = items;
-  currentId.value = items.some((item) => item.id === preferredId) ? preferredId : (items[0]?.id || '');
+  if (currentId.value && !items.some((item) => item.id === currentId.value)) currentId.value = '';
+  emit('configs-change', items);
+}
+function snapshotState() {
+  return JSON.parse(JSON.stringify(props.state));
+}
+function readConfigData(id) {
+  try {
+    const raw = readStorage(localDataKey(id));
+    if (!raw) return null;
+    const stored = JSON.parse(raw);
+    return stored?.data || stored;
+  } catch (error) {
+    console.warn('Failed to read configuration', error);
+    return null;
+  }
+}
+function uniqueConfigId(name) {
+  const base = slug(name);
+  const taken = new Set(readIndex().map((item) => item.id));
+  let candidate = base;
+  let suffix = 2;
+  while (taken.has(candidate) || readStorage(localDataKey(candidate))) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
 }
 
-function saveConfig(id, name) {
-  const data = JSON.parse(JSON.stringify(props.state));
-  const meta = { id, name, updatedAt: Date.now() };
-  localStorage.setItem(localDataKey(id), JSON.stringify({ __meta: meta, data }));
-  const items = readIndex();
-  const index = items.findIndex((item) => item.id === id);
-  if (index >= 0) items[index] = { id, name, mtime: meta.updatedAt };
-  else items.push({ id, name, mtime: meta.updatedAt });
-  writeIndex(items);
-  saveLocal(data);
-  refreshConfigs(id);
-  backupMsg.value = labels.value.saved;
+function saveConfig(id, name, { announce = true, data = snapshotState() } = {}) {
+  try {
+    const meta = { id, name, updatedAt: Date.now() };
+    if (!writeStorage(localDataKey(id), JSON.stringify({ __meta: meta, data }))) throw new Error('Configuration data could not be written');
+
+    const items = readIndex();
+    const index = items.findIndex((item) => item.id === id);
+    if (index >= 0) items[index] = { id, name, mtime: meta.updatedAt };
+    else items.push({ id, name, mtime: meta.updatedAt });
+    if (!writeIndex(items)) throw new Error('Configuration index could not be written');
+
+    const activeIdSaved = setCurrentId(id);
+    refreshConfigs();
+    if (!activeIdSaved) throw new Error('Active configuration could not be written');
+    if (announce) backupMsg.value = labels.value.saved;
+    return true;
+  } catch (error) {
+    console.warn('Failed to save configuration', error);
+    backupMsg.value = labels.value.saveFailed;
+    return false;
+  }
 }
 
-function saveCurrent() {
+function saveCurrent({ announce = false } = {}) {
   const chosen = configs.value.find((item) => item.id === currentId.value);
-  if (chosen) saveConfig(chosen.id, chosen.name);
+  if (!chosen) return null;
+  return saveConfig(chosen.id, chosen.name, { announce });
 }
+
 function saveAs() {
   const name = newName.value.trim();
   if (!name) {
     backupMsg.value = labels.value.missingName;
     return;
   }
-  saveConfig(slug(name), name);
-  newName.value = '';
-}
-function loadCurrent() {
-  if (!currentId.value || !confirm(labels.value.confirmLoad)) return;
+
   try {
-    const raw = localStorage.getItem(localDataKey(currentId.value));
-    if (!raw) return;
-    const stored = JSON.parse(raw);
-    props.onLoad(stored.data || stored);
-    props.onSave();
-    backupMsg.value = labels.value.loaded;
+    const data = snapshotState();
+    // The generic draft is intentionally independent from named versions.
+    // Seed it once so a first version always has an actual draft to return to.
+    if (!loadLocal() && !saveLocal(data)) throw new Error('Draft could not be written');
+    const saved = saveConfig(uniqueConfigId(name), name, { data });
+    if (saved) newName.value = '';
+    emit('save-result', saved);
   } catch (error) {
-    console.warn('Failed to load configuration', error);
+    console.warn('Failed to save configuration copy', error);
+    backupMsg.value = labels.value.saveFailed;
+    emit('save-result', false);
   }
 }
+
+function loadConfig(id = currentId.value, { confirmLoad = true } = {}) {
+  if (!id || (confirmLoad && !confirm(labels.value.confirmLoad))) return false;
+  const data = readConfigData(id);
+  if (!data) return false;
+  try {
+    // Switch the save destination before changing state so the first
+    // post-load autosave cannot target the configuration we just left.
+    setCurrentId(id);
+    props.onLoad(data);
+    props.onSave();
+    backupMsg.value = labels.value.loaded;
+    return true;
+  } catch (error) {
+    console.warn('Failed to load configuration', error);
+    return false;
+  }
+}
+
+function loadDraft({ confirmLoad = true } = {}) {
+  if (!currentId.value) return true;
+  const data = loadLocal();
+  if (!data) {
+    backupMsg.value = labels.value.missingDraft;
+    return false;
+  }
+  if (confirmLoad && !confirm(labels.value.confirmLoad)) return false;
+  try {
+    setCurrentId('');
+    props.onLoad(data);
+    props.onSave();
+    backupMsg.value = labels.value.loaded;
+    return true;
+  } catch (error) {
+    console.warn('Failed to load draft', error);
+    return false;
+  }
+}
+
+function selectConfiguration(id) {
+  return id ? loadConfig(id) : loadDraft();
+}
+
+function onConfigurationChange(event) {
+  const nextId = event.target.value;
+  if (nextId === currentId.value) return;
+  if (!selectConfiguration(nextId)) event.target.value = currentId.value;
+}
+
+function restoreActiveConfig() {
+  const id = readStorage(localActiveKey);
+  if (!id) return null;
+  refreshConfigs();
+  if (!configs.value.some((item) => item.id === id)) {
+    setCurrentId('');
+    return null;
+  }
+  const data = readConfigData(id);
+  if (!data) {
+    setCurrentId('');
+    return null;
+  }
+  setCurrentId(id);
+  return data;
+}
+
 function deleteCurrent() {
   if (!currentId.value || !confirm(labels.value.confirmDelete)) return;
-  localStorage.removeItem(localDataKey(currentId.value));
-  writeIndex(readIndex().filter((item) => item.id !== currentId.value));
-  refreshConfigs();
+  try {
+    // Keep the visible data as the independent current draft after deletion.
+    if (!saveLocal(snapshotState())) throw new Error('Draft could not be written');
+    const nextIndex = readIndex().filter((item) => item.id !== currentId.value);
+    if (!writeIndex(nextIndex)) throw new Error('Configuration index could not be written');
+    if (!removeStorage(localDataKey(currentId.value))) throw new Error('Configuration data could not be removed');
+    setCurrentId('');
+    refreshConfigs();
+    emit('save-result', true);
+  } catch (error) {
+    console.warn('Failed to delete configuration', error);
+    backupMsg.value = labels.value.saveFailed;
+    emit('save-result', false);
+  }
 }
 
 function exportJson() {
@@ -170,6 +330,7 @@ async function importJson(event) {
   try {
     const data = parseCvJsonBackup(await file.text());
     if (!confirm(labels.value.confirmImport)) return;
+    setCurrentId('');
     props.onLoad(data);
     props.onSave();
     backupMsg.value = labels.value.imported;
@@ -179,25 +340,28 @@ async function importJson(event) {
   }
 }
 
+defineExpose({ loadConfig, loadDraft, selectConfiguration, restoreActiveConfig, refreshConfigs, saveCurrent });
 onMounted(refreshConfigs);
 </script>
 
 <template>
   <section class="section-group backup-manager">
     <div class="section-head group-panel__header--centered">
-      <h3>Versioning</h3>
+      <h3>{{ labels.versions }}</h3>
     </div>
+
+    <p class="backup-manager__selected"><span>{{ labels.selected }}:</span> <strong>{{ selectedName }}</strong></p>
 
     <div class="backup-manager__actions">
-      <select v-model="currentId" aria-label="Saved configuration">
-        <option v-if="!configs.length" value="">{{ labels.empty }}</option>
+      <select :value="currentId" :aria-label="labels.versions" @change="onConfigurationChange">
+        <option value="">{{ labels.draft }}</option>
         <option v-for="config in configs" :key="config.id" :value="config.id">{{ config.name }}</option>
       </select>
-      <button type="button" class="btn" @click="loadCurrent">{{ labels.load }}</button>
-      <button type="button" class="btn btn--primary" @click="saveCurrent">{{ labels.save }}</button>
-      <button type="button" class="btn btn--danger" @click="deleteCurrent">{{ labels.remove }}</button>
+      <button type="button" class="btn" :disabled="!currentId" @click="loadConfig()">{{ labels.load }}</button>
+      <button type="button" class="btn btn--danger" :disabled="!currentId" @click="deleteCurrent">{{ labels.remove }}</button>
     </div>
 
+    <p class="backup-manager__hint">{{ labels.saveAsHint }}</p>
     <div class="backup-manager__save-as">
       <input v-model="newName" :placeholder="labels.newName" />
       <button type="button" class="btn btn--success" @click="saveAs">{{ labels.saveAs }}</button>
@@ -209,26 +373,16 @@ onMounted(refreshConfigs);
       <button type="button" class="btn" @click="chooseJsonFile">{{ labels.importJson }}</button>
       <span v-if="backupMsg" class="note">{{ backupMsg }}</span>
     </div>
-
-    <div class="backup-manager__preferences">
-      <span>{{ labels.language }}</span>
-      <button type="button" class="toggle" :class="{ 'is-on': langRef === 'en' }" @click="langRef = langRef === 'de' ? 'en' : 'de'">
-        <span class="toggle-track"><span class="toggle-label">DE</span><span class="toggle-label">EN</span><span class="toggle-thumb"></span></span>
-      </button>
-    </div>
   </section>
 </template>
 
 <style scoped>
 .backup-manager { display: grid; gap: 10px; width: 100%; padding: 10px; border-radius: 10px; background: #113c34; }
-.backup-manager__actions, .backup-manager__save-as, .backup-manager__file-actions, .backup-manager__preferences { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.backup-manager__actions select, .backup-manager__save-as input { flex: 1 1 220px; width: auto; }
+.backup-manager__actions, .backup-manager__save-as, .backup-manager__file-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.backup-manager__actions select { flex: 1 1 220px; width: auto; }
+.backup-manager__save-as input { flex: 1 1 220px; width: auto; }
 .backup-manager__file-input { display: none; }
-.backup-manager__preferences { padding-top: 8px; border-top: 1px solid #134e4a; color: var(--muted); font-size: 12px; }
-.toggle { border: 0; padding: 0; background: transparent; cursor: pointer; }
-.toggle-track { position: relative; display: inline-flex; align-items: center; justify-content: space-around; width: 86px; height: 30px; border: 1px solid var(--border); border-radius: 999px; background: #0c131a; }
-.toggle-label { z-index: 1; width: 50%; text-align: center; color: #cbd5e1; font-size: 10px; }
-.toggle-thumb { position: absolute; top: 2px; left: 2px; width: 40px; height: 24px; border: 1px solid rgba(255,255,255,.12); border-radius: 999px; background: rgba(255,255,255,.12); transition: transform .18s ease; }
-.toggle.is-on .toggle-thumb { transform: translateX(40px); }
-.toggle.is-on .toggle-track { border-color: rgba(16,185,129,.45); background: rgba(16,185,129,.15); }
+.backup-manager__selected, .backup-manager__hint { margin: 0; color: var(--muted); font-size: 12px; }
+.backup-manager__selected strong { color: #d1fae5; }
+.backup-manager__hint { line-height: 1.45; }
 </style>

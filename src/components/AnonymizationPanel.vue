@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import { makeT } from '../i18n/dict';
 
 const props = defineProps({
@@ -11,7 +11,6 @@ const props = defineProps({
 const emit = defineEmits(['export']);
 const langRef = computed(() => props.lang || 'de');
 const t = makeT(langRef);
-const collapsed = ref(true);
 
 const builtInNames = computed(() => ({
   about: t('aboutTitle'),
@@ -60,9 +59,13 @@ function setExcluded(key, id, shouldExclude) {
 </script>
 
 <template>
-  <section class="section-group editor-panel anonymization-panel" :class="{ collapsed }">
-    <div class="section-head editor-panel__header editor-panel__header--centered anonymization-panel__header" role="button" tabindex="0" :aria-expanded="!collapsed" @click="collapsed = !collapsed" @keydown.enter.prevent="collapsed = !collapsed" @keydown.space.prevent="collapsed = !collapsed">
-      <h3>{{ t('anonymization') }}</h3>
+  <section class="section-group editor-panel anonymization-panel">
+    <div class="section-head editor-panel__header editor-panel__header--centered anonymization-panel__header">
+      <h3>{{ t('privacy') }}</h3>
+      <button class="btn btn--primary anonymization-panel__export" type="button" :disabled="isExporting" @click="$emit('export')">
+        <font-awesome-icon :icon="['fas', isExporting ? 'spinner' : 'user-secret']" :spin="isExporting" />
+        {{ isExporting ? t('exportingAnonymizedPdf') : t('downloadAnonymizedPdf') }}
+      </button>
     </div>
 
     <div class="editor-panel__body">
@@ -108,11 +111,6 @@ function setExcluded(key, id, shouldExclude) {
           </div>
         </section>
       </div>
-
-      <button class="btn btn--primary anonymization-panel__export" type="button" :disabled="isExporting" @click="$emit('export')">
-        <font-awesome-icon :icon="['fas', isExporting ? 'spinner' : 'user-secret']" :spin="isExporting" />
-        {{ isExporting ? t('exportingAnonymizedPdf') : t('downloadAnonymizedPdf') }}
-      </button>
     </div>
   </section>
 </template>
@@ -120,11 +118,6 @@ function setExcluded(key, id, shouldExclude) {
 <style scoped>
 .anonymization-panel__help, .anonymization-panel__marker-help { margin: 0; color: #cbd5e1; font-size: 12px; }
 .anonymization-panel__marker-help { color: var(--muted); }
-.anonymization-panel.collapsed .editor-panel__body { display: none; }
-.anonymization-panel__header { padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: background .18s ease, transform .18s ease; }
-.anonymization-panel__header:hover, .anonymization-panel__header:focus-visible { background: rgba(16, 185, 129, .1); }
-.anonymization-panel__header:active { background: rgba(16, 185, 129, .18); transform: translateY(1px); }
-.anonymization-panel__header:focus-visible { outline: 2px solid #9be8c7; outline-offset: 2px; }
 .anonymization-panel__columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .anonymization-panel__column { display: grid; gap: 5px; margin-top: 12px; }
 .anonymization-panel__column h4 { margin: 0; color: #9be8c7; font-size: 10pt; text-transform: uppercase; letter-spacing: .5px; }
@@ -137,6 +130,6 @@ function setExcluded(key, id, shouldExclude) {
 .anonymization-panel__row.disabled { cursor: not-allowed; opacity: .55; }
 .anonymization-panel__row.disabled input, .anonymization-panel__contact input { cursor: not-allowed; }
 .anonymization-panel__contact { margin-top: 12px; cursor: default; }
-.anonymization-panel__export { width: 100%; margin-top: 14px; }
-@media (max-width: 640px) { .anonymization-panel__columns { grid-template-columns: 1fr; gap: 0; } }
+.anonymization-panel__header .anonymization-panel__export { grid-column: 3; justify-self: end; width: auto; }
+@media (max-width: 640px) { .anonymization-panel__columns { grid-template-columns: 1fr; gap: 0; } .anonymization-panel__header { grid-template-columns: 1fr auto; } .anonymization-panel__header h3 { grid-column: 1; justify-self: start; } .anonymization-panel__header .anonymization-panel__export { grid-column: 2; font-size: 0; padding: 9px; } .anonymization-panel__export .svg-inline--fa { margin: 0; font-size: 14px; } }
 </style>

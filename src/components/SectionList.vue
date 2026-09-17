@@ -132,32 +132,36 @@ const confirmRemoveAt = () => {
       </div>
     </div>
 
-    <Draggable v-model="items" item-key="id" handle=".entry-drag-handle" :animation="150" class="items" ghost-class="sortable-ghost" chosen-class="sortable-chosen">
-      <template #item="{ element: item, index }">
-        <div class="item-row" :class="{ 'item-row--hidden': item.hidden }">
-          <div class="item-row__actions">
-            <button class="mini entry-drag-handle" type="button" :aria-label="langRef === 'de' ? 'Eintrag verschieben' : 'Move entry'" :title="langRef === 'de' ? 'Eintrag verschieben' : 'Move entry'"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button>
-            <button class="mini visibility-toggle" :class="item.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="item.hidden ? t('show') : t('hide')" :title="item.hidden ? t('show') : t('hide')" @click="item.hidden = !item.hidden"><font-awesome-icon :icon="['fas', item.hidden ? 'eye-slash' : 'eye']" /></button>
-            <button type="button" class="mini btn--danger" :aria-label="t('remove')" :title="t('remove')" @click="requestRemoveAt(index)"><font-awesome-icon :icon="['fas', 'trash']" /></button>
-          </div>
-          <div class="item-row__content">
-            <div v-if="schema.some((field) => field.type !== 'textarea')" :class="['row', schema.length === 2 ? 'row-2' : '', schema.length === 3 ? 'row-3' : '', schema.length === 4 ? 'row-4' : '']">
-              <label v-for="field in schema.filter((entry) => entry.type !== 'textarea')" :key="field.key">
-                {{ field.label }}
-                <InputText v-if="field.type === 'text'" v-model="item[field.key]" :placeholder="field.placeholder || ''" fluid />
-                <InputNumber v-else-if="field.type === 'number'" v-model="item[field.key]" :placeholder="field.placeholder || ''" :use-grouping="false" fluid />
-                <Select v-else-if="field.type === 'select'" v-model="item[field.key]" :options="field.options" fluid />
-              </label>
+    <div class="section-content">
+      <div class="section-content__inner">
+        <Draggable v-model="items" item-key="id" handle=".entry-drag-handle" :animation="150" class="items" ghost-class="sortable-ghost" chosen-class="sortable-chosen">
+          <template #item="{ element: item, index }">
+            <div class="item-row" :class="{ 'item-row--hidden': item.hidden }">
+              <div class="item-row__actions">
+                <button class="mini entry-drag-handle" type="button" :aria-label="langRef === 'de' ? 'Eintrag verschieben' : 'Move entry'" :title="langRef === 'de' ? 'Eintrag verschieben' : 'Move entry'"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button>
+                <button class="mini visibility-toggle" :class="item.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="item.hidden ? t('show') : t('hide')" :title="item.hidden ? t('show') : t('hide')" @click="item.hidden = !item.hidden"><font-awesome-icon :icon="['fas', item.hidden ? 'eye-slash' : 'eye']" /></button>
+                <button type="button" class="mini btn--danger" :aria-label="t('remove')" :title="t('remove')" @click="requestRemoveAt(index)"><font-awesome-icon :icon="['fas', 'trash']" /></button>
+              </div>
+              <div class="item-row__content">
+                <div v-if="schema.some((field) => field.type !== 'textarea')" :class="['row', schema.length === 2 ? 'row-2' : '', schema.length === 3 ? 'row-3' : '', schema.length === 4 ? 'row-4' : '']">
+                  <label v-for="field in schema.filter((entry) => entry.type !== 'textarea')" :key="field.key">
+                    {{ field.label }}
+                    <InputText v-if="field.type === 'text'" v-model="item[field.key]" :placeholder="field.placeholder || ''" fluid />
+                    <InputNumber v-else-if="field.type === 'number'" v-model="item[field.key]" :placeholder="field.placeholder || ''" :use-grouping="false" fluid />
+                    <Select v-else-if="field.type === 'select'" v-model="item[field.key]" :options="field.options" fluid />
+                  </label>
+                </div>
+                <label v-for="field in schema.filter((entry) => entry.type === 'textarea')" :key="field.key">
+                  {{ field.label }}
+                  <MarkdownTextarea v-model="item[field.key]" :placeholder="field.placeholder || ''" :aria-label="field.label" :help="t('markdownTextareaHelp')" />
+                </label>
+              </div>
             </div>
-            <label v-for="field in schema.filter((entry) => entry.type === 'textarea')" :key="field.key">
-              {{ field.label }}
-              <MarkdownTextarea v-model="item[field.key]" :placeholder="field.placeholder || ''" :aria-label="field.label" :help="t('markdownTextareaHelp')" />
-            </label>
-          </div>
-        </div>
-      </template>
-    </Draggable>
-    <button v-if="addLabel" type="button" class="add-item-row" @click="add"><font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />{{ addLabel }}</button>
+          </template>
+        </Draggable>
+        <button v-if="addLabel" type="button" class="add-item-row" @click="add"><font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />{{ addLabel }}</button>
+      </div>
+    </div>
   </section>
 </template>
 

@@ -5,8 +5,7 @@ import SectionList from './SectionList.vue';
 import MarkdownTextarea from './MarkdownTextarea.vue';
 import ConfirmDeletionDialog from './ConfirmDeletionDialog.vue';
 import { makeT } from '../i18n/dict.js';
-import sectionIcons from '../i18n/sectionIcons.js';
-import { createContentId, normalizeContentState, reorderVisibleSectionOrder } from '../composables/contentLayout.js';
+import { createContentId, normalizeContentState } from '../composables/contentLayout.js';
 
 const props = defineProps({
   state: { type: Object, required: true },
@@ -17,7 +16,6 @@ normalizeContentState(props.state);
 
 const langRef = computed(() => props.state.lang || 'de');
 const t = makeT(langRef);
-const reorderDialogOpen = ref(false);
 const fieldConfigSectionId = ref(null);
 const activeContentTab = ref('header');
 const collapsed = reactive({
@@ -72,16 +70,6 @@ const toggleComplete = (key) => {
   else props.state.completedSections.splice(index, 1);
   props.onSave?.();
 };
-const updateVisibleOrder = (orderName, rows) => {
-  props.state[orderName] = reorderVisibleSectionOrder(
-    props.state[orderName],
-    props.state.disabled,
-    rows.map((row) => row.key),
-  );
-  props.onSave?.();
-};
-const bodyOrderRows = computed(() => props.state.bodyOrder.filter((key) => !isHidden(key)).map((key) => ({ key })));
-const sidebarOrderRows = computed(() => props.state.sidebarOrder.filter((key) => !isHidden(key)).map((key) => ({ key })));
 const toggleDisabled = (key) => {
   const index = props.state.disabled.indexOf(key);
   if (index === -1) props.state.disabled.push(key);
@@ -94,7 +82,6 @@ const getCustomSection = (id) => getBodySection(id) || getSidebarSection(id);
 const activeFieldConfigSection = computed(() => getBodySection(fieldConfigSectionId.value));
 const getSectionDisplayName = (key) => getCustomSection(key)?.name || props.state.sectionNames[key] || builtInNames.value[key] || key;
 const getDefaultName = (key) => builtInNames.value[key] || (langRef.value === 'de' ? 'Neue Sektion' : 'New Section');
-const getIcon = (key) => getCustomSection(key) ? 'folder-open' : (sectionIcons[key] || 'folder-open');
 const isCollapsed = (key) => Object.hasOwn(collapsed, key) ? collapsed[key] : customCollapsed[key] ?? true;
 const toggleCollapsed = (key) => {
   if (Object.hasOwn(collapsed, key)) collapsed[key] = !collapsed[key];
@@ -192,7 +179,6 @@ const confirmDeletion = () => {
 };
 const cancelDeletion = () => { pendingDeletion.value = null; };
 const toggleItemHidden = (item) => { item.hidden = !item.hidden; };
-const closeReorderDialog = () => { reorderDialogOpen.value = false; };
 const closeFieldConfig = () => { fieldConfigSectionId.value = null; };
 const openFieldConfig = (section) => { fieldConfigSectionId.value = section.id; };
 const customBodyFieldOptions = computed(() => [
@@ -221,7 +207,6 @@ const setCustomBodyFieldEnabled = (section, key, enabled) => {
 };
 const onKeydown = (event) => {
   if (event.key !== 'Escape') return;
-  closeReorderDialog();
   closeFieldConfig();
 };
 onMounted(() => document.addEventListener('keydown', onKeydown));
@@ -263,61 +248,9 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
       @cancel="cancelDeletion"
       @confirm="confirmDeletion"
     />
-    <div v-if="reorderDialogOpen" class="reorder-dialog-backdrop" @click.self="closeReorderDialog">
-      <section class="reorder-dialog" role="dialog" aria-modal="true" :aria-label="langRef === 'de' ? 'Sektionen sortieren' : 'Reorder sections'">
-        <header class="reorder-dialog__header">
-          <h3>{{ t('reorderSections') }}</h3>
-          <button class="mini btn--danger" type="button" @click="closeReorderDialog"><font-awesome-icon :icon="['fas', 'xmark']" /></button>
-        </header>
-        <p>{{ t('reorderSectionsHelp') }}</p>
-        <div class="reorder-dialog__columns">
-          <section class="reorder-dialog__column">
-            <h4>{{ t('body') }}</h4>
-            <Draggable :model-value="bodyOrderRows" item-key="key" :animation="150" ghost-class="sortable-ghost" @update:modelValue="updateVisibleOrder('bodyOrder', $event)">
-              <template #item="{ element }">
-                <div class="reorder-dialog__row"><span><font-awesome-icon :icon="['fas', getIcon(element.key)]" /> {{ getSectionDisplayName(element.key) }}</span><font-awesome-icon class="popup-drag-icon" :icon="['fas', 'grip-vertical']" aria-hidden="true" /></div>
-              </template>
-            </Draggable>
-          </section>
-          <section class="reorder-dialog__column">
-            <h4>{{ t('sidebar') }}</h4>
-            <Draggable :model-value="sidebarOrderRows" item-key="key" :animation="150" ghost-class="sortable-ghost" @update:modelValue="updateVisibleOrder('sidebarOrder', $event)">
-              <template #item="{ element }">
-                <div class="reorder-dialog__row"><span><font-awesome-icon :icon="['fas', getIcon(element.key)]" /> {{ getSectionDisplayName(element.key) }}</span><font-awesome-icon class="popup-drag-icon" :icon="['fas', 'grip-vertical']" aria-hidden="true" /></div>
-              </template>
-            </Draggable>
-          </section>
-        </div>
-      </section>
-    </div>
-
-    <div v-if="activeFieldConfigSection" class="field-config-backdrop" @click.self="closeFieldConfig">
-      <section class="field-config-dialog" role="dialog" aria-modal="true" :aria-label="t('fieldConfiguration')">
-        <header class="field-config-dialog__header">
-          <h3>{{ t('fieldConfiguration') }}</h3>
-          <button class="mini btn--danger" type="button" :aria-label="t('close')" :title="t('close')" @click="closeFieldConfig"><font-awesome-icon :icon="['fas', 'xmark']" /></button>
-        </header>
-        <div class="field-config-mode" role="radiogroup" :aria-label="t('fieldInputMode')">
-          <label class="field-config-option"><input type="radio" name="custom-field-mode" :checked="!usesCustomBodyTextarea(activeFieldConfigSection)" @change="setCustomBodyEntryMode(activeFieldConfigSection, 'fields')" />{{ t('fieldInputModeFields') }}</label>
-          <label class="field-config-option"><input type="radio" name="custom-field-mode" :checked="usesCustomBodyTextarea(activeFieldConfigSection)" @change="setCustomBodyEntryMode(activeFieldConfigSection, 'textarea')" />{{ t('fieldInputModeTextarea') }}</label>
-        </div>
-        <p>{{ usesCustomBodyTextarea(activeFieldConfigSection) ? t('textareaFieldHelp') : t('fieldConfigurationHelp') }}</p>
-        <div v-if="!usesCustomBodyTextarea(activeFieldConfigSection)" class="field-config-options">
-          <label v-for="field in customBodyFieldOptions" :key="field.key" class="field-config-option">
-            <input type="checkbox" :checked="isCustomBodyFieldEnabled(activeFieldConfigSection, field.key)" @change="setCustomBodyFieldEnabled(activeFieldConfigSection, field.key, $event.target.checked)" />
-            {{ field.label }}
-          </label>
-        </div>
-      </section>
-    </div>
-
     <section class="body section-group editor-panel content-panel">
       <div class="section-head editor-panel__header editor-panel__header--centered">
         <h3>{{ t('content') }}</h3>
-        <button class="mini panel-header-action" type="button" :aria-label="t('reorder')" :title="t('reorder')" @click="reorderDialogOpen = true">
-          <font-awesome-icon :icon="['fas', 'grip-vertical']" />
-          {{ t('reorder') }}
-        </button>
       </div>
 
       <div class="content-tabs" role="tablist" :aria-label="t('content')">
@@ -325,6 +258,26 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
         <button id="content-tab-body" class="content-tab" :class="{ active: activeContentTab === 'body' }" type="button" role="tab" :aria-selected="activeContentTab === 'body'" aria-controls="content-panel-body" @click="activeContentTab = 'body'"><span>{{ t('body') }}</span><font-awesome-icon v-if="isContentTabComplete('body')" class="content-tab__complete" :icon="['fas', 'check']" aria-hidden="true" /></button>
         <button id="content-tab-sidebar" class="content-tab" :class="{ active: activeContentTab === 'sidebar' }" type="button" role="tab" :aria-selected="activeContentTab === 'sidebar'" aria-controls="content-panel-sidebar" @click="activeContentTab = 'sidebar'"><span>{{ t('sidebar') }}</span><font-awesome-icon v-if="isContentTabComplete('sidebar')" class="content-tab__complete" :icon="['fas', 'check']" aria-hidden="true" /></button>
       </div>
+
+      <Transition name="field-config">
+        <section v-if="activeFieldConfigSection" class="field-config-dialog" role="region" :aria-label="t('fieldConfiguration')">
+          <header class="field-config-dialog__header">
+            <h3>{{ t('fieldConfiguration') }}</h3>
+            <button class="mini btn--danger" type="button" :aria-label="t('close')" :title="t('close')" @click="closeFieldConfig"><font-awesome-icon :icon="['fas', 'xmark']" /></button>
+          </header>
+          <div class="field-config-mode" role="radiogroup" :aria-label="t('fieldInputMode')">
+            <label class="field-config-option"><input type="radio" name="custom-field-mode" :checked="!usesCustomBodyTextarea(activeFieldConfigSection)" @change="setCustomBodyEntryMode(activeFieldConfigSection, 'fields')" />{{ t('fieldInputModeFields') }}</label>
+            <label class="field-config-option"><input type="radio" name="custom-field-mode" :checked="usesCustomBodyTextarea(activeFieldConfigSection)" @change="setCustomBodyEntryMode(activeFieldConfigSection, 'textarea')" />{{ t('fieldInputModeTextarea') }}</label>
+          </div>
+          <p>{{ usesCustomBodyTextarea(activeFieldConfigSection) ? t('textareaFieldHelp') : t('fieldConfigurationHelp') }}</p>
+          <div v-if="!usesCustomBodyTextarea(activeFieldConfigSection)" class="field-config-options">
+            <label v-for="field in customBodyFieldOptions" :key="field.key" class="field-config-option">
+              <input type="checkbox" :checked="isCustomBodyFieldEnabled(activeFieldConfigSection, field.key)" @change="setCustomBodyFieldEnabled(activeFieldConfigSection, field.key, $event.target.checked)" />
+              {{ field.label }}
+            </label>
+          </div>
+        </section>
+      </Transition>
 
       <section v-show="activeContentTab === 'header'" id="content-panel-header" class="section-group content-section content-tab-panel" role="tabpanel" aria-labelledby="content-tab-header" :class="{ disabled: isHidden('header'), completed: isComplete('header') }">
         <div class="section-head">
@@ -351,7 +304,11 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
                   <label class="section-complete-toggle" :title="t('markComplete')" @click.stop><input type="checkbox" :checked="isComplete(key)" :aria-label="t('markComplete')" @change="toggleComplete(key)" /></label>
                 </div>
               </div>
-              <label class="about-editor">{{ t('aboutTextLabel') }}<MarkdownTextarea v-model="state.about.text" placeholder="Me in a nutshell..." :help="t('markdownTextareaHelp')" :rows="4" /></label>
+              <div class="section-content">
+                <div class="section-content__inner">
+                  <label class="about-editor">{{ t('aboutTextLabel') }}<MarkdownTextarea v-model="state.about.text" placeholder="Me in a nutshell..." :help="t('markdownTextareaHelp')" :rows="4" /></label>
+                </div>
+              </div>
             </section>
 
             <SectionList
@@ -379,23 +336,27 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
                   <label class="section-complete-toggle" :title="t('markComplete')" @click.stop><input type="checkbox" :checked="isComplete(key)" :aria-label="t('markComplete')" @change="toggleComplete(key)" /></label>
                 </div>
               </div>
-              <label v-if="usesCustomBodyTextarea(getBodySection(key))" class="about-editor">{{ t('textarea') }}<MarkdownTextarea v-model="getBodySection(key).text" :help="t('markdownTextareaHelp')" :rows="6" /></label>
-              <template v-else>
-                <Draggable v-model="getBodySection(key).entries" item-key="id" handle=".entry-drag-handle" :animation="150" class="items" ghost-class="sortable-ghost">
-                  <template #item="{ element: entry, index }">
-                    <div class="item-row" :class="{ 'item-row--hidden': entry.hidden }">
-                      <div class="item-row__actions"><button class="mini entry-drag-handle" type="button"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button><button class="mini visibility-toggle" :class="entry.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="entry.hidden ? t('show') : t('hide')" :title="entry.hidden ? t('show') : t('hide')" @click="toggleItemHidden(entry)"><font-awesome-icon :icon="['fas', entry.hidden ? 'eye-slash' : 'eye']" /></button><button class="mini btn--danger" type="button" :aria-label="t('remove')" :title="t('remove')" @click="requestBodyEntryDeletion(getBodySection(key), index)"><font-awesome-icon :icon="['fas', 'trash']" /></button></div>
-                      <div class="item-row__content">
-                        <div v-if="enabledCustomBodyTextFields(getBodySection(key)).length" class="custom-body-entry__fields" :style="{ '--custom-body-field-count': enabledCustomBodyTextFields(getBodySection(key)).length }">
-                          <label v-for="field in enabledCustomBodyTextFields(getBodySection(key))" :key="field.key">{{ field.label }}<InputText v-model="entry[field.key]" :placeholder="field.placeholder" fluid /></label>
+              <div class="section-content">
+                <div class="section-content__inner">
+                  <label v-if="usesCustomBodyTextarea(getBodySection(key))" class="about-editor">{{ t('textarea') }}<MarkdownTextarea v-model="getBodySection(key).text" :help="t('markdownTextareaHelp')" :rows="6" /></label>
+                  <template v-else>
+                    <Draggable v-model="getBodySection(key).entries" item-key="id" handle=".entry-drag-handle" :animation="150" class="items" ghost-class="sortable-ghost">
+                      <template #item="{ element: entry, index }">
+                        <div class="item-row" :class="{ 'item-row--hidden': entry.hidden }">
+                          <div class="item-row__actions"><button class="mini entry-drag-handle" type="button"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button><button class="mini visibility-toggle" :class="entry.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="entry.hidden ? t('show') : t('hide')" :title="entry.hidden ? t('show') : t('hide')" @click="toggleItemHidden(entry)"><font-awesome-icon :icon="['fas', entry.hidden ? 'eye-slash' : 'eye']" /></button><button class="mini btn--danger" type="button" :aria-label="t('remove')" :title="t('remove')" @click="requestBodyEntryDeletion(getBodySection(key), index)"><font-awesome-icon :icon="['fas', 'trash']" /></button></div>
+                          <div class="item-row__content">
+                            <div v-if="enabledCustomBodyTextFields(getBodySection(key)).length" class="custom-body-entry__fields" :style="{ '--custom-body-field-count': enabledCustomBodyTextFields(getBodySection(key)).length }">
+                              <label v-for="field in enabledCustomBodyTextFields(getBodySection(key))" :key="field.key">{{ field.label }}<InputText v-model="entry[field.key]" :placeholder="field.placeholder" fluid /></label>
+                            </div>
+                            <label v-if="isCustomBodyFieldEnabled(getBodySection(key), 'desc')">{{ t('desc') }}<MarkdownTextarea v-model="entry.desc" :placeholder="customBodyFieldOptions.find((field) => field.key === 'desc').placeholder" :help="t('markdownTextareaHelp')" /></label>
+                          </div>
                         </div>
-                        <label v-if="isCustomBodyFieldEnabled(getBodySection(key), 'desc')">{{ t('desc') }}<MarkdownTextarea v-model="entry.desc" :placeholder="customBodyFieldOptions.find((field) => field.key === 'desc').placeholder" :help="t('markdownTextareaHelp')" /></label>
-                      </div>
-                    </div>
+                      </template>
+                    </Draggable>
+                    <button type="button" class="add-item-row" @click="addBodyEntry(getBodySection(key))"><font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />{{ t('addItem') }}</button>
                   </template>
-                </Draggable>
-                <button type="button" class="add-item-row" @click="addBodyEntry(getBodySection(key))"><font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />{{ t('addItem') }}</button>
-              </template>
+                </div>
+              </div>
             </section>
           </template>
           <button type="button" class="add-section-row" @click="addBodySection">
@@ -430,18 +391,22 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
                   <label class="section-complete-toggle" :title="t('markComplete')" @click.stop><input type="checkbox" :checked="isComplete(key)" :aria-label="t('markComplete')" @change="toggleComplete(key)" /></label>
                 </div>
               </div>
-              <Draggable v-model="getSidebarSection(key).items" item-key="id" handle=".entry-drag-handle" :animation="150" class="items" ghost-class="sortable-ghost">
-                <template #item="{ element: item, index }">
-                  <div class="item-row sidebar-skill-row" :class="{ 'item-row--hidden': item.hidden }">
-                    <div class="item-row__actions"><button class="mini entry-drag-handle" type="button"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button><button class="mini visibility-toggle" :class="item.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="item.hidden ? t('show') : t('hide')" :title="item.hidden ? t('show') : t('hide')" @click="toggleItemHidden(item)"><font-awesome-icon :icon="['fas', item.hidden ? 'eye-slash' : 'eye']" /></button><button class="mini btn--danger" type="button" :aria-label="t('remove')" :title="t('remove')" @click="requestSidebarItemDeletion(getSidebarSection(key), index)"><font-awesome-icon :icon="['fas', 'trash']" /></button></div>
-                    <div class="item-row__content sidebar-skill-row__content">
-                      <label>{{ t('skillName') }}<InputText v-model="item.name" :placeholder="langRef === 'de' ? 'z. B. Python' : 'e.g. Python'" fluid /></label>
-                      <label v-if="getSidebarSection(key).levelType">{{ t('levelValue') }}<InputNumber v-model="item.levelValue" :min="getSidebarSection(key).levelType === 'experience' ? 1 : 0" :max="getSidebarSection(key).levelType === 'experience' ? 10 : 99" :use-grouping="false" fluid /></label>
-                    </div>
-                  </div>
-                </template>
-              </Draggable>
-              <button type="button" class="add-item-row" @click="addSidebarItem(getSidebarSection(key))"><font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />{{ t('addItem') }}</button>
+              <div class="section-content">
+                <div class="section-content__inner">
+                  <Draggable v-model="getSidebarSection(key).items" item-key="id" handle=".entry-drag-handle" :animation="150" class="items" ghost-class="sortable-ghost">
+                    <template #item="{ element: item, index }">
+                      <div class="item-row sidebar-skill-row" :class="{ 'item-row--hidden': item.hidden }">
+                        <div class="item-row__actions"><button class="mini entry-drag-handle" type="button"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button><button class="mini visibility-toggle" :class="item.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="item.hidden ? t('show') : t('hide')" :title="item.hidden ? t('show') : t('hide')" @click="toggleItemHidden(item)"><font-awesome-icon :icon="['fas', item.hidden ? 'eye-slash' : 'eye']" /></button><button class="mini btn--danger" type="button" :aria-label="t('remove')" :title="t('remove')" @click="requestSidebarItemDeletion(getSidebarSection(key), index)"><font-awesome-icon :icon="['fas', 'trash']" /></button></div>
+                        <div class="item-row__content sidebar-skill-row__content">
+                          <label>{{ t('skillName') }}<InputText v-model="item.name" :placeholder="langRef === 'de' ? 'z. B. Python' : 'e.g. Python'" fluid /></label>
+                          <label v-if="getSidebarSection(key).levelType">{{ t('levelValue') }}<InputNumber v-model="item.levelValue" :min="getSidebarSection(key).levelType === 'experience' ? 1 : 0" :max="getSidebarSection(key).levelType === 'experience' ? 10 : 99" :use-grouping="false" fluid /></label>
+                        </div>
+                      </div>
+                    </template>
+                  </Draggable>
+                  <button type="button" class="add-item-row" @click="addSidebarItem(getSidebarSection(key))"><font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />{{ t('addItem') }}</button>
+                </div>
+              </div>
             </section>
           </template>
           <button type="button" class="add-section-row" @click="addSidebarSection">
@@ -466,25 +431,15 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
 .about-editor { display: grid; gap: 4px; }
 .sidebar-skill-row__content { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; }
 .custom-body-entry__fields { display: grid; grid-template-columns: repeat(var(--custom-body-field-count), minmax(0, 1fr)); gap: 8px; }
-.reorder-dialog-backdrop { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; padding: 20px; background: rgba(0, 0, 0, .7); backdrop-filter: blur(3px); }
-.reorder-dialog { width: min(760px, 100%); max-height: min(80vh, 720px); overflow: auto; padding: 20px; border: 1px solid #10b981; border-radius: 12px; background: #0c131a; box-shadow: 0 24px 80px rgba(0, 0, 0, .5); }
-.reorder-dialog__header { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid #134e4a; }
-.reorder-dialog__header h3 { margin: 0 0 12px; }
-.reorder-dialog__columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.reorder-dialog__column { min-height: 80px; padding: 12px; border: 1px solid #134e4a; border-radius: 8px; }
-.reorder-dialog__column h4 { margin: 0 0 10px; color: #9be8c7; }
-.reorder-dialog__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; padding: 8px 10px; border: 1px solid rgba(255, 255, 255, .1); border-radius: 6px; background: rgba(255, 255, 255, .04); cursor: grab; }
-.reorder-dialog__row:active { cursor: grabbing; }
-.reorder-dialog__row span { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.popup-drag-icon { color: var(--muted); pointer-events: none; }
-.field-config-backdrop { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 20px; background: rgba(0, 0, 0, .7); backdrop-filter: blur(3px); }
-.field-config-dialog { width: min(420px, 100%); padding: 20px; border: 1px solid #10b981; border-radius: 12px; background: #0c131a; box-shadow: 0 24px 80px rgba(0, 0, 0, .5); }
+.field-config-dialog { display: grid; gap: 12px; width: min(100% - 20px, 720px); margin: 10px; padding: 16px; border: 1px solid #10b981; border-radius: 10px; background: #0c131a; box-shadow: 0 12px 36px rgba(0, 0, 0, .35); }
 .field-config-dialog__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #134e4a; }
 .field-config-dialog__header h3 { margin: 0 0 12px; }
+.field-config-dialog p { margin: 0; color: var(--muted); }
 .field-config-mode { display: flex; flex-wrap: wrap; gap: 8px 14px; }
 .field-config-options { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
 .field-config-option { display: inline-flex; align-items: center; gap: 6px; padding: 4px 0; color: #d1fae5; cursor: pointer; white-space: nowrap; }
 .field-config-option input { accent-color: #10b981; }
-@media (max-width: 840px) { .reorder-dialog__columns { grid-template-columns: 1fr; } }
+.field-config-enter-active, .field-config-leave-active { transition: opacity .2s ease, grid-template-rows .2s ease, margin .2s ease; }
+.field-config-enter-from, .field-config-leave-to { opacity: 0; }
 @media (max-width: 640px) { .sidebar-skill-row__content, .custom-body-entry__fields { grid-template-columns: 1fr; } }
 </style>
