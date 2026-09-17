@@ -1,11 +1,14 @@
 import UPNG from 'upng-js';
 
 export const PDF_IMAGE_FORMATS = ['png', 'jpeg', 'webp'];
+export const PDF_EXPORT_FORMATS = [...PDF_IMAGE_FORMATS, 'vector'];
 export const DEFAULT_EXPORT_OPTIONS = Object.freeze({ format: 'png', quality: 100 });
 
 export function normalizeExportOptions(options = {}) {
   const requestedFormat = options.format ?? options.type;
-  const format = PDF_IMAGE_FORMATS.includes(requestedFormat) ? requestedFormat : DEFAULT_EXPORT_OPTIONS.format;
+  const format = PDF_EXPORT_FORMATS.includes(requestedFormat) ? requestedFormat : DEFAULT_EXPORT_OPTIONS.format;
+  // Vector output has no image-compression setting or quality-dependent cache key.
+  if (format === 'vector') return { format, quality: 100 };
   const suppliedQuality = Number(options.quality);
   const rawQuality = suppliedQuality > 0 && suppliedQuality <= 1
     ? Math.round(suppliedQuality * 100)
@@ -50,6 +53,9 @@ function isDataUrlOfType(dataUrl, mimeType) {
  */
 export function encodePdfPageImage(canvas, exportOptions = {}) {
   const { format, quality } = normalizeExportOptions(exportOptions);
+  if (!PDF_IMAGE_FORMATS.includes(format)) {
+    throw new Error('Vector PDF pages must be rendered directly, not encoded as images.');
+  }
 
   if (format === 'png' && quality < 100) {
     const context = canvas.getContext('2d');

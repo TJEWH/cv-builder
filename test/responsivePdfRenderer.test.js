@@ -16,6 +16,13 @@ test('the installed canvas renderer supports the guarded scheduling adapter', ()
   assert.match(transformed, /context\.renderTask\?\.own\(iframe\)/);
 });
 
+test('the optional paint observer wraps the native context before initial transforms', () => {
+  const transformed = makeCanvasCooperative(canvas);
+  assert.match(transformed, /context\.recordCanvas = opts\.recordCanvas/);
+  assert.match(transformed, /if \(context\.recordCanvas\) _this\.ctx = context\.recordCanvas\(_this\.ctx, _this\.canvas\);\s+_this\.ctx\.scale/);
+  assert.throws(() => makeCanvasCooperative(canvas.replace('_this.fontMetrics = new FontMetrics(document);', '')), /dependency changed/);
+});
+
 test('page-break placement can yield without changing its placement rules', () => {
   const transformed = makePagebreaksCooperative(pagebreaks);
   assert.doesNotThrow(() => new Function(transformed.replace(/^import .*;$/gm, '')));

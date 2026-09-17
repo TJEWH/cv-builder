@@ -2,8 +2,85 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createPdfPageGeometry,
+  createPdfPageSlices,
   resolveLastPageSidebarPlacement,
 } from '../src/composables/pdfPageGeometry.js';
+
+test('slices pages at the existing integer-rounded pixel boundaries', () => {
+  const pages = createPdfPageSlices({ width: 703, height: 3000, pageWidth: 210, pageHeight: 297 });
+
+  assert.deepEqual(pages.map(({ sourceTop, sourceBottom }) => [sourceTop, sourceBottom]), [
+    [0, 994],
+    [994, 1988],
+    [1988, 2982],
+    [2982, 3000],
+  ]);
+});
+
+test('slices retain asymmetric margins and only pad continuation pages', () => {
+  const pages = createPdfPageSlices({
+    width: 760,
+    height: 2500,
+    pageWidth: 210,
+    pageHeight: 297,
+    margins: [11, 7, 19, 13],
+    continuationTopPadding: 12,
+  });
+
+  assert.deepEqual(pages, [
+    { sourceTop: 0, sourceBottom: 1068, canvasWidth: 760, contentWidth: 190, leftOffset: 7, topOffset: 11 },
+    { sourceTop: 1068, sourceBottom: 2088, canvasWidth: 760, contentWidth: 190, leftOffset: 7, topOffset: 23 },
+    { sourceTop: 2088, sourceBottom: 2500, canvasWidth: 760, contentWidth: 190, leftOffset: 7, topOffset: 23 },
+  ]);
+});
+
+test('suppresses trailing fractional slices up to the rounded 0.75 mm tolerance', () => {
+  const options = { width: 840, pageWidth: 210, pageHeight: 297 };
+
+  assert.equal(createPdfPageSlices({ ...options, height: 1190.5 }).length, 1);
+  assert.equal(createPdfPageSlices({ ...options, height: 1191 }).length, 1);
+  assert.equal(createPdfPageSlices({ ...options, height: 1191.01 }).length, 2);
+  assert.equal(createPdfPageSlices({ ...options, height: 3 }).length, 0);
+});
+
+test('retains the one-pixel minimum tolerance at low source resolutions', () => {
+  const options = { width: 100, pageWidth: 200, pageHeight: 200 };
+
+  assert.equal(createPdfPageSlices({ ...options, height: 101 }).length, 1);
+  assert.equal(createPdfPageSlices({ ...options, height: 101.1 }).length, 2);
+});
+
+test('clamps continuation padding to leave at least one millimeter of page height', () => {
+  const pages = createPdfPageSlices({
+    width: 200,
+    height: 610,
+    pageWidth: 100,
+    pageHeight: 300,
+    continuationTopPadding: 500,
+  });
+
+  assert.deepEqual(pages.map(({ sourceTop, sourceBottom }) => [sourceTop, sourceBottom]), [
+    [0, 600], [600, 602], [602, 604], [604, 606], [606, 608],
+  ]);
+  assert.equal(pages[1].topOffset, 299);
+  assert.deepEqual(
+    createPdfPageSlices({ width: 200, height: 800, pageWidth: 100, pageHeight: 300, continuationTopPadding: -5 }),
+    createPdfPageSlices({ width: 200, height: 800, pageWidth: 100, pageHeight: 300 }),
+  );
+});
+
+test('rejects source dimensions or margins that leave no usable area', () => {
+  const options = { width: 600, height: 1000, pageWidth: 210, pageHeight: 297 };
+  for (const invalid of [
+    { width: 0 },
+    { width: Number.NaN },
+    { height: Number.POSITIVE_INFINITY },
+    { margins: [0, 110, 0, 100] },
+    { margins: [150, 0, 147, 0] },
+  ]) {
+    assert.throws(() => createPdfPageSlices({ ...options, ...invalid }), /no space for the CV content/);
+  }
+});
 
 test('maps source coordinates to the first page and padded continuation pages', () => {
   const geometry = createPdfPageGeometry({

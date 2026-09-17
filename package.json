@@ -15,13 +15,17 @@
     "@fortawesome/free-solid-svg-icons": "^7.1.0",
     "@fortawesome/vue-fontawesome": "^3.1.2",
     "@primeuix/themes": "^1.2.5",
+    "fontkit": "2.0.4",
     "html2canvas": "1.4.1",
     "html2pdf.js": "0.12.1",
     "jspdf": "^3.0.4",
+    "pdfkit": "0.20.2",
     "primevue": "^4.5.5",
+    "svg-to-pdfkit": "0.1.8",
     "upng-js": "^2.1.0",
     "vue": "^3.5.24",
-    "vuedraggable": "^4.1.0"
+    "vuedraggable": "^4.1.0",
+    "wawoff2": "2.0.1"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.1",

@@ -43,7 +43,9 @@ Modern resume generator built with Vue 3 and Vite. Create professional CVs with 
 - **Drag & Drop**: Reorder sections and entries
 
 ### Export
-- **PDF Export**: High-quality with html2pdf.js (A4, 3x scaling)
+- **PDF Export**: PNG/JPEG/WebP-backed PDFs or direct-download **Vector PDF** with visible selectable text, clickable links and vector SVG icons
+- **Consistent Layout**: Both export paths share the same painting coordinates, page slices, margins and sidebar positioning; vector output does not embed rasterized pages or an invisible text layer
+- **Vector Fonts**: Uses the selected downloadable Google fonts (internet access required), including font weights and Unicode subsets. System-only fonts or missing glyphs show an actionable error instead of silently substituting a different face
 - **Page-Break Control**: Intelligent page breaks
 - **GDPR Compliant**: No cloud, all data local
 
@@ -96,6 +98,7 @@ App runs at `http://localhost:5173/cv-builder/`
 
 - **Vue 3.5** + **Vite 7.2**: Framework & build tool
 - **html2pdf.js**: PDF export (html2canvas + jsPDF)
+- **PDFKit + Fontkit**: Lazy-loaded browser-only vector PDF export; no server or print dialog required, compatible with GitHub Pages
 - **FontAwesome 7**: Icon system
 - **VueDraggable**: Handle-based section and item sorting
 - **Google Fonts**: Dynamic font loading

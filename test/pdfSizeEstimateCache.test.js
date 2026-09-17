@@ -66,6 +66,22 @@ test('drops obsolete prediction data while retaining a legacy exact size', () =>
   });
 });
 
+test('keeps vector sizes separate from raster formats and ignores quality changes', () => {
+  const rasterCache = recordPdfSizeMeasurement([], png100, { bytes: 512_345 }, now);
+  assert.equal(estimatePdfSizeFromCache(rasterCache, { format: 'vector' }).source, 'unavailable');
+
+  const first = recordPdfSizeMeasurement(rasterCache, { format: 'vector', quality: 80 }, { bytes: 48_765 }, now + 1);
+  const cache = recordPdfSizeMeasurement(first, { format: 'vector', quality: 95 }, { bytes: 46_789 }, now + 2);
+
+  assert.equal(cache.entries.length, 2);
+  assert.deepEqual(estimatePdfSizeFromCache(cache, { format: 'vector', quality: 82 }), {
+    bytes: 46_789,
+    source: 'cached-exact',
+    referenceOptions: { format: 'vector', quality: 100 },
+  });
+  assert.equal(estimatePdfSizeFromCache(cache, png100).bytes, 512_345);
+});
+
 test('migrates legacy storage into the compact reference cache', () => {
   const legacy = [{
     signature: 'old-signature',

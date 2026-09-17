@@ -49,12 +49,14 @@ const qualityLabel = computed(() => {
             <option value="png">PNG</option>
             <option value="jpeg">JPEG</option>
             <option value="webp">WebP</option>
+            <option value="vector">{{ t('vectorPdf') }}</option>
           </select>
         </label>
-        <label>{{ qualityLabel }}: {{ options.quality }}%
+        <label v-if="options.format !== 'vector'">{{ qualityLabel }}: {{ options.quality }}%
           <input type="range" min="80" max="100" step="1" :value="options.quality" @input="updateOption('quality', $event.target.value)">
         </label>
       </div>
+      <p v-if="options.format === 'vector'" class="export-options-panel__hint">{{ t('vectorPdfHelp') }}</p>
 
       <div class="export-estimate subsection-row" :class="{ 'export-estimate--stale': isEstimateStale, 'export-estimate--error': estimateError }">
         <span>{{ t('estimatedPdfSize') }}: </span>
@@ -79,5 +81,6 @@ const qualityLabel = computed(() => {
 .export-estimate__accuracy { color: var(--muted); font-size: 11px; }
 .export-estimate__stale { color: #f0cd86; font-size: 11px; }
 .export-options-panel__exact { white-space: nowrap; }
+.export-options-panel__hint { margin: 8px 0 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .export-estimate__error { margin: 6px 0 0; color: #ffaaaa; font-size: 11px; }
 </style>

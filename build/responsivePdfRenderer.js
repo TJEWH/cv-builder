@@ -21,7 +21,11 @@ function replaceOnce(source, before, after) {
 export function makeCanvasCooperative(source) {
   const change = (before, after) => { source = replaceOnce(source, before, after); };
   change('context = new Context(contextOptions, windowBounds);',
-    'context = new Context(contextOptions, windowBounds); context.renderTask = opts.renderTask;');
+    'context = new Context(contextOptions, windowBounds); context.renderTask = opts.renderTask; context.recordCanvas = opts.recordCanvas;');
+  // A per-render observer can retain vector paint commands while the native
+  // canvas still provides exactly the same pixels and pagination measurements.
+  change('_this.fontMetrics = new FontMetrics(document);',
+    '_this.fontMetrics = new FontMetrics(document); if (context.recordCanvas) _this.ctx = context.recordCanvas(_this.ctx, _this.canvas);');
   change('this.documentElement = this.cloneNode(element.ownerDocument.documentElement, false);',
     'this.ready = this.cloneNode(element.ownerDocument.documentElement, false).then(root => { this.documentElement = root; });');
   change('var iframe = createIFrameContainer(ownerDocument, windowSize);',

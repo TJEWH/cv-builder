@@ -4,6 +4,8 @@ import {
   encodePdfPageImage,
   formatPdfBytes,
   normalizeExportOptions,
+  PDF_EXPORT_FORMATS,
+  PDF_IMAGE_FORMATS,
   pngPaletteColors,
 } from '../src/composables/pdfImageEncoding.js';
 
@@ -13,6 +15,20 @@ test('normalizes persisted export options and legacy image settings', () => {
   assert.deepEqual(normalizeExportOptions({ type: 'webp', quality: .9 }), { format: 'webp', quality: 90 });
   assert.deepEqual(normalizeExportOptions({ format: 'gif', quality: 200 }), { format: 'png', quality: 100 });
   assert.deepEqual(normalizeExportOptions({ format: 'png', quality: 1 }), { format: 'png', quality: 100 });
+});
+
+test('normalizes vector PDF options without an image quality setting', () => {
+  assert.deepEqual(normalizeExportOptions({ format: 'vector', quality: 80 }), { format: 'vector', quality: 100 });
+  assert.deepEqual(normalizeExportOptions({ type: 'vector', quality: .9 }), { format: 'vector', quality: 100 });
+  assert.ok(PDF_EXPORT_FORMATS.includes('vector'));
+  assert.ok(!PDF_IMAGE_FORMATS.includes('vector'));
+});
+
+test('does not accidentally rasterize vector PDF pages', () => {
+  assert.throws(
+    () => encodePdfPageImage({}, { format: 'vector' }),
+    /Vector PDF pages must be rendered directly/,
+  );
 });
 
 test('maps PNG quality to the documented palette thresholds', () => {

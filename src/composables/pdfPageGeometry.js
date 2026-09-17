@@ -7,6 +7,65 @@ function pageIndex(value) {
   return Math.max(0, Math.floor(finiteNumber(value)));
 }
 
+const TRAILING_SLICE_TOLERANCE_MILLIMETERS = 0.75;
+
+/**
+ * Split the rendered source using the same integer pixel boundaries for raster
+ * and vector exports. Margins follow html2pdf's [top, left, bottom, right] order.
+ */
+export function createPdfPageSlices({
+  width,
+  height,
+  pageWidth,
+  pageHeight,
+  margins = [0, 0, 0, 0],
+  continuationTopPadding = 0,
+}) {
+  const [marginTop, marginLeft, marginBottom, marginRight] = margins;
+  const contentWidth = pageWidth - marginLeft - marginRight;
+  const firstPageHeight = pageHeight - marginTop - marginBottom;
+  const safeContinuationPadding = Math.min(
+    Math.max(Number(continuationTopPadding) || 0, 0),
+    Math.max(0, firstPageHeight - 1),
+  );
+
+  if (
+    !Number.isFinite(width) || width <= 0
+    || !Number.isFinite(height) || height < 0
+    || !Number.isFinite(contentWidth) || contentWidth <= 0
+    || !Number.isFinite(firstPageHeight) || firstPageHeight <= 0
+  ) {
+    throw new Error('PDF margins leave no space for the CV content');
+  }
+
+  const trailingSliceTolerance = Math.max(
+    1,
+    Math.ceil((width / contentWidth) * TRAILING_SLICE_TOLERANCE_MILLIMETERS),
+  );
+  const pages = [];
+  let sourceTop = 0;
+
+  while (height - sourceTop > trailingSliceTolerance) {
+    const padding = pages.length > 0 ? safeContinuationPadding : 0;
+    const sliceHeight = Math.min(
+      Math.max(1, Math.floor((width * (firstPageHeight - padding)) / contentWidth)),
+      height - sourceTop,
+    );
+    const sourceBottom = sourceTop + sliceHeight;
+    pages.push({
+      sourceTop,
+      sourceBottom,
+      canvasWidth: width,
+      contentWidth,
+      leftOffset: marginLeft,
+      topOffset: marginTop + padding,
+    });
+    sourceTop = sourceBottom;
+  }
+
+  return pages;
+}
+
 /**
  * Describe the source-canvas heights that map to each exported PDF page.
  */

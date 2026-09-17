@@ -33,7 +33,8 @@ function normalizeEntry(entry) {
 
 /**
  * The size display deliberately stores only the last exact size for each
- * export format/quality combination. It is a reference, not a prediction:
+ * export format/quality combination (vector output has a single quality).
+ * It is a reference, not a prediction:
  * content, page geometry, and encoded image data never enter the cache.
  */
 export function normalizePdfSizeEstimateCache(value) {
@@ -113,7 +114,9 @@ export function estimatePdfSizeFromCache(cache, options) {
 
   const sameQuality = reference.options.quality === targetOptions.quality;
   return {
-    bytes: Math.round(reference.bytes * (targetOptions.quality / reference.options.quality)),
+    bytes: sameQuality
+      ? reference.bytes
+      : Math.round(reference.bytes * (targetOptions.quality / reference.options.quality)),
     source: sameQuality ? 'cached-exact' : 'quality-scaled',
     referenceOptions: reference.options,
   };

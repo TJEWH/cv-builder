@@ -304,6 +304,7 @@ const fullRenderSlot = createPreviewRenderSlot();
 const anonymizedRenderSlot = createPreviewRenderSlot();
 const isExporting = ref(false);
 const isAnonymizedExporting = ref(false);
+const pdfExportError = ref('');
 const estimatedPdfBytes = ref(null);
 const isPdfEstimateQualityScaled = ref(false);
 const pdfEstimateReferenceQuality = ref(null);
@@ -347,7 +348,7 @@ function getPdfRenderOptions(options = {}) {
   };
 }
 
-function getHybridPdfRenderOptions() {
+function getExportPdfRenderOptions() {
   const exportOptions = normalizeExportOptions(state.exportOptions);
   return {
     ...getPdfRenderOptions(),
@@ -642,7 +643,7 @@ async function calculateExactPdfSizeEstimate() {
     const contentRevision = pdfContentRevision;
     const cvElement = getPdfSourceElement();
     if (!cvElement) throw new Error('CV preview element not found');
-    const renderOptions = getHybridPdfRenderOptions();
+    const renderOptions = getExportPdfRenderOptions();
     const measurement = await estimatePdfSize(cvElement, renderOptions);
     if (request !== pdfEstimateRequest || contentRevision !== pdfContentRevision) return;
     cachePdfSizeMeasurement(measurement, renderOptions.image);
@@ -673,12 +674,13 @@ const estimatedPdfSize = computed(() => formatPdfBytes(estimatedPdfBytes.value))
 
 async function handleExportPdf() {
   isExporting.value = true;
+  pdfExportError.value = '';
   try {
     await nextTick();
     const cvElement = getPdfSourceElement();
     if (!cvElement) throw new Error('CV preview element not found');
     const contentRevision = pdfContentRevision;
-    const renderOptions = getHybridPdfRenderOptions();
+    const renderOptions = getExportPdfRenderOptions();
     const filename = `${(state.contact?.name || 'CV').replace(/\s+/g, '_')}_CV`;
     const measurement = await exportToPdf(cvElement, filename, renderOptions);
     if (measurement) {
@@ -689,7 +691,7 @@ async function handleExportPdf() {
       isPdfEstimateStale.value = estimatedPdfBytes.value != null && contentRevision !== pdfContentRevision;
     }
   } catch (error) {
-    console.error('PDF export failed:', error);
+    pdfExportError.value = error instanceof Error ? error.message : String(error);
   } finally {
     isExporting.value = false;
   }
@@ -697,13 +699,14 @@ async function handleExportPdf() {
 
 async function handleAnonymizedExportPdf() {
   isAnonymizedExporting.value = true;
+  pdfExportError.value = '';
   try {
     await nextTick();
     const cvElement = getAnonymizedPdfSourceElement();
     if (!cvElement) throw new Error('Anonymized CV preview element not found');
-    await exportToPdf(cvElement, 'anonymized-cv', getHybridPdfRenderOptions());
+    await exportToPdf(cvElement, 'anonymized-cv', getExportPdfRenderOptions());
   } catch (error) {
-    console.error('Anonymized PDF export failed:', error);
+    pdfExportError.value = error instanceof Error ? error.message : String(error);
   } finally {
     isAnonymizedExporting.value = false;
   }
@@ -748,6 +751,10 @@ function toggleFullPreviewView() {
 
 <template>
   <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode }" @focusout="onPreviewInputBlur" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
+    <div v-if="pdfExportError" class="pdf-export-error" role="alert">
+      <span>{{ pdfExportError }}</span>
+      <button class="mini" type="button" :aria-label="t('close')" @click="pdfExportError = ''">×</button>
+    </div>
     <div ref="pdfRenderSource" class="pdf-render-source" aria-hidden="true">
       <CvPreview :state="state" export-source />
     </div>
@@ -919,6 +926,25 @@ function toggleFullPreviewView() {
 </template>
 
 <style>
+.pdf-export-error {
+  position: fixed;
+  z-index: 10000;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(560px, calc(100vw - 32px));
+  padding: 12px 16px;
+  border: 1px solid #a94444;
+  border-radius: 8px;
+  background: #311b23;
+  color: #fee2e2;
+  font: 14px/1.4 system-ui, sans-serif;
+}
+.pdf-export-error .mini { flex: 0 0 auto; margin-left: auto; }
+
 html,
 body,
 #app {
