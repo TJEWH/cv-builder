@@ -199,6 +199,8 @@ let renderedFullPreviewSourceVersion = -1;
 let anonymizedSourceVersion = 0;
 let anonymizedPreviewRenderVersion = 0;
 let renderedAnonymizedSourceVersion = -1;
+let isSliderPreviewUpdateDeferred = false;
+let sliderPreviewUpdatePending = false;
 
 function exportMarginMillimeters(value) {
   const parsed = Number.parseFloat(value);
@@ -400,12 +402,12 @@ function requestAnonymizedPdfPreview() {
   scheduleAnonymizedPdfPreview(renderVersion, anonymizedSourceVersion);
 }
 
-function invalidateAnonymizedPdfPreview() {
+function invalidateAnonymizedPdfPreview({ defer = false } = {}) {
   anonymizedSourceVersion += 1;
   anonymizedPreviewPages.value = [];
   anonymizedPreviewPage.value = 1;
   renderedAnonymizedSourceVersion = -1;
-  if (fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
+  if (!defer && fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
 }
 
 const previewState = computed(() => ({
@@ -447,6 +449,24 @@ function isTextEntryInput(element) {
   ].join(',')));
 }
 
+function isRangeInput(element) {
+  return element?.matches?.('input[type="range"]') ?? false;
+}
+
+function onPreviewSliderPointerDown(event) {
+  if (isRangeInput(event.target)) isSliderPreviewUpdateDeferred = true;
+}
+
+function commitDeferredSliderPreview() {
+  if (!isSliderPreviewUpdateDeferred) return;
+  isSliderPreviewUpdateDeferred = false;
+  if (!sliderPreviewUpdatePending) return;
+
+  sliderPreviewUpdatePending = false;
+  requestPdfPreview();
+  if (fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
+}
+
 function onPreviewInputBlur(event) {
   if (isTextEntryInput(event.target)) requestPdfPreview();
 }
@@ -456,6 +476,12 @@ watch(previewState, () => {
   if (estimatedPdfBytes.value != null) {
     isPdfEstimateStale.value = true;
   }
+  if (isSliderPreviewUpdateDeferred) {
+    sliderPreviewUpdatePending = true;
+    invalidatePdfPreview();
+    isPreviewRendering.value = false;
+    return;
+  }
   if (isTextEntryInput(document.activeElement)) {
     invalidatePdfPreview();
     isPreviewRendering.value = false;
@@ -464,7 +490,14 @@ watch(previewState, () => {
   requestPdfPreview();
 }, { deep: true, flush: 'post' });
 
-watch(anonymizedPreviewState, invalidateAnonymizedPdfPreview, { deep: true, flush: 'post' });
+watch(anonymizedPreviewState, () => {
+  if (isSliderPreviewUpdateDeferred) {
+    sliderPreviewUpdatePending = true;
+    invalidateAnonymizedPdfPreview({ defer: true });
+    return;
+  }
+  invalidateAnonymizedPdfPreview();
+}, { deep: true, flush: 'post' });
 
 function updateApproximatePdfSizeEstimate() {
   const estimate = estimatePdfSizeFromLayerCache(
@@ -608,7 +641,7 @@ function toggleFullPreviewView() {
 </script>
 
 <template>
-  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode }" @focusout="onPreviewInputBlur">
+  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode }" @focusout="onPreviewInputBlur" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
     <div ref="pdfRenderSource" class="pdf-render-source" aria-hidden="true">
       <CvPreview :state="state" export-source />
     </div>
