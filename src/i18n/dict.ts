@@ -32,7 +32,7 @@ export const dict = {
     saving:             {de: 'Speichert…', en: 'Saving…'},
     saved:              {de: 'Gespeichert', en: 'Saved'},
     saveFailed:         {de: 'Speichern fehlgeschlagen', en: 'Saving failed'},
-    currentDraft:       {de: 'Aktueller Entwurf', en: 'Current draft'},
+    noSavedVersion:     {de: 'Keine gespeicherte Version', en: 'No saved version'},
     body:               {de: 'Body', en: 'Body'},
     sidebar:            {de: 'Sidebar', en: 'Sidebar'},
     reorder:            {de: 'Reihenfolge', en: 'Reorder'},

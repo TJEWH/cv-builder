@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { loadLocal, saveLocal } from '../composables/useStorage';
+import { saveLocal } from '../composables/useStorage';
 import {
   MAX_CV_JSON_FILE_BYTES,
   createCvJsonBackup,
@@ -28,7 +28,7 @@ const labels = computed(() => langRef.value === 'de' ? {
   confirmLoad: 'Aktuelle Änderungen gehen verloren. Diese Konfiguration laden?',
   confirmImport: 'Aktuelle Änderungen gehen verloren. Diese JSON-Datei laden?',
   confirmDelete: 'Diese Konfiguration wirklich löschen?',
-  draft: 'Aktueller Entwurf',
+  noSavedVersion: 'Keine gespeicherte Version',
   saved: 'Gespeichert.',
   loaded: 'Geladen.',
   exported: 'JSON-Datei heruntergeladen.',
@@ -36,9 +36,8 @@ const labels = computed(() => langRef.value === 'de' ? {
   invalidFile: 'Die Datei ist keine unterstützte CV-JSON-Datei.',
   fileTooLarge: 'Die JSON-Datei ist zu groß.',
   missingName: 'Bitte Titel eingeben.',
-  missingDraft: 'Es gibt noch keinen gespeicherten Entwurf.',
   saveFailed: 'Speichern fehlgeschlagen. Bitte Speicherplatz und Browser-Einstellungen prüfen.',
-  saveAsHint: 'Eine neue Konfiguration ist im Grunde eine Kopie der aktuell ausgewählten Konfiguration beziehungsweise des aktuellen Entwurfs.',
+  saveAsHint: 'Eine neue Konfiguration ist eine Kopie der aktuell angezeigten Inhalte und Einstellungen.',
 } : {
   versions: 'Versions',
   saveAs: 'Save as',
@@ -50,7 +49,7 @@ const labels = computed(() => langRef.value === 'de' ? {
   confirmLoad: 'Loading replaces your current changes. Continue?',
   confirmImport: 'Loading this JSON file replaces your current changes. Continue?',
   confirmDelete: 'Delete this configuration?',
-  draft: 'Current draft',
+  noSavedVersion: 'No saved version',
   saved: 'Saved.',
   loaded: 'Loaded.',
   exported: 'JSON file downloaded.',
@@ -58,9 +57,8 @@ const labels = computed(() => langRef.value === 'de' ? {
   invalidFile: 'The file is not a supported CV JSON file.',
   fileTooLarge: 'The JSON file is too large.',
   missingName: 'Please enter a title.',
-  missingDraft: 'There is no saved draft yet.',
   saveFailed: 'Saving failed. Check available storage and browser settings.',
-  saveAsHint: 'A new configuration is effectively a copy of the currently selected configuration or current draft.',
+  saveAsHint: 'A new configuration is a copy of the currently displayed content and settings.',
 });
 
 const configs = ref([]);
@@ -190,9 +188,6 @@ function saveAs() {
 
   try {
     const data = snapshotState();
-    // The generic draft is intentionally independent from named versions.
-    // Seed it once so a first version always has an actual draft to return to.
-    if (!loadLocal() && !saveLocal(data)) throw new Error('Draft could not be written');
     const saved = saveConfig(uniqueConfigId(name), name, { data });
     if (saved) newName.value = '';
     emit('save-result', saved);
@@ -221,28 +216,8 @@ function loadConfig(id = currentId.value, { confirmLoad = true } = {}) {
   }
 }
 
-function loadDraft({ confirmLoad = true } = {}) {
-  if (!currentId.value) return true;
-  const data = loadLocal();
-  if (!data) {
-    backupMsg.value = labels.value.missingDraft;
-    return false;
-  }
-  if (confirmLoad && !confirm(labels.value.confirmLoad)) return false;
-  try {
-    setCurrentId('');
-    props.onLoad(data);
-    props.onSave();
-    backupMsg.value = labels.value.loaded;
-    return true;
-  } catch (error) {
-    console.warn('Failed to load draft', error);
-    return false;
-  }
-}
-
 function selectConfiguration(id) {
-  return id ? loadConfig(id) : loadDraft();
+  return id ? loadConfig(id) : false;
 }
 
 function onConfigurationChange(event) {
@@ -271,8 +246,8 @@ function restoreActiveConfig() {
 function deleteCurrent() {
   if (!currentId.value || !confirm(labels.value.confirmDelete)) return;
   try {
-    // Keep the visible data as the independent current draft after deletion.
-    if (!saveLocal(snapshotState())) throw new Error('Draft could not be written');
+    // Deleting a saved version must not discard the content currently being edited.
+    if (!saveLocal(snapshotState())) throw new Error('Current content could not be written');
     const nextIndex = readIndex().filter((item) => item.id !== currentId.value);
     if (!writeIndex(nextIndex)) throw new Error('Configuration index could not be written');
     if (!removeStorage(localDataKey(currentId.value))) throw new Error('Configuration data could not be removed');
@@ -347,7 +322,7 @@ onMounted(refreshConfigs);
     <div class="group-panel__scroll-body">
       <div class="backup-manager__actions">
         <select :value="currentId" :aria-label="labels.versions" @change="onConfigurationChange">
-          <option value="">{{ labels.draft }}</option>
+          <option v-if="!currentId" value="" disabled>{{ labels.noSavedVersion }}</option>
           <option v-for="config in configs" :key="config.id" :value="config.id">{{ config.name }}</option>
         </select>
         <button type="button" class="btn" :disabled="!currentId" @click="loadConfig()">{{ labels.load }}</button>

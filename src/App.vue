@@ -664,7 +664,7 @@ function openFullPreview() {
           <label class="builder-topbar__configuration">
             <font-awesome-icon :icon="['fas', 'layer-group']" aria-hidden="true" />
             <select :value="selectedConfigurationId" :aria-label="t('versions')" @change="selectConfiguration">
-              <option value="">{{ t('currentDraft') }}</option>
+              <option v-if="!selectedConfigurationId" value="" disabled>{{ t('noSavedVersion') }}</option>
               <option v-for="configuration in savedConfigurations" :key="configuration.id" :value="configuration.id">{{ configuration.name }}</option>
             </select>
           </label>
