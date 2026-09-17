@@ -17,7 +17,7 @@ normalizeContentState(props.state);
 const langRef = computed(() => props.state.lang || 'de');
 const t = makeT(langRef);
 const fieldConfigSectionId = ref(null);
-const activeContentTab = ref('header');
+const activeContentTab = ref('body');
 const collapsed = reactive({
   about: true,
   education: true,
@@ -250,7 +250,7 @@ const hobbiesSchema = computed(() => [{ label: 'Hobby', key: 'name', type: 'text
     />
     <section class="body section-group editor-panel content-panel">
       <div class="section-head editor-panel__header editor-panel__header--centered">
-        <h3>{{ t('content') }}</h3>
+        <h2>{{ t('content') }}</h2>
       </div>
 
       <div class="content-tabs" role="tablist" :aria-label="t('content')">

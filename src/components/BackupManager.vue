@@ -347,7 +347,7 @@ onMounted(refreshConfigs);
 <template>
   <section class="section-group backup-manager">
     <div class="section-head group-panel__header--centered">
-      <h3>{{ labels.versions }}</h3>
+      <h2>{{ labels.versions }}</h2>
     </div>
 
     <p class="backup-manager__selected"><span>{{ labels.selected }}:</span> <strong>{{ selectedName }}</strong></p>

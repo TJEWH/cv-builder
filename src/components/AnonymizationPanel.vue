@@ -61,7 +61,7 @@ function setExcluded(key, id, shouldExclude) {
 <template>
   <section class="section-group editor-panel anonymization-panel">
     <div class="section-head editor-panel__header editor-panel__header--centered anonymization-panel__header">
-      <h3>{{ t('privacy') }}</h3>
+      <h2>{{ t('privacy') }}</h2>
       <button class="btn btn--primary anonymization-panel__export" type="button" :disabled="isExporting" @click="$emit('export')">
         <font-awesome-icon :icon="['fas', isExporting ? 'spinner' : 'user-secret']" :spin="isExporting" />
         {{ isExporting ? t('exportingAnonymizedPdf') : t('downloadAnonymizedPdf') }}

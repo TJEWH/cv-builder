@@ -1072,13 +1072,23 @@ function toggleFullPreviewView() {
 }
 
 .builder-layout__controls {
+  position: relative;
   display: grid;
   gap: 0;
   min-width: 0;
+  isolation: isolate;
 }
 
 .builder-group-panel { min-width: 0; }
 .builder-group-enter-active, .builder-group-leave-active { transition: opacity .22s ease; }
+.builder-group-enter-active { position: relative; z-index: 1; }
+.builder-group-leave-active {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  pointer-events: none;
+}
 .builder-group-enter-from, .builder-group-leave-to { opacity: 0; }
 
 .builder-layout__controls .workbench {

@@ -208,7 +208,7 @@ function pixels(value, fallback = 1) {
 <template>
   <section class="section-group editor-panel design-panel">
     <div class="section-head editor-panel__header editor-panel__header--centered">
-      <h3>{{ t('design') }}</h3>
+      <h2>{{ t('design') }}</h2>
     </div>
 
     <section class="design-favorites">

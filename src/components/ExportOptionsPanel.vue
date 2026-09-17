@@ -39,7 +39,7 @@ const estimateAccuracyLabel = computed(() => {
 <template>
   <section class="section-group editor-panel export-options-panel">
     <div class="section-head editor-panel__header editor-panel__header--centered">
-      <h3>{{ t('export') }}</h3>
+      <h2>{{ t('export') }}</h2>
     </div>
 
     <div class="editor-panel__body">
