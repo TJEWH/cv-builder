@@ -29,7 +29,6 @@ const labels = computed(() => langRef.value === 'de' ? {
   confirmImport: 'Aktuelle Änderungen gehen verloren. Diese JSON-Datei laden?',
   confirmDelete: 'Diese Konfiguration wirklich löschen?',
   draft: 'Aktueller Entwurf',
-  selected: 'Ausgewählt',
   saved: 'Gespeichert.',
   loaded: 'Geladen.',
   exported: 'JSON-Datei heruntergeladen.',
@@ -52,7 +51,6 @@ const labels = computed(() => langRef.value === 'de' ? {
   confirmImport: 'Loading this JSON file replaces your current changes. Continue?',
   confirmDelete: 'Delete this configuration?',
   draft: 'Current draft',
-  selected: 'Selected',
   saved: 'Saved.',
   loaded: 'Loaded.',
   exported: 'JSON file downloaded.',
@@ -105,10 +103,6 @@ const currentId = computed({
   get: () => props.selectedId || '',
   set: setCurrentId,
 });
-const selectedName = computed(() => (
-  configs.value.find((item) => item.id === currentId.value)?.name || labels.value.draft
-));
-
 function slug(value) {
   return String(value || '')
     .trim().toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '')
@@ -340,7 +334,7 @@ async function importJson(event) {
   }
 }
 
-defineExpose({ loadConfig, loadDraft, selectConfiguration, restoreActiveConfig, refreshConfigs, saveCurrent });
+defineExpose({ selectConfiguration, restoreActiveConfig, saveCurrent });
 onMounted(refreshConfigs);
 </script>
 
@@ -383,6 +377,5 @@ onMounted(refreshConfigs);
 .backup-manager__actions select { flex: 1 1 220px; width: auto; }
 .backup-manager__save-as input { flex: 1 1 220px; width: auto; }
 .backup-manager__file-input { display: none; }
-.backup-manager__hint { margin: 0; color: var(--muted); font-size: 12px; }
-.backup-manager__hint { line-height: 1.45; }
+.backup-manager__hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 </style>

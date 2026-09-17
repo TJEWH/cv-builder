@@ -103,10 +103,11 @@ const favoriteRows = computed(() => {
   selectedFavoriteOptions.value.forEach((option) => {
     const section = favoriteSection(option);
     const hasFavoritePair = option.link && isFavorite(option.link.primaryKey) && isFavorite(option.link.secondaryKey);
-    if (!hasFavoritePair || handledLinks.has(option.link.linkKey)) {
-      if (!option.link || !isFavorite(option.link.primaryKey) || option.key === option.link.primaryKey) add(section, { type: 'single', option });
+    if (!hasFavoritePair) {
+      add(section, { type: 'single', option });
       return;
     }
+    if (handledLinks.has(option.link.linkKey)) return;
 
     const primary = favoriteOptionByKey.get(option.link.primaryKey);
     const secondary = favoriteOptionByKey.get(option.link.secondaryKey);

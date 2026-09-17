@@ -23,13 +23,14 @@ Modern resume generator built with Vue 3 and Vite. Create professional CVs with 
 - **Custom Sections**: Create your own sections with freely definable fields
 
 ### Design
-- **Layouts**: Sidebar left/right/none, adjustable column ratio
-- **Colors**: Full control over all colors (text, accent, backgrounds)
-- **Fonts**: Google Fonts integration (8 body fonts, 8 heading fonts)
-- **Typography**: H1-H3 sizes, bullet style individually adjustable
-- **Header Styles**: clean, underline, leftbar, pill, stripe
-- **Badges**: Border, radius, inverted, box-shadow
-- **Spacing**: Individual spacing for body and sidebar
+- **Layouts**: Sidebar left/right, adjustable column ratio and starting page
+- **Colors**: Font color with separate graphic and date opacity
+- **Fonts**: Google Fonts integration for body and headings
+- **Typography**: H1-H3 and bullet font sizes
+- **Heading Styles**: clean, underline, leftbar, pill
+- **Badges**: Solid or outlined, with adjustable border radius
+- **Spacing**: Page margins, header spacing, section/item gaps and body/sidebar spacing
+- **Favorites**: Choose frequently used design controls for quick access
 
 ### Workflow
 - **Live Preview**: Inline live preview with a full-size in-app preview mode
@@ -58,9 +59,7 @@ npm install
 npm run dev
 ```
 
-App runs at `http://localhost:5173`
-
-
+App runs at `http://localhost:5173/cv-builder/`
 
 ---
 
@@ -69,15 +68,15 @@ App runs at `http://localhost:5173`
 ### Basics
 - Fill sections with `+` button, remove with `×`
 - Eye icon (👁️) shows/hides sections
-- Use the right-side section handle to open the fixed Body/Sidebar reorder dialog
+- Reorder sections using the handles in the container below the Body/Sidebar editors
 - Use item handles to drag entries and sidebar skills directly
 - Auto-save saves all changes automatically
 
 ### Customize Design
 - Design panel (palette icon) for layout, colors, fonts
-- Sidebar position (left/right/none) selectable
-- Header styles: clean, underline, leftbar, pill, stripe
-- All colors and typography individually adjustable
+- Sidebar position (left/right) selectable
+- Heading styles: clean, underline, leftbar, pill
+- Font color, opacity and typography individually adjustable
 
 ### Sidebar Categories
 - Sidebar-only custom sections use a normal section header and optional skill levels
@@ -88,16 +87,10 @@ App runs at `http://localhost:5173`
 - Link with work experience
 
 ### Backup & Export
-- **BackupManager** (☰): Multiple named configurations
+- **Versions tab**: Multiple named configurations; saving a new one copies the current configuration
 - Browser-local storage (LocalStorage)
 - **PDF Export**: Download directly from the builder or full preview mode
 - Import/export JSON files possible
-
-
-
-
-
-
 
 ## 🛠 Tech Stack
 
@@ -118,21 +111,20 @@ App runs at `http://localhost:5173`
 npm run dev          # Dev server (http://localhost:5173)
 npm run build        # Production build
 npm run preview      # Test build
-npm test             # Content-state migration tests
+npm test             # Content, PDF geometry, rendering and storage tests
 ```
 
 ### Extend Project
 
 **New Section**: Extend state in `App.vue` → adjust FormBuilder + Preview → translations in `dict.ts`
 
-**Design Option**: State → DesignPanel input → CSS variable in `applyCSS()` → use CSS
+**Design Option**: State → DesignPanel input → CSS variable in `applyCvDesign()` → use CSS
 
 **Sidebar Skill Display**: Template in `SkillItem.vue` + level configuration in `FormBuilder.vue`
 
 ### Debugging
 
 - **Vue DevTools**: Browser extension for component tree and state
-- **Console**: `localStorage.getItem('cv-session')` for saved data
 - **Saved data**: inspect `localStorage.getItem('cv-session')` in the browser console
 
 ### Preview scheduling
@@ -160,8 +152,6 @@ This project is configured for automatic deployment to GitHub Pages:
 1. **Push to `main` branch** → Automatic build & deploy via GitHub Actions
 2. **Configure GitHub Settings**: Go to Settings → Pages → Source: "GitHub Actions"
 3. **Access**: `https://tjewh.github.io/cv-builder/`
-
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed setup instructions.
 
 ### Manual Deployment
 

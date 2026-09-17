@@ -107,11 +107,10 @@ const saveStatusIcon = computed(() => (
 
 function persistState() {
   try {
-    const stateSnapshot = JSON.parse(JSON.stringify(state));
     const versionSaveResult = backupManager.value?.saveCurrent?.();
     const saved = typeof versionSaveResult === 'boolean'
       ? versionSaveResult
-      : saveLocal(stateSnapshot);
+      : saveLocal(state);
     saveStatus.value = saved ? 'saved' : 'error';
   } catch (error) {
     console.warn('Failed to save CV state', error);
@@ -156,10 +155,6 @@ function addDesignMillimeters(...values) {
   return `${values.reduce((total, value) => total + designMillimeters(value), 0)}mm`;
 }
 
-function hasOwnDesignProperty(design, key) {
-  return Object.prototype.hasOwnProperty.call(design, key);
-}
-
 function migrateLegacySpacing(design) {
   const legacySpacingKeys = [
     'headerPaddingTop',
@@ -170,7 +165,7 @@ function migrateLegacySpacing(design) {
     'headerContentPaddingVerticalLinked',
     'headerContentPaddingHorizontalLinked',
   ];
-  if (!legacySpacingKeys.some((key) => hasOwnDesignProperty(design, key))) return;
+  if (!legacySpacingKeys.some((key) => Object.hasOwn(design, key))) return;
 
   const legacyHeaderVertical = design.headerPaddingVertical;
   const headerTop = design.headerPaddingTop ?? legacyHeaderVertical ?? '12mm';
@@ -579,7 +574,7 @@ function flushStateSave() {
     persistState();
     return;
   }
-  saveDebounced.flush?.();
+  saveDebounced.flush();
 }
 
 onMounted(() => window.addEventListener('pagehide', flushStateSave));
@@ -626,11 +621,11 @@ function updateCachedPdfSizeEstimate() {
   pdfEstimateError.value = '';
 }
 
-function cachePdfSizeMeasurement(measurement) {
+function cachePdfSizeMeasurement(measurement, exportOptions) {
   if (!measurement || !Number.isFinite(measurement.bytes)) return;
   const nextCache = recordPdfSizeMeasurement(
     pdfSizeEstimateCache.value,
-    state.exportOptions,
+    exportOptions,
     measurement,
   );
   pdfSizeEstimateCache.value = nextCache;
@@ -647,12 +642,11 @@ async function calculateExactPdfSizeEstimate() {
     const contentRevision = pdfContentRevision;
     const cvElement = getPdfSourceElement();
     if (!cvElement) throw new Error('CV preview element not found');
-    const measurement = await estimatePdfSize(cvElement, getHybridPdfRenderOptions());
+    const renderOptions = getHybridPdfRenderOptions();
+    const measurement = await estimatePdfSize(cvElement, renderOptions);
     if (request !== pdfEstimateRequest || contentRevision !== pdfContentRevision) return;
-    cachePdfSizeMeasurement(measurement);
-    estimatedPdfBytes.value = measurement.bytes;
-    isPdfEstimateQualityScaled.value = false;
-    pdfEstimateReferenceQuality.value = normalizeExportOptions(state.exportOptions).quality;
+    cachePdfSizeMeasurement(measurement, renderOptions.image);
+    updateCachedPdfSizeEstimate();
     isPdfEstimateStale.value = false;
   } catch (error) {
     if (request === pdfEstimateRequest) {
@@ -683,14 +677,16 @@ async function handleExportPdf() {
     await nextTick();
     const cvElement = getPdfSourceElement();
     if (!cvElement) throw new Error('CV preview element not found');
+    const contentRevision = pdfContentRevision;
+    const renderOptions = getHybridPdfRenderOptions();
     const filename = `${(state.contact?.name || 'CV').replace(/\s+/g, '_')}_CV`;
-    const measurement = await exportToPdf(cvElement, filename, getHybridPdfRenderOptions());
-    cachePdfSizeMeasurement(measurement);
+    const measurement = await exportToPdf(cvElement, filename, renderOptions);
     if (measurement) {
-      estimatedPdfBytes.value = measurement.bytes;
-      isPdfEstimateQualityScaled.value = false;
-      pdfEstimateReferenceQuality.value = normalizeExportOptions(state.exportOptions).quality;
-      isPdfEstimateStale.value = false;
+      // The builder remains editable during export. Cache against the options
+      // used for that PDF, then display an estimate for the current options.
+      cachePdfSizeMeasurement(measurement, renderOptions.image);
+      updateCachedPdfSizeEstimate();
+      isPdfEstimateStale.value = estimatedPdfBytes.value != null && contentRevision !== pdfContentRevision;
     }
   } catch (error) {
     console.error('PDF export failed:', error);
@@ -850,7 +846,7 @@ function toggleFullPreviewView() {
             />
           </Transition>
           <Transition name="builder-group">
-            <FormBuilder v-show="activeBuilderGroup === 'content'" id="builder-group-content" class="builder-group-panel" :state="state" :on-save="scheduleStateSave" />
+            <FormBuilder v-show="activeBuilderGroup === 'content'" id="builder-group-content" class="builder-group-panel" :state="state" />
           </Transition>
           <Transition name="builder-group">
             <DesignPanel

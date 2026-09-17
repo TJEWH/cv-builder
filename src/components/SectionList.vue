@@ -40,6 +40,8 @@ const items = computed({
   get: () => Array.isArray(props.modelValue) ? props.modelValue : [],
   set: (value) => emit('update:modelValue', value),
 });
+const inlineFields = computed(() => props.schema.filter((field) => field.type !== 'textarea'));
+const textareaFields = computed(() => props.schema.filter((field) => field.type === 'textarea'));
 const headerSizeOptions = computed(() => [
   { label: 'H2', value: 'h2' },
   { label: 'H3', value: 'h3' },
@@ -143,15 +145,15 @@ const confirmRemoveAt = () => {
                 <button type="button" class="mini btn--danger" :aria-label="t('remove')" :title="t('remove')" @click="requestRemoveAt(index)"><font-awesome-icon :icon="['fas', 'trash']" /></button>
               </div>
               <div class="item-row__content">
-                <div v-if="schema.some((field) => field.type !== 'textarea')" :class="['row', schema.length === 2 ? 'row-2' : '', schema.length === 3 ? 'row-3' : '', schema.length === 4 ? 'row-4' : '']">
-                  <label v-for="field in schema.filter((entry) => entry.type !== 'textarea')" :key="field.key">
+                <div v-if="inlineFields.length" :class="['row', schema.length === 2 ? 'row-2' : '', schema.length === 3 ? 'row-3' : '', schema.length === 4 ? 'row-4' : '']">
+                  <label v-for="field in inlineFields" :key="field.key">
                     {{ field.label }}
                     <InputText v-if="field.type === 'text'" v-model="item[field.key]" :placeholder="field.placeholder || ''" fluid />
                     <InputNumber v-else-if="field.type === 'number'" v-model="item[field.key]" :placeholder="field.placeholder || ''" :use-grouping="false" fluid />
                     <Select v-else-if="field.type === 'select'" v-model="item[field.key]" :options="field.options" fluid />
                   </label>
                 </div>
-                <label v-for="field in schema.filter((entry) => entry.type === 'textarea')" :key="field.key">
+                <label v-for="field in textareaFields" :key="field.key">
                   {{ field.label }}
                   <MarkdownTextarea v-model="item[field.key]" :placeholder="field.placeholder || ''" :aria-label="field.label" :help="t('markdownTextareaHelp')" />
                 </label>

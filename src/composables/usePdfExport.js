@@ -345,7 +345,7 @@ async function renderSourceCanvas(element, options, captureOverlay) {
     await task.wait(worker.toCanvas());
     task.check();
     const canvas = await worker.get('canvas');
-    return captureOverlay ? { canvas, overlay } : canvas;
+    return { canvas, overlay };
   } finally {
     worker.prop.overlay?.remove();
   }
@@ -373,7 +373,7 @@ async function renderFullWidthBodyCanvas(element, options) {
  */
 async function preparePositionedPdfSource(element, options, pdf, continuationPadding) {
   if (options.sidebarFillMode === 'last-page' && element.querySelector?.('#cv_side')) {
-    const fullWidthBodyCanvas = await renderFullWidthBodyCanvas(element, options);
+    const { canvas: fullWidthBodyCanvas } = await renderFullWidthBodyCanvas(element, options);
     const targetFinalPage = canvasPageCount(
       fullWidthBodyCanvas,
       pdf,
@@ -467,10 +467,7 @@ async function isUniformCanvas(pageCanvas, pageContext, task) {
 }
 
 async function appendPdfPages(canvas, pdf, options, continuationPadding, {
-  preserveBlankPages = false,
   previewOnly = false,
-  sourceWidth = canvas.width,
-  sourceHeight = canvas.height,
 } = {}) {
   const [marginTop, marginLeft, marginBottom, marginRight] = normaliseMargins(options.margin);
   const pageWidth = pdf.internal.pageSize.getWidth();
@@ -514,41 +511,35 @@ async function appendPdfPages(canvas, pdf, options, continuationPadding, {
     pageContext.drawImage(canvas, 0, sourceY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
 
     const hasGraphics = !await isUniformCanvas(pageCanvas, pageContext, options.renderTask);
-    if (hasGraphics || preserveBlankPages) {
-      const pageImage = hasGraphics && !previewOnly
-        ? encodePdfPageImage(pageCanvas, options.image)
-        : null;
+    if (hasGraphics) {
       if (!previewOnly) {
+        const pageImage = encodePdfPageImage(pageCanvas, options.image);
         if (pages.length > 0) pdf.addPage();
-        if (hasGraphics) {
-          pdf.addImage(
-            pageImage.data,
-            pageImage.format,
-            marginLeft,
-            topOffset,
-            contentWidth,
-            renderedHeight,
-          );
-        }
+        pdf.addImage(
+          pageImage.data,
+          pageImage.format,
+          marginLeft,
+          topOffset,
+          contentWidth,
+          renderedHeight,
+        );
       }
 
       pages.push({
-        previewData: await createPagePreview(pageCanvas, {
+        // Exports and exact-size measurements need page geometry, not preview
+        // images. Avoid encoding an extra image for each exported page.
+        previewData: previewOnly ? await createPagePreview(pageCanvas, {
           pageWidth,
           pageHeight,
           contentWidth,
           contentScale,
           leftOffset: marginLeft,
           topOffset,
-        }, options.image, options.renderTask),
+        }, options.image, options.renderTask) : undefined,
         sourceTop: sourceY,
         sourceBottom: sourceY + sliceHeight,
         canvasWidth: canvas.width,
-        sourceWidth,
-        canvasPixelsPerCssPixel: canvas.width / sourceWidth,
-        canvasPixelsPerCssPixelY: canvas.height / sourceHeight,
         contentWidth,
-        renderedHeight,
         leftOffset: marginLeft,
         topOffset,
       });
@@ -562,9 +553,8 @@ async function appendPdfPages(canvas, pdf, options, continuationPadding, {
 }
 
 /**
- * Render the established raster PDF path. An optional capture runs after page
- * placement but before html2canvas touches the source, which keeps Range
- * coordinates in the source element's unscaled CSS coordinate system.
+ * Share raster layout and pagination between previews and exports. Text
+ * geometry is captured from html2canvas's final clone for searchable exports.
  */
 async function renderRasterPdf(element, options = {}, captureOverlay, { previewOnly = false } = {}) {
   const task = createPdfRenderTask(options.signal);
@@ -601,20 +591,14 @@ async function renderRasterSnapshot(element, options, captureOverlay, { previewO
     pdf,
     options.continuationTopPadding,
   );
-  const sourceRender = await renderSourceCanvas(element, mergedOptions, captureOverlay);
-  const { canvas, overlay } = captureOverlay
-    ? sourceRender
-    : { canvas: sourceRender, overlay: null };
+  const { canvas, overlay } = await renderSourceCanvas(element, mergedOptions, captureOverlay);
   const rasterOverlay = overlay ? rasterizePdfOverlay(overlay, canvas) : null;
   const pages = await appendPdfPages(
     canvas,
     pdf,
     mergedOptions,
     options.continuationTopPadding,
-    {
-      ...(overlay ? { sourceWidth: overlay.width, sourceHeight: overlay.height } : {}),
-      previewOnly,
-    },
+    { previewOnly },
   );
 
   return { pdf, pages, overlay: rasterOverlay };
@@ -624,11 +608,6 @@ async function renderRasterSnapshot(element, options, captureOverlay, { previewO
  * Build the PDF and preview page images from the same rendered canvas.
  */
 export function usePdfExport() {
-  const renderPdf = async (element, options = {}) => {
-    if (!element) throw new Error('No element provided for PDF export');
-    return renderRasterPdf(element, options);
-  };
-
   const renderPreview = async (element, options = {}) => {
     if (!element) throw new Error('No element provided for PDF preview');
     return renderRasterPdf(element, options, undefined, { previewOnly: true });
@@ -644,12 +623,9 @@ export function usePdfExport() {
     const { pdf, pages, overlay } = await renderRasterPdf(
       element,
       options,
-      (source) => capturePdfOverlay(source),
+      capturePdfOverlay,
     );
-    await drawPdfOverlay(pdf, overlay, pages, {
-      invisibleText: true,
-      drawMarkers: false,
-    });
+    await drawPdfOverlay(pdf, overlay, pages);
     return { pdf };
   };
 
@@ -674,25 +650,9 @@ export function usePdfExport() {
     return outputMeasurement(pdf);
   };
 
-  const exportToPdfNewTab = async (element, filename = 'cv', options = {}) => {
-    try {
-      const { pdf } = await renderPdf(element, options);
-      const url = URL.createObjectURL(pdf.output('blob'));
-      const previewWindow = window.open(url, '_blank');
-      if (!previewWindow) throw new Error('The browser blocked the PDF preview window');
-      previewWindow.addEventListener('load', () => setTimeout(() => URL.revokeObjectURL(url), 100));
-      return true;
-    } catch (error) {
-      console.error('PDF preview failed:', error);
-      return false;
-    }
-  };
-
   return {
-    renderPdf,
     renderPreview,
     exportToPdf,
     estimatePdfSize,
-    exportToPdfNewTab,
   };
 }

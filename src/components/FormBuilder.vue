@@ -10,7 +10,6 @@ import { createContentId, normalizeContentState, reorderVisibleSectionOrder } fr
 
 const props = defineProps({
   state: { type: Object, required: true },
-  onSave: { type: Function, default: null },
 });
 
 normalizeContentState(props.state);
@@ -55,7 +54,6 @@ const isKeptTogether = (key) => props.state.keepTogetherSections.includes(key);
 const toggleKeepTogether = (key) => {
   if (isKeptTogether(key)) props.state.keepTogetherSections = props.state.keepTogetherSections.filter((item) => item !== key);
   else props.state.keepTogetherSections.push(key);
-  props.onSave?.();
 };
 const contentTabSectionKeys = (tab) => {
   if (tab === 'header') return ['header'];
@@ -69,7 +67,6 @@ const toggleComplete = (key) => {
   const index = props.state.completedSections.indexOf(key);
   if (index === -1) props.state.completedSections.push(key);
   else props.state.completedSections.splice(index, 1);
-  props.onSave?.();
 };
 const updateVisibleOrder = (orderName, rows) => {
   props.state[orderName] = reorderVisibleSectionOrder(
@@ -77,7 +74,6 @@ const updateVisibleOrder = (orderName, rows) => {
     props.state.disabled,
     rows.map((row) => row.key),
   );
-  props.onSave?.();
 };
 const bodyOrderRows = computed(() => props.state.bodyOrder.filter((key) => !isHidden(key)).map((key) => ({ key })));
 const sidebarOrderRows = computed(() => props.state.sidebarOrder.filter((key) => !isHidden(key)).map((key) => ({ key })));
@@ -87,7 +83,6 @@ const toggleDisabled = (key) => {
   const index = props.state.disabled.indexOf(key);
   if (index === -1) props.state.disabled.push(key);
   else props.state.disabled.splice(index, 1);
-  props.onSave?.();
 };
 const getBodySection = (id) => props.state.customSections.find((section) => section.id === id);
 const getSidebarSection = (id) => props.state.sidebarSections.find((section) => section.id === id);
@@ -120,12 +115,10 @@ const finishEditSectionName = (key) => {
   } else if (value && value !== getDefaultName(key)) {
     props.state.sectionNames = { ...props.state.sectionNames, [key]: value };
   } else {
-    const { [key]: removed, ...sectionNames } = props.state.sectionNames;
-    props.state.sectionNames = sectionNames;
+    delete props.state.sectionNames[key];
   }
   editingSection.id = null;
   editingSection.value = '';
-  props.onSave?.();
 };
 const cancelEditSectionName = () => { editingSection.id = null; editingSection.value = ''; };
 const editableTitleProps = (key) => ({
@@ -152,7 +145,6 @@ const addBodySection = () => {
   props.state.bodyOrder.push(section.id);
   props.state.sectionHeaderSizes[section.id] = 'h2';
   customCollapsed[section.id] = true;
-  props.onSave?.();
 };
 const addSidebarSection = () => {
   const section = {
@@ -165,7 +157,6 @@ const addSidebarSection = () => {
   props.state.sidebarOrder.push(section.id);
   props.state.sectionHeaderSizes[section.id] = 'h2';
   customCollapsed[section.id] = true;
-  props.onSave?.();
 };
 const deleteCustomSection = (section, area) => {
   const sections = area === 'body' ? props.state.customSections : props.state.sidebarSections;
@@ -177,7 +168,6 @@ const deleteCustomSection = (section, area) => {
   props.state.completedSections = props.state.completedSections.filter((key) => key !== section.id);
   props.state.keepTogetherSections = props.state.keepTogetherSections.filter((key) => key !== section.id);
   delete customCollapsed[section.id];
-  props.onSave?.();
 };
 const addBodyEntry = (section) => section.entries.push({ id: createContentId('entry'), hidden: false, title: '', institution: '', place: '', start: '', end: '', tools: '', desc: '' });
 const removeBodyEntry = (section, index) => section.entries.splice(index, 1);
@@ -204,20 +194,17 @@ const customBodyFieldOptions = computed(() => [
   { key: 'tools', label: t('tools'), type: 'text', placeholder: 'Vue, TypeScript, Figma' },
   { key: 'desc', label: t('desc'), type: 'textarea', placeholder: '' },
 ]);
-const enabledCustomBodyFields = (section) => customBodyFieldOptions.value.filter((field) => section.fields.includes(field.key));
-const enabledCustomBodyTextFields = (section) => enabledCustomBodyFields(section).filter((field) => field.type === 'text');
+const enabledCustomBodyTextFields = (section) => customBodyFieldOptions.value.filter((field) => field.type === 'text' && section.fields.includes(field.key));
 const isCustomBodyFieldEnabled = (section, key) => section.fields.includes(key);
 const usesCustomBodyTextarea = (section) => section.entryMode === 'textarea';
 const setCustomBodyEntryMode = (section, mode) => {
   section.entryMode = mode === 'textarea' ? 'textarea' : 'fields';
-  props.onSave?.();
 };
 const setCustomBodyFieldEnabled = (section, key, enabled) => {
   const selected = new Set(section.fields);
   if (enabled) selected.add(key);
   else selected.delete(key);
   section.fields = customBodyFieldOptions.value.map((field) => field.key).filter((field) => selected.has(field));
-  props.onSave?.();
 };
 const onKeydown = (event) => {
   if (event.key !== 'Escape') return;
