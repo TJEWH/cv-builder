@@ -245,12 +245,6 @@ function toggleSection(key: string) {
   sections[key] = !sections[key];
 }
 
-function onSubsectionClick(key: string, event: MouseEvent) {
-  if (!(event.target instanceof Element && event.target.closest('button, input, select, textarea, label, a, [contenteditable="true"], .p-select'))) {
-    toggleSection(key);
-  }
-}
-
 function millimeters(value: unknown, fallback: number) {
   const parsed = Number.parseFloat(String(value));
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -341,8 +335,8 @@ function pixels(value: unknown, fallback = 1) {
       </section>
 
       <div class="editor-panel__body">
-      <section class="editor-subsection" :class="{ collapsed: sections.layout }" @click="onSubsectionClick('layout', $event)">
-        <div class="section-head"><font-awesome-icon :icon="['fas', 'table-cells-large']" class="section-icon" aria-hidden="true" /><h4>Layout</h4></div>
+      <section class="editor-subsection" :class="{ collapsed: sections.layout }">
+        <div class="section-head editor-subsection__header" @click="toggleSection('layout')"><font-awesome-icon :icon="['fas', 'table-cells-large']" class="section-icon" aria-hidden="true" /><h4>Layout</h4></div>
         <div class="editor-subsection__body">
           <div class="grid-2"><label>Heading-Style<select v-model="design.hstyle"><option v-for="style in hStyles" :key="style" :value="style">{{ style }}</option></select></label><span /></div>
           <div class="layout-control-group subsection-row">
@@ -363,8 +357,8 @@ function pixels(value: unknown, fallback = 1) {
         </div>
       </section>
 
-      <section class="editor-subsection" :class="{ collapsed: sections.header }" @click="onSubsectionClick('header', $event)">
-        <div class="section-head"><font-awesome-icon :icon="['fas', 'table-cells-large']" class="section-icon" aria-hidden="true" /><h4>Header</h4></div>
+      <section class="editor-subsection" :class="{ collapsed: sections.header }">
+        <div class="section-head editor-subsection__header" @click="toggleSection('header')"><font-awesome-icon :icon="['fas', 'table-cells-large']" class="section-icon" aria-hidden="true" /><h4>Header</h4></div>
         <div class="editor-subsection__body">
           <div class="grid-2"><label>Contact Layout<select v-model="design.contactLayout"><option value="side">Right column</option><option value="below">Below title (one row)</option></select></label><label>Header Style<select v-model="design.headerLayoutStyle"><option value="boxed">Boxed</option><option value="separator">Separator</option></select></label></div>
           <div class="layout-control-group subsection-row">
@@ -381,21 +375,21 @@ function pixels(value: unknown, fallback = 1) {
         </div>
       </section>
 
-      <section class="editor-subsection" :class="{ collapsed: sections.sidebar }" @click="onSubsectionClick('sidebar', $event)">
-        <div class="section-head"><font-awesome-icon :icon="['fas', 'table-columns']" class="section-icon" aria-hidden="true" /><h4>Sidebar Layout</h4></div>
+      <section class="editor-subsection" :class="{ collapsed: sections.sidebar }">
+        <div class="section-head editor-subsection__header" @click="toggleSection('sidebar')"><font-awesome-icon :icon="['fas', 'table-columns']" class="section-icon" aria-hidden="true" /><h4>Sidebar Layout</h4></div>
         <div class="editor-subsection__body grid-3"><label>Sidebar Width: {{ design.sidebarWidth }}<input type="range" min="0.1" max="3.0" step="0.1" :value="parseFloat(design.sidebarWidth || '')" @input="design.sidebarWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'fr'"></label><label>Sidebar Position<select v-model="design.sidebarAlign"><option value="left">Links</option><option value="right">Rechts</option></select></label><label>Sidebar Style<select v-model="design.sidebarLayoutStyle"><option value="boxed">Boxed</option><option value="separator">Separator</option></select></label></div>
         <div class="editor-subsection__body grid-3 subsection-row"><label>Sidebar Start<select v-model="design.sidebarFillMode"><option value="start">Fill from start</option><option value="last-page">Fill from last PDF page</option><option value="after-cover">Skip cover page</option></select></label><label>Sidebar Height<select v-model="design.sidebarHeightMode"><option value="content">Fit content</option><option value="full-page">Full page</option></select></label><label v-if="isContentHeight">Sidebar Bottom Padding: {{ design.sidebarBottomPadding || '6mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.sidebarBottomPadding, 6)" @input="setMillimeters('sidebarBottomPadding', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label></div>
         <p class="editor-subsection__body spacing-hint">Fit content lets the body use the full width below the sidebar.</p>
       </section>
 
-      <section class="editor-subsection" :class="{ collapsed: sections.spacing }" @click="onSubsectionClick('spacing', $event)">
-        <div class="section-head"><font-awesome-icon :icon="['fas', 'arrows-left-right-to-line']" class="section-icon" aria-hidden="true" /><h4>Spacing</h4></div>
+      <section class="editor-subsection" :class="{ collapsed: sections.spacing }">
+        <div class="section-head editor-subsection__header" @click="toggleSection('spacing')"><font-awesome-icon :icon="['fas', 'arrows-left-right-to-line']" class="section-icon" aria-hidden="true" /><h4>Spacing</h4></div>
         <div class="editor-subsection__body grid-3"><label>Separator Width: {{ pixels(design.separatorWidth) }}px<input type="range" min="0.5" max="5" step="0.5" :value="pixels(design.separatorWidth)" @input="design.separatorWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label><label>Body Section Spacing: {{ design.sectionSpacingBody || '6mm' }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingBody || '6mm')" @input="design.sectionSpacingBody = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'mm'"></label><label>Sidebar Section Spacing: {{ design.sectionSpacingSidebar || '6mm' }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingSidebar || '6mm')" @input="design.sectionSpacingSidebar = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'mm'"></label></div>
         <div class="editor-subsection__body grid-3 subsection-row"><label>Body / Sidebar Spacing: {{ design.bodySidebarSpacing || '10mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.bodySidebarSpacing, 10)" @input="setMillimeters('bodySidebarSpacing', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label></div>
       </section>
 
-      <section class="editor-subsection" :class="{ collapsed: sections.typography }" @click="onSubsectionClick('typography', $event)">
-        <div class="section-head"><font-awesome-icon :icon="['fas', 'font']" class="section-icon" aria-hidden="true" /><h4>Typography</h4></div>
+      <section class="editor-subsection" :class="{ collapsed: sections.typography }">
+        <div class="section-head editor-subsection__header" @click="toggleSection('typography')"><font-awesome-icon :icon="['fas', 'font']" class="section-icon" aria-hidden="true" /><h4>Typography</h4></div>
         <div class="editor-subsection__body">
           <div class="grid-3">
             <label>H1 Font Size: {{ design.h1 }}<input type="range" min="18" max="30" step="1" :value="parseInt(design.h1 || '')" @input="design.h1 = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'pt'"></label>
@@ -422,13 +416,13 @@ function pixels(value: unknown, fallback = 1) {
         </div>
       </section>
 
-      <section class="editor-subsection" :class="{ collapsed: sections.colors }" @click="onSubsectionClick('colors', $event)">
-        <div class="section-head"><font-awesome-icon :icon="['fas', 'palette']" class="section-icon" aria-hidden="true" /><h4>Colors</h4></div>
+      <section class="editor-subsection" :class="{ collapsed: sections.colors }">
+        <div class="section-head editor-subsection__header" @click="toggleSection('colors')"><font-awesome-icon :icon="['fas', 'palette']" class="section-icon" aria-hidden="true" /><h4>Colors</h4></div>
         <div class="editor-subsection__body grid-3"><label>Font Color<input type="color" v-model="design.ink"></label><label>Graphic Opacity: {{ design.graphicOpacity ?? 100 }}%<input type="range" min="0" max="100" step="1" v-model.number="design.graphicOpacity"></label><label>Date Opacity: {{ design.dateOpacity ?? 100 }}%<input type="range" min="0" max="100" step="1" v-model.number="design.dateOpacity"></label></div>
       </section>
 
-      <section class="editor-subsection" :class="{ collapsed: sections.badges }" @click="onSubsectionClick('badges', $event)">
-        <div class="section-head"><font-awesome-icon :icon="['fas', 'tag']" class="section-icon" aria-hidden="true" /><h4>Badges & Items</h4></div>
+      <section class="editor-subsection" :class="{ collapsed: sections.badges }">
+        <div class="section-head editor-subsection__header" @click="toggleSection('badges')"><font-awesome-icon :icon="['fas', 'tag']" class="section-icon" aria-hidden="true" /><h4>Badges & Items</h4></div>
         <div class="editor-subsection__body">
           <div class="grid-3"><label>Badge Mode<select v-model="design.badgeMode"><option value="solid">Solid</option><option value="border">Border</option></select></label><label v-if="design.badgeMode === 'border'">Badge Border Width: {{ design.badgeBorderWidth || '1px' }}<input type="range" min="0.5" max="4" step="0.5" :value="parseFloat(design.badgeBorderWidth || '1')" @input="design.badgeBorderWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label><label>Badge Border Radius: {{ design.badgeBorderRadius }}<input type="range" min="0" max="20" step="1" :value="parseInt(design.badgeBorderRadius || '')" @input="design.badgeBorderRadius = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label></div>
         </div>
