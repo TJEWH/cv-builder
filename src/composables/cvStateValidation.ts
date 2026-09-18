@@ -39,6 +39,7 @@ const contact = object<Contact>({
 });
 const design = partialObject<CvDesign>({
   h1: string, h2: string, h3: string, bullets: string,
+  showTimeline: boolean,
   ink: string, graphicOpacity: number, dateOpacity: number,
   fontBody: string, fontHead: string, hstyle: string,
   customFonts: array(object<CustomFont>({

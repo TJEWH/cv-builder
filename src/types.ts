@@ -52,6 +52,7 @@ export type FontSource = 'bunny' | 'google';
 export interface CustomFont { name: string; source: FontSource }
 export interface CvDesign {
   h1?: string; h2?: string; h3?: string; bullets?: string;
+  showTimeline?: boolean;
   ink?: string; graphicOpacity?: number; dateOpacity?: number;
   fontBody?: string; fontHead?: string; hstyle?: string;
   customFonts?: CustomFont[];

@@ -10,7 +10,7 @@ function withDocument(run: (properties: Map<string, string>, links: Map<string, 
   globalThis.document = stub<Document>({
     documentElement: {
       style: { setProperty: (key: string, value: string) => properties.set(key, value) },
-      setAttribute() {},
+      setAttribute: (key: string, value: string) => properties.set(key, value),
     },
     getElementById: (id: string) => links.get(id) || null,
     createElement: () => {
@@ -99,5 +99,16 @@ test('sidebar bottom padding clamps oversized values and rejects invalid values'
       applyCvDesign({ sidebarBottomPadding: value });
       assert.equal(properties.get('--sidebar-bottom-padding'), expected);
     }
+  });
+});
+
+test('timeline graphics default to visible and can be disabled and restored', () => {
+  withDocument((properties) => {
+    applyCvDesign({});
+    assert.equal(properties.get('data-show-timeline'), 'true');
+    applyCvDesign({ showTimeline: false });
+    assert.equal(properties.get('data-show-timeline'), 'false');
+    applyCvDesign({ showTimeline: true });
+    assert.equal(properties.get('data-show-timeline'), 'true');
   });
 });

@@ -234,13 +234,17 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--ink);text-transform:u
 :root[data-hstyle="leftbar"] h2{border-left:4px solid var(--accent);padding-left:3mm}
 :root[data-hstyle="pill"] h2{background:var(--accent-soft);padding:2mm 3mm;border-radius:999px;text-transform:none;letter-spacing:.2px}
 
-.timeline-rail{position:absolute;inset:0;overflow:visible;pointer-events:none;fill:none;stroke:var(--accent);stroke-width:3px;stroke-linecap:round;stroke-linejoin:round}
+.timeline-rail{position:absolute;left:0;top:0;margin:0;overflow:visible;pointer-events:none;fill:none;stroke:var(--accent);stroke-width:3px;stroke-linecap:round;stroke-linejoin:round}
 .timeline > .item{position:relative}
 .timeline > .item .item-title{position:relative}
 .timeline > .item .item-title::before{content:"";position:absolute;z-index:1;left:-5.803mm;top:50%;width:4mm;height:4mm;border:2px solid var(--accent);border-radius:50%;background:#fff;transform:translateY(-50%);}
 .timeline > .item:last-child{margin-bottom:0}
+:root[data-show-timeline="false"] .timeline-rail{display:none}
+:root[data-show-timeline="false"] .timeline > .item .item-title::before{content:none}
+:root[data-show-timeline="false"] .timeline{padding-left:0}
 .timeline--continued{margin-top:var(--section-item-spacing)}
-.item ul{margin:1.5mm 0 0 4mm;padding:0;font-size:var(--bullet-size);list-style-type:disc}
+/* Standalone textarea lists use the same inset as entries without a timeline. */
+.item ul, #cv_main .section-lead > .markdown-bullets{margin:1.5mm 0 0 4mm;padding:0;font-size:var(--bullet-size);list-style-type:disc}
 /* Apply bullet size and style to all ul elements in the CV (sidebar lists, etc.) */
 #cv_body ul, #cv_side ul{font-size:var(--bullet-size);list-style-type:disc}
 

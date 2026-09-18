@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { DEFAULT_SECTION_HEADER_SIZE } from '../defaults';
+import { DEFAULT_SECTION_HEADER_SIZE, designValue } from '../defaults';
 import type { PropType } from 'vue';
 import type { CvState, CvItem, CustomSection, CustomBodyField, ItemState } from '../types';
 import { computed, onBeforeUnmount, onMounted, onUpdated, ref, watch } from 'vue';
@@ -87,25 +87,44 @@ const hasCustomInstitution = (section: CustomSection, entry: CvItem) => (
 const page = ref<HTMLElement | null>(null);
 let timelineObserver: ResizeObserver | undefined;
 let timelineFrame = 0;
+const observedTimelineElements = new Set<Element>();
+const needsLiveTimelines = () => !props.exportSource && designValue(props.state.design, 'showTimeline');
 const refreshTimelines = () => {
-  cancelAnimationFrame(timelineFrame);
-  timelineFrame = requestAnimationFrame(() => updateTimelineRails(page.value));
+  if (!needsLiveTimelines() || timelineFrame) return;
+  timelineFrame = requestAnimationFrame(() => {
+    timelineFrame = 0;
+    if (needsLiveTimelines()) updateTimelineRails(page.value);
+  });
 };
 const observeTimelines = () => {
-  timelineObserver?.disconnect();
-  if (!page.value) return;
-  for (const element of [page.value, ...page.value.querySelectorAll('.timeline > .item')]) {
-    timelineObserver?.observe(element);
+  if (!needsLiveTimelines() || !page.value) {
+    timelineObserver?.disconnect();
+    observedTimelineElements.clear();
+    cancelAnimationFrame(timelineFrame);
+    timelineFrame = 0;
+    return;
+  }
+  timelineObserver ??= new ResizeObserver(refreshTimelines);
+  const elements = new Set<Element>([page.value, ...page.value.querySelectorAll('.timeline > .item')]);
+  for (const element of observedTimelineElements) {
+    if (!elements.has(element)) {
+      timelineObserver.unobserve(element);
+      observedTimelineElements.delete(element);
+    }
+  }
+  for (const element of elements) {
+    if (!observedTimelineElements.has(element)) {
+      timelineObserver.observe(element);
+      observedTimelineElements.add(element);
+    }
   }
   refreshTimelines();
 };
-onMounted(() => {
-  timelineObserver = new ResizeObserver(refreshTimelines);
-  observeTimelines();
-});
+// Hidden export sources get their rails once, on the private paginated snapshot.
+// Observing them here doubles layout work on every edit and serves no visible UI.
+onMounted(observeTimelines);
 onUpdated(observeTimelines);
-// Mirroring the sidebar can move items without changing their dimensions.
-watch(() => props.state.design, refreshTimelines, { deep: true, flush: 'post' });
+watch(() => props.state.design, observeTimelines, { deep: true, flush: 'post' });
 onBeforeUnmount(() => {
   timelineObserver?.disconnect();
   cancelAnimationFrame(timelineFrame);

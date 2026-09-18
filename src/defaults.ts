@@ -7,6 +7,7 @@ export const SUPPORTED_LANGUAGES = ['de', 'en'] as const;
 export type Language = typeof SUPPORTED_LANGUAGES[number];
 export const DEFAULT_DESIGN: Readonly<Required<CvDesign>> = Object.freeze({
   h1: '24pt', h2: '12pt', h3: '10pt', bullets: '10.5pt',
+  showTimeline: true,
   ink: '#111827', graphicOpacity: 100, dateOpacity: 100,
   fontBody: 'Inter', fontHead: 'Inter', hstyle: 'clean',
   badgeMode: 'border', badgeBorderWidth: '2.5px', badgeBorderRadius: '8px',

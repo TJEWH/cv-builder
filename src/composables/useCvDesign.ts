@@ -101,6 +101,7 @@ export function applyCvDesign(input: CvDesign = {}) {
 
   ensureFontLink('body', bodyFont);
   ensureFontLink('head', headFont);
+  document.documentElement.setAttribute('data-show-timeline', String(design.showTimeline));
   document.documentElement.setAttribute('data-hstyle', design.hstyle);
   document.documentElement.setAttribute('data-sidebar-align', design.sidebarAlign);
   document.documentElement.setAttribute('data-header-layout-style', design.headerLayoutStyle);
