@@ -119,7 +119,7 @@ const selectedDesignControls = computed(() => controls.value.filter((option) => 
 const isFavorite = (key: string) => favoriteKeys.value.includes(key);
 const designSections = computed(() => [
   { key: 'layout', label: t('designLayout'), icon: 'table-cells-large' },
-  { key: 'header', label: t('designHeader'), icon: 'table-cells-large' },
+  { key: 'header', label: t('designHeader'), icon: 'window-maximize' },
   { key: 'sidebar', label: t('designSidebarLayout'), icon: 'table-columns' },
   { key: 'spacing', label: t('designSpacing'), icon: 'arrows-left-right-to-line' },
   { key: 'typography', label: t('designTypography'), icon: 'font' },
@@ -192,8 +192,12 @@ function toggleSection(key: string) {
 
       <div class="editor-panel__body">
       <section v-for="section in designSections" :key="section.key" class="editor-subsection" :class="{ collapsed: sections[section.key] }">
-        <div class="section-head editor-subsection__header" @click="toggleSection(section.key)"><font-awesome-icon :icon="['fas', section.icon]" class="section-icon" aria-hidden="true" /><h4>{{ section.label }}</h4></div>
-        <div class="editor-subsection__body">
+        <h4 class="design-section-heading">
+          <button class="section-head editor-subsection__header" type="button" :aria-expanded="!sections[section.key]" :aria-controls="`design-section-${section.key}`" @click="toggleSection(section.key)">
+            <font-awesome-icon :icon="['fas', section.icon]" class="section-icon" aria-hidden="true" /><span>{{ section.label }}</span>
+          </button>
+        </h4>
+        <div :id="`design-section-${section.key}`" class="editor-subsection__body">
           <DesignControlFields :model-value="design" :entries="section.entries" :lang="lang" />
           <p v-if="section.key === 'header'" class="spacing-hint">{{ t('designWithASeparatorHeaderPaddingIsAboveTheLineAndMarginIsBelowIt') }}</p>
           <p v-if="section.key === 'sidebar'" class="spacing-hint">{{ t('designFitContentLetsTheBodyUseTheFullWidthBelowTheSidebar') }}</p>
@@ -232,7 +236,13 @@ function toggleSection(key: string) {
 .design-favorites__row h4 { margin: 0; color: var(--muted); font-size: 9pt; text-transform: uppercase; letter-spacing: .4px; }
 .design-favorites__empty { margin: 0; color: var(--muted); font-size: 12px; }
 .editor-subsection h4 { margin: 0; color: #9be8c7; font-size: 10pt; text-transform: uppercase; letter-spacing: .5px; }
-.editor-subsection > .section-head > .section-icon { width: 34px; color: var(--muted); text-align: center; }
+/* The button owns the header padding, so its entire visible row is clickable. */
+.editor-subsection { padding: 0; }
+.editor-subsection__header { width: 100%; padding: 16px; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-align: left; text-transform: inherit; cursor: pointer; }
+.editor-subsection__header:focus-visible { outline: 2px solid #27f3a2; outline-offset: -2px; }
+.editor-subsection__header > .section-icon { flex: 0 0 34px; color: var(--muted); text-align: center; }
+.editor-subsection > .editor-subsection__body { margin-left: 58px; margin-right: 24px; }
+.editor-subsection:not(.collapsed) > .editor-subsection__body { margin-bottom: 16px; }
 .subsection-row { margin-top: 8px; }
 .font-import { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 8px; }
 .font-import-button { min-height: 34px; padding-inline: 12px; }

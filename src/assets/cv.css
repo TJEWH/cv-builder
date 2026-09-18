@@ -31,7 +31,6 @@ body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f1
 @media (max-width:1200px){ .workbench{ flex-direction:column; align-items:center } }
 
 .section-group.collapsed .section-head { margin-bottom: 0; }
-.section-group .section-head { margin-bottom: 10px; }
 
 /* ==== Builder: Retro CLI Look ==== */
 .builder{border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.35); color:#d1fae5;}
