@@ -1,0 +1,76 @@
+import type { CvState, SavedConfiguration } from '../types';
+import { CV_STATE_VERSION } from '../types';
+
+export const EMPTY_DOCUMENT_ID = 'builtin:empty';
+export const SAMPLE_DOCUMENT_ID = 'builtin:sample';
+
+export function builtinConfigurations(lang = 'en'): SavedConfiguration[] {
+  return [
+    { id: EMPTY_DOCUMENT_ID, name: lang === 'de' ? 'Leeres Dokument' : 'Empty document' },
+    { id: SAMPLE_DOCUMENT_ID, name: lang === 'de' ? 'Beispiel-Lebenslauf' : 'Sample CV' },
+  ];
+}
+
+export function createEmptyDocument(): CvState {
+  return {
+    version: CV_STATE_VERSION, lang: 'en', disabled: [], completedSections: [], keepTogetherSections: [],
+    design: {
+      h1: '24pt', h2: '12pt', h3: '10pt', bullets: '10.5pt',
+      ink: '#111827', graphicOpacity: 100, dateOpacity: 100,
+      fontBody: 'Inter', fontHead: 'Inter', hstyle: 'clean',
+      badgeMode: 'border', badgeBorderWidth: '2.5px', badgeBorderRadius: '8px',
+      sectionSpacingBody: '10mm', sectionSpacingSidebar: '6mm', itemSpacing: '3.5mm',
+      sidebarWidth: '0.7fr', sidebarAlign: 'right', sidebarFillMode: 'after-cover', sidebarHeightMode: 'content', sidebarBottomPadding: '0mm',
+      headerLayoutStyle: 'boxed', sidebarLayoutStyle: 'separator', contactLayout: 'side', separatorWidth: '3px',
+      pageMarginTop: '12mm', pageMarginRight: '12mm', pageMarginBottom: '12mm', pageMarginLeft: '12mm',
+      pageMarginHorizontalLinked: true, pageMarginVerticalLinked: true,
+      headerPaddingBottom: '0mm', headerBottomMargin: '2mm', headerBottomSpacingLinked: false,
+      bodySidebarSpacing: '10mm', favoriteControls: [],
+    },
+    anonymization: { excludedSections: [], excludedItems: [] },
+    contact: { name: '', location: '', role: '', email: '', phone: '', website: '', linkedin: '', github: '' },
+    about: { text: '' }, education: [], experience: { jobs: [] }, languages: [], hobbies: [],
+    customSections: [], sidebarSections: [], sectionNames: {}, sectionHeaderSizes: {},
+    bodyOrder: ['about', 'education', 'jobs'], sidebarOrder: ['languages', 'hobbies'],
+  };
+}
+
+/** Shipped with the app; each caller receives an independent editable copy. */
+export function createSampleDocument(): CvState {
+  const state = createEmptyDocument();
+  state.contact = {
+    name: 'Alex Morgan', role: 'Senior Software Engineer', location: 'Berlin, Germany',
+    email: 'alex.morgan@example.com', phone: '+49 30 000000', website: 'https://example.com', linkedin: '', github: '',
+  };
+  state.about.text = 'Software engineer with eight years of experience building accessible web applications and reliable cloud services. I enjoy turning complex problems into clear, useful products and helping teams deliver maintainable software. My work combines hands-on development, thoughtful technical leadership, and close collaboration with design and product teams.';
+  state.experience.jobs = [
+    {
+      id: 'sample-job-1', title: 'Senior Software Engineer', company: 'Northstar Studio', place: 'Berlin', start: '2022', end: 'Present', state: 'ongoing',
+      bullets: '- Led a team of five engineers building a customer platform used by 40,000 people across Europe.\n- Designed a shared Vue and TypeScript component library, improving consistency and accessibility across three products.\n- Reduced page load times by 35% through profiling, smaller bundles, and better caching.\n- Introduced automated integration tests and gradual releases, making weekly deployments predictable.\n- Partnered with product managers to translate customer interviews into practical roadmap improvements.\n- Mentored junior developers through code reviews, pairing sessions, and individual development plans.',
+    },
+    {
+      id: 'sample-job-2', title: 'Software Engineer', company: 'Harbor Digital', place: 'Hamburg', start: '2019', end: '2022', state: 'complete',
+      bullets: '- Built reporting dashboards that helped operations teams understand delivery performance and customer needs.\n- Developed Node.js services and PostgreSQL data models for a growing logistics platform.\n- Replaced manual data imports with validated workflows, saving the support team several hours each week.\n- Worked with designers to improve keyboard navigation, form validation, and responsive layouts.\n- Added monitoring and documented incident procedures to make service recovery faster.\n- Coordinated releases with customer support and wrote clear migration notes for internal users.',
+    },
+    {
+      id: 'sample-job-3', title: 'Junior Web Developer', company: 'Fieldwork Labs', place: 'Leipzig', start: '2017', end: '2019', state: 'complete',
+      bullets: '- Delivered responsive websites and internal tools for education and nonprofit clients.\n- Implemented reusable forms and content management integrations with a focus on simplicity.\n- Collaborated with a small multidisciplinary team from discovery through launch and maintenance.\n- Established a practical checklist for cross-browser testing and accessibility reviews.',
+    },
+  ];
+  state.education = [{
+    id: 'sample-education', title: 'B.Sc. Computer Science', sub: 'Example University', place: 'Leipzig', start: '2013', end: '2017',
+    coursesText: '- Software engineering, human-computer interaction, and distributed systems\n- Final project: an accessible scheduling application for community organizations',
+  }];
+  state.customSections = [{
+    id: 'sample-projects', name: 'Selected projects', fields: ['title', 'desc'], entries: [
+      { id: 'sample-project-1', title: 'Community Toolkit', desc: 'Created an open-source resource directory that helps local groups share events and services. Built searchable listings, accessible submission forms, and a lightweight moderation workflow. Worked with volunteers to test the product and document its ongoing maintenance.' },
+      { id: 'sample-project-2', title: 'Sustainable Delivery Dashboard', desc: 'Prototyped a dashboard for comparing delivery routes and estimated emissions. Combined geospatial data with clear visual summaries so operations teams could evaluate trade-offs. Presented findings to stakeholders and handed over a documented implementation plan.' },
+    ],
+  }];
+  state.languages = [{ id: 'sample-language-1', name: 'English', level: 'Fluent' }, { id: 'sample-language-2', name: 'German', level: 'Native' }];
+  state.hobbies = [{ id: 'sample-hobby-1', name: 'Hiking & cycling' }, { id: 'sample-hobby-2', name: 'Photography' }];
+  state.sidebarSections = [{ id: 'sample-skills', name: 'Skills', levelType: null, items: ['TypeScript & JavaScript', 'Vue & accessible UI', 'Node.js & REST APIs', 'PostgreSQL', 'Automated testing', 'CI/CD & cloud services', 'Technical mentoring'].map((name, i) => ({ id: `sample-skill-${i}`, name })) }];
+  state.bodyOrder = ['about', 'jobs', 'education', 'sample-projects'];
+  state.sidebarOrder = ['sample-skills', 'languages', 'hobbies'];
+  return state;
+}

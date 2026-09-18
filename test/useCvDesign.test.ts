@@ -83,7 +83,7 @@ test('applies configurable spacing between body section items', () => {
 test('sidebar bottom padding applies only to content-sized sidebars, the default', () => {
   withDocument((properties) => {
     applyCvDesign({});
-    assert.equal(properties.get('--sidebar-bottom-padding'), '6mm');
+    assert.equal(properties.get('--sidebar-bottom-padding'), '0mm');
     applyCvDesign({ sidebarBottomPadding: '18mm' });
     assert.equal(properties.get('--sidebar-bottom-padding'), '18mm');
     applyCvDesign({ sidebarHeightMode: 'content', sidebarBottomPadding: '0mm' });
@@ -95,7 +95,7 @@ test('sidebar bottom padding applies only to content-sized sidebars, the default
 
 test('sidebar bottom padding clamps oversized values and rejects invalid values', () => {
   withDocument((properties) => {
-    for (const [value, expected] of [['90mm', '30mm'], ['-1mm', '6mm'], ['invalid', '6mm']]) {
+    for (const [value, expected] of [['90mm', '30mm'], ['-1mm', '0mm'], ['invalid', '0mm']]) {
       applyCvDesign({ sidebarBottomPadding: value });
       assert.equal(properties.get('--sidebar-bottom-padding'), expected);
     }

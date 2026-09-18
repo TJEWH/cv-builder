@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { CvState, CvDesign, SavedConfiguration, SaveStatus } from './types';
-import { CV_STATE_VERSION } from './types';
 import type { PreviewPage, RenderOptions } from './pdfTypes';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { debounce, loadLocal, saveLocal } from './composables/useStorage';
@@ -15,43 +14,12 @@ import BackupManager from './components/BackupManager.vue';
 import DesignPanel from './components/DesignPanel.vue';
 import AnonymizationPanel from './components/AnonymizationPanel.vue';
 import { makeT } from './i18n/dict';
-import { createContentId, createNormalizedContentState, normalizeContentState } from './composables/contentLayout';
+import { createNormalizedContentState, normalizeContentState } from './composables/contentLayout';
+import { createEmptyDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID } from './composables/builtinConfigurations';
 import { readCvState } from './composables/cvStateValidation';
 import { createAnonymizedState } from './composables/anonymization';
 
-const state = reactive<CvState>({
-  version: CV_STATE_VERSION,
-  disabled: [],
-  completedSections: [],
-  keepTogetherSections: [],
-  lang: 'en',
-  design: {
-    h1: '22pt', h2: '12pt', h3: '10pt', bullets: '10.5pt',
-    ink: '#111827', graphicOpacity: 100, dateOpacity: 100,
-    fontBody: 'Inter', fontHead: 'Inter', hstyle: 'clean',
-    badgeMode: 'solid', badgeBorderWidth: '1px', badgeBorderRadius: '6px',
-    sectionSpacingBody: '6mm', sectionSpacingSidebar: '6mm', itemSpacing: '3.5mm',
-    sidebarWidth: '0.7fr', sidebarAlign: 'right', sidebarFillMode: 'start', sidebarHeightMode: 'content', sidebarBottomPadding: '6mm', headerLayoutStyle: 'separator', sidebarLayoutStyle: 'separator', contactLayout: 'side', separatorWidth: '1px',
-    pageMarginTop: '12mm', pageMarginRight: '12mm', pageMarginBottom: '12mm', pageMarginLeft: '12mm',
-    pageMarginHorizontalLinked: true, pageMarginVerticalLinked: true,
-    headerPaddingBottom: '12mm', headerBottomMargin: '12mm', headerBottomSpacingLinked: true,
-    bodySidebarSpacing: '10mm',
-    favoriteControls: [],
-  },
-  anonymization: { excludedSections: [], excludedItems: [] },
-  contact: { name: '', location: '', role: '', email: '', phone: '', website: '', linkedin: '', github: '' },
-  about: { text: '' },
-  education: [],
-  experience: { jobs: [] },
-  languages: [],
-  hobbies: [{ id: createContentId('hobby'), name: 'Musik' }],
-  customSections: [],
-  sidebarSections: [],
-  sectionNames: {},
-  sectionHeaderSizes: {},
-  bodyOrder: ['about', 'education', 'jobs'],
-  sidebarOrder: ['languages', 'hobbies'],
-});
+const state = reactive<CvState>(createEmptyDocument());
 const initialState: CvState = JSON.parse(JSON.stringify(state));
 
 const lang = computed({
@@ -74,6 +42,11 @@ const t = makeT(lang);
 const activeBuilderGroup = ref('content');
 const savedConfigurations = ref<SavedConfiguration[]>([]);
 const selectedConfigurationId = ref('');
+const isEmptyDocument = computed(() => selectedConfigurationId.value === EMPTY_DOCUMENT_ID);
+const selectableConfigurations = computed(() => savedConfigurations.value.filter(({ id }) => id !== EMPTY_DOCUMENT_ID));
+watch(isEmptyDocument, (empty) => {
+  if (empty) activeBuilderGroup.value = 'versions';
+}, { flush: 'sync' });
 const saveStatus = ref<SaveStatus>('saved');
 const backupManager = ref<InstanceType<typeof BackupManager> | null>(null);
 const formBuilder = ref<InstanceType<typeof FormBuilder> | null>(null);
@@ -161,9 +134,11 @@ onMounted(async () => {
       return;
     }
 
-    const response = await fetch(`${import.meta.env.BASE_URL}cv-defaults.json`, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`Failed to load defaults: ${response.status}`);
-    mergeIn(await response.json());
+    const sample = backupManager.value?.readConfigData(SAMPLE_DOCUMENT_ID);
+    if (sample) {
+      selectedConfigurationId.value = SAMPLE_DOCUMENT_ID;
+      mergeIn(sample);
+    }
   } catch (error) {
     console.warn('Failed to load default CV data', error);
   } finally {
@@ -203,7 +178,7 @@ function getPdfMargins(design: CvDesign = {}) {
 function getPdfRenderOptions(options: RenderOptions = {}) {
   return {
     margin: getPdfMargins(state.design),
-    continuationTopPadding: exportMarginMillimeters(state.design?.headerBottomMargin || '12mm'),
+    continuationTopPadding: exportMarginMillimeters(state.design?.headerBottomMargin || '2mm'),
     sidebarFillMode: state.design?.sidebarFillMode,
     sidebarHeightMode: state.design?.sidebarHeightMode,
     ...options,
@@ -539,6 +514,7 @@ function openFullPreview() {
             role="tab"
             :aria-selected="activeBuilderGroup === group.key"
             :aria-controls="`builder-group-${group.key}`"
+            :disabled="isEmptyDocument && group.key !== 'versions'"
             @click="activeBuilderGroup = group.key"
           >
             <font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" />
@@ -552,9 +528,9 @@ function openFullPreview() {
           </button>
           <label class="builder-topbar__configuration">
             <font-awesome-icon :icon="['fas', 'layer-group']" aria-hidden="true" />
-            <select :value="selectedConfigurationId" :aria-label="t('versions')" @change="selectConfiguration">
-              <option v-if="!selectedConfigurationId" value="" disabled>{{ t('noSavedVersion') }}</option>
-              <option v-for="configuration in savedConfigurations" :key="configuration.id" :value="configuration.id">{{ configuration.name }}</option>
+            <select :value="isEmptyDocument ? '' : selectedConfigurationId" :aria-label="t('versions')" @change="selectConfiguration">
+              <option v-if="!selectedConfigurationId || isEmptyDocument" value="" disabled>{{ t('noSavedVersion') }}</option>
+              <option v-for="configuration in selectableConfigurations" :key="configuration.id" :value="configuration.id">{{ configuration.name }}</option>
             </select>
           </label>
           <output class="builder-topbar__save-status" :class="`is-${combinedSaveStatus}`" aria-live="polite">
@@ -584,11 +560,11 @@ function openFullPreview() {
             />
           </Transition>
           <Transition name="builder-group">
-            <FormBuilder v-show="activeBuilderGroup === 'content'" id="builder-group-content" ref="formBuilder" class="builder-group-panel" :state="state" :configurations="savedConfigurations" :selected-id="selectedConfigurationId" :read-version="readSectionVersion" :save-version="saveSectionVersion" @section-save-status="sectionSaveStatus = $event" />
+            <FormBuilder v-show="activeBuilderGroup === 'content' && !isEmptyDocument" id="builder-group-content" ref="formBuilder" class="builder-group-panel" :state="state" :configurations="selectableConfigurations" :selected-id="selectedConfigurationId" :read-version="readSectionVersion" :save-version="saveSectionVersion" @section-save-status="sectionSaveStatus = $event" />
           </Transition>
           <Transition name="builder-group">
             <DesignPanel
-              v-show="activeBuilderGroup === 'design'"
+              v-show="activeBuilderGroup === 'design' && !isEmptyDocument"
               id="builder-group-design"
               class="builder-group-panel"
               v-model="state.design"
@@ -597,7 +573,7 @@ function openFullPreview() {
           </Transition>
           <Transition name="builder-group">
             <AnonymizationPanel
-              v-show="activeBuilderGroup === 'privacy'"
+              v-show="activeBuilderGroup === 'privacy' && !isEmptyDocument"
               id="builder-group-privacy"
               class="builder-group-panel"
               :state="state"
@@ -745,6 +721,7 @@ body,
 .builder-topbar__tab:focus-visible { outline: 2px solid #9be8c7; outline-offset: 2px; }
 .builder-topbar__tab.is-active { border-color: #27f3a2; background: rgba(16, 185, 129, .16); color: #d1fae5; box-shadow: inset 0 0 0 1px rgba(39, 243, 162, .18); }
 .builder-topbar__tab:active { transform: translateY(1px); }
+.builder-topbar__tab:disabled { opacity: .4; cursor: not-allowed; border-color: transparent; background: transparent; color: #94a3b8; box-shadow: none; transform: none; }
 
 .builder-topbar__utilities {
   display: flex;

@@ -87,26 +87,26 @@ const favoriteLinks: Record<string, FavoriteLink> = {
 };
 const favoriteOptions = computed<FavoriteOption[]>(() => [
   { key: 'contactLayout', label: 'Contact Layout', type: 'select', options: [{ value: 'side', label: 'Right column' }, { value: 'below', label: 'Below title (one row)' }] },
-  { key: 'separatorWidth', label: 'Separator Width', type: 'range', min: 0.5, max: 5, step: 0.5, unit: 'px', fallback: 1 },
+  { key: 'separatorWidth', label: 'Separator Width', type: 'range', min: 0.5, max: 5, step: 0.5, unit: 'px', fallback: 3 },
   { key: 'hstyle', label: 'Heading Style', type: 'select', options: hStyles.map((value) => ({ value, label: value })) },
   { key: 'headerLayoutStyle', label: 'Header Style', type: 'select', options: [{ value: 'boxed', label: 'Boxed' }, { value: 'separator', label: 'Separator' }] },
   { key: 'pageMarginTop', label: 'Page Margin Top', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 12, link: favoriteLinks.pageMarginVertical },
   { key: 'pageMarginBottom', label: 'Page Margin Bottom', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 12, link: favoriteLinks.pageMarginVertical },
   { key: 'pageMarginRight', label: 'Page Margin Right', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 12, link: favoriteLinks.pageMarginHorizontal },
   { key: 'pageMarginLeft', label: 'Page Margin Left', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 12, link: favoriteLinks.pageMarginHorizontal },
-  { key: 'headerPaddingBottom', label: 'Header Bottom Padding', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 12, link: favoriteLinks.headerBottomSpacing },
-  { key: 'headerBottomMargin', label: 'Header Bottom Margin', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 12, link: favoriteLinks.headerBottomSpacing },
+  { key: 'headerPaddingBottom', label: 'Header Bottom Padding', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 0, link: favoriteLinks.headerBottomSpacing },
+  { key: 'headerBottomMargin', label: 'Header Bottom Margin', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 2, link: favoriteLinks.headerBottomSpacing },
   { key: 'sidebarWidth', label: 'Sidebar Width', type: 'range', min: 0.1, max: 3, step: 0.1, unit: 'fr', fallback: 0.7 },
   { key: 'sidebarAlign', label: 'Sidebar Position', type: 'select', options: [{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }] },
   { key: 'sidebarLayoutStyle', label: 'Sidebar Style', type: 'select', options: [{ value: 'boxed', label: 'Boxed' }, { value: 'separator', label: 'Separator' }] },
   { key: 'sidebarFillMode', label: 'Sidebar Start', type: 'select', options: [{ value: 'start', label: 'Fill from start' }, { value: 'last-page', label: 'Fill from last PDF page' }, { value: 'after-cover', label: 'Skip cover page' }] },
   { key: 'sidebarHeightMode', label: 'Sidebar Height', type: 'select', options: [{ value: 'content', label: 'Fit content' }, { value: 'full-page', label: 'Full page' }] },
-  { key: 'sidebarBottomPadding', label: 'Sidebar Bottom Padding', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 6 },
-  { key: 'sectionSpacingBody', label: 'Body Section Spacing', type: 'range', min: 2, max: 20, step: 1, unit: 'mm', fallback: 6 },
+  { key: 'sidebarBottomPadding', label: 'Sidebar Bottom Padding', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 0 },
+  { key: 'sectionSpacingBody', label: 'Body Section Spacing', type: 'range', min: 2, max: 20, step: 1, unit: 'mm', fallback: 10 },
   { key: 'sectionSpacingSidebar', label: 'Sidebar Section Spacing', type: 'range', min: 2, max: 20, step: 1, unit: 'mm', fallback: 6 },
   { key: 'itemSpacing', label: 'Section Item Spacing', type: 'range', min: 0, max: 12, step: 0.5, unit: 'mm', fallback: 3.5 },
   { key: 'bodySidebarSpacing', label: 'Body / Sidebar Spacing', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 10 },
-  { key: 'h1', label: 'H1 Font Size', type: 'range', min: 18, max: 30, step: 1, unit: 'pt', fallback: 22 },
+  { key: 'h1', label: 'H1 Font Size', type: 'range', min: 18, max: 30, step: 1, unit: 'pt', fallback: 24 },
   { key: 'h2', label: 'H2 Font Size', type: 'range', min: 10, max: 20, step: 1, unit: 'pt', fallback: 12 },
   { key: 'h3', label: 'H3 Font Size', type: 'range', min: 8, max: 16, step: 1, unit: 'pt', fallback: 10 },
   { key: 'bullets', label: 'Bullet Font Size', type: 'range', min: 8, max: 14, step: 0.5, unit: 'pt', fallback: 10.5 },
@@ -116,7 +116,7 @@ const favoriteOptions = computed<FavoriteOption[]>(() => [
   { key: 'graphicOpacity', label: 'Graphic Opacity', type: 'range', min: 0, max: 100, step: 1, suffix: '%', fallback: 100 },
   { key: 'dateOpacity', label: 'Date Opacity', type: 'range', min: 0, max: 100, step: 1, suffix: '%', fallback: 100 },
   { key: 'badgeMode', label: 'Badge Mode', type: 'select', options: [{ value: 'solid', label: 'Solid' }, { value: 'border', label: 'Border' }] },
-  { key: 'badgeBorderRadius', label: 'Badge Border Radius', type: 'range', min: 0, max: 20, step: 1, unit: 'px', fallback: 6 },
+  { key: 'badgeBorderRadius', label: 'Badge Border Radius', type: 'range', min: 0, max: 20, step: 1, unit: 'px', fallback: 8 },
 ]);
 const favoriteKeys = computed(() => (Array.isArray(design.value.favoriteControls) ? design.value.favoriteControls : []));
 const availableFavoriteOptions = computed(() => favoriteOptions.value.filter((option) => option.key !== 'sidebarBottomPadding' || isContentHeight.value));
@@ -269,7 +269,7 @@ function setLinkedMillimeters(linkKey: FavoriteLink['linkKey'], primaryKey: Stri
   if (isLinked(linkKey)) design.value[secondaryKey] = normalized;
 }
 
-function pixels(value: unknown, fallback = 1) {
+function pixels(value: unknown, fallback = 3) {
   const parsed = Number.parseFloat(String(value));
   return Number.isFinite(parsed) ? Math.min(5, Math.max(0.5, parsed)) : fallback;
 }
@@ -335,8 +335,8 @@ function pixels(value: unknown, fallback = 1) {
       </section>
 
       <div class="editor-panel__body">
-      <section class="editor-subsection" @click="toggleSection('layout')" :class="{ collapsed: sections.layout }">
-        <div class="section-head editor-subsection__header"><font-awesome-icon :icon="['fas', 'table-cells-large']" class="section-icon" aria-hidden="true" /><h4>Layout</h4></div>
+      <section class="editor-subsection" :class="{ collapsed: sections.layout }">
+        <div class="section-head editor-subsection__header" @click="toggleSection('layout')"><font-awesome-icon :icon="['fas', 'table-cells-large']" class="section-icon" aria-hidden="true" /><h4>Layout</h4></div>
         <div class="editor-subsection__body">
           <div class="grid-2"><label>Heading-Style<select v-model="design.hstyle"><option v-for="style in hStyles" :key="style" :value="style">{{ style }}</option></select></label><span /></div>
           <div class="layout-control-group subsection-row">
@@ -365,10 +365,10 @@ function pixels(value: unknown, fallback = 1) {
             <h5>Header Bottom Spacing</h5>
             <div class="grid-2">
               <div class="linked-control">
-                <div class="linked-control__heading"><span>{{ isLinked('headerBottomSpacingLinked') ? 'Header Bottom Spacing' : 'Header Bottom Padding' }}: {{ design.headerPaddingBottom || '12mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('headerBottomSpacingLinked') ? 'Unlink header bottom padding and margin' : 'Link header bottom padding and margin'" :aria-pressed="isLinked('headerBottomSpacingLinked')" :title="isLinked('headerBottomSpacingLinked') ? 'Header bottom padding and margin linked' : 'Header bottom padding and margin independent'" @click="setLinked('headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin', !isLinked('headerBottomSpacingLinked'))"><font-awesome-icon :icon="['fas', isLinked('headerBottomSpacingLinked') ? 'link' : 'link-slash']" /></button></div>
-                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('headerBottomSpacingLinked') ? 'Header bottom spacing' : 'Header bottom padding'" :value="millimeters(design.headerPaddingBottom, 12)" @input="setLinkedMillimeters('headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
+                <div class="linked-control__heading"><span>{{ isLinked('headerBottomSpacingLinked') ? 'Header Bottom Spacing' : 'Header Bottom Padding' }}: {{ design.headerPaddingBottom || '0mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('headerBottomSpacingLinked') ? 'Unlink header bottom padding and margin' : 'Link header bottom padding and margin'" :aria-pressed="isLinked('headerBottomSpacingLinked')" :title="isLinked('headerBottomSpacingLinked') ? 'Header bottom padding and margin linked' : 'Header bottom padding and margin independent'" @click="setLinked('headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin', !isLinked('headerBottomSpacingLinked'))"><font-awesome-icon :icon="['fas', isLinked('headerBottomSpacingLinked') ? 'link' : 'link-slash']" /></button></div>
+                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('headerBottomSpacingLinked') ? 'Header bottom spacing' : 'Header bottom padding'" :value="millimeters(design.headerPaddingBottom, 0)" @input="setLinkedMillimeters('headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
               </div>
-              <label v-if="!isLinked('headerBottomSpacingLinked')">Header Bottom Margin: {{ design.headerBottomMargin || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.headerBottomMargin, 12)" @input="setMillimeters('headerBottomMargin', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label>
+              <label v-if="!isLinked('headerBottomSpacingLinked')">Header Bottom Margin: {{ design.headerBottomMargin || '2mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.headerBottomMargin, 2)" @input="setMillimeters('headerBottomMargin', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label>
             </div>
             <p class="spacing-hint">With a separator header, padding is above the line and margin is below it.</p>
           </div>
@@ -378,13 +378,13 @@ function pixels(value: unknown, fallback = 1) {
       <section class="editor-subsection" :class="{ collapsed: sections.sidebar }">
         <div class="section-head editor-subsection__header" @click="toggleSection('sidebar')"><font-awesome-icon :icon="['fas', 'table-columns']" class="section-icon" aria-hidden="true" /><h4>Sidebar Layout</h4></div>
         <div class="editor-subsection__body grid-3"><label>Sidebar Width: {{ design.sidebarWidth }}<input type="range" min="0.1" max="3.0" step="0.1" :value="parseFloat(design.sidebarWidth || '')" @input="design.sidebarWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'fr'"></label><label>Sidebar Position<select v-model="design.sidebarAlign"><option value="left">Links</option><option value="right">Rechts</option></select></label><label>Sidebar Style<select v-model="design.sidebarLayoutStyle"><option value="boxed">Boxed</option><option value="separator">Separator</option></select></label></div>
-        <div class="editor-subsection__body grid-3 subsection-row"><label>Sidebar Start<select v-model="design.sidebarFillMode"><option value="start">Fill from start</option><option value="last-page">Fill from last PDF page</option><option value="after-cover">Skip cover page</option></select></label><label>Sidebar Height<select v-model="design.sidebarHeightMode"><option value="content">Fit content</option><option value="full-page">Full page</option></select></label><label v-if="isContentHeight">Sidebar Bottom Padding: {{ design.sidebarBottomPadding || '6mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.sidebarBottomPadding, 6)" @input="setMillimeters('sidebarBottomPadding', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label></div>
+        <div class="editor-subsection__body grid-3 subsection-row"><label>Sidebar Start<select v-model="design.sidebarFillMode"><option value="start">Fill from start</option><option value="last-page">Fill from last PDF page</option><option value="after-cover">Skip cover page</option></select></label><label>Sidebar Height<select v-model="design.sidebarHeightMode"><option value="content">Fit content</option><option value="full-page">Full page</option></select></label><label v-if="isContentHeight">Sidebar Bottom Padding: {{ design.sidebarBottomPadding || '0mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.sidebarBottomPadding, 0)" @input="setMillimeters('sidebarBottomPadding', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label></div>
         <p class="editor-subsection__body spacing-hint">Fit content lets the body use the full width below the sidebar.</p>
       </section>
 
       <section class="editor-subsection" :class="{ collapsed: sections.spacing }">
         <div class="section-head editor-subsection__header" @click="toggleSection('spacing')"><font-awesome-icon :icon="['fas', 'arrows-left-right-to-line']" class="section-icon" aria-hidden="true" /><h4>Spacing</h4></div>
-        <div class="editor-subsection__body grid-3"><label>Separator Width: {{ pixels(design.separatorWidth) }}px<input type="range" min="0.5" max="5" step="0.5" :value="pixels(design.separatorWidth)" @input="design.separatorWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label><label>Body Section Spacing: {{ design.sectionSpacingBody || '6mm' }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingBody || '6mm')" @input="design.sectionSpacingBody = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'mm'"></label><label>Sidebar Section Spacing: {{ design.sectionSpacingSidebar || '6mm' }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingSidebar || '6mm')" @input="design.sectionSpacingSidebar = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'mm'"></label></div>
+        <div class="editor-subsection__body grid-3"><label>Separator Width: {{ pixels(design.separatorWidth) }}px<input type="range" min="0.5" max="5" step="0.5" :value="pixels(design.separatorWidth)" @input="design.separatorWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label><label>Body Section Spacing: {{ design.sectionSpacingBody || '10mm' }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingBody || '10mm')" @input="design.sectionSpacingBody = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'mm'"></label><label>Sidebar Section Spacing: {{ design.sectionSpacingSidebar || '6mm' }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingSidebar || '6mm')" @input="design.sectionSpacingSidebar = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'mm'"></label></div>
         <div class="editor-subsection__body grid-3 subsection-row"><label>Body / Sidebar Spacing: {{ design.bodySidebarSpacing || '10mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.bodySidebarSpacing, 10)" @input="setMillimeters('bodySidebarSpacing', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label></div>
       </section>
 
@@ -424,7 +424,7 @@ function pixels(value: unknown, fallback = 1) {
       <section class="editor-subsection" :class="{ collapsed: sections.badges }">
         <div class="section-head editor-subsection__header" @click="toggleSection('badges')"><font-awesome-icon :icon="['fas', 'tag']" class="section-icon" aria-hidden="true" /><h4>Badges & Items</h4></div>
         <div class="editor-subsection__body">
-          <div class="grid-3"><label>Badge Mode<select v-model="design.badgeMode"><option value="solid">Solid</option><option value="border">Border</option></select></label><label v-if="design.badgeMode === 'border'">Badge Border Width: {{ design.badgeBorderWidth || '1px' }}<input type="range" min="0.5" max="4" step="0.5" :value="parseFloat(design.badgeBorderWidth || '1')" @input="design.badgeBorderWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label><label>Badge Border Radius: {{ design.badgeBorderRadius }}<input type="range" min="0" max="20" step="1" :value="parseInt(design.badgeBorderRadius || '')" @input="design.badgeBorderRadius = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label></div>
+          <div class="grid-3"><label>Badge Mode<select v-model="design.badgeMode"><option value="solid">Solid</option><option value="border">Border</option></select></label><label v-if="design.badgeMode === 'border'">Badge Border Width: {{ design.badgeBorderWidth || '2.5px' }}<input type="range" min="0.5" max="4" step="0.5" :value="parseFloat(design.badgeBorderWidth || '2.5')" @input="design.badgeBorderWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label><label>Badge Border Radius: {{ design.badgeBorderRadius }}<input type="range" min="0" max="20" step="1" :value="parseInt(design.badgeBorderRadius || '')" @input="design.badgeBorderRadius = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label></div>
         </div>
       </section>
 

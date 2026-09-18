@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import type { PropType } from 'vue';
 import type { CvState, SavedConfiguration } from '../types';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { saveLocal } from '../composables/useStorage';
+import { builtinConfigurations, createEmptyDocument, createSampleDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID } from '../composables/builtinConfigurations';
+import { createNormalizedContentState } from '../composables/contentLayout';
 import {
   MAX_CV_JSON_FILE_BYTES,
   createCvJsonBackup,
@@ -45,6 +47,7 @@ const labels = computed(() => langRef.value === 'de' ? {
   missingName: 'Bitte Titel eingeben.',
   saveFailed: 'Speichern fehlgeschlagen. Bitte Speicherplatz und Browser-Einstellungen prüfen.',
   saveAsHint: 'Eine neue Konfiguration ist eine Kopie der aktuell angezeigten Inhalte und Einstellungen.',
+  emptyHint: 'Gib einen neuen Konfigurationstitel ein und speichere das leere Dokument, um es zu bearbeiten.',
 } : {
   versions: 'Versions',
   saveAs: 'Save as',
@@ -65,6 +68,7 @@ const labels = computed(() => langRef.value === 'de' ? {
   missingName: 'Please enter a title.',
   saveFailed: 'Saving failed. Check available storage and browser settings.',
   saveAsHint: 'A new configuration is a copy of the currently displayed content and settings.',
+  emptyHint: 'Enter a new configuration title and save the empty document to start editing.',
 });
 
 const configs = ref<SavedConfiguration[]>([]);
@@ -74,6 +78,7 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const localIndexKey = 'CV_CONF_INDEX';
 const localActiveKey = 'CV_CONF_ACTIVE_ID';
 const localDataKey = (id: string) => `CV_CONF_DATA:${id}`;
+const isEmptyDocument = computed(() => currentId.value === EMPTY_DOCUMENT_ID);
 
 function readStorage(key: string) {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -100,6 +105,7 @@ function removeStorage(key: string) {
 function setCurrentId(value: string) {
   const id = value || '';
   const persisted = id ? writeStorage(localActiveKey, id) : removeStorage(localActiveKey);
+  if (!persisted) return false;
   emit('update:selectedId', id);
   return persisted;
 }
@@ -125,7 +131,8 @@ function readIndex(): SavedConfiguration[] {
 }
 function writeIndex(items: SavedConfiguration[]) { return writeStorage(localIndexKey, JSON.stringify(items)); }
 function refreshConfigs() {
-  const items = readIndex();
+  const builtins = builtinConfigurations(props.lang);
+  const items = [...builtins, ...readIndex().filter(({ id }) => !builtins.some((item) => item.id === id))];
   configs.value = items;
   if (currentId.value && !items.some((item) => item.id === currentId.value)) currentId.value = '';
   emit('configs-change', items);
@@ -134,18 +141,19 @@ function snapshotState(): CvState {
   return JSON.parse(JSON.stringify(props.state));
 }
 function readConfigData(id: string): CvState | null {
+  if (id === EMPTY_DOCUMENT_ID) return createEmptyDocument();
   try {
     const raw = readStorage(localDataKey(id));
-    if (!raw) return null;
+    if (!raw) return id === SAMPLE_DOCUMENT_ID ? createSampleDocument() : null;
     return parseStoredCvState(raw);
   } catch (error) {
     console.warn('Failed to read configuration', error);
-    return null;
+    return id === SAMPLE_DOCUMENT_ID ? createSampleDocument() : null;
   }
 }
 function uniqueConfigId(name: string) {
   const base = slug(name);
-  const taken = new Set(readIndex().map((item) => item.id));
+  const taken = new Set([...builtinConfigurations(), ...readIndex()].map((item) => item.id));
   let candidate = base;
   let suffix = 2;
   while (taken.has(candidate) || readStorage(localDataKey(candidate))) {
@@ -156,6 +164,7 @@ function uniqueConfigId(name: string) {
 }
 
 function saveConfig(id: string, name: string, { announce = true, data = snapshotState(), activate = true } = {}) {
+  if (id === EMPTY_DOCUMENT_ID) return false;
   try {
     const meta = { id, name, updatedAt: Date.now() };
     if (!writeStorage(localDataKey(id), JSON.stringify({ __meta: meta, data }))) throw new Error('Configuration data could not be written');
@@ -179,13 +188,17 @@ function saveConfig(id: string, name: string, { announce = true, data = snapshot
 }
 
 function saveCurrent({ announce = false } = {}) {
+  if (currentId.value === EMPTY_DOCUMENT_ID) return true;
+  // The bundled sample needs no browser storage until somebody edits it.
+  if (currentId.value === SAMPLE_DOCUMENT_ID && !readStorage(localDataKey(SAMPLE_DOCUMENT_ID))
+    && JSON.stringify(props.state) === JSON.stringify(createNormalizedContentState(createSampleDocument()))) return true;
   const chosen = configs.value.find((item) => item.id === currentId.value);
   if (!chosen) return null;
   return saveConfig(chosen.id, chosen.name, { announce });
 }
 
 function saveVersion(id: string, data: CvState) {
-  const chosen = readIndex().find((item) => item.id === id);
+  const chosen = [...builtinConfigurations(props.lang), ...readIndex()].find((item) => item.id === id);
   // Never recreate a version that was deleted while it was being edited.
   return chosen !== undefined && saveConfig(id, chosen.name, { data, announce: false, activate: false });
 }
@@ -199,7 +212,7 @@ function saveAs() {
 
   try {
     if (!props.beforeLoad()) return;
-    const data = snapshotState();
+    const data = isEmptyDocument.value ? { ...createEmptyDocument(), lang: props.lang } : snapshotState();
     const saved = saveConfig(uniqueConfigId(name), name, { data });
     if (saved) newName.value = '';
     emit('save-result', saved);
@@ -218,7 +231,11 @@ function selectConfiguration(id: string) {
   try {
     // Switch the save destination before changing state so the first
     // post-load autosave cannot target the configuration we just left.
-    setCurrentId(id);
+    if (!setCurrentId(id)) {
+      backupMsg.value = labels.value.saveFailed;
+      emit('save-result', false);
+      return false;
+    }
     props.onLoad(data);
     props.onSave();
     backupMsg.value = labels.value.loaded;
@@ -253,7 +270,7 @@ function restoreActiveConfig() {
 }
 
 function deleteCurrent() {
-  if (!currentId.value || !confirm(labels.value.confirmDelete)) return;
+  if (!currentId.value || builtinConfigurations().some(({ id }) => id === currentId.value) || !confirm(labels.value.confirmDelete)) return;
   if (!props.beforeLoad()) return;
   try {
     // Deleting a saved version must not discard the content currently being edited.
@@ -322,6 +339,7 @@ async function importJson(event: Event) {
 
 defineExpose({ selectConfiguration, restoreActiveConfig, saveCurrent, readConfigData, saveVersion });
 onMounted(refreshConfigs);
+watch(() => props.lang, refreshConfigs);
 </script>
 
 <template>
@@ -336,14 +354,14 @@ onMounted(refreshConfigs);
           <option v-if="!currentId" value="" disabled>{{ labels.noSavedVersion }}</option>
           <option v-for="config in configs" :key="config.id" :value="config.id">{{ config.name }}</option>
         </select>
-        <button type="button" class="btn btn--danger" :disabled="!currentId" @click="deleteCurrent">{{ labels.remove }}</button>
+        <button type="button" class="btn btn--danger" :disabled="!currentId || builtinConfigurations().some(({ id }) => id === currentId)" @click="deleteCurrent">{{ labels.remove }}</button>
       </div>
 
-      <p class="backup-manager__hint">{{ labels.saveAsHint }}</p>
-      <div class="backup-manager__save-as">
-        <input v-model="newName" :placeholder="labels.newName" />
-        <button type="button" class="btn btn--success" @click="saveAs">{{ labels.saveAs }}</button>
-      </div>
+      <p class="backup-manager__hint" aria-live="polite">{{ isEmptyDocument ? labels.emptyHint : labels.saveAsHint }}</p>
+      <form class="backup-manager__save-as" @submit.prevent="saveAs">
+        <input v-model="newName" :placeholder="labels.newName" :aria-label="labels.newName" />
+        <button type="submit" class="btn btn--success" :disabled="!newName.trim()">{{ labels.saveAs }}</button>
+      </form>
 
       <div class="backup-manager__file-actions">
         <input ref="fileInput" class="backup-manager__file-input" type="file" accept="application/json,.json" @change="importJson" />

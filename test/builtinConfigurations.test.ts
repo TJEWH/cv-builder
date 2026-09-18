@@ -1,0 +1,37 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { builtinConfigurations, createEmptyDocument, createSampleDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID } from '../src/composables/builtinConfigurations';
+import { createNormalizedContentState } from '../src/composables/contentLayout';
+import { readCvState } from '../src/composables/cvStateValidation';
+
+test('empty document contains no sample content and uses the default design', () => {
+  const empty = readCvState(createEmptyDocument());
+  assert.ok(Object.values(empty.contact).every((value) => value === ''));
+  assert.equal(empty.about.text, '');
+  for (const items of [empty.education, empty.experience.jobs, empty.languages, empty.hobbies, empty.customSections, empty.sidebarSections]) {
+    assert.deepEqual(items, []);
+  }
+  assert.deepEqual(empty.design, createSampleDocument().design);
+  assert.deepEqual(empty.disabled, []);
+});
+
+test('built-in versions are available without browser storage and have stable localized identities', () => {
+  assert.deepEqual(builtinConfigurations().map(({ id }) => id), [EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID]);
+  assert.deepEqual(builtinConfigurations('de').map(({ id }) => id), [EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID]);
+  assert.notEqual(builtinConfigurations()[0].name, builtinConfigurations('de')[0].name);
+  const sample = readCvState(createSampleDocument());
+  assert.equal(sample.experience.jobs.length, 3);
+  assert.ok(sample.customSections.length > 0);
+});
+
+test('editing a document never changes the bundled source or another new document', () => {
+  const original = createNormalizedContentState(createSampleDocument());
+  const edited = createSampleDocument();
+  edited.contact.name = 'Changed';
+  edited.design.fontBody = 'Other';
+  edited.experience.jobs[0].bullets = 'Changed';
+  assert.deepEqual(createNormalizedContentState(createSampleDocument()), original);
+  const empty = createEmptyDocument();
+  empty.hobbies.push({ id: 'new', name: 'Reading' });
+  assert.deepEqual(createEmptyDocument().hobbies, []);
+});

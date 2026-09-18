@@ -59,7 +59,7 @@ function colorWithOpacity(color: unknown, opacity = 100) {
 
 export function applyCvDesign(design: CvDesign = {}) {
   const root = document.documentElement.style;
-  root.setProperty('--h1-size', design.h1 || '22pt');
+  root.setProperty('--h1-size', design.h1 || '24pt');
   root.setProperty('--h2-size', design.h2 || '12pt');
   root.setProperty('--h3-size', design.h3 || '10pt');
   root.setProperty('--bullet-size', design.bullets || '10.5pt');
@@ -76,18 +76,18 @@ export function applyCvDesign(design: CvDesign = {}) {
   root.setProperty('--page-margin-right', millimeters(design.pageMarginRight, '12mm'));
   root.setProperty('--page-margin-bottom', millimeters(design.pageMarginBottom, '12mm'));
   root.setProperty('--page-margin-left', millimeters(design.pageMarginLeft, '12mm'));
-  root.setProperty('--header-padding-bottom', millimeters(design.headerPaddingBottom, '12mm'));
-  root.setProperty('--header-bottom-margin', millimeters(design.headerBottomMargin, '12mm'));
-  root.setProperty('--separator-width', pixels(design.separatorWidth, '1px'));
-  root.setProperty('--badge-border-width', pixels(design.badgeBorderWidth, '1px'));
-  root.setProperty('--badge-border-radius', design.badgeBorderRadius || '6px');
-  root.setProperty('--section-spacing-body', design.sectionSpacingBody || '6mm');
+  root.setProperty('--header-padding-bottom', millimeters(design.headerPaddingBottom, '0mm'));
+  root.setProperty('--header-bottom-margin', millimeters(design.headerBottomMargin, '2mm'));
+  root.setProperty('--separator-width', pixels(design.separatorWidth, '3px'));
+  root.setProperty('--badge-border-width', pixels(design.badgeBorderWidth, '2.5px'));
+  root.setProperty('--badge-border-radius', design.badgeBorderRadius || '8px');
+  root.setProperty('--section-spacing-body', design.sectionSpacingBody || '10mm');
   root.setProperty('--section-spacing-sidebar', design.sectionSpacingSidebar || '6mm');
   root.setProperty('--section-item-spacing', millimeters(design.itemSpacing, '3.5mm'));
   root.setProperty('--body-sidebar-spacing', millimeters(design.bodySidebarSpacing, '10mm'));
-  root.setProperty('--sidebar-bottom-padding', design.sidebarHeightMode === 'full-page' ? '6mm' : millimeters(design.sidebarBottomPadding, '6mm'));
+  root.setProperty('--sidebar-bottom-padding', design.sidebarHeightMode === 'full-page' ? '6mm' : millimeters(design.sidebarBottomPadding, '0mm'));
   root.setProperty('--sidebar-column-width', sidebarColumnWidth(design.sidebarWidth));
-  const badgeMode = design.badgeMode === 'border' ? 'border' : 'solid';
+  const badgeMode = design.badgeMode === 'solid' ? 'solid' : 'border';
   root.setProperty('--badge-bg', badgeMode === 'solid' ? 'var(--graphic)' : 'transparent');
   root.setProperty('--badge-color', badgeMode === 'solid' ? '#ffffff' : 'var(--graphic)');
   root.setProperty('--badge-border-color', 'var(--graphic)');
