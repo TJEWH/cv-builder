@@ -335,8 +335,8 @@ function pixels(value: unknown, fallback = 1) {
       </section>
 
       <div class="editor-panel__body">
-      <section class="editor-subsection" :class="{ collapsed: sections.layout }">
-        <div class="section-head editor-subsection__header" @click="toggleSection('layout')"><font-awesome-icon :icon="['fas', 'table-cells-large']" class="section-icon" aria-hidden="true" /><h4>Layout</h4></div>
+      <section class="editor-subsection" @click="toggleSection('layout')" :class="{ collapsed: sections.layout }">
+        <div class="section-head editor-subsection__header"><font-awesome-icon :icon="['fas', 'table-cells-large']" class="section-icon" aria-hidden="true" /><h4>Layout</h4></div>
         <div class="editor-subsection__body">
           <div class="grid-2"><label>Heading-Style<select v-model="design.hstyle"><option v-for="style in hStyles" :key="style" :value="style">{{ style }}</option></select></label><span /></div>
           <div class="layout-control-group subsection-row">
