@@ -1,32 +1,23 @@
 import type { CvState, SavedConfiguration } from '../types';
 import { CV_STATE_VERSION } from '../types';
+import { createDefaultDesign, DEFAULT_LANGUAGE } from '../defaults';
+import { makeT } from '../i18n/dict';
 
 export const EMPTY_DOCUMENT_ID = 'builtin:empty';
 export const SAMPLE_DOCUMENT_ID = 'builtin:sample';
 
-export function builtinConfigurations(lang = 'en'): SavedConfiguration[] {
+export function builtinConfigurations(lang: string): SavedConfiguration[] {
+  const t = makeT({ value: lang });
   return [
-    { id: EMPTY_DOCUMENT_ID, name: lang === 'de' ? 'Leeres Dokument' : 'Empty document' },
-    { id: SAMPLE_DOCUMENT_ID, name: lang === 'de' ? 'Beispiel-Lebenslauf' : 'Sample CV' },
+    { id: EMPTY_DOCUMENT_ID, name: t('emptyDocument') },
+    { id: SAMPLE_DOCUMENT_ID, name: t('sampleCv') },
   ];
 }
 
 export function createEmptyDocument(): CvState {
   return {
-    version: CV_STATE_VERSION, lang: 'en', disabled: [], completedSections: [], keepTogetherSections: [],
-    design: {
-      h1: '24pt', h2: '12pt', h3: '10pt', bullets: '10.5pt',
-      ink: '#111827', graphicOpacity: 100, dateOpacity: 100,
-      fontBody: 'Inter', fontHead: 'Inter', hstyle: 'clean',
-      badgeMode: 'border', badgeBorderWidth: '2.5px', badgeBorderRadius: '8px',
-      sectionSpacingBody: '10mm', sectionSpacingSidebar: '6mm', itemSpacing: '3.5mm',
-      sidebarWidth: '0.7fr', sidebarAlign: 'right', sidebarFillMode: 'after-cover', sidebarHeightMode: 'content', sidebarBottomPadding: '0mm',
-      headerLayoutStyle: 'boxed', sidebarLayoutStyle: 'separator', contactLayout: 'side', separatorWidth: '3px',
-      pageMarginTop: '12mm', pageMarginRight: '12mm', pageMarginBottom: '12mm', pageMarginLeft: '12mm',
-      pageMarginHorizontalLinked: true, pageMarginVerticalLinked: true,
-      headerPaddingBottom: '0mm', headerBottomMargin: '2mm', headerBottomSpacingLinked: false,
-      bodySidebarSpacing: '10mm', favoriteControls: [],
-    },
+    version: CV_STATE_VERSION, lang: DEFAULT_LANGUAGE, disabled: [], completedSections: [], keepTogetherSections: [],
+    design: createDefaultDesign(),
     anonymization: { excludedSections: [], excludedItems: [] },
     contact: { name: '', location: '', role: '', email: '', phone: '', website: '', linkedin: '', github: '' },
     about: { text: '' }, education: [], experience: { jobs: [] }, languages: [], hobbies: [],

@@ -16,9 +16,9 @@ test('empty document contains no sample content and uses the default design', ()
 });
 
 test('built-in versions are available without browser storage and have stable localized identities', () => {
-  assert.deepEqual(builtinConfigurations().map(({ id }) => id), [EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID]);
+  assert.deepEqual(builtinConfigurations('en').map(({ id }) => id), [EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID]);
   assert.deepEqual(builtinConfigurations('de').map(({ id }) => id), [EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID]);
-  assert.notEqual(builtinConfigurations()[0].name, builtinConfigurations('de')[0].name);
+  assert.notEqual(builtinConfigurations('en')[0].name, builtinConfigurations('de')[0].name);
   const sample = readCvState(createSampleDocument());
   assert.equal(sample.experience.jobs.length, 3);
   assert.ok(sample.customSections.length > 0);

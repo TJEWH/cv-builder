@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { makeT } from '../../i18n/dict';
 
 const props = defineProps({
   name: { type: String, required: true },
   levelType: { type: String, default: '' }, // 'experience' or 'years' or empty
   levelValue: { type: Number, default: 0 },
-  lang: { type: String, default: 'de' }
+  lang: { type: String, required: true }
 });
+
+const t = makeT(computed(() => props.lang));
 
 // Prüfe ob Level-Anzeige aktiv ist
 const hasLevel = computed(() => {
@@ -40,9 +43,7 @@ const circles = computed(() => {
 
 const displayValue = computed(() => {
   if (props.levelType === 'years' && hasLevel.value) {
-    const label = props.lang === 'en'
-      ? (props.levelValue === 1 ? 'Year' : 'Years')
-      : (props.levelValue === 1 ? 'Jahr' : 'Jahre');
+    const label = t(props.levelValue === 1 ? 'year' : 'years');
     return `${props.levelValue} ${label}`;
   }
   return ''; // Bei Erfahrung werden Kreise angezeigt

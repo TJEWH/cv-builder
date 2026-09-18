@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { DEFAULT_SECTION_HEADER_SIZE } from '../defaults';
 import type { PropType } from 'vue';
 import type { CvState, CvItem, CustomSection, CustomBodyField, ItemState } from '../types';
 import { computed, onBeforeUnmount, onMounted, onUpdated, ref, watch } from 'vue';
@@ -14,10 +15,10 @@ const props = defineProps({
   exportSource: { type: Boolean, default: false },
   anonymized: { type: Boolean, default: false },
 });
-const langRef = computed(() => props.state.lang || 'de');
+const langRef = computed(() => props.state.lang);
 const t = makeT(langRef);
-const bodyKeys = computed(() => Array.isArray(props.state.bodyOrder) ? props.state.bodyOrder : ['about', 'education', 'jobs']);
-const sidebarKeys = computed(() => Array.isArray(props.state.sidebarOrder) ? props.state.sidebarOrder : ['languages', 'hobbies']);
+const bodyKeys = computed(() => props.state.bodyOrder);
+const sidebarKeys = computed(() => props.state.sidebarOrder);
 const isDisabled = (key: string) => Array.isArray(props.state.disabled) && props.state.disabled.includes(key);
 const isKeptTogether = (key: string) => Array.isArray(props.state.keepTogetherSections) && props.state.keepTogetherSections.includes(key);
 const visibleItems = (items: CvItem[]) => Array.isArray(items) ? items.filter((item) => item && !item.hidden) : [];
@@ -29,7 +30,7 @@ const bodyRows = computed(() => bodyKeys.value.map((key) => {
   return { key, section, entries: section ? visibleItems(section.entries) : [] };
 }));
 const sidebarRows = computed(() => sidebarKeys.value.map((key) => ({ key, section: getSidebarSection(key) })));
-const getSectionHeaderSize = (key: string) => props.state.sectionHeaderSizes?.[key] || 'h2';
+const getSectionHeaderSize = (key: string) => props.state.sectionHeaderSizes?.[key] ?? DEFAULT_SECTION_HEADER_SIZE;
 const isSectionHeaderHidden = (key: string) => props.state.sectionHeaderSizes?.[key] === 'null';
 const getSectionDisplayName = (key: string) => getBodySection(key)?.name || props.state.sectionNames?.[key] || ({
   about: t('aboutTitle'),

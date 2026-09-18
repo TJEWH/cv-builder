@@ -78,6 +78,12 @@ App runs at `http://localhost:5173/cv-builder/`
 - Auto-save saves all changes automatically
 
 ### Customize Design
+
+CV design defaults live in `src/defaults.ts`. New documents, the bundled sample,
+editor controls, and preview/PDF rendering all use these values; saved settings
+override them. Add UI translations to `src/i18n/dict.ts` for both supported
+languages. Translation lookup uses only the current language, with no cross-language fallback.
+
 - Design panel (palette icon) for layout, colors, fonts
 - Sidebar position (left/right) selectable
 - Heading styles: clean, underline, leftbar, pill

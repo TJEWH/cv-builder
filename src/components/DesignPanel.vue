@@ -2,16 +2,17 @@
 import type { PropType } from 'vue';
 import type { CustomFont, CvDesign, FontSource, KeysOfType, SelectOption } from '../types';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { DEFAULT_DESIGN, designValue, designNumber } from '../defaults';
 import { makeT } from '../i18n/dict';
 import { BODY_FONTS, HEADING_FONTS, FontImportError, fontOptions, importWebFont, storeCustomFont } from '../composables/webFonts';
 type StringDesignKey = KeysOfType<CvDesign, string>;
 interface FavoriteLink { linkKey: 'pageMarginVerticalLinked' | 'pageMarginHorizontalLinked' | 'headerBottomSpacingLinked'; primaryKey: StringDesignKey; secondaryKey: StringDesignKey }
 type FavoriteOption = {
   label: string; options?: SelectOption[];
-  min?: number; max?: number; step?: number; suffix?: string; fallback?: number;
+  min?: number; max?: number; step?: number; suffix?: string;
 } & (
   | { type: 'select' | 'color'; key: StringDesignKey; unit?: never; link?: never }
-  | ({ type: 'range'; min: number; max: number; step: number; fallback: number } & (
+  | ({ type: 'range'; min: number; max: number; step: number } & (
     | { key: StringDesignKey; unit: 'mm' | 'px' | 'pt' | 'fr'; link?: FavoriteLink }
     | { key: KeysOfType<CvDesign, number>; unit?: never; link?: never }
   ))
@@ -20,15 +21,17 @@ type FavoriteRow = { type: 'single'; option: FavoriteOption } | { type: 'linked'
 
 const props = defineProps({
   modelValue: { type: Object as PropType<CvDesign>, required: true },
-  lang: { type: String, default: 'en' },
+  lang: { type: String, required: true },
 });
 const emit = defineEmits<{ 'update:modelValue': [design: CvDesign] }>();
 
 const design = computed({
-  get: () => props.modelValue,
+  get: () => new Proxy(props.modelValue, {
+    get: (target, key) => key in DEFAULT_DESIGN ? designValue(target, key as keyof CvDesign) : Reflect.get(target, key),
+  }) as Required<CvDesign>,
   set: (value) => emit('update:modelValue', value),
 });
-const langRef = computed(() => props.lang || 'en');
+const langRef = computed(() => props.lang);
 const t = makeT(langRef);
 
 const bodyFonts = computed(() => fontOptions(BODY_FONTS, design.value, design.value.fontBody));
@@ -86,52 +89,52 @@ const favoriteLinks: Record<string, FavoriteLink> = {
   headerBottomSpacing: { linkKey: 'headerBottomSpacingLinked', primaryKey: 'headerPaddingBottom', secondaryKey: 'headerBottomMargin' },
 };
 const favoriteOptions = computed<FavoriteOption[]>(() => [
-  { key: 'contactLayout', label: 'Contact Layout', type: 'select', options: [{ value: 'side', label: 'Right column' }, { value: 'below', label: 'Below title (one row)' }] },
-  { key: 'separatorWidth', label: 'Separator Width', type: 'range', min: 0.5, max: 5, step: 0.5, unit: 'px', fallback: 3 },
-  { key: 'hstyle', label: 'Heading Style', type: 'select', options: hStyles.map((value) => ({ value, label: value })) },
-  { key: 'headerLayoutStyle', label: 'Header Style', type: 'select', options: [{ value: 'boxed', label: 'Boxed' }, { value: 'separator', label: 'Separator' }] },
-  { key: 'pageMarginTop', label: 'Page Margin Top', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 12, link: favoriteLinks.pageMarginVertical },
-  { key: 'pageMarginBottom', label: 'Page Margin Bottom', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 12, link: favoriteLinks.pageMarginVertical },
-  { key: 'pageMarginRight', label: 'Page Margin Right', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 12, link: favoriteLinks.pageMarginHorizontal },
-  { key: 'pageMarginLeft', label: 'Page Margin Left', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 12, link: favoriteLinks.pageMarginHorizontal },
-  { key: 'headerPaddingBottom', label: 'Header Bottom Padding', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 0, link: favoriteLinks.headerBottomSpacing },
-  { key: 'headerBottomMargin', label: 'Header Bottom Margin', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 2, link: favoriteLinks.headerBottomSpacing },
-  { key: 'sidebarWidth', label: 'Sidebar Width', type: 'range', min: 0.1, max: 3, step: 0.1, unit: 'fr', fallback: 0.7 },
-  { key: 'sidebarAlign', label: 'Sidebar Position', type: 'select', options: [{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }] },
-  { key: 'sidebarLayoutStyle', label: 'Sidebar Style', type: 'select', options: [{ value: 'boxed', label: 'Boxed' }, { value: 'separator', label: 'Separator' }] },
-  { key: 'sidebarFillMode', label: 'Sidebar Start', type: 'select', options: [{ value: 'start', label: 'Fill from start' }, { value: 'last-page', label: 'Fill from last PDF page' }, { value: 'after-cover', label: 'Skip cover page' }] },
-  { key: 'sidebarHeightMode', label: 'Sidebar Height', type: 'select', options: [{ value: 'content', label: 'Fit content' }, { value: 'full-page', label: 'Full page' }] },
-  { key: 'sidebarBottomPadding', label: 'Sidebar Bottom Padding', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 0 },
-  { key: 'sectionSpacingBody', label: 'Body Section Spacing', type: 'range', min: 2, max: 20, step: 1, unit: 'mm', fallback: 10 },
-  { key: 'sectionSpacingSidebar', label: 'Sidebar Section Spacing', type: 'range', min: 2, max: 20, step: 1, unit: 'mm', fallback: 6 },
-  { key: 'itemSpacing', label: 'Section Item Spacing', type: 'range', min: 0, max: 12, step: 0.5, unit: 'mm', fallback: 3.5 },
-  { key: 'bodySidebarSpacing', label: 'Body / Sidebar Spacing', type: 'range', min: 0, max: 30, step: 1, unit: 'mm', fallback: 10 },
-  { key: 'h1', label: 'H1 Font Size', type: 'range', min: 18, max: 30, step: 1, unit: 'pt', fallback: 24 },
-  { key: 'h2', label: 'H2 Font Size', type: 'range', min: 10, max: 20, step: 1, unit: 'pt', fallback: 12 },
-  { key: 'h3', label: 'H3 Font Size', type: 'range', min: 8, max: 16, step: 1, unit: 'pt', fallback: 10 },
-  { key: 'bullets', label: 'Bullet Font Size', type: 'range', min: 8, max: 14, step: 0.5, unit: 'pt', fallback: 10.5 },
-  { key: 'fontBody', label: 'Body Font', type: 'select', options: bodyFonts.value },
-  { key: 'fontHead', label: 'Headings Font', type: 'select', options: [{ value: '', label: '(Body font)' }, ...headFonts.value] },
-  { key: 'ink', label: 'Font Color', type: 'color' },
-  { key: 'graphicOpacity', label: 'Graphic Opacity', type: 'range', min: 0, max: 100, step: 1, suffix: '%', fallback: 100 },
-  { key: 'dateOpacity', label: 'Date Opacity', type: 'range', min: 0, max: 100, step: 1, suffix: '%', fallback: 100 },
-  { key: 'badgeMode', label: 'Badge Mode', type: 'select', options: [{ value: 'solid', label: 'Solid' }, { value: 'border', label: 'Border' }] },
-  { key: 'badgeBorderRadius', label: 'Badge Border Radius', type: 'range', min: 0, max: 20, step: 1, unit: 'px', fallback: 8 },
+  { key: 'contactLayout', label: t('designContactLayout'), type: 'select', options: [{ value: 'side', label: t('designRightColumn') }, { value: 'below', label: t('designBelowTitleOneRow') }] },
+  { key: 'separatorWidth', label: t('designSeparatorWidth'), type: 'range', min: 0.5, max: 5, step: 0.5, unit: 'px' },
+  { key: 'hstyle', label: t('designHeadingStyle'), type: 'select', options: hStyles.map((value) => ({ value, label: t(`headingStyle_${value}`) })) },
+  { key: 'headerLayoutStyle', label: t('designHeaderStyle'), type: 'select', options: [{ value: 'boxed', label: t('designBoxed') }, { value: 'separator', label: t('designSeparator') }] },
+  { key: 'pageMarginTop', label: t('designPageMarginTop'), type: 'range', min: 0, max: 30, step: 1, unit: 'mm', link: favoriteLinks.pageMarginVertical },
+  { key: 'pageMarginBottom', label: t('designPageMarginBottom'), type: 'range', min: 0, max: 30, step: 1, unit: 'mm', link: favoriteLinks.pageMarginVertical },
+  { key: 'pageMarginRight', label: t('designPageMarginRight'), type: 'range', min: 0, max: 30, step: 1, unit: 'mm', link: favoriteLinks.pageMarginHorizontal },
+  { key: 'pageMarginLeft', label: t('designPageMarginLeft'), type: 'range', min: 0, max: 30, step: 1, unit: 'mm', link: favoriteLinks.pageMarginHorizontal },
+  { key: 'headerPaddingBottom', label: t('designHeaderBottomPadding'), type: 'range', min: 0, max: 30, step: 1, unit: 'mm', link: favoriteLinks.headerBottomSpacing },
+  { key: 'headerBottomMargin', label: t('designHeaderBottomMargin'), type: 'range', min: 0, max: 30, step: 1, unit: 'mm', link: favoriteLinks.headerBottomSpacing },
+  { key: 'sidebarWidth', label: t('designSidebarWidth'), type: 'range', min: 0.1, max: 3, step: 0.1, unit: 'fr' },
+  { key: 'sidebarAlign', label: t('designSidebarPosition'), type: 'select', options: [{ value: 'left', label: t('designLeft') }, { value: 'right', label: t('designRight') }] },
+  { key: 'sidebarLayoutStyle', label: t('designSidebarStyle'), type: 'select', options: [{ value: 'boxed', label: t('designBoxed') }, { value: 'separator', label: t('designSeparator') }] },
+  { key: 'sidebarFillMode', label: t('designSidebarStart'), type: 'select', options: [{ value: 'start', label: t('designFillFromStart') }, { value: 'last-page', label: t('designFillFromLastPDFPage') }, { value: 'after-cover', label: t('designSkipCoverPage') }] },
+  { key: 'sidebarHeightMode', label: t('designSidebarHeight'), type: 'select', options: [{ value: 'content', label: t('designFitContent') }, { value: 'full-page', label: t('designFullPage') }] },
+  { key: 'sidebarBottomPadding', label: t('designSidebarBottomPadding'), type: 'range', min: 0, max: 30, step: 1, unit: 'mm' },
+  { key: 'sectionSpacingBody', label: t('designBodySectionSpacing'), type: 'range', min: 2, max: 20, step: 1, unit: 'mm' },
+  { key: 'sectionSpacingSidebar', label: t('designSidebarSectionSpacing'), type: 'range', min: 2, max: 20, step: 1, unit: 'mm' },
+  { key: 'itemSpacing', label: t('designSectionItemSpacing'), type: 'range', min: 0, max: 12, step: 0.5, unit: 'mm' },
+  { key: 'bodySidebarSpacing', label: t('designBodySidebarSpacing'), type: 'range', min: 0, max: 30, step: 1, unit: 'mm' },
+  { key: 'h1', label: t('designH1FontSize'), type: 'range', min: 18, max: 30, step: 1, unit: 'pt' },
+  { key: 'h2', label: t('designH2FontSize'), type: 'range', min: 10, max: 20, step: 1, unit: 'pt' },
+  { key: 'h3', label: t('designH3FontSize'), type: 'range', min: 8, max: 16, step: 1, unit: 'pt' },
+  { key: 'bullets', label: t('designBulletFontSize'), type: 'range', min: 8, max: 14, step: 0.5, unit: 'pt' },
+  { key: 'fontBody', label: t('designBodyFont'), type: 'select', options: bodyFonts.value },
+  { key: 'fontHead', label: t('designHeadingsFont'), type: 'select', options: [{ value: '', label: t('designInheritBodyFont') }, ...headFonts.value] },
+  { key: 'ink', label: t('designFontColor'), type: 'color' },
+  { key: 'graphicOpacity', label: t('designGraphicOpacity'), type: 'range', min: 0, max: 100, step: 1, suffix: '%' },
+  { key: 'dateOpacity', label: t('designDateOpacity'), type: 'range', min: 0, max: 100, step: 1, suffix: '%' },
+  { key: 'badgeMode', label: t('designBadgeMode'), type: 'select', options: [{ value: 'solid', label: t('designSolid') }, { value: 'border', label: t('designBorder') }] },
+  { key: 'badgeBorderRadius', label: t('designBadgeBorderRadius'), type: 'range', min: 0, max: 20, step: 1, unit: 'px' },
 ]);
-const favoriteKeys = computed(() => (Array.isArray(design.value.favoriteControls) ? design.value.favoriteControls : []));
+const favoriteKeys = computed(() => (design.value.favoriteControls));
 const availableFavoriteOptions = computed(() => favoriteOptions.value.filter((option) => option.key !== 'sidebarBottomPadding' || isContentHeight.value));
 const selectedFavoriteOptions = computed(() => availableFavoriteOptions.value.filter((option) => favoriteKeys.value.includes(option.key)));
 const isFavorite = (key: string) => favoriteKeys.value.includes(key);
 const favoriteOptionByKey = computed(() => new Map(favoriteOptions.value.map((option) => [option.key, option])));
-const favoriteSectionLabels: Record<string, string> = {
-  layout: 'Layout',
-  header: 'Header',
-  sidebar: 'Sidebar Layout',
-  spacing: 'Spacing',
-  typography: 'Typography',
-  colors: 'Colors',
-  badges: 'Badges & Items',
-};
+const favoriteSectionLabels = computed<Record<string, string>>(() => ({
+  layout: t('designLayout'),
+  header: t('designHeader'),
+  sidebar: t('designSidebarLayout'),
+  spacing: t('designSpacing'),
+  typography: t('designTypography'),
+  colors: t('designColors'),
+  badges: t('designBadgesItems'),
+}));
 const favoriteSectionOrder = ['layout', 'header', 'sidebar', 'spacing', 'typography', 'colors', 'badges'];
 function favoriteSection(option: FavoriteOption) {
   if (['hstyle', 'pageMarginTop', 'pageMarginBottom', 'pageMarginRight', 'pageMarginLeft'].includes(option.key)) return 'layout';
@@ -144,16 +147,16 @@ function favoriteSection(option: FavoriteOption) {
 }
 function favoritePairLabel(linkKey: FavoriteLink['linkKey']) {
   return {
-    pageMarginVerticalLinked: 'Vertical Page Margins',
-    pageMarginHorizontalLinked: 'Horizontal Page Margins',
-    headerBottomSpacingLinked: 'Header Bottom Spacing',
-  }[linkKey] || 'Linked controls';
+    pageMarginVerticalLinked: t('designVerticalPageMargins'),
+    pageMarginHorizontalLinked: t('designHorizontalPageMargins'),
+    headerBottomSpacingLinked: t('designHeaderBottomSpacing'),
+  }[linkKey];
 }
 function favoriteShortLabel(option: FavoriteOption) {
   return ({
-    pageMarginTop: 'Top', pageMarginBottom: 'Bottom',
-    pageMarginRight: 'Right', pageMarginLeft: 'Left',
-    headerPaddingBottom: 'Padding', headerBottomMargin: 'Margin',
+    pageMarginTop: t('designTop'), pageMarginBottom: t('designBottom'),
+    pageMarginRight: t('designRight'), pageMarginLeft: t('designLeft'),
+    headerPaddingBottom: t('designPadding'), headerBottomMargin: t('designMargin'),
   } as Partial<Record<keyof CvDesign, string>>)[option.key] || option.label;
 }
 const favoriteRows = computed(() => {
@@ -192,7 +195,7 @@ const favoriteRows = computed(() => {
 
   return favoriteSectionOrder.flatMap((key) => {
     const entries = rows.get(key);
-    return entries ? [{ key, label: favoriteSectionLabels[key], entries }] : [];
+    return entries ? [{ key, label: favoriteSectionLabels.value[key], entries }] : [];
   });
 });
 function setFavorite(key: string, enabled: boolean) {
@@ -203,9 +206,9 @@ function setFavorite(key: string, enabled: boolean) {
 }
 function favoriteValue(option: FavoriteOption) {
   const value = design.value[option.key];
-  if (option.type !== 'range') return value ?? '';
+  if (option.type !== 'range') return value;
   const parsed = Number.parseFloat(String(value));
-  return Number.isFinite(parsed) ? parsed : option.fallback;
+  return Number.isFinite(parsed) ? parsed : designNumber({}, option.key);
 }
 function favoriteValueLabel(option: FavoriteOption) {
   const value = favoriteValue(option);
@@ -245,17 +248,12 @@ function toggleSection(key: string) {
   sections[key] = !sections[key];
 }
 
-function millimeters(value: unknown, fallback: number) {
-  const parsed = Number.parseFloat(String(value));
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
 function setMillimeters(key: StringDesignKey, value: unknown) {
-  design.value[key] = `${Math.max(0, Number.parseFloat(String(value)) || 0)}mm`;
+  design.value[key] = `${Math.max(0, designNumber({ [key]: String(value) }, key))}mm`;
 }
 
 function isLinked(key: FavoriteLink['linkKey']) {
-  return design.value[key] !== false;
+  return designValue(design.value, key);
 }
 
 function setLinked(key: FavoriteLink['linkKey'], primaryKey: StringDesignKey, secondaryKey: StringDesignKey, linked: boolean) {
@@ -264,12 +262,12 @@ function setLinked(key: FavoriteLink['linkKey'], primaryKey: StringDesignKey, se
 }
 
 function setLinkedMillimeters(linkKey: FavoriteLink['linkKey'], primaryKey: StringDesignKey, secondaryKey: StringDesignKey, value: unknown) {
-  const normalized = `${Math.max(0, Number.parseFloat(String(value)) || 0)}mm`;
+  const normalized = `${Math.max(0, designNumber({ [primaryKey]: String(value) }, primaryKey))}mm`;
   design.value[primaryKey] = normalized;
   if (isLinked(linkKey)) design.value[secondaryKey] = normalized;
 }
 
-function pixels(value: unknown, fallback = 3) {
+function pixels(value: unknown, fallback = Number.parseFloat(DEFAULT_DESIGN.separatorWidth)) {
   const parsed = Number.parseFloat(String(value));
   return Number.isFinite(parsed) ? Math.min(5, Math.max(0.5, parsed)) : fallback;
 }
@@ -285,14 +283,14 @@ function pixels(value: unknown, fallback = 3) {
     <div class="design-panel__scroll-body">
       <section class="design-favorites">
       <div class="design-favorites__header">
-        <span><font-awesome-icon :icon="['fas', 'heart']" aria-hidden="true" /> Favorites</span>
+        <span><font-awesome-icon :icon="['fas', 'heart']" aria-hidden="true" /> {{ t('designFavorites') }}</span>
         <button class="mini design-favorites__toggle" type="button" :class="{ 'is-active': favoritesMode }" :aria-pressed="favoritesMode" @click="favoritesMode = !favoritesMode">
           <font-awesome-icon :icon="['fas', favoritesMode ? 'check' : 'sliders']" aria-hidden="true" />
-          {{ favoritesMode ? 'Done' : 'Customize' }}
+          {{ favoritesMode ? t('designDone') : t('designCustomize') }}
         </button>
       </div>
 
-      <div v-if="favoritesMode" class="design-favorites__picker" aria-label="Choose favorite controls">
+      <div v-if="favoritesMode" class="design-favorites__picker" :aria-label="t('designChooseFavoriteControls')">
         <label v-for="option in availableFavoriteOptions" :key="option.key">
           <input type="checkbox" :checked="isFavorite(option.key)" @change="setFavorite(option.key, ($event.target as HTMLInputElement).checked)">
           {{ option.label }}
@@ -309,7 +307,7 @@ function pixels(value: unknown, fallback = 3) {
                   <div class="design-favorites__linked-slider">
                     <div class="design-favorites__linked-slider-heading">
                       <span>{{ isLinked(entry.link.linkKey) ? entry.label : favoriteShortLabel(entry.options[0]) }}: {{ favoriteValueLabel(entry.options[0]) }}</span>
-                      <button class="mini link-toggle" type="button" :aria-label="isLinked(entry.link.linkKey) ? `Unlink ${entry.label.toLowerCase()}` : `Link ${entry.label.toLowerCase()}`" :aria-pressed="isLinked(entry.link.linkKey)" @click="toggleFavoriteLink(entry.link)"><font-awesome-icon :icon="['fas', isLinked(entry.link.linkKey) ? 'link' : 'link-slash']" /></button>
+                      <button class="mini link-toggle" type="button" :aria-label="t(isLinked(entry.link.linkKey) ? 'unlinkControls' : 'linkControls').replace('{label}', entry.label)" :aria-pressed="isLinked(entry.link.linkKey)" @click="toggleFavoriteLink(entry.link)"><font-awesome-icon :icon="['fas', isLinked(entry.link.linkKey) ? 'link' : 'link-slash']" /></button>
                     </div>
                     <input type="range" :aria-label="isLinked(entry.link.linkKey) ? entry.label : entry.options[0].label" :min="entry.options[0].min" :max="entry.options[0].max" :step="entry.options[0].step" :value="favoriteValue(entry.options[0])" @input="setFavoriteValue(entry.options[0], ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
                   </div>
@@ -322,7 +320,7 @@ function pixels(value: unknown, fallback = 3) {
               <div v-else class="design-favorites__control">
                 <div class="design-favorites__control-label"><span>{{ entry.option.label }}<template v-if="entry.option.type === 'range'">: {{ favoriteValueLabel(entry.option) }}</template></span></div>
                 <input v-if="entry.option.type === 'range'" type="range" :aria-label="entry.option.label" :min="entry.option.min" :max="entry.option.max" :step="entry.option.step" :value="favoriteValue(entry.option)" @input="setFavoriteValue(entry.option, ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
-                <input v-else-if="entry.option.type === 'color'" type="color" :aria-label="entry.option.label" :value="favoriteValue(entry.option) || '#111827'" @input="setFavoriteValue(entry.option, ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
+                <input v-else-if="entry.option.type === 'color'" type="color" :aria-label="entry.option.label" :value="favoriteValue(entry.option)" @input="setFavoriteValue(entry.option, ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
                 <select v-else :aria-label="entry.option.label" :value="favoriteValue(entry.option)" @change="setFavoriteValue(entry.option, ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
                   <option v-for="choice in entry.option.options" :key="choice.value" :value="choice.value">{{ choice.label }}</option>
                 </select>
@@ -331,77 +329,77 @@ function pixels(value: unknown, fallback = 3) {
           </div>
         </section>
       </div>
-      <p v-else class="design-favorites__empty">Choose controls to keep your most-used design settings here.</p>
+      <p v-else class="design-favorites__empty">{{ t('designChooseControlsToKeepYourMostUsedDesignSettingsHere') }}</p>
       </section>
 
       <div class="editor-panel__body">
       <section class="editor-subsection" :class="{ collapsed: sections.layout }">
-        <div class="section-head editor-subsection__header" @click="toggleSection('layout')"><font-awesome-icon :icon="['fas', 'table-cells-large']" class="section-icon" aria-hidden="true" /><h4>Layout</h4></div>
+        <div class="section-head editor-subsection__header" @click="toggleSection('layout')"><font-awesome-icon :icon="['fas', 'table-cells-large']" class="section-icon" aria-hidden="true" /><h4>{{ t('designLayout') }}</h4></div>
         <div class="editor-subsection__body">
-          <div class="grid-2"><label>Heading-Style<select v-model="design.hstyle"><option v-for="style in hStyles" :key="style" :value="style">{{ style }}</option></select></label><span /></div>
+          <div class="grid-2"><label>{{ t('designHeadingStyle') }}<select v-model="design.hstyle"><option v-for="style in hStyles" :key="style" :value="style">{{ t(`headingStyle_${style}`) }}</option></select></label><span /></div>
           <div class="layout-control-group subsection-row">
-            <h5>Page Margins</h5>
+            <h5>{{ t('designPageMargins') }}</h5>
             <div class="grid-2">
               <div class="linked-control">
-                <div class="linked-control__heading"><span>{{ isLinked('pageMarginVerticalLinked') ? 'Vertical' : 'Top' }}: {{ design.pageMarginTop || '12mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('pageMarginVerticalLinked') ? 'Unlink top and bottom page margins' : 'Link top and bottom page margins'" :aria-pressed="isLinked('pageMarginVerticalLinked')" :title="isLinked('pageMarginVerticalLinked') ? 'Top and bottom margins linked' : 'Top and bottom margins independent'" @click="setLinked('pageMarginVerticalLinked', 'pageMarginTop', 'pageMarginBottom', !isLinked('pageMarginVerticalLinked'))"><font-awesome-icon :icon="['fas', isLinked('pageMarginVerticalLinked') ? 'link' : 'link-slash']" /></button></div>
-                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('pageMarginVerticalLinked') ? 'Vertical page margin' : 'Top page margin'" :value="millimeters(design.pageMarginTop, 12)" @input="setLinkedMillimeters('pageMarginVerticalLinked', 'pageMarginTop', 'pageMarginBottom', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
+                <div class="linked-control__heading"><span>{{ isLinked('pageMarginVerticalLinked') ? t('designVertical') : t('designTop') }}: {{ design.pageMarginTop }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('pageMarginVerticalLinked') ? t('designUnlinkTopAndBottomPageMargins') : t('designLinkTopAndBottomPageMargins')" :aria-pressed="isLinked('pageMarginVerticalLinked')" :title="isLinked('pageMarginVerticalLinked') ? t('designTopAndBottomMarginsLinked') : t('designTopAndBottomMarginsIndependent')" @click="setLinked('pageMarginVerticalLinked', 'pageMarginTop', 'pageMarginBottom', !isLinked('pageMarginVerticalLinked'))"><font-awesome-icon :icon="['fas', isLinked('pageMarginVerticalLinked') ? 'link' : 'link-slash']" /></button></div>
+                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('pageMarginVerticalLinked') ? t('designVerticalPageMargin') : t('designTopPageMargin')" :value="designNumber(design, 'pageMarginTop')" @input="setLinkedMillimeters('pageMarginVerticalLinked', 'pageMarginTop', 'pageMarginBottom', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
               </div>
               <div class="linked-control">
-                <div class="linked-control__heading"><span>{{ isLinked('pageMarginHorizontalLinked') ? 'Horizontal' : 'Right' }}: {{ design.pageMarginRight || '12mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('pageMarginHorizontalLinked') ? 'Unlink right and left page margins' : 'Link right and left page margins'" :aria-pressed="isLinked('pageMarginHorizontalLinked')" :title="isLinked('pageMarginHorizontalLinked') ? 'Right and left margins linked' : 'Right and left margins independent'" @click="setLinked('pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft', !isLinked('pageMarginHorizontalLinked'))"><font-awesome-icon :icon="['fas', isLinked('pageMarginHorizontalLinked') ? 'link' : 'link-slash']" /></button></div>
-                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('pageMarginHorizontalLinked') ? 'Horizontal page margin' : 'Right page margin'" :value="millimeters(design.pageMarginRight, 12)" @input="setLinkedMillimeters('pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
+                <div class="linked-control__heading"><span>{{ isLinked('pageMarginHorizontalLinked') ? t('designHorizontal') : t('designRight') }}: {{ design.pageMarginRight }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('pageMarginHorizontalLinked') ? t('designUnlinkRightAndLeftPageMargins') : t('designLinkRightAndLeftPageMargins')" :aria-pressed="isLinked('pageMarginHorizontalLinked')" :title="isLinked('pageMarginHorizontalLinked') ? t('designRightAndLeftMarginsLinked') : t('designRightAndLeftMarginsIndependent')" @click="setLinked('pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft', !isLinked('pageMarginHorizontalLinked'))"><font-awesome-icon :icon="['fas', isLinked('pageMarginHorizontalLinked') ? 'link' : 'link-slash']" /></button></div>
+                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('pageMarginHorizontalLinked') ? t('designHorizontalPageMargin') : t('designRightPageMargin')" :value="designNumber(design, 'pageMarginRight')" @input="setLinkedMillimeters('pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
               </div>
-              <label v-if="!isLinked('pageMarginVerticalLinked')">Bottom: {{ design.pageMarginBottom || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginBottom, 12)" @input="setMillimeters('pageMarginBottom', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label>
-              <label v-if="!isLinked('pageMarginHorizontalLinked')">Left: {{ design.pageMarginLeft || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginLeft, 12)" @input="setMillimeters('pageMarginLeft', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label>
+              <label v-if="!isLinked('pageMarginVerticalLinked')">{{ t('designBottom') }}: {{ design.pageMarginBottom }}<input type="range" min="0" max="30" step="1" :value="designNumber(design, 'pageMarginBottom')" @input="setMillimeters('pageMarginBottom', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label>
+              <label v-if="!isLinked('pageMarginHorizontalLinked')">{{ t('designLeft') }}: {{ design.pageMarginLeft }}<input type="range" min="0" max="30" step="1" :value="designNumber(design, 'pageMarginLeft')" @input="setMillimeters('pageMarginLeft', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label>
             </div>
           </div>
         </div>
       </section>
 
       <section class="editor-subsection" :class="{ collapsed: sections.header }">
-        <div class="section-head editor-subsection__header" @click="toggleSection('header')"><font-awesome-icon :icon="['fas', 'table-cells-large']" class="section-icon" aria-hidden="true" /><h4>Header</h4></div>
+        <div class="section-head editor-subsection__header" @click="toggleSection('header')"><font-awesome-icon :icon="['fas', 'table-cells-large']" class="section-icon" aria-hidden="true" /><h4>{{ t('designHeader') }}</h4></div>
         <div class="editor-subsection__body">
-          <div class="grid-2"><label>Contact Layout<select v-model="design.contactLayout"><option value="side">Right column</option><option value="below">Below title (one row)</option></select></label><label>Header Style<select v-model="design.headerLayoutStyle"><option value="boxed">Boxed</option><option value="separator">Separator</option></select></label></div>
+          <div class="grid-2"><label>{{ t('designContactLayout') }}<select v-model="design.contactLayout"><option value="side">{{ t('designRightColumn') }}</option><option value="below">{{ t('designBelowTitleOneRow') }}</option></select></label><label>{{ t('designHeaderStyle') }}<select v-model="design.headerLayoutStyle"><option value="boxed">{{ t('designBoxed') }}</option><option value="separator">{{ t('designSeparator') }}</option></select></label></div>
           <div class="layout-control-group subsection-row">
-            <h5>Header Bottom Spacing</h5>
+            <h5>{{ t('designHeaderBottomSpacing') }}</h5>
             <div class="grid-2">
               <div class="linked-control">
-                <div class="linked-control__heading"><span>{{ isLinked('headerBottomSpacingLinked') ? 'Header Bottom Spacing' : 'Header Bottom Padding' }}: {{ design.headerPaddingBottom || '0mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('headerBottomSpacingLinked') ? 'Unlink header bottom padding and margin' : 'Link header bottom padding and margin'" :aria-pressed="isLinked('headerBottomSpacingLinked')" :title="isLinked('headerBottomSpacingLinked') ? 'Header bottom padding and margin linked' : 'Header bottom padding and margin independent'" @click="setLinked('headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin', !isLinked('headerBottomSpacingLinked'))"><font-awesome-icon :icon="['fas', isLinked('headerBottomSpacingLinked') ? 'link' : 'link-slash']" /></button></div>
-                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('headerBottomSpacingLinked') ? 'Header bottom spacing' : 'Header bottom padding'" :value="millimeters(design.headerPaddingBottom, 0)" @input="setLinkedMillimeters('headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
+                <div class="linked-control__heading"><span>{{ isLinked('headerBottomSpacingLinked') ? t('designHeaderBottomSpacing') : t('designHeaderBottomPadding') }}: {{ design.headerPaddingBottom }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('headerBottomSpacingLinked') ? t('designUnlinkHeaderBottomPaddingAndMargin') : t('designLinkHeaderBottomPaddingAndMargin')" :aria-pressed="isLinked('headerBottomSpacingLinked')" :title="isLinked('headerBottomSpacingLinked') ? t('designHeaderBottomPaddingAndMarginLinked') : t('designHeaderBottomPaddingAndMarginIndependent')" @click="setLinked('headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin', !isLinked('headerBottomSpacingLinked'))"><font-awesome-icon :icon="['fas', isLinked('headerBottomSpacingLinked') ? 'link' : 'link-slash']" /></button></div>
+                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('headerBottomSpacingLinked') ? t('designHeaderBottomSpacing') : t('designHeaderBottomPadding')" :value="designNumber(design, 'headerPaddingBottom')" @input="setLinkedMillimeters('headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
               </div>
-              <label v-if="!isLinked('headerBottomSpacingLinked')">Header Bottom Margin: {{ design.headerBottomMargin || '2mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.headerBottomMargin, 2)" @input="setMillimeters('headerBottomMargin', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label>
+              <label v-if="!isLinked('headerBottomSpacingLinked')">{{ t('designHeaderBottomMargin') }}: {{ design.headerBottomMargin }}<input type="range" min="0" max="30" step="1" :value="designNumber(design, 'headerBottomMargin')" @input="setMillimeters('headerBottomMargin', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label>
             </div>
-            <p class="spacing-hint">With a separator header, padding is above the line and margin is below it.</p>
+            <p class="spacing-hint">{{ t('designWithASeparatorHeaderPaddingIsAboveTheLineAndMarginIsBelowIt') }}</p>
           </div>
         </div>
       </section>
 
       <section class="editor-subsection" :class="{ collapsed: sections.sidebar }">
-        <div class="section-head editor-subsection__header" @click="toggleSection('sidebar')"><font-awesome-icon :icon="['fas', 'table-columns']" class="section-icon" aria-hidden="true" /><h4>Sidebar Layout</h4></div>
-        <div class="editor-subsection__body grid-3"><label>Sidebar Width: {{ design.sidebarWidth }}<input type="range" min="0.1" max="3.0" step="0.1" :value="parseFloat(design.sidebarWidth || '')" @input="design.sidebarWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'fr'"></label><label>Sidebar Position<select v-model="design.sidebarAlign"><option value="left">Links</option><option value="right">Rechts</option></select></label><label>Sidebar Style<select v-model="design.sidebarLayoutStyle"><option value="boxed">Boxed</option><option value="separator">Separator</option></select></label></div>
-        <div class="editor-subsection__body grid-3 subsection-row"><label>Sidebar Start<select v-model="design.sidebarFillMode"><option value="start">Fill from start</option><option value="last-page">Fill from last PDF page</option><option value="after-cover">Skip cover page</option></select></label><label>Sidebar Height<select v-model="design.sidebarHeightMode"><option value="content">Fit content</option><option value="full-page">Full page</option></select></label><label v-if="isContentHeight">Sidebar Bottom Padding: {{ design.sidebarBottomPadding || '0mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.sidebarBottomPadding, 0)" @input="setMillimeters('sidebarBottomPadding', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label></div>
-        <p class="editor-subsection__body spacing-hint">Fit content lets the body use the full width below the sidebar.</p>
+        <div class="section-head editor-subsection__header" @click="toggleSection('sidebar')"><font-awesome-icon :icon="['fas', 'table-columns']" class="section-icon" aria-hidden="true" /><h4>{{ t('designSidebarLayout') }}</h4></div>
+        <div class="editor-subsection__body grid-3"><label>{{ t('designSidebarWidth') }}: {{ design.sidebarWidth }}<input type="range" min="0.1" max="3.0" step="0.1" :value="parseFloat(design.sidebarWidth)" @input="design.sidebarWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'fr'"></label><label>{{ t('designSidebarPosition') }}<select v-model="design.sidebarAlign"><option value="left">{{ t('designLeft') }}</option><option value="right">{{ t('designRight') }}</option></select></label><label>{{ t('designSidebarStyle') }}<select v-model="design.sidebarLayoutStyle"><option value="boxed">{{ t('designBoxed') }}</option><option value="separator">{{ t('designSeparator') }}</option></select></label></div>
+        <div class="editor-subsection__body grid-3 subsection-row"><label>{{ t('designSidebarStart') }}<select v-model="design.sidebarFillMode"><option value="start">{{ t('designFillFromStart') }}</option><option value="last-page">{{ t('designFillFromLastPDFPage') }}</option><option value="after-cover">{{ t('designSkipCoverPage') }}</option></select></label><label>{{ t('designSidebarHeight') }}<select v-model="design.sidebarHeightMode"><option value="content">{{ t('designFitContent') }}</option><option value="full-page">{{ t('designFullPage') }}</option></select></label><label v-if="isContentHeight">{{ t('designSidebarBottomPadding') }}: {{ design.sidebarBottomPadding }}<input type="range" min="0" max="30" step="1" :value="designNumber(design, 'sidebarBottomPadding')" @input="setMillimeters('sidebarBottomPadding', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label></div>
+        <p class="editor-subsection__body spacing-hint">{{ t('designFitContentLetsTheBodyUseTheFullWidthBelowTheSidebar') }}</p>
       </section>
 
       <section class="editor-subsection" :class="{ collapsed: sections.spacing }">
-        <div class="section-head editor-subsection__header" @click="toggleSection('spacing')"><font-awesome-icon :icon="['fas', 'arrows-left-right-to-line']" class="section-icon" aria-hidden="true" /><h4>Spacing</h4></div>
-        <div class="editor-subsection__body grid-3"><label>Separator Width: {{ pixels(design.separatorWidth) }}px<input type="range" min="0.5" max="5" step="0.5" :value="pixels(design.separatorWidth)" @input="design.separatorWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label><label>Body Section Spacing: {{ design.sectionSpacingBody || '10mm' }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingBody || '10mm')" @input="design.sectionSpacingBody = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'mm'"></label><label>Sidebar Section Spacing: {{ design.sectionSpacingSidebar || '6mm' }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingSidebar || '6mm')" @input="design.sectionSpacingSidebar = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'mm'"></label></div>
-        <div class="editor-subsection__body grid-3 subsection-row"><label>Body / Sidebar Spacing: {{ design.bodySidebarSpacing || '10mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.bodySidebarSpacing, 10)" @input="setMillimeters('bodySidebarSpacing', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label></div>
+        <div class="section-head editor-subsection__header" @click="toggleSection('spacing')"><font-awesome-icon :icon="['fas', 'arrows-left-right-to-line']" class="section-icon" aria-hidden="true" /><h4>{{ t('designSpacing') }}</h4></div>
+        <div class="editor-subsection__body grid-3"><label>{{ t('designSeparatorWidth') }}: {{ pixels(design.separatorWidth) }}px<input type="range" min="0.5" max="5" step="0.5" :value="pixels(design.separatorWidth)" @input="design.separatorWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label><label>{{ t('designBodySectionSpacing') }}: {{ design.sectionSpacingBody }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingBody)" @input="design.sectionSpacingBody = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'mm'"></label><label>{{ t('designSidebarSectionSpacing') }}: {{ design.sectionSpacingSidebar }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingSidebar)" @input="design.sectionSpacingSidebar = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'mm'"></label></div>
+        <div class="editor-subsection__body grid-3 subsection-row"><label>{{ t('designBodySidebarSpacing') }}: {{ design.bodySidebarSpacing }}<input type="range" min="0" max="30" step="1" :value="designNumber(design, 'bodySidebarSpacing')" @input="setMillimeters('bodySidebarSpacing', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label></div>
       </section>
 
       <section class="editor-subsection" :class="{ collapsed: sections.typography }">
-        <div class="section-head editor-subsection__header" @click="toggleSection('typography')"><font-awesome-icon :icon="['fas', 'font']" class="section-icon" aria-hidden="true" /><h4>Typography</h4></div>
+        <div class="section-head editor-subsection__header" @click="toggleSection('typography')"><font-awesome-icon :icon="['fas', 'font']" class="section-icon" aria-hidden="true" /><h4>{{ t('designTypography') }}</h4></div>
         <div class="editor-subsection__body">
           <div class="grid-3">
-            <label>H1 Font Size: {{ design.h1 }}<input type="range" min="18" max="30" step="1" :value="parseInt(design.h1 || '')" @input="design.h1 = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'pt'"></label>
-            <label>H2 Font Size: {{ design.h2 }}<input type="range" min="10" max="20" step="1" :value="parseInt(design.h2 || '')" @input="design.h2 = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'pt'"></label>
-            <label>H3 Font Size: {{ design.h3 }}<input type="range" min="8" max="16" step="1" :value="parseInt(design.h3 || '')" @input="design.h3 = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'pt'"></label>
+            <label>{{ t('designH1FontSize') }}: {{ design.h1 }}<input type="range" min="18" max="30" step="1" :value="parseInt(design.h1)" @input="design.h1 = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'pt'"></label>
+            <label>{{ t('designH2FontSize') }}: {{ design.h2 }}<input type="range" min="10" max="20" step="1" :value="parseInt(design.h2)" @input="design.h2 = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'pt'"></label>
+            <label>{{ t('designH3FontSize') }}: {{ design.h3 }}<input type="range" min="8" max="16" step="1" :value="parseInt(design.h3)" @input="design.h3 = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'pt'"></label>
           </div>
           <div class="grid-3 subsection-row">
-            <label>Bullet Point Font Size: {{ design.bullets }}<input type="range" min="8" max="14" step="0.5" :value="parseFloat(design.bullets || '')" @input="design.bullets = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'pt'"></label>
+            <label>{{ t('designBulletFontSize') }}: {{ design.bullets }}<input type="range" min="8" max="14" step="0.5" :value="parseFloat(design.bullets)" @input="design.bullets = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'pt'"></label>
           </div>
           <div class="grid-3 subsection-row">
-            <label>Body-Font<select v-model="design.fontBody"><option v-for="font in bodyFonts" :key="font.value" :value="font.value">{{ font.label }}</option></select></label>
-            <label>Headings-Font<select v-model="design.fontHead"><option :value="''">(wie Body)</option><option v-for="font in headFonts" :key="font.value" :value="font.value">{{ font.label }}</option></select></label>
+            <label>{{ t('designBodyFont') }}<select v-model="design.fontBody"><option v-for="font in bodyFonts" :key="font.value" :value="font.value">{{ font.label }}</option></select></label>
+            <label>{{ t('designHeadingsFont') }}<select v-model="design.fontHead"><option :value="''">{{ t('designInheritBodyFont') }}</option><option v-for="font in headFonts" :key="font.value" :value="font.value">{{ font.label }}</option></select></label>
           </div>
           <div class="font-import subsection-row" @click.stop>
             <label>{{ t('fontSource') }}<select v-model="fontSource" :disabled="isImportingFont"><option value="bunny">Bunny Fonts</option><option value="google">Google Fonts</option></select></label>
@@ -417,14 +415,14 @@ function pixels(value: unknown, fallback = 3) {
       </section>
 
       <section class="editor-subsection" :class="{ collapsed: sections.colors }">
-        <div class="section-head editor-subsection__header" @click="toggleSection('colors')"><font-awesome-icon :icon="['fas', 'palette']" class="section-icon" aria-hidden="true" /><h4>Colors</h4></div>
-        <div class="editor-subsection__body grid-3"><label>Font Color<input type="color" v-model="design.ink"></label><label>Graphic Opacity: {{ design.graphicOpacity ?? 100 }}%<input type="range" min="0" max="100" step="1" v-model.number="design.graphicOpacity"></label><label>Date Opacity: {{ design.dateOpacity ?? 100 }}%<input type="range" min="0" max="100" step="1" v-model.number="design.dateOpacity"></label></div>
+        <div class="section-head editor-subsection__header" @click="toggleSection('colors')"><font-awesome-icon :icon="['fas', 'palette']" class="section-icon" aria-hidden="true" /><h4>{{ t('designColors') }}</h4></div>
+        <div class="editor-subsection__body grid-3"><label>{{ t('designFontColor') }}<input type="color" v-model="design.ink"></label><label>{{ t('designGraphicOpacity') }}: {{ design.graphicOpacity }}%<input type="range" min="0" max="100" step="1" v-model.number="design.graphicOpacity"></label><label>{{ t('designDateOpacity') }}: {{ design.dateOpacity }}%<input type="range" min="0" max="100" step="1" v-model.number="design.dateOpacity"></label></div>
       </section>
 
       <section class="editor-subsection" :class="{ collapsed: sections.badges }">
-        <div class="section-head editor-subsection__header" @click="toggleSection('badges')"><font-awesome-icon :icon="['fas', 'tag']" class="section-icon" aria-hidden="true" /><h4>Badges & Items</h4></div>
+        <div class="section-head editor-subsection__header" @click="toggleSection('badges')"><font-awesome-icon :icon="['fas', 'tag']" class="section-icon" aria-hidden="true" /><h4>{{ t('designBadgesItems') }}</h4></div>
         <div class="editor-subsection__body">
-          <div class="grid-3"><label>Badge Mode<select v-model="design.badgeMode"><option value="solid">Solid</option><option value="border">Border</option></select></label><label v-if="design.badgeMode === 'border'">Badge Border Width: {{ design.badgeBorderWidth || '2.5px' }}<input type="range" min="0.5" max="4" step="0.5" :value="parseFloat(design.badgeBorderWidth || '2.5')" @input="design.badgeBorderWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label><label>Badge Border Radius: {{ design.badgeBorderRadius }}<input type="range" min="0" max="20" step="1" :value="parseInt(design.badgeBorderRadius || '')" @input="design.badgeBorderRadius = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label></div>
+          <div class="grid-3"><label>{{ t('designBadgeMode') }}<select v-model="design.badgeMode"><option value="solid">{{ t('designSolid') }}</option><option value="border">{{ t('designBorder') }}</option></select></label><label v-if="design.badgeMode === 'border'">{{ t('designBadgeBorderWidth') }}: {{ design.badgeBorderWidth }}<input type="range" min="0.5" max="4" step="0.5" :value="parseFloat(design.badgeBorderWidth)" @input="design.badgeBorderWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label><label>{{ t('designBadgeBorderRadius') }}: {{ design.badgeBorderRadius }}<input type="range" min="0" max="20" step="1" :value="parseInt(design.badgeBorderRadius)" @input="design.badgeBorderRadius = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label></div>
         </div>
       </section>
 

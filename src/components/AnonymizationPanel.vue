@@ -7,11 +7,11 @@ import { makeT } from '../i18n/dict';
 const props = defineProps({
   state: { type: Object as PropType<CvState>, required: true },
   isExporting: { type: Boolean, default: false },
-  lang: { type: String, default: 'de' },
+  lang: { type: String, required: true },
 });
 
 const emit = defineEmits<{ export: [] }>();
-const langRef = computed(() => props.lang || 'de');
+const langRef = computed(() => props.lang);
 const t = makeT(langRef);
 
 const builtInNames = computed(() => ({

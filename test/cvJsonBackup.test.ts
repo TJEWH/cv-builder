@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
+import { createSampleDocument } from '../src/composables/builtinConfigurations';
 import { createTestState } from './helpers';
 import { CV_STATE_VERSION } from '../src/types';
 import { readCvState } from '../src/composables/cvStateValidation';
@@ -77,8 +77,7 @@ test('rejects missing required fields, invalid nested types and former data shap
 });
 
 test('bundled defaults and exports satisfy the current schema', () => {
-  const defaults = readFileSync(new URL('../public/cv-defaults.json', import.meta.url), 'utf8');
-  const state = readCvState(JSON.parse(defaults));
+  const state = readCvState(createSampleDocument());
   assert.deepEqual(parseCvJsonBackup(JSON.stringify(createCvJsonBackup(state))), state);
 });
 

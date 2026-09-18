@@ -2,6 +2,7 @@
 import type { PropType } from 'vue';
 import type { CvState, SavedConfiguration } from '../types';
 import { computed, onMounted, ref, watch } from 'vue';
+import { makeT } from '../i18n/dict';
 import { saveLocal } from '../composables/useStorage';
 import { builtinConfigurations, createEmptyDocument, createSampleDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID } from '../composables/builtinConfigurations';
 import { createNormalizedContentState } from '../composables/contentLayout';
@@ -14,7 +15,7 @@ import {
 
 const props = defineProps({
   state: { type: Object as PropType<CvState>, required: true },
-  lang: { type: String, default: 'en' },
+  lang: { type: String, required: true },
   selectedId: { type: String, default: '' },
   onSave: { type: Function as PropType<() => void>, default: () => {} },
   onLoad: { type: Function as PropType<(data: CvState) => void>, default: () => {} },
@@ -26,50 +27,8 @@ const emit = defineEmits<{
   'save-result': [saved: boolean];
 }>();
 
-const langRef = computed(() => props.lang || 'en');
-const labels = computed(() => langRef.value === 'de' ? {
-  versions: 'Versionen',
-  saveAs: 'Speichern als',
-  newName: 'Titel neue Konfiguration',
-  remove: 'Löschen',
-  exportJson: 'JSON exportieren',
-  importJson: 'JSON importieren',
-  confirmLoad: 'Aktuelle Änderungen gehen verloren. Diese Konfiguration laden?',
-  confirmImport: 'Aktuelle Änderungen gehen verloren. Diese JSON-Datei laden?',
-  confirmDelete: 'Diese Konfiguration wirklich löschen?',
-  noSavedVersion: 'Keine gespeicherte Version',
-  saved: 'Gespeichert.',
-  loaded: 'Geladen.',
-  exported: 'JSON-Datei heruntergeladen.',
-  imported: 'JSON-Datei geladen.',
-  invalidFile: 'Die Datei ist keine unterstützte CV-JSON-Datei.',
-  fileTooLarge: 'Die JSON-Datei ist zu groß.',
-  missingName: 'Bitte Titel eingeben.',
-  saveFailed: 'Speichern fehlgeschlagen. Bitte Speicherplatz und Browser-Einstellungen prüfen.',
-  saveAsHint: 'Eine neue Konfiguration ist eine Kopie der aktuell angezeigten Inhalte und Einstellungen.',
-  emptyHint: 'Gib einen neuen Konfigurationstitel ein und speichere das leere Dokument, um es zu bearbeiten.',
-} : {
-  versions: 'Versions',
-  saveAs: 'Save as',
-  newName: 'New configuration title',
-  remove: 'Delete',
-  exportJson: 'Export JSON',
-  importJson: 'Import JSON',
-  confirmLoad: 'Loading replaces your current changes. Continue?',
-  confirmImport: 'Loading this JSON file replaces your current changes. Continue?',
-  confirmDelete: 'Delete this configuration?',
-  noSavedVersion: 'No saved version',
-  saved: 'Saved.',
-  loaded: 'Loaded.',
-  exported: 'JSON file downloaded.',
-  imported: 'JSON file loaded.',
-  invalidFile: 'The file is not a supported CV JSON file.',
-  fileTooLarge: 'The JSON file is too large.',
-  missingName: 'Please enter a title.',
-  saveFailed: 'Saving failed. Check available storage and browser settings.',
-  saveAsHint: 'A new configuration is a copy of the currently displayed content and settings.',
-  emptyHint: 'Enter a new configuration title and save the empty document to start editing.',
-});
+const langRef = computed(() => props.lang);
+const t = makeT(langRef);
 
 const configs = ref<SavedConfiguration[]>([]);
 const newName = ref('');
@@ -141,7 +100,7 @@ function snapshotState(): CvState {
   return JSON.parse(JSON.stringify(props.state));
 }
 function readConfigData(id: string): CvState | null {
-  if (id === EMPTY_DOCUMENT_ID) return createEmptyDocument();
+  if (id === EMPTY_DOCUMENT_ID) return { ...createEmptyDocument(), lang: props.lang };
   try {
     const raw = readStorage(localDataKey(id));
     if (!raw) return id === SAMPLE_DOCUMENT_ID ? createSampleDocument() : null;
@@ -153,7 +112,7 @@ function readConfigData(id: string): CvState | null {
 }
 function uniqueConfigId(name: string) {
   const base = slug(name);
-  const taken = new Set([...builtinConfigurations(), ...readIndex()].map((item) => item.id));
+  const taken = new Set([...builtinConfigurations(props.lang), ...readIndex()].map((item) => item.id));
   let candidate = base;
   let suffix = 2;
   while (taken.has(candidate) || readStorage(localDataKey(candidate))) {
@@ -178,11 +137,11 @@ function saveConfig(id: string, name: string, { announce = true, data = snapshot
     const activeIdSaved = !activate || setCurrentId(id);
     refreshConfigs();
     if (!activeIdSaved) throw new Error('Active configuration could not be written');
-    if (announce) backupMsg.value = labels.value.saved;
+    if (announce) backupMsg.value = 'saved';
     return true;
   } catch (error) {
     console.warn('Failed to save configuration', error);
-    backupMsg.value = labels.value.saveFailed;
+    backupMsg.value = 'versionSaveFailed';
     return false;
   }
 }
@@ -206,7 +165,7 @@ function saveVersion(id: string, data: CvState) {
 function saveAs() {
   const name = newName.value.trim();
   if (!name) {
-    backupMsg.value = labels.value.missingName;
+    backupMsg.value = 'versionMissingName';
     return;
   }
 
@@ -218,13 +177,13 @@ function saveAs() {
     emit('save-result', saved);
   } catch (error) {
     console.warn('Failed to save configuration copy', error);
-    backupMsg.value = labels.value.saveFailed;
+    backupMsg.value = 'versionSaveFailed';
     emit('save-result', false);
   }
 }
 
 function selectConfiguration(id: string) {
-  if (!id || !confirm(labels.value.confirmLoad)) return false;
+  if (!id || !confirm(t('versionConfirmLoad'))) return false;
   if (!props.beforeLoad()) return false;
   const data = readConfigData(id);
   if (!data) return false;
@@ -232,13 +191,13 @@ function selectConfiguration(id: string) {
     // Switch the save destination before changing state so the first
     // post-load autosave cannot target the configuration we just left.
     if (!setCurrentId(id)) {
-      backupMsg.value = labels.value.saveFailed;
+      backupMsg.value = 'versionSaveFailed';
       emit('save-result', false);
       return false;
     }
     props.onLoad(data);
     props.onSave();
-    backupMsg.value = labels.value.loaded;
+    backupMsg.value = 'versionLoaded';
     return true;
   } catch (error) {
     console.warn('Failed to load configuration', error);
@@ -270,7 +229,7 @@ function restoreActiveConfig() {
 }
 
 function deleteCurrent() {
-  if (!currentId.value || builtinConfigurations().some(({ id }) => id === currentId.value) || !confirm(labels.value.confirmDelete)) return;
+  if (!currentId.value || builtinConfigurations(props.lang).some(({ id }) => id === currentId.value) || !confirm(t('versionConfirmDelete'))) return;
   if (!props.beforeLoad()) return;
   try {
     // Deleting a saved version must not discard the content currently being edited.
@@ -283,7 +242,7 @@ function deleteCurrent() {
     emit('save-result', true);
   } catch (error) {
     console.warn('Failed to delete configuration', error);
-    backupMsg.value = labels.value.saveFailed;
+    backupMsg.value = 'versionSaveFailed';
     emit('save-result', false);
   }
 }
@@ -301,10 +260,10 @@ function exportJson() {
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    backupMsg.value = labels.value.exported;
+    backupMsg.value = 'versionExported';
   } catch (error) {
     console.warn('Failed to export JSON configuration', error);
-    backupMsg.value = labels.value.invalidFile;
+    backupMsg.value = 'versionInvalidFile';
   }
 }
 
@@ -319,21 +278,21 @@ async function importJson(event: Event) {
   if (!file) return;
 
   if (file.size > MAX_CV_JSON_FILE_BYTES) {
-    backupMsg.value = labels.value.fileTooLarge;
+    backupMsg.value = 'versionFileTooLarge';
     return;
   }
 
   try {
     const data = parseCvJsonBackup(await file.text());
-    if (!confirm(labels.value.confirmImport)) return;
+    if (!confirm(t('versionConfirmImport'))) return;
     if (!props.beforeLoad()) return;
     setCurrentId('');
     props.onLoad(data);
     props.onSave();
-    backupMsg.value = labels.value.imported;
+    backupMsg.value = 'versionImported';
   } catch (error) {
     console.warn('Failed to import JSON configuration', error);
-    backupMsg.value = labels.value.invalidFile;
+    backupMsg.value = 'versionInvalidFile';
   }
 }
 
@@ -345,29 +304,29 @@ watch(() => props.lang, refreshConfigs);
 <template>
   <section class="section-group backup-manager">
     <div class="section-head group-panel__header--centered">
-      <h2>{{ labels.versions }}</h2>
+      <h2>{{ t('versions') }}</h2>
     </div>
 
     <div class="group-panel__scroll-body">
       <div class="backup-manager__actions">
-        <select :value="currentId" :aria-label="labels.versions" @change="onConfigurationChange">
-          <option v-if="!currentId" value="" disabled>{{ labels.noSavedVersion }}</option>
+        <select :value="currentId" :aria-label="t('versions')" @change="onConfigurationChange">
+          <option v-if="!currentId" value="" disabled>{{ t('noSavedVersion') }}</option>
           <option v-for="config in configs" :key="config.id" :value="config.id">{{ config.name }}</option>
         </select>
-        <button type="button" class="btn btn--danger" :disabled="!currentId || builtinConfigurations().some(({ id }) => id === currentId)" @click="deleteCurrent">{{ labels.remove }}</button>
+        <button type="button" class="btn btn--danger" :disabled="!currentId || builtinConfigurations(props.lang).some(({ id }) => id === currentId)" @click="deleteCurrent">{{ t('delete') }}</button>
       </div>
 
-      <p class="backup-manager__hint" aria-live="polite">{{ isEmptyDocument ? labels.emptyHint : labels.saveAsHint }}</p>
+      <p class="backup-manager__hint" aria-live="polite">{{ isEmptyDocument ? t('versionEmptyHint') : t('versionSaveAsHint') }}</p>
       <form class="backup-manager__save-as" @submit.prevent="saveAs">
-        <input v-model="newName" :placeholder="labels.newName" :aria-label="labels.newName" />
-        <button type="submit" class="btn btn--success" :disabled="!newName.trim()">{{ labels.saveAs }}</button>
+        <input v-model="newName" :placeholder="t('versionNewName')" :aria-label="t('versionNewName')" />
+        <button type="submit" class="btn btn--success" :disabled="!newName.trim()">{{ t('versionSaveAs') }}</button>
       </form>
 
       <div class="backup-manager__file-actions">
         <input ref="fileInput" class="backup-manager__file-input" type="file" accept="application/json,.json" @change="importJson" />
-        <button type="button" class="btn" @click="exportJson">{{ labels.exportJson }}</button>
-        <button type="button" class="btn" @click="chooseJsonFile">{{ labels.importJson }}</button>
-        <span v-if="backupMsg" class="note">{{ backupMsg }}</span>
+        <button type="button" class="btn" @click="exportJson">{{ t('versionExportJson') }}</button>
+        <button type="button" class="btn" @click="chooseJsonFile">{{ t('versionImportJson') }}</button>
+        <span v-if="backupMsg" class="note">{{ t(backupMsg) }}</span>
       </div>
     </div>
   </section>

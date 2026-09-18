@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { DEFAULT_SECTION_HEADER_SIZE } from '../defaults';
 import type { PropType } from 'vue';
 import type { CvState, SavedConfiguration, SaveStatus, CvItem, CustomSection, SidebarSection, ContentArea, CustomBodyField, ItemField, ItemState, SelectOption } from '../types';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
@@ -22,7 +23,7 @@ const emit = defineEmits<{ 'section-save-status': [status: SaveStatus] }>();
 
 normalizeContentState(props.state);
 
-const langRef = computed(() => props.state.lang || 'de');
+const langRef = computed(() => props.state.lang);
 const t = makeT(langRef);
 const fieldConfigSectionId = ref<string | null>(null);
 const activeContentTab = ref('body');
@@ -96,12 +97,12 @@ const headerSizeOptions = computed(() => [
   { label: 'H2', value: 'h2' },
   { label: 'H3', value: 'h3' },
   { label: 'H4', value: 'h4' },
-  { label: langRef.value === 'de' ? 'Kein Titel' : 'No Title', value: 'null' },
+  { label: t('noTitle'), value: 'null' },
 ]);
 const levelTypeOptions = computed(() => [
-  { label: langRef.value === 'de' ? 'Kein Level (Badges)' : 'No level (badges)', value: null },
-  { label: langRef.value === 'de' ? 'Erfahrung (1–10)' : 'Experience (1–10)', value: 'experience' },
-  { label: langRef.value === 'de' ? 'Jahre' : 'Years', value: 'years' },
+  { label: t('noLevel'), value: null },
+  { label: t('experienceLevel'), value: 'experience' },
+  { label: t('years'), value: 'years' },
 ]);
 
 const isHidden = (key: string) => sectionState(key).disabled.includes(key);
@@ -151,7 +152,7 @@ const sidebarRows = computed<SidebarRow[]>({
 const getCustomSection = (id: string) => getBodySection(id) || getSidebarSection(id);
 const activeFieldConfigSection = computed(() => getBodySection(fieldConfigSectionId.value));
 const getSectionDisplayName = (key: string) => getCustomSection(key)?.name || sectionState(key).sectionNames[key] || builtInNames.value[key] || key;
-const getDefaultName = (key: string) => builtInNames.value[key] || (langRef.value === 'de' ? 'Neue Sektion' : 'New Section');
+const getDefaultName = (key: string) => builtInNames.value[key] || (t('newSection'));
 const isCollapsed = (key: string) => reorderMode.value || (Object.hasOwn(collapsed, key) ? collapsed[key] : customCollapsed[key] ?? true);
 const toggleCollapsed = (key: string) => {
   if (reorderMode.value) return;
@@ -209,7 +210,7 @@ watch(() => editingSection.id, (key) => {
 const addBodySection = () => {
   const section: CustomSection = {
     id: createContentId('body'),
-    name: langRef.value === 'de' ? 'Neue Sektion' : 'New Section',
+    name: t('newSection'),
     entryMode: 'fields',
     text: '',
     fields: ['title', 'institution', 'place', 'start', 'end', 'state', 'desc'],
@@ -217,19 +218,19 @@ const addBodySection = () => {
   };
   props.state.customSections.push(section);
   props.state.bodyOrder.push(section.id);
-  props.state.sectionHeaderSizes[section.id] = 'h2';
+  props.state.sectionHeaderSizes[section.id] = DEFAULT_SECTION_HEADER_SIZE;
   customCollapsed[section.id] = true;
 };
 const addSidebarSection = () => {
   const section = {
     id: createContentId('sidebar'),
-    name: langRef.value === 'de' ? 'Neue Sidebar-Sektion' : 'New Sidebar Section',
+    name: t('newSidebarSection'),
     levelType: null,
     items: [],
   };
   props.state.sidebarSections.push(section);
   props.state.sidebarOrder.push(section.id);
-  props.state.sectionHeaderSizes[section.id] = 'h2';
+  props.state.sectionHeaderSizes[section.id] = DEFAULT_SECTION_HEADER_SIZE;
   customCollapsed[section.id] = true;
 };
 const deleteCustomSection = (section: CustomSection | SidebarSection, area: ContentArea) => {
@@ -267,7 +268,7 @@ const itemStateOptions = computed<SelectOption<ItemState | ''>[]>(() => [
 ]);
 const customBodyFieldOptions = computed<(ItemField & { key: CustomBodyField })[]>(() => [
   { key: 'title', label: t('title'), type: 'text', placeholder: t('customSectionPH') },
-  { key: 'institution', label: t('institution'), type: 'text', placeholder: 'Organisation' },
+  { key: 'institution', label: t('institution'), type: 'text', placeholder: t('organizationPlaceholder') },
   { key: 'place', label: t('place'), type: 'text', placeholder: 'Berlin' },
   { key: 'start', label: t('start'), type: 'text', placeholder: '04.2024' },
   { key: 'end', label: t('end'), type: 'text', placeholder: t('current') },
@@ -296,16 +297,16 @@ onMounted(() => window.addEventListener('pagehide', sectionVersions.flush));
 onBeforeUnmount(() => window.removeEventListener('pagehide', sectionVersions.flush));
 
 const educationSchema = computed<ItemField[]>(() => [
-  { label: t('degreeTitle'), key: 'title', type: 'text', placeholder: 'M.Sc. Informatik' },
-  { label: t('institution'), key: 'sub', type: 'text', placeholder: 'TU München' },
+  { label: t('degreeTitle'), key: 'title', type: 'text', placeholder: t('degreePlaceholder') },
+  { label: t('institution'), key: 'sub', type: 'text', placeholder: t('universityPlaceholder') },
   { label: t('place'), key: 'place', type: 'text', placeholder: 'Hamburg' },
   { label: t('start'), key: 'start', type: 'text', placeholder: '2017' },
   { label: t('end'), key: 'end', type: 'text', placeholder: '2020' },
-  { label: t('thesis'), key: 'thesis', type: 'textarea', placeholder: langRef.value === 'de' ? 'Thema und Details der Abschlussarbeit' : 'Thesis topic and details' },
-  { label: t('modulesCourses'), key: 'coursesText', type: 'textarea', placeholder: langRef.value === 'de' ? '- Modul — Kurzbeschreibung' : '- Module — short description' },
+  { label: t('thesis'), key: 'thesis', type: 'textarea', placeholder: t('thesisPlaceholder') },
+  { label: t('modulesCourses'), key: 'coursesText', type: 'textarea', placeholder: t('coursesPlaceholder') },
 ]);
 const jobsSchema = computed<ItemField[]>(() => [
-  { label: t('position'), key: 'title', type: 'text', placeholder: 'Senior Software Engineer' },
+  { label: t('position'), key: 'title', type: 'text', placeholder: t('seniorRolePlaceholder') },
   { label: t('company'), key: 'company', type: 'text', placeholder: 'Acme GmbH' },
   { label: t('place'), key: 'place', type: 'text', placeholder: 'Berlin' },
   { label: t('start'), key: 'start', type: 'text', placeholder: '05.2021' },
@@ -315,9 +316,9 @@ const jobsSchema = computed<ItemField[]>(() => [
 ]);
 const languagesSchema = computed<ItemField[]>(() => [
   { label: t('languageName'), key: 'name', type: 'text', placeholder: t('german') },
-  { label: t('level'), key: 'level', type: 'select', options: [langRef.value === 'de' ? 'Muttersprache' : 'Native', 'C2', 'C1', 'B2', 'B1', 'A2', 'A1'].map((value) => ({ label: value, value })) },
+  { label: t('level'), key: 'level', type: 'select', options: [t('nativeLanguage'), 'C2', 'C1', 'B2', 'B1', 'A2', 'A1'].map((value) => ({ label: value, value })) },
 ]);
-const hobbiesSchema = computed<ItemField[]>(() => [{ label: 'Hobby', key: 'name', type: 'text', placeholder: 'Music Production' }]);
+const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'name', type: 'text', placeholder: t('hobbyPlaceholder') }]);
 </script>
 
 <template>
@@ -379,7 +380,7 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: 'Hobby', key: 'name'
           <div v-else class="section-head__actions"><label class="section-complete-toggle" :title="t('markComplete')" @click.stop><input type="checkbox" :checked="isComplete('header')" :aria-label="t('markComplete')" @change="toggleComplete('header')" /></label></div>
         </div>
         <div class="grid-2"><label>{{ t('name') }}<InputText v-model="state.contact.name" placeholder="Alex Muster" fluid /></label><label>{{ t('location') }}<InputText v-model="state.contact.location" placeholder="Neustadt" fluid /></label></div>
-        <div class="grid-2"><label>{{ t('role') }}<InputText v-model="state.contact.role" placeholder="Software Engineer" fluid /></label><span /></div>
+        <div class="grid-2"><label>{{ t('role') }}<InputText v-model="state.contact.role" :placeholder="t('rolePlaceholder')" fluid /></label><span /></div>
         <div class="grid-2"><label>{{ t('email') }}<InputText v-model="state.contact.email" type="email" placeholder="muster-ex@mp.le" fluid /></label><label>{{ t('phone') }}<InputText v-model="state.contact.phone" type="tel" placeholder="+49 123 456789" fluid /></label></div>
         <div class="grid-3"><label>{{ t('website') }}<InputText v-model="state.contact.website" type="url" placeholder="https://alexmuster.dev" fluid /></label><label>{{ t('linkedin') }}<InputText v-model="state.contact.linkedin" type="url" placeholder="https://linkedin.com/in/alexmuster" fluid /></label><label>{{ t('github') }}<InputText v-model="state.contact.github" type="url" placeholder="https://github.com/alexmuster" fluid /></label></div>
       </section>
@@ -396,7 +397,7 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: 'Hobby', key: 'name'
                 <SectionVersionSelect v-if="versionMode" v-bind="versionSelectProps(key)" @update:model-value="selectSectionVersion(key, $event)" />
                 <div v-else class="section-head__actions">
                   <button class="section-header-control section-break-toggle" :class="{ 'section-break-toggle--active': isKeptTogether(key) }" type="button" :aria-pressed="isKeptTogether(key)" :aria-label="isKeptTogether(key) ? t('allowPageBreaks') : t('preventPageBreaks')" :title="isKeptTogether(key) ? t('allowPageBreaks') : t('preventPageBreaks')" @click.stop="toggleKeepTogether(key)"><font-awesome-icon :icon="['fas', isKeptTogether(key) ? 'lock' : 'lock-open']" /></button>
-                  <Select :model-value="state.sectionHeaderSizes[key] || 'h2'" :options="headerSizeOptions" option-label="label" option-value="value" class="header-size-select" @update:model-value="state.sectionHeaderSizes[key] = $event" />
+                  <Select :model-value="state.sectionHeaderSizes[key] ?? DEFAULT_SECTION_HEADER_SIZE" :options="headerSizeOptions" option-label="label" option-value="value" class="header-size-select" @update:model-value="state.sectionHeaderSizes[key] = $event" />
                   <label class="section-complete-toggle" :title="t('markComplete')" @click.stop><input type="checkbox" :checked="isComplete(key)" :aria-label="t('markComplete')" @change="toggleComplete(key)" /></label>
                 </div>
               </div>
@@ -412,14 +413,14 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: 'Hobby', key: 'name'
               class="content-section"
               :version-mode="versionMode"
               :title="getSectionDisplayName(key)" :lang="langRef" section-key="education" v-model="state.education" :schema="educationSchema" :add-label="t('addItem')" :disabled="isHidden(key)" :completed="isComplete(key)" :is-collapsed="isCollapsed(key)" :show-keep-together="true" :keep-together="isKeptTogether(key)" v-bind="editableTitleProps(key)"
-              :header-size="state.sectionHeaderSizes[key] || 'h2'" @toggle-section="toggleDisabled(key)" @toggle-complete="toggleComplete(key)" @toggle-keep-together="toggleKeepTogether(key)" @toggle-collapse="toggleCollapsed(key)" @start-edit-title="startEditSectionName(key)" @finish-edit-title="finishEditSectionName(key)" @cancel-edit-title="cancelEditSectionName" @update-editing-value="editingSection.value = $event" @header-size-change="state.sectionHeaderSizes[key] = $event"
+              :header-size="state.sectionHeaderSizes[key] ?? DEFAULT_SECTION_HEADER_SIZE" @toggle-section="toggleDisabled(key)" @toggle-complete="toggleComplete(key)" @toggle-keep-together="toggleKeepTogether(key)" @toggle-collapse="toggleCollapsed(key)" @start-edit-title="startEditSectionName(key)" @finish-edit-title="finishEditSectionName(key)" @cancel-edit-title="cancelEditSectionName" @update-editing-value="editingSection.value = $event" @header-size-change="state.sectionHeaderSizes[key] = $event"
             ><template #section-version><SectionVersionSelect v-bind="versionSelectProps(key)" @update:model-value="selectSectionVersion(key, $event)" /></template></SectionList>
             <SectionList
               v-else-if="key === 'jobs'"
               class="content-section"
               :version-mode="versionMode"
               :title="getSectionDisplayName(key)" :lang="langRef" section-key="jobs" v-model="state.experience.jobs" :schema="jobsSchema" :add-label="t('addItem')" :disabled="isHidden(key)" :completed="isComplete(key)" :is-collapsed="isCollapsed(key)" :show-keep-together="true" :keep-together="isKeptTogether(key)" v-bind="editableTitleProps(key)"
-              :header-size="state.sectionHeaderSizes[key] || 'h2'" @toggle-section="toggleDisabled(key)" @toggle-complete="toggleComplete(key)" @toggle-keep-together="toggleKeepTogether(key)" @toggle-collapse="toggleCollapsed(key)" @start-edit-title="startEditSectionName(key)" @finish-edit-title="finishEditSectionName(key)" @cancel-edit-title="cancelEditSectionName" @update-editing-value="editingSection.value = $event" @header-size-change="state.sectionHeaderSizes[key] = $event"
+              :header-size="state.sectionHeaderSizes[key] ?? DEFAULT_SECTION_HEADER_SIZE" @toggle-section="toggleDisabled(key)" @toggle-complete="toggleComplete(key)" @toggle-keep-together="toggleKeepTogether(key)" @toggle-collapse="toggleCollapsed(key)" @start-edit-title="startEditSectionName(key)" @finish-edit-title="finishEditSectionName(key)" @cancel-edit-title="cancelEditSectionName" @update-editing-value="editingSection.value = $event" @header-size-change="state.sectionHeaderSizes[key] = $event"
             ><template #section-version><SectionVersionSelect v-bind="versionSelectProps(key)" @update:model-value="selectSectionVersion(key, $event)" /></template></SectionList>
             <section v-else-if="section" class="section-group content-section" :class="{ disabled: isHidden(key), completed: isComplete(key), collapsed: isCollapsed(key) }">
               <div class="section-head" @click="onHeaderClick(key, $event)">
@@ -476,14 +477,14 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: 'Hobby', key: 'name'
               class="content-section"
               :version-mode="versionMode"
               :title="getSectionDisplayName(key)" :lang="langRef" section-key="languages" v-model="state.languages" :schema="languagesSchema" :add-label="t('addItem')" :disabled="isHidden(key)" :completed="isComplete(key)" :is-collapsed="isCollapsed(key)" v-bind="editableTitleProps(key)"
-              :header-size="state.sectionHeaderSizes[key] || 'h2'" @toggle-section="toggleDisabled(key)" @toggle-complete="toggleComplete(key)" @toggle-collapse="toggleCollapsed(key)" @start-edit-title="startEditSectionName(key)" @finish-edit-title="finishEditSectionName(key)" @cancel-edit-title="cancelEditSectionName" @update-editing-value="editingSection.value = $event" @header-size-change="state.sectionHeaderSizes[key] = $event"
+              :header-size="state.sectionHeaderSizes[key] ?? DEFAULT_SECTION_HEADER_SIZE" @toggle-section="toggleDisabled(key)" @toggle-complete="toggleComplete(key)" @toggle-collapse="toggleCollapsed(key)" @start-edit-title="startEditSectionName(key)" @finish-edit-title="finishEditSectionName(key)" @cancel-edit-title="cancelEditSectionName" @update-editing-value="editingSection.value = $event" @header-size-change="state.sectionHeaderSizes[key] = $event"
             ><template #section-version><SectionVersionSelect v-bind="versionSelectProps(key)" @update:model-value="selectSectionVersion(key, $event)" /></template></SectionList>
             <SectionList
               v-else-if="key === 'hobbies'"
               class="content-section"
               :version-mode="versionMode"
               :title="getSectionDisplayName(key)" :lang="langRef" section-key="hobbies" v-model="state.hobbies" :schema="hobbiesSchema" :add-label="t('addItem')" :disabled="isHidden(key)" :completed="isComplete(key)" :is-collapsed="isCollapsed(key)" v-bind="editableTitleProps(key)"
-              :header-size="state.sectionHeaderSizes[key] || 'h2'" @toggle-section="toggleDisabled(key)" @toggle-complete="toggleComplete(key)" @toggle-collapse="toggleCollapsed(key)" @start-edit-title="startEditSectionName(key)" @finish-edit-title="finishEditSectionName(key)" @cancel-edit-title="cancelEditSectionName" @update-editing-value="editingSection.value = $event" @header-size-change="state.sectionHeaderSizes[key] = $event"
+              :header-size="state.sectionHeaderSizes[key] ?? DEFAULT_SECTION_HEADER_SIZE" @toggle-section="toggleDisabled(key)" @toggle-complete="toggleComplete(key)" @toggle-collapse="toggleCollapsed(key)" @start-edit-title="startEditSectionName(key)" @finish-edit-title="finishEditSectionName(key)" @cancel-edit-title="cancelEditSectionName" @update-editing-value="editingSection.value = $event" @header-size-change="state.sectionHeaderSizes[key] = $event"
             ><template #section-version><SectionVersionSelect v-bind="versionSelectProps(key)" @update:model-value="selectSectionVersion(key, $event)" /></template></SectionList>
             <section v-else-if="section" class="section-group content-section" :class="{ disabled: isHidden(key), completed: isComplete(key), collapsed: isCollapsed(key) }">
               <div class="section-head" @click="onHeaderClick(key, $event)">
@@ -505,7 +506,7 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: 'Hobby', key: 'name'
                       <div class="item-row sidebar-skill-row" :class="{ 'item-row--hidden': item.hidden }">
                         <div class="item-row__actions"><button class="mini entry-drag-handle" type="button"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button><button class="mini visibility-toggle" :class="item.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="item.hidden ? t('show') : t('hide')" :title="item.hidden ? t('show') : t('hide')" @click="toggleItemHidden(item)"><font-awesome-icon :icon="['fas', item.hidden ? 'eye-slash' : 'eye']" /></button><button class="mini btn--danger" type="button" :aria-label="t('remove')" :title="t('remove')" @click="requestSidebarItemDeletion(section, index)"><font-awesome-icon :icon="['fas', 'trash']" /></button></div>
                         <div class="item-row__content sidebar-skill-row__content">
-                          <label>{{ t('skillName') }}<InputText v-model="item.name" :placeholder="langRef === 'de' ? 'z. B. Python' : 'e.g. Python'" fluid /></label>
+                          <label>{{ t('skillName') }}<InputText v-model="item.name" :placeholder="t('skillPlaceholder')" fluid /></label>
                           <label v-if="section.levelType">{{ t('levelValue') }}<InputNumber :model-value="item.levelValue" @update:model-value="item.levelValue = $event ?? 0" :min="section.levelType === 'experience' ? 1 : 0" :max="section.levelType === 'experience' ? 10 : 99" :use-grouping="false" fluid /></label>
                         </div>
                       </div>

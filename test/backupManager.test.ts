@@ -41,14 +41,14 @@ test('empty template cannot be saved over; successful Save as unlocks a separate
     else Reflect.deleteProperty(globalThis, 'localStorage');
   });
   const sampleApp = renderer.createApp(component, {
-    state: createNormalizedContentState(createSampleDocument()), selectedId: SAMPLE_DOCUMENT_ID,
+    state: createNormalizedContentState(createSampleDocument()), selectedId: SAMPLE_DOCUMENT_ID, lang: 'en',
   });
   const sampleInstance = sampleApp.mount({}) as unknown as { saveCurrent(): boolean };
   assert.equal(sampleInstance.saveCurrent(), true);
   assert.equal(storage.size, 0, 'the bundled sample must not be seeded into local storage');
   sampleApp.unmount();
   const props = reactive({
-    state: createEmptyDocument(), selectedId: EMPTY_DOCUMENT_ID,
+    state: createEmptyDocument(), selectedId: EMPTY_DOCUMENT_ID, lang: 'en',
     'onUpdate:selectedId': (id: string) => { props.selectedId = id; },
   });
   const app = renderer.createApp(component, props);

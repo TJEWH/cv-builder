@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { designNumber, resolveDesign } from './defaults';
 import type { CvState, CvDesign, SavedConfiguration, SaveStatus } from './types';
 import type { PreviewPage, RenderOptions } from './pdfTypes';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
@@ -20,10 +21,9 @@ import { readCvState } from './composables/cvStateValidation';
 import { createAnonymizedState } from './composables/anonymization';
 
 const state = reactive<CvState>(createEmptyDocument());
-const initialState: CvState = JSON.parse(JSON.stringify(state));
 
 const lang = computed({
-  get: () => state.lang ?? 'en',
+  get: () => state.lang,
   set: (value) => { state.lang = value; },
 });
 const previewMode = ref(false);
@@ -120,7 +120,7 @@ useCvDesign(() => state.design);
 
 function mergeIn(data: unknown) {
   const nextState = createNormalizedContentState(readCvState(data));
-  nextState.design = { ...initialState.design, ...nextState.design };
+  nextState.design = resolveDesign(nextState.design);
   Object.assign(state, nextState);
 }
 
@@ -161,26 +161,27 @@ let sliderPreviewUpdatePending = false;
 let sliderSaveUpdatePending = false;
 let textPreviewUpdatePending = false;
 
-function exportMarginMillimeters(value: unknown) {
-  const parsed = Number.parseFloat(String(value));
-  return Number.isFinite(parsed) ? Math.min(30, Math.max(0, parsed)) : 0;
+function exportMarginMillimeters(design: CvDesign, key: keyof CvDesign) {
+  return Math.min(30, Math.max(0, designNumber(design, key)));
 }
 
-function getPdfMargins(design: CvDesign = {}) {
+function getPdfMargins(input: CvDesign = {}) {
+  const design = resolveDesign(input);
   return [
-    exportMarginMillimeters(design.pageMarginTop),
-    exportMarginMillimeters(design.pageMarginLeft),
-    exportMarginMillimeters(design.pageMarginBottom),
-    exportMarginMillimeters(design.pageMarginRight),
+    exportMarginMillimeters(design, 'pageMarginTop'),
+    exportMarginMillimeters(design, 'pageMarginLeft'),
+    exportMarginMillimeters(design, 'pageMarginBottom'),
+    exportMarginMillimeters(design, 'pageMarginRight'),
   ];
 }
 
 function getPdfRenderOptions(options: RenderOptions = {}) {
+  const design = resolveDesign(state.design);
   return {
-    margin: getPdfMargins(state.design),
-    continuationTopPadding: exportMarginMillimeters(state.design?.headerBottomMargin || '2mm'),
-    sidebarFillMode: state.design?.sidebarFillMode,
-    sidebarHeightMode: state.design?.sidebarHeightMode,
+    margin: getPdfMargins(design),
+    continuationTopPadding: exportMarginMillimeters(design, 'headerBottomMargin'),
+    sidebarFillMode: design.sidebarFillMode,
+    sidebarHeightMode: design.sidebarHeightMode,
     ...options,
   };
 }
@@ -584,7 +585,7 @@ function openFullPreview() {
           </Transition>
         </div>
 
-        <aside class="inline-preview" aria-label="Live CV preview">
+        <aside class="inline-preview" :aria-label="t('liveCvPreview')">
         <div class="inline-preview__actions">
           <button class="btn" type="button" @click="openFullPreview">{{ t('openPreview') }}</button>
           <button class="btn btn--primary" type="button" @click="handleExportPdf" :disabled="isExporting">

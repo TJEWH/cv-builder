@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { DEFAULT_SECTION_HEADER_SIZE } from '../defaults';
 import type { PropType } from 'vue';
 import type { CvItem, ItemField } from '../types';
 import { computed, ref } from 'vue';
@@ -11,7 +12,7 @@ import ConfirmDeletionDialog from './ConfirmDeletionDialog.vue';
 const props = defineProps({
   title: String,
   sectionKey: String,
-  lang: { type: String, default: 'de' },
+  lang: { type: String, required: true },
   modelValue: { type: Array as PropType<CvItem[]>, required: true },
   schema: { type: Array as PropType<ItemField[]>, required: true },
   addLabel: { type: String, default: 'Hinzufügen' },
@@ -25,7 +26,7 @@ const props = defineProps({
   isEditingTitle: { type: Boolean, default: false },
   editingTitleValue: { type: String, default: '' },
   titlePlaceholder: { type: String, default: '' },
-  headerSize: { type: String, default: 'h2' },
+  headerSize: { type: String, default: DEFAULT_SECTION_HEADER_SIZE },
   versionMode: { type: Boolean, default: false },
 });
 
@@ -37,7 +38,7 @@ const emit = defineEmits<{
   'update-editing-value': [value: string]; 'header-size-change': [size: string];
 }>();
 
-const langRef = computed(() => props.lang || 'de');
+const langRef = computed(() => props.lang);
 const t = makeT(langRef);
 const root = ref<HTMLElement | null>(null);
 const pendingDeleteIndex = ref<number | null>(null);
@@ -51,7 +52,7 @@ const headerSizeOptions = computed(() => [
   { label: 'H2', value: 'h2' },
   { label: 'H3', value: 'h3' },
   { label: 'H4', value: 'h4' },
-  { label: langRef.value === 'de' ? 'Kein Titel' : 'No Title', value: 'null' },
+  { label: t('noTitle'), value: 'null' },
 ]);
 
 const isHeaderControl = (target: EventTarget | null) => target instanceof Element && target.closest('button, input, select, textarea, a, [contenteditable="true"], .p-select');
@@ -152,7 +153,7 @@ const confirmRemoveAt = () => {
           <template #item="{ element: item, index }: { element: CvItem; index: number }">
             <div class="item-row" :class="{ 'item-row--hidden': item.hidden }">
               <div class="item-row__actions">
-                <button class="mini entry-drag-handle" type="button" :aria-label="langRef === 'de' ? 'Eintrag verschieben' : 'Move entry'" :title="langRef === 'de' ? 'Eintrag verschieben' : 'Move entry'"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button>
+                <button class="mini entry-drag-handle" type="button" :aria-label="t('moveEntry')" :title="t('moveEntry')"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button>
                 <button class="mini visibility-toggle" :class="item.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="item.hidden ? t('show') : t('hide')" :title="item.hidden ? t('show') : t('hide')" @click="item.hidden = !item.hidden"><font-awesome-icon :icon="['fas', item.hidden ? 'eye-slash' : 'eye']" /></button>
                 <button type="button" class="mini btn--danger" :aria-label="t('remove')" :title="t('remove')" @click="requestRemoveAt(index)"><font-awesome-icon :icon="['fas', 'trash']" /></button>
               </div>

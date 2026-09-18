@@ -1,3 +1,4 @@
+import { DEFAULT_SECTION_HEADER_SIZE } from '../defaults';
 import type { CvState, CustomBodyField } from '../types';
 import { normalizeAnonymizationState } from './anonymization';
 
@@ -35,7 +36,7 @@ export function normalizeContentState(state: CvState) {
     section.text ??= '';
     const selected = new Set(section.fields ?? CUSTOM_BODY_FIELDS);
     section.fields = CUSTOM_BODY_FIELDS.filter((field) => selected.has(field));
-    state.sectionHeaderSizes[section.id] ??= 'h2';
+    state.sectionHeaderSizes[section.id] ??= DEFAULT_SECTION_HEADER_SIZE;
     for (const entry of section.entries) {
       entry.institution ??= '';
       entry.desc ??= '';

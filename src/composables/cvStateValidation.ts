@@ -1,5 +1,6 @@
 import type { Contact, CvDesign, CvState, CustomFont, CustomSection, CvItem, SidebarSection } from '../types';
 import { CV_STATE_VERSION } from '../types';
+import { SUPPORTED_LANGUAGES } from '../defaults';
 
 type Guard<T> = (value: unknown) => value is T;
 type Shape<T> = { [K in keyof T]-?: Guard<Exclude<T[K], undefined>> };
@@ -72,7 +73,7 @@ const sidebarSection = object<SidebarSection>({
   id, name: string, levelType: literals('experience', 'years', null), items,
 });
 const currentState = object<CvState>({
-  version: number, lang: string, disabled: strings,
+  version: number, lang: literals(...SUPPORTED_LANGUAGES), disabled: strings,
   completedSections: strings, keepTogetherSections: strings, design, contact,
   anonymization: object<CvState['anonymization']>({ excludedSections: strings, excludedItems: strings }),
   about: object<CvState['about']>({ text: string }),

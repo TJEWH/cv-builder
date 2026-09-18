@@ -49,7 +49,7 @@ test('loads Bunny stylesheets and updates existing links when fonts change', () 
 
     applyCvDesign({ fontBody: 'Inter', fontHead: '' });
     assert.equal(links.has('cv-font-head'), false);
-    applyCvDesign({});
+    applyCvDesign({ fontBody: '', fontHead: '' });
     assert.equal(links.size, 0);
   });
 });

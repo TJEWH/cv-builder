@@ -8,10 +8,10 @@ const props = defineProps({
   pages: { type: Array as PropType<PreviewPage[]>, default: () => [] },
   page: { type: Number, default: 1 },
   isUpdating: { type: Boolean, default: false },
-  lang: { type: String, default: 'de' },
+  lang: { type: String, required: true },
 });
 
-const langRef = computed(() => props.lang || 'de');
+const langRef = computed(() => props.lang);
 const t = makeT(langRef);
 const totalPages = computed(() => props.pages.length);
 const currentPage = computed(() => Math.min(Math.max(props.page, 1), Math.max(totalPages.value, 1)));

@@ -5,12 +5,12 @@ import { makeT } from '../i18n/dict.ts';
 const props = defineProps({
   pages: { type: Array, default: () => [] },
   page: { type: Number, default: 1 },
-  lang: { type: String, default: 'de' },
+  lang: { type: String, required: true },
   fullscreen: { type: Boolean, default: false },
 });
 
 const emit = defineEmits<{ 'update:page': [page: number] }>();
-const langRef = computed(() => props.lang || 'de');
+const langRef = computed(() => props.lang);
 const t = makeT(langRef);
 const totalPages = computed(() => props.pages.length);
 const currentPage = computed(() => Math.min(Math.max(props.page, 1), Math.max(totalPages.value, 1)));

@@ -2,35 +2,9 @@
 *{box-sizing:border-box}
 html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 :root{
-    --accent:#111827;--ink:#111827;--muted:#9bb3ad;--border:#2a3441;--valid:#16a34a;--invalid:#dc2626;
-    --font-body: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
-    --font-head: var(--font-body);
-    --bg:#ffffff;
-    --h1-size:24pt;--h2-size:12pt;--h3-size:10pt;--bullet-size:10.5pt;
-    --header-radius: 12px;
-    --page-margin-top:12mm;
-    --page-margin-right:12mm;
-    --page-margin-bottom:12mm;
-    --page-margin-left:12mm;
-    --header-padding-bottom:0mm;
-    --header-bottom-margin:2mm;
-    --separator-width:3px;
-    --subtitle:#111827;
-    --graphic:rgba(17,24,39,1);
-    --date-color:rgba(17,24,39,1);
-    --accent-soft:rgba(17,24,39,.12);
-    --accent-fade:rgba(17,24,39,.15);
-    --badge-bg:transparent;
-    --badge-color:var(--graphic);
-    --badge-border-color:var(--graphic);
-    --badge-border-width:2.5px;
-    --badge-border-radius:8px;
-    --section-spacing-body:10mm;
-    --sidebar-bottom-padding:0mm;
-    --section-spacing-sidebar:6mm;
-    --section-item-spacing:3.5mm;
-    --body-sidebar-spacing:10mm;
-    --box-shadow:none;
+    --muted:#9bb3ad;--border:#2a3441;--valid:#16a34a;--invalid:#dc2626;
+    --header-radius:12px;
+    /* CV design variables are initialized by applyCvDesign from src/defaults.ts. */
 }
 
 body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f14}
@@ -234,15 +208,15 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--ink);text-transform:u
 
 /* Boxed layout */
 #cv_side{background:#ffffff;box-shadow:none}
-:root[data-sidebar-layout-style="boxed"] #cv_side{padding:6mm 6mm var(--sidebar-bottom-padding,6mm);border-radius:10px}
-:root[data-sidebar-layout-style="boxed"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 6mm var(--sidebar-bottom-padding,6mm);border-radius:10px}
+:root[data-sidebar-layout-style="boxed"] #cv_side{padding:6mm 6mm var(--sidebar-bottom-padding);border-radius:10px}
+:root[data-sidebar-layout-style="boxed"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 6mm var(--sidebar-bottom-padding);border-radius:10px}
 
 /* Separator layout */
 :root[data-header-layout-style="separator"] .header{background:#ffffff;border-radius:0;border-bottom:var(--separator-width) solid var(--accent);box-shadow:none}
-:root[data-sidebar-layout-style="separator"] #cv_side{padding:6mm 0 var(--sidebar-bottom-padding,6mm) 6mm;background:#ffffff;border-left:var(--separator-width) solid var(--accent);border-radius:0;box-shadow:none}
-:root[data-sidebar-layout-style="separator"][data-sidebar-align="left"] #cv_side{padding:6mm 6mm var(--sidebar-bottom-padding,6mm) 0;border-right:var(--separator-width) solid var(--accent);border-left:0}
-:root[data-sidebar-layout-style="separator"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 0 var(--sidebar-bottom-padding,6mm) 6mm;background:#ffffff;border-left:var(--separator-width) solid var(--accent);border-radius:0;box-shadow:none}
-:root[data-sidebar-layout-style="separator"][data-sidebar-align="left"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 6mm var(--sidebar-bottom-padding,6mm) 0;border-right:var(--separator-width) solid var(--accent);border-left:0}
+:root[data-sidebar-layout-style="separator"] #cv_side{padding:6mm 0 var(--sidebar-bottom-padding) 6mm;background:#ffffff;border-left:var(--separator-width) solid var(--accent);border-radius:0;box-shadow:none}
+:root[data-sidebar-layout-style="separator"][data-sidebar-align="left"] #cv_side{padding:6mm 6mm var(--sidebar-bottom-padding) 0;border-right:var(--separator-width) solid var(--accent);border-left:0}
+:root[data-sidebar-layout-style="separator"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 0 var(--sidebar-bottom-padding) 6mm;background:#ffffff;border-left:var(--separator-width) solid var(--accent);border-radius:0;box-shadow:none}
+:root[data-sidebar-layout-style="separator"][data-sidebar-align="left"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 6mm var(--sidebar-bottom-padding) 0;border-right:var(--separator-width) solid var(--accent);border-left:0}
 :root[data-contact-layout="below"] .header{grid-template-columns:1fr}
 :root[data-contact-layout="below"] .contact{display:flex;align-items:center;gap:4mm;justify-content:flex-start;text-align:left;white-space:nowrap}
 :root[data-contact-layout="below"] .contact > div{display:inline-flex;align-items:center;flex-direction:row-reverse;gap:1.5mm}
