@@ -38,7 +38,7 @@ const content = computed(() => {
 </template>
 
 <style scoped>
-.markdown-content__prose { margin: 1.5mm 0 0 }
+.markdown-content__prose { margin: 1.5mm 0 0; font-size: var(--paragraph-size); }
 .markdown-bullets li { white-space: pre-line; }
 .markdown-content__prose a,
 .markdown-bullets a {

@@ -64,7 +64,8 @@ export function applyCvDesign(input: CvDesign = {}) {
   root.setProperty('--h1-size', design.h1);
   root.setProperty('--h2-size', design.h2);
   root.setProperty('--h3-size', design.h3);
-  root.setProperty('--bullet-size', design.bullets);
+  // Keep the persisted key so existing documents and favorites retain their size.
+  root.setProperty('--paragraph-size', design.bullets);
   const fontColor = design.ink;
   root.setProperty('--ink', fontColor);
   root.setProperty('--accent', fontColor);

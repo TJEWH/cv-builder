@@ -244,9 +244,12 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--ink);text-transform:u
 :root[data-show-timeline="false"] .timeline{padding-left:0}
 .timeline--continued{margin-top:var(--section-item-spacing)}
 /* Standalone textarea lists use the same inset as entries without a timeline. */
-.item ul, #cv_main .section-lead > .markdown-bullets{margin:1.5mm 0 0 4mm;padding:0;font-size:var(--bullet-size);list-style-type:disc}
-/* Apply bullet size and style to all ul elements in the CV (sidebar lists, etc.) */
-#cv_body ul, #cv_side ul{font-size:var(--bullet-size);list-style-type:disc}
+.item ul, #cv_main .section-lead > .markdown-bullets{margin:1.5mm 0 0 4mm;padding:0;font-size:var(--paragraph-size)}
+/* Draw circles instead of font glyphs. The 0.26em disc is centered in the
+   first 1.4em line, with a 0.56em gap to text, including wrapped list items. */
+#cv_main ul, #cv_side ul{font-size:var(--paragraph-size);list-style:none}
+#cv_main ul > li, #cv_side ul > li{position:relative;line-height:1.4}
+#cv_main ul > li::before, #cv_side ul > li::before{content:"";position:absolute;left:-0.82em;top:0.57em;width:0.33em;height:0.33em;border-radius:50%;background:currentColor;pointer-events:none}
 
 .item-details{float:right;display:grid;justify-items:end;gap:0;max-width:48%;margin:0 0 0 8px;text-align:right;overflow-wrap:anywhere;word-break:break-word}
 .item-title{min-width:0;margin:0;font-family:var(--font-head),sans-serif;font-size:var(--h3-size);font-weight:700;line-height:1.2;overflow-wrap:anywhere;}
@@ -256,6 +259,6 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--ink);text-transform:u
 
 .item > ul { margin-left: 4mm; padding: 0; }
 .education-details { min-width:0; }
-.education-details ul { margin: 1.5mm 0 0 4mm; padding: 0; font-size: var(--bullet-size); list-style-type: disc; }
+.education-details ul { margin: 1.5mm 0 0 4mm; padding: 0; font-size: var(--paragraph-size); }
 .education-courses { margin-top:2mm; }
 .education-courses ul { margin: 1mm 0 0 4mm; }

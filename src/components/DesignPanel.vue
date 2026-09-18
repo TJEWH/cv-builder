@@ -101,7 +101,7 @@ const controls = computed<DesignControl[]>(() => [
   { key: 'h1', section: 'typography', label: t('designH1FontSize'), type: 'range', min: 18, max: 30, step: 1, unit: 'pt' },
   { key: 'h2', section: 'typography', label: t('designH2FontSize'), type: 'range', min: 10, max: 20, step: 1, unit: 'pt' },
   { key: 'h3', section: 'typography', label: t('designH3FontSize'), type: 'range', min: 8, max: 16, step: 1, unit: 'pt' },
-  { key: 'bullets', section: 'typography', label: t('designBulletFontSize'), type: 'range', min: 8, max: 14, step: 0.5, unit: 'pt' },
+  { key: 'bullets', section: 'typography', label: t('designParagraphFontSize'), type: 'range', min: 8, max: 14, step: 0.5, unit: 'pt' },
   { key: 'fontBody', section: 'typography', label: t('designBodyFont'), type: 'select', options: bodyFonts.value },
   { key: 'fontHead', section: 'typography', label: t('designHeadingsFont'), type: 'select', options: [{ value: '', label: t('designInheritBodyFont') }, ...headFonts.value] },
   { key: 'ink', section: 'colors', label: t('designFontColor'), type: 'color' },

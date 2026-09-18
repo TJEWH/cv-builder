@@ -197,7 +197,7 @@ export const dict: Record<string, Record<Language, string>> = {
     "designH1FontSize": { de: "H1-Schriftgröße", en: "H1 Font Size" },
     "designH2FontSize": { de: "H2-Schriftgröße", en: "H2 Font Size" },
     "designH3FontSize": { de: "H3-Schriftgröße", en: "H3 Font Size" },
-    "designBulletFontSize": { de: "Schriftgröße der Aufzählungen", en: "Bullet Font Size" },
+    "designParagraphFontSize": { de: "Absatzschriftgröße", en: "Paragraph font size" },
     "designBodyFont": { de: "Textschrift", en: "Body Font" },
     "designHeadingsFont": { de: "Überschriftenschrift", en: "Headings Font" },
     "designFontColor": { de: "Schriftfarbe", en: "Font Color" },
