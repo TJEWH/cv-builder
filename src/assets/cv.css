@@ -60,10 +60,12 @@ body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f1
 }
 .builder .content-section.disabled{background:#113c34;border-top-color:#134e4a}
 .builder .content-section.completed{background:rgba(134,239,172,.12);border-top-color:rgba(134,239,172,.6)}
-.builder .content-tab-panel.content-section,
-.builder .content-tab-panel > .content-section-card:first-child > .content-section{border-top:0}
+.builder .content-tab-panel.content-section{border-top:0}
+/* Reserve the same separator space for the first row as for every other row. */
+.builder .content-tab-panel > .content-section-card:first-child > .content-section{border-top-color:transparent}
 .builder .content-section > .section-head{
-    min-height:38px;
+    /* Fit the normal controls even when versions/reorder mode hides them. */
+    min-height:40px;
     margin:0 0 8px;
     border-radius:6px;
     cursor:pointer;
