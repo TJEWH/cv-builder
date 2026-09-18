@@ -497,7 +497,7 @@ function openFullPreview() {
       </div>
 
       <div class="fullscreen-preview__content">
-        <PdfPreview v-if="fullPreviewView === 'pdf'" :page="activeFullPreviewPage" :pages="activeFullPreviewPages" :is-updating="isActiveFullPreviewRendering" :lang="lang" />
+        <PdfPreview v-if="fullPreviewView === 'pdf'" v-model:page="activeFullPreviewPage" :pages="activeFullPreviewPages" :is-updating="isActiveFullPreviewRendering" :lang="lang" gesture-navigation />
         <div v-else class="html-preview"><CvPreview :state="isAnonymizedFullPreview ? anonymizedState : state" :anonymized="isAnonymizedFullPreview" /></div>
       </div>
       <PdfPagination v-if="fullPreviewView === 'pdf'" v-model:page="activeFullPreviewPage" :pages="activeFullPreviewPages" :lang="lang" fullscreen />
@@ -595,7 +595,10 @@ function openFullPreview() {
         </div>
         <div class="inline-preview__viewport">
           <div class="inline-preview__scroll">
-            <PdfPreview :page="previewPage" :pages="previewPages" :is-updating="isPreviewRendering" :lang="lang" />
+            <PdfPreview v-model:page="previewPage" :pages="previewPages" :is-updating="isPreviewRendering" :lang="lang" gesture-navigation />
+            <div class="inline-preview__pagination">
+              <PdfPagination v-model:page="previewPage" :pages="previewPages" :lang="lang" />
+            </div>
           </div>
           <button
             class="mini inline-preview__placement-toggle"
@@ -607,9 +610,6 @@ function openFullPreview() {
           >
             <font-awesome-icon :icon="['fas', previewPlacement === 'side' ? 'arrow-down' : 'arrow-right']" />
           </button>
-        </div>
-        <div class="inline-preview__pagination">
-          <PdfPagination v-model:page="previewPage" :pages="previewPages" :lang="lang" />
         </div>
         </aside>
       </section>
@@ -877,7 +877,7 @@ body,
   position: relative;
   top: auto;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
   min-height: 0;
   height: 100%;
@@ -951,6 +951,7 @@ body,
 .inline-preview__pagination {
   min-width: 0;
   width: min(100%, 794px);
+  margin: 10px auto 0;
   justify-self: center;
 }
 

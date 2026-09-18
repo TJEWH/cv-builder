@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { PropType } from 'vue';
 import type { PreviewPage } from '../pdfTypes';
-import { computed } from 'vue';
+import { computed, onBeforeUnmount } from 'vue';
 import { makeT } from '../i18n/dict.ts';
 
 const props = defineProps({
@@ -9,17 +9,49 @@ const props = defineProps({
   page: { type: Number, default: 1 },
   isUpdating: { type: Boolean, default: false },
   lang: { type: String, required: true },
+  gestureNavigation: { type: Boolean, default: false },
 });
+const emit = defineEmits<{ 'update:page': [page: number] }>();
 
 const langRef = computed(() => props.lang);
 const t = makeT(langRef);
 const totalPages = computed(() => props.pages.length);
 const currentPage = computed(() => Math.min(Math.max(props.page, 1), Math.max(totalPages.value, 1)));
 const currentPageData = computed(() => props.pages[currentPage.value - 1]?.svg || '');
+
+const TRACKPAD_SWIPE_THRESHOLD = 72;
+let horizontalSwipeDistance = 0;
+let horizontalSwipeReset: number | null = null;
+
+function resetHorizontalSwipe() {
+  horizontalSwipeDistance = 0;
+  if (horizontalSwipeReset !== null) window.clearTimeout(horizontalSwipeReset);
+  horizontalSwipeReset = null;
+}
+
+function handleTrackpadSlide(event: WheelEvent) {
+  if (!props.gestureNavigation || totalPages.value < 2 || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+  // Trackpads report a two-finger horizontal slide as wheel input. Keep normal
+  // vertical scrolling intact while using a deliberate horizontal slide to turn pages.
+  event.preventDefault();
+  horizontalSwipeDistance += event.deltaX;
+  if (Math.abs(horizontalSwipeDistance) < TRACKPAD_SWIPE_THRESHOLD) {
+    if (horizontalSwipeReset !== null) window.clearTimeout(horizontalSwipeReset);
+    horizontalSwipeReset = window.setTimeout(resetHorizontalSwipe, 180);
+    return;
+  }
+
+  const direction = Math.sign(horizontalSwipeDistance);
+  const nextPage = Math.min(Math.max(currentPage.value + direction, 1), totalPages.value);
+  resetHorizontalSwipe();
+  if (nextPage !== currentPage.value) emit('update:page', nextPage);
+}
+
+onBeforeUnmount(resetHorizontalSwipe);
 </script>
 
 <template>
-  <section class="pdf-preview" :aria-busy="isUpdating">
+  <section class="pdf-preview" :aria-busy="isUpdating" @wheel="handleTrackpadSlide">
     <div class="pdf-preview__stage">
       <div
         v-if="currentPageData"

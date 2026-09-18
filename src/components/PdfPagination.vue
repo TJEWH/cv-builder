@@ -39,6 +39,7 @@ function setPage(nextPage: number) {
 <style scoped>
 .pdf-pagination { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; }
 .pdf-pagination .mini:disabled { cursor: not-allowed; opacity: .45; }
+.pdf-pagination:not(.pdf-pagination--fullscreen) .pdf-pagination__button { width: 52px; height: 44px; padding: 0; font-size: 18px; }
 .pdf-pagination__page-count { min-width: 0; color: #cbd5e1; font-size: 12px; font-weight: 700; text-align: center; }
 
 .pdf-pagination--fullscreen { position: fixed; inset: 0; z-index: 25; display: block; pointer-events: none; }
