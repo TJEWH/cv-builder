@@ -243,7 +243,7 @@ const deleteCustomSection = (section: CustomSection | SidebarSection, area: Cont
   props.state.keepTogetherSections = props.state.keepTogetherSections.filter((key: string) => key !== section.id);
   delete customCollapsed[section.id];
 };
-const addBodyEntry = (section: CustomSection) => section.entries.push({ id: createContentId('entry'), hidden: false, title: '', institution: '', place: '', start: '', end: '', state: 'planned', desc: '' });
+const addBodyEntry = (section: CustomSection) => section.entries.push({ id: createContentId('entry'), hidden: false, title: '', institution: '', place: '', start: '', end: '', desc: '' });
 const removeBodyEntry = (section: CustomSection, index: number) => section.entries.splice(index, 1);
 const addSidebarItem = (section: SidebarSection) => section.items.push({ id: createContentId('skill'), hidden: false, name: '', levelValue: 0 });
 const removeSidebarItem = (section: SidebarSection, index: number) => section.items.splice(index, 1);
@@ -259,7 +259,8 @@ const cancelDeletion = () => { pendingDeletion.value = null; };
 const toggleItemHidden = (item: CvItem) => { item.hidden = !item.hidden; };
 const closeFieldConfig = () => { fieldConfigSectionId.value = null; };
 const openFieldConfig = (section: CustomSection) => { fieldConfigSectionId.value = section.id; };
-const itemStateOptions = computed<SelectOption<ItemState>[]>(() => [
+const itemStateOptions = computed<SelectOption<ItemState | ''>[]>(() => [
+  { label: t('noState'), value: '' },
   { label: t('planned'), value: 'planned' },
   { label: t('ongoing'), value: 'ongoing' },
   { label: t('complete'), value: 'complete' },

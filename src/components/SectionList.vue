@@ -63,13 +63,18 @@ const add = () => {
   const entry: CvItem = { id: createContentId(props.sectionKey || 'entry'), hidden: false };
   props.schema.forEach((field) => {
     if (field.type === 'number') entry[field.key] = 0;
-    else if (field.type === 'select' && field.key === 'state') entry.state = field.options[0]?.value ?? 'planned';
+    else if (field.type === 'select' && field.key === 'state') return;
     else if (field.type === 'select') entry[field.key] = field.options[0]?.value ?? '';
     else entry[field.key] = '';
   });
   items.value = [...items.value, entry];
   requestAnimationFrame(() => root.value?.querySelector('.item-row:last-of-type')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
 };
+
+function updateItemState(item: CvItem, value: unknown) {
+  if (value === 'planned' || value === 'ongoing' || value === 'complete') item.state = value;
+  else delete item.state;
+}
 
 const removeAt = (index: number) => {
   items.value = items.value.filter((_, itemIndex) => itemIndex !== index);
@@ -157,6 +162,7 @@ const confirmRemoveAt = () => {
                     {{ field.label }}
                     <InputText v-if="field.type === 'text'" v-model="item[field.key]" :placeholder="field.placeholder || ''" fluid />
                     <InputNumber v-else-if="field.type === 'number'" :model-value="item[field.key]" @update:model-value="item[field.key] = $event ?? 0" :placeholder="field.placeholder || ''" :use-grouping="false" fluid />
+                    <Select v-else-if="field.type === 'select' && field.key === 'state'" :model-value="item.state || ''" :options="field.options" option-label="label" option-value="value" fluid @update:model-value="updateItemState(item, $event)" />
                     <Select v-else-if="field.type === 'select'" v-model="item[field.key]" :options="field.options" option-label="label" option-value="value" fluid />
                   </label>
                 </div>

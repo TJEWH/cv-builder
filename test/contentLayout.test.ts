@@ -52,7 +52,7 @@ test('defaults optional custom controls while preserving existing values and hid
   });
   const normalized = createNormalizedContentState(state);
   assert.deepEqual(normalized.customSections[0].fields, CUSTOM_BODY_FIELDS);
-  assert.equal(normalized.customSections[0].entries[0].state, 'planned');
+  assert.equal(normalized.customSections[0].entries[0].state, undefined);
   assert.equal(normalized.customSections[0].entries[0].institution, '');
   assert.deepEqual(normalized.customSections[1].fields, ['title', 'desc']);
   assert.equal(normalized.customSections[1].text, '**Notes**');
@@ -61,4 +61,14 @@ test('defaults optional custom controls while preserving existing values and hid
   assert.equal(normalized.experience.jobs[0].state, 'ongoing');
   assert.equal(normalized.sidebarSections[0].items[0].levelValue, 4);
   assert.equal(state.customSections[0].fields, undefined);
+});
+
+test('leaves an omitted item state unset so it does not render as a status', () => {
+  const state = createTestState({
+    experience: { jobs: [{ id: 'job', title: 'Engineer' }] },
+    customSections: [{ id: 'projects', name: 'Projects', entries: [{ id: 'project', title: 'Tool' }] }],
+  });
+  const normalized = createNormalizedContentState(state);
+  assert.equal(normalized.experience.jobs[0].state, undefined);
+  assert.equal(normalized.customSections[0].entries[0].state, undefined);
 });

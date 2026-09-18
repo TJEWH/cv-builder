@@ -115,6 +115,7 @@ export const dict: Record<string, Record<string, string>> = {
     start:          { de:'Start', en:'Start' },
     end:            { de:'Ende', en:'End' },
     state:          { de:'Status', en:'State' },
+    noState:        { de:'Kein Status', en:'None' },
     planned:        { de:'Geplant', en:'Planned' },
     ongoing:        { de:'Laufend', en:'Ongoing' },
     complete:       { de:'Abgeschlossen', en:'Complete' },

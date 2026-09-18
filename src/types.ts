@@ -96,5 +96,5 @@ export type ItemField = FieldLabel & (
   | { type: 'textarea'; key: ItemTextKey }
   | { type: 'number'; key: KeysOfType<CvItem, number> }
   | { type: 'select'; key: ItemTextKey; options: SelectOption[] }
-  | { type: 'select'; key: 'state'; options: SelectOption<ItemState>[] }
+  | { type: 'select'; key: 'state'; options: SelectOption<ItemState | ''>[] }
 );

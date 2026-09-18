@@ -38,12 +38,10 @@ export function normalizeContentState(state: CvState) {
     state.sectionHeaderSizes[section.id] ??= 'h2';
     for (const entry of section.entries) {
       entry.institution ??= '';
-      entry.state ??= 'planned';
       entry.desc ??= '';
     }
   }
   for (const item of state.experience.jobs) {
-    item.state ??= 'planned';
     item.bullets ??= '';
   }
   for (const section of state.sidebarSections) {
