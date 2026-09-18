@@ -142,7 +142,6 @@ export const dict: Record<string, Record<Language, string>> = {
     "versionNewName": { de: "Titel neue Konfiguration", en: "New configuration title" },
     "versionExportJson": { de: "JSON exportieren", en: "Export JSON" },
     "versionImportJson": { de: "JSON importieren", en: "Import JSON" },
-    "versionConfirmLoad": { de: "Aktuelle Änderungen gehen verloren. Diese Konfiguration laden?", en: "Loading replaces your current changes. Continue?" },
     "versionConfirmImport": { de: "Aktuelle Änderungen gehen verloren. Diese JSON-Datei laden?", en: "Loading this JSON file replaces your current changes. Continue?" },
     "versionConfirmDelete": { de: "Diese Konfiguration wirklich löschen?", en: "Delete this configuration?" },
     "versionLoaded": { de: "Geladen.", en: "Loaded." },

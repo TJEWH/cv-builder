@@ -82,3 +82,36 @@ test('empty template cannot be saved over; successful Save as unlocks a separate
   assert.ok(setup.configs.some(({ id }) => id === EMPTY_DOCUMENT_ID));
   assert.equal(storage.has(`CV_CONF_DATA:${EMPTY_DOCUMENT_ID}`), false);
 });
+
+test('switching versions never asks for confirmation', async (t) => {
+  const storage = new Map<string, string>();
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const previousConfirm = Object.getOwnPropertyDescriptor(globalThis, 'confirm');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => { storage.set(key, value); },
+    removeItem: (key: string) => { storage.delete(key); },
+  } });
+  Object.defineProperty(globalThis, 'confirm', { configurable: true, value: () => { throw new Error('Version switching must not prompt'); } });
+  t.after(() => {
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
+    else Reflect.deleteProperty(globalThis, 'localStorage');
+    if (previousConfirm) Object.defineProperty(globalThis, 'confirm', previousConfirm);
+    else Reflect.deleteProperty(globalThis, 'confirm');
+  });
+
+  let loaded: CvState | null = null;
+  const props = reactive({
+    state: createNormalizedContentState(createSampleDocument()), selectedId: SAMPLE_DOCUMENT_ID, lang: 'en',
+    onLoad: (data: CvState) => { loaded = data; },
+    'onUpdate:selectedId': (id: string) => { props.selectedId = id; },
+  });
+  const app = renderer.createApp(component, props);
+  const instance = app.mount({}) as unknown as { selectConfiguration(id: string): boolean };
+  t.after(() => app.unmount());
+
+  assert.equal(instance.selectConfiguration(EMPTY_DOCUMENT_ID), true);
+  await nextTick();
+  assert.equal(props.selectedId, EMPTY_DOCUMENT_ID);
+  assert.equal((loaded as CvState | null)?.contact.name, '');
+});

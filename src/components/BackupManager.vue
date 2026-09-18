@@ -183,7 +183,7 @@ function saveAs() {
 }
 
 function selectConfiguration(id: string) {
-  if (!id || !confirm(t('versionConfirmLoad'))) return false;
+  if (!id) return false;
   if (!props.beforeLoad()) return false;
   const data = readConfigData(id);
   if (!data) return false;
