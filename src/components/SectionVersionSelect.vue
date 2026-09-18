@@ -7,7 +7,7 @@ defineProps({
   label: String,
   draftLabel: String,
 });
-defineEmits(['update:modelValue']);
+defineEmits<{ 'update:modelValue': [id: string] }>();
 </script>
 
 <template>

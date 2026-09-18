@@ -87,8 +87,8 @@ export function applyCvDesign(design: CvDesign = {}) {
   root.setProperty('--separator-width', pixels(design.separatorWidth, '1px'));
   root.setProperty('--badge-border-width', pixels(design.badgeBorderWidth, '1px'));
   root.setProperty('--badge-border-radius', design.badgeBorderRadius || '6px');
-  root.setProperty('--section-spacing-body', design.sectionSpacingBody || design.sectionSpacing || '6mm');
-  root.setProperty('--section-spacing-sidebar', design.sectionSpacingSidebar || design.sectionSpacing || '6mm');
+  root.setProperty('--section-spacing-body', design.sectionSpacingBody || '6mm');
+  root.setProperty('--section-spacing-sidebar', design.sectionSpacingSidebar || '6mm');
   root.setProperty('--section-item-spacing', millimeters(design.itemSpacing, '3.5mm'));
   root.setProperty('--body-sidebar-spacing', millimeters(design.bodySidebarSpacing, '10mm'));
   root.setProperty('--sidebar-bottom-padding', design.sidebarHeightMode === 'full-page' ? '6mm' : millimeters(design.sidebarBottomPadding, '6mm'));

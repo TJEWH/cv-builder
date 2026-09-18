@@ -1,4 +1,5 @@
-import type { LegacyCvState } from '../types';
+import type { CvState } from '../types';
+import { readCvState } from './cvStateValidation';
 export const STORAGE_KEY = 'cv-session';
 
 export function debounce<Args extends unknown[], Result>(fn: (...args: Args) => Result, wait = 250) {
@@ -17,7 +18,7 @@ export function debounce<Args extends unknown[], Result>(fn: (...args: Args) => 
   };
   debounced.flush = () => {
     if (timer === null) return undefined;
-    if (timer !== null) clearTimeout(timer);
+    clearTimeout(timer);
     return invoke();
   };
   debounced.cancel = () => {
@@ -38,10 +39,10 @@ export function saveLocal(data: unknown) {
   }
 }
 
-export function loadLocal(): LegacyCvState | null {
+export function loadLocal(): CvState | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    return raw ? readCvState(JSON.parse(raw)) : null;
   } catch (error) {
     console.warn('loadLocal failed', error);
     return null;

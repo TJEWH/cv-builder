@@ -1,24 +1,16 @@
 export type InlineToken = { type: 'text' | 'bold' | 'strike'; value: string } | { type: 'link'; value: string; href: string };
 
-export function normalizeMarkdownText(value: unknown) {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => String(item ?? '').trim())
-      .filter(Boolean)
-      .map((item) => `- ${item.replace(/^\s*-\s*/, '')}`)
-      .join('\n');
-  }
-
-  return value == null ? '' : String(value).replaceAll('\r\n', '\n');
+export function normalizeMarkdownText(value: string | undefined) {
+  return (value ?? '').replaceAll('\r\n', '\n');
 }
 
 /** Render paired !!confidential text!! markers for normal or anonymous output. */
-export function renderConfidentialText(value: unknown, { anonymized = false } = {}) {
+export function renderConfidentialText(value: string | undefined, { anonymized = false } = {}) {
   const normalized = normalizeMarkdownText(value);
   return normalized.replace(/!!([\s\S]*?)!!/g, anonymized ? '!!confidential text!!' : '$1');
 }
 
-export function parseMarkdownText(value: unknown) {
+export function parseMarkdownText(value: string | undefined) {
   const proseLines: string[] = [];
   const bullets: string[] = [];
   let listStarted = false;
@@ -88,7 +80,7 @@ export function parseInlineMarkdown(value: unknown, { confidentialMarkers = true
   return tokens;
 }
 
-export function hasMarkdownText(value: unknown) {
+export function hasMarkdownText(value: string | undefined) {
   const { prose, bullets } = parseMarkdownText(value);
   return Boolean(prose || bullets.length);
 }

@@ -13,6 +13,8 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "skipLibCheck": true,
     "noEmit": true,
     "types": [

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import type { PropType } from 'vue';
-import type { CvState, LegacyCvState, SavedConfiguration } from '../types';
+import type { CvState, SavedConfiguration } from '../types';
 import { computed, onMounted, ref } from 'vue';
 import { saveLocal } from '../composables/useStorage';
 import {
   MAX_CV_JSON_FILE_BYTES,
   createCvJsonBackup,
   parseCvJsonBackup,
+  parseStoredCvState,
 } from '../composables/cvJsonBackup';
 
 const props = defineProps({
@@ -14,17 +15,20 @@ const props = defineProps({
   lang: { type: String, default: 'en' },
   selectedId: { type: String, default: '' },
   onSave: { type: Function as PropType<() => void>, default: () => {} },
-  onLoad: { type: Function as PropType<(data: LegacyCvState) => void>, default: () => {} },
+  onLoad: { type: Function as PropType<(data: CvState) => void>, default: () => {} },
   beforeLoad: { type: Function as PropType<() => boolean>, default: () => true },
 });
-const emit = defineEmits(['update:selectedId', 'configs-change', 'save-result']);
+const emit = defineEmits<{
+  'update:selectedId': [id: string];
+  'configs-change': [configurations: SavedConfiguration[]];
+  'save-result': [saved: boolean];
+}>();
 
 const langRef = computed(() => props.lang || 'en');
 const labels = computed(() => langRef.value === 'de' ? {
   versions: 'Versionen',
   saveAs: 'Speichern als',
   newName: 'Titel neue Konfiguration',
-  load: 'Laden',
   remove: 'Löschen',
   exportJson: 'JSON exportieren',
   importJson: 'JSON importieren',
@@ -45,7 +49,6 @@ const labels = computed(() => langRef.value === 'de' ? {
   versions: 'Versions',
   saveAs: 'Save as',
   newName: 'New configuration title',
-  load: 'Load',
   remove: 'Delete',
   exportJson: 'Export JSON',
   importJson: 'Import JSON',
@@ -130,12 +133,11 @@ function refreshConfigs() {
 function snapshotState(): CvState {
   return JSON.parse(JSON.stringify(props.state));
 }
-function readConfigData(id: string): LegacyCvState | null {
+function readConfigData(id: string): CvState | null {
   try {
     const raw = readStorage(localDataKey(id));
     if (!raw) return null;
-    const stored = JSON.parse(raw);
-    return stored?.data || stored;
+    return parseStoredCvState(raw);
   } catch (error) {
     console.warn('Failed to read configuration', error);
     return null;
@@ -208,8 +210,8 @@ function saveAs() {
   }
 }
 
-function loadConfig(id = currentId.value, { confirmLoad = true } = {}) {
-  if (!id || (confirmLoad && !confirm(labels.value.confirmLoad))) return false;
+function selectConfiguration(id: string) {
+  if (!id || !confirm(labels.value.confirmLoad)) return false;
   if (!props.beforeLoad()) return false;
   const data = readConfigData(id);
   if (!data) return false;
@@ -225,10 +227,6 @@ function loadConfig(id = currentId.value, { confirmLoad = true } = {}) {
     console.warn('Failed to load configuration', error);
     return false;
   }
-}
-
-function selectConfiguration(id: string) {
-  return id ? loadConfig(id) : false;
 }
 
 function onConfigurationChange(event: Event) {
@@ -338,7 +336,6 @@ onMounted(refreshConfigs);
           <option v-if="!currentId" value="" disabled>{{ labels.noSavedVersion }}</option>
           <option v-for="config in configs" :key="config.id" :value="config.id">{{ config.name }}</option>
         </select>
-        <button type="button" class="btn" :disabled="!currentId" @click="loadConfig()">{{ labels.load }}</button>
         <button type="button" class="btn btn--danger" :disabled="!currentId" @click="deleteCurrent">{{ labels.remove }}</button>
       </div>
 

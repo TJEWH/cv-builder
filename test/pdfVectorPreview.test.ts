@@ -1,5 +1,4 @@
 import type { CallRecord, TextRecord } from '../src/pdfTypes';
-import { stub } from './helpers';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSvgDocument, renderVectorPreview } from '../src/composables/pdfVectorPreview.ts';

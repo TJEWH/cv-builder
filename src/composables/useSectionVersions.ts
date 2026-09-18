@@ -1,12 +1,13 @@
-import type { CvState, LegacyCvState, SavedConfiguration, SaveStatus, ContentArea } from '../types';
+import type { CvState, SavedConfiguration, SaveStatus, ContentArea } from '../types';
 interface SectionVersionsOptions {
   state(): CvState; selectedId(): string; configurations(): SavedConfiguration[];
-  readVersion(id: string): LegacyCvState | null | undefined;
+  readVersion(id: string): CvState | null | undefined;
   saveVersion(id: string, data: CvState): boolean;
   onStatus(status: SaveStatus): void;
 }
 import { computed, onScopeDispose, reactive, ref, watch } from 'vue';
-import { normalizeContentState } from './contentLayout.ts';
+import { createNormalizedContentState } from './contentLayout.ts';
+import { readCvState } from './cvStateValidation';
 import { debounce } from './useStorage.ts';
 
 const builtInSections = ['header', 'about', 'education', 'jobs', 'languages', 'hobbies'];
@@ -50,10 +51,7 @@ export function useSectionVersions({ state, selectedId, configurations, readVers
       if (id === selectedId() || records.has(id)) continue;
       const saved = readVersion(id);
       if (!saved || typeof saved !== 'object' || Array.isArray(saved)) continue;
-      const data = JSON.parse(JSON.stringify(saved));
-      normalizeContentState(data);
-      data.contact ||= { name: '', location: '', role: '', email: '', phone: '', website: '', linkedin: '', github: '' };
-      data.completedSections ||= [];
+      const data = createNormalizedContentState(readCvState(JSON.parse(JSON.stringify(saved))));
       const document = reactive(data);
       const stop = watch(document, () => {
         dirty.add(id);

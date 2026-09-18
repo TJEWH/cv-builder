@@ -1,253 +1,64 @@
-import type { LegacyCvState } from '../src/types';
-import { stub } from './helpers';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { moveSectionInOrder, normalizeContentState } from '../src/composables/contentLayout.ts';
+import { createTestState } from './helpers';
+import { createContentId, createNormalizedContentState, moveSectionInOrder, normalizeContentState, CUSTOM_BODY_FIELDS } from '../src/composables/contentLayout';
 
 test('moves section cards without mutating the previous order or dropping hidden/custom sections', () => {
   const order = ['about', 'education', 'jobs', 'research'];
-
-  assert.deepEqual(
-    moveSectionInOrder(order, 'education', 1),
-    ['about', 'jobs', 'education', 'research'],
-  );
+  assert.deepEqual(moveSectionInOrder(order, 'education', 1), ['about', 'jobs', 'education', 'research']);
   assert.deepEqual(moveSectionInOrder(order, 'research', -1), ['about', 'education', 'research', 'jobs']);
   assert.deepEqual(order, ['about', 'education', 'jobs', 'research']);
 });
 
-test('section keyboard moves stop at the boundaries and ignore invalid moves', () => {
+test('section keyboard moves stop at the boundaries and ignore invalid directions', () => {
   const order = ['languages', 'hobbies'];
   for (const [key, direction] of [['languages', -1], ['hobbies', 1], ['missing', 1], ['languages', 2]]) {
     assert.equal(moveSectionInOrder(order, String(key), Number(direction)), order);
   }
 });
 
-test('defaults legacy CVs to breakable body sections', () => {
-  const state = stub<LegacyCvState>({ version: 2, experience: {} });
-  normalizeContentState(state);
-  assert.deepEqual(state.keepTogetherSections, []);
+test('new content receives distinct stable IDs', () => {
+  const first = createContentId('entry');
+  assert.ok(first.startsWith('entry_'));
+  assert.notEqual(createContentId('entry'), first);
 });
 
-test('retains only current body section keys in keep-together settings', () => {
-  const state = stub<LegacyCvState>({
-    version: 7,
-    experience: {},
+test('keeps only existing body references and repairs duplicate or incomplete section order', () => {
+  const state = createTestState({
     customSections: [{ id: 'body_current', name: 'Projects', entries: [] }],
-    sidebarSections: [{ id: 'sidebar_current', name: 'Skills', items: [] }],
-    keepTogetherSections: ['education', 'body_current', 'jobs', 'education', 'body_deleted', 'sidebar_current', 'languages', null],
+    sidebarSections: [{ id: 'sidebar_current', name: 'Skills', levelType: null, items: [] }],
+    keepTogetherSections: ['education', 'body_current', 'jobs', 'education', 'deleted', 'sidebar_current', 'languages'],
+    bodyOrder: ['jobs', 'body_current', 'jobs', 'deleted'],
   });
   normalizeContentState(state);
   assert.deepEqual(state.keepTogetherSections, ['education', 'body_current', 'jobs']);
-
+  assert.deepEqual(state.bodyOrder, ['jobs', 'body_current', 'about', 'education']);
+  assert.deepEqual(state.sidebarOrder, ['languages', 'hobbies', 'sidebar_current']);
   state.customSections = [];
   normalizeContentState(state);
   assert.deepEqual(state.keepTogetherSections, ['education', 'jobs']);
+  assert.ok(!state.bodyOrder.includes('body_current'));
 });
 
-test('migrates legacy ordering into fixed body and sidebar orders', () => {
-  const state = stub<LegacyCvState>({
-    version: 1,
-    lang: 'en',
-    disabled: ['skills'],
-    skills: [{ title: 'Legacy skills' }],
-    orderMain: ['projects', 'legacy_body', 'skills'],
-    orderSide: ['skills', 'certs', 'languages'],
-    sectionPlacement: { legacy_body: 'sidebar' },
-    customSections: [{ id: 'legacy_body', name: 'Legacy', entries: [{ title: 'Entry' }] }],
-    education: [{ title: 'Degree' }],
-    experience: { jobs: [{}], addExp: [], projects: [{ title: 'Legacy project' }] },
-    languages: [{}],
-    hobbies: [{}],
-    certs: [{}],
+test('defaults optional custom controls while preserving existing values and hidden items', () => {
+  const state = createTestState({
+    education: [{ id: 'degree', title: 'Degree', hidden: true, thesis: '**Thesis**', coursesText: '- Course' }],
+    experience: { jobs: [{ id: 'job', state: 'ongoing', bullets: '- Work' }] },
+    customSections: [
+      { id: 'fields', name: 'Fields', entries: [{ id: 'entry', title: 'Talk' }] },
+      { id: 'notes', name: 'Notes', entryMode: 'textarea', text: '**Notes**', fields: ['title', 'title', 'desc'], entries: [] },
+    ],
+    sidebarSections: [{ id: 'skills', name: 'Skills', levelType: 'years', items: [{ id: 'skill', name: 'Vue', levelValue: 4 }] }],
   });
-
-  normalizeContentState(state);
-
-  const migratedProject = state.customSections.find((section) => section.name === 'Projects & Publications');
-  const migratedCertificates = state.sidebarSections.find((section) => section.name === 'Certificates');
-  assert.deepEqual(state.bodyOrder, [migratedProject!.id, 'legacy_body', 'about', 'education', 'jobs']);
-  assert.deepEqual(state.sidebarOrder, [migratedCertificates!.id, 'languages', 'hobbies']);
-  assert.equal(Reflect.get(state, 'skills'), undefined);
-  assert.equal(Reflect.get(state, 'sectionPlacement'), undefined);
-  assert.equal(Reflect.get(state.experience, 'projects'), undefined);
-  assert.equal(Reflect.get(state, 'certs'), undefined);
-  assert.deepEqual(state.disabled, []);
-  assert.ok(state.education[0].id);
-  assert.ok(state.experience.jobs[0].id);
-  assert.ok(state.customSections[0].entries[0].id);
-});
-
-test('converts a legacy custom array to a single body-only custom section', () => {
-  const state = stub<LegacyCvState>({
-    version: 1,
-    lang: 'de',
-    custom: [{ title: 'Vortrag' }],
-    experience: {},
-  });
-
-  normalizeContentState(state);
-
-  assert.equal(Reflect.get(state, 'custom'), undefined);
-  assert.equal(state.customSections.length, 1);
-  assert.equal(state.customSections[0].name, 'Eigene Sektion');
-  assert.deepEqual(state.customSections[0].fields, ['title', 'institution', 'place', 'start', 'end', 'state', 'desc']);
-  assert.equal(state.customSections[0].entries[0].institution, '');
-  assert.equal(state.customSections[0].entries[0].title, 'Vortrag');
-  assert.ok(state.bodyOrder.includes(state.customSections[0].id));
-  assert.deepEqual(state.sidebarSections, []);
-});
-
-test('replaces retired tools with a selectable state in custom sections', () => {
-  const state = stub<LegacyCvState>({
-    version: 4,
-    customSections: [{
-      id: 'custom',
-      name: 'Talks',
-      fields: ['end', 'title', 'tools', 'unknown', 'title'],
-      entries: [{ title: 'VueConf', place: 'Berlin', start: '2025', end: '2025', tools: 'Vue, Vite', desc: 'Session' }],
-    }],
-    experience: {},
-  });
-
-  normalizeContentState(state);
-
-  assert.deepEqual(state.customSections[0].fields, ['title', 'end', 'state']);
-  assert.equal(state.customSections[0].entries[0].place, 'Berlin');
-  assert.equal(state.customSections[0].entries[0].state, 'planned');
-  assert.equal(Reflect.get(state.customSections[0].entries[0], 'tools'), undefined);
-  assert.equal(state.customSections[0].entries[0].desc, 'Session');
-});
-
-test('normalizes job states and removes retired tools from saved entries', () => {
-  const state = stub<LegacyCvState>({
-    experience: { jobs: [
-      { title: 'Old role', tools: 'Vue, Vite', state: 'invalid' },
-      { title: 'Current role', state: 'ongoing' },
-    ] },
-  });
-
-  normalizeContentState(state);
-
-  assert.deepEqual(state.experience.jobs.map((item) => item.state), ['planned', 'ongoing']);
-  assert.equal(Reflect.get(state.experience.jobs[0], 'tools'), undefined);
-});
-
-test('normalizes textarea custom sections without discarding configured fields or content', () => {
-  const state = stub<LegacyCvState>({
-    customSections: [{
-      id: 'custom_text',
-      name: 'Notes',
-      entryMode: 'textarea',
-      text: 'Free-form **notes**',
-      fields: ['title', 'unknown', 'desc'],
-      entries: [{ title: 'Saved title', desc: 'Saved entry description' }],
-    }],
-    experience: {},
-  });
-
-  normalizeContentState(state);
-
-  assert.equal(state.customSections[0].entryMode, 'textarea');
-  assert.deepEqual(state.customSections[0].fields, ['title', 'desc']);
-  assert.equal(state.customSections[0].text, 'Free-form **notes**');
-  assert.equal(state.customSections[0].entries[0].title, 'Saved title');
-  assert.equal(state.customSections[0].entries[0].desc, 'Saved entry description');
-});
-
-test('normalizes sidebar skill sections without a configurable section header', () => {
-  const state = stub<LegacyCvState>({
-    version: 2,
-    lang: 'en',
-    bodyOrder: ['about'],
-    sidebarOrder: ['custom_sidebar'],
-    sidebarSections: [{ id: 'custom_sidebar', name: 'Tools', levelType: 'years', items: [{ name: 'Vue', levelValue: 4 }] }],
-    experience: {},
-  });
-
-  normalizeContentState(state);
-
-  assert.equal(state.sidebarSections[0].items[0].id.length > 0, true);
-  assert.deepEqual(state.sidebarOrder, ['custom_sidebar', 'languages', 'hobbies']);
-  assert.equal(state.sidebarSections[0].levelType, 'years');
-});
-
-test('preserves item visibility without automatically grouping hidden sections', () => {
-  const state = stub<LegacyCvState>({
-    version: 2,
-    bodyOrder: ['jobs', 'about'],
-    sidebarOrder: ['languages'],
-    education: [{ title: 'Degree', hidden: true }],
-    experience: { jobs: [{}] },
-    languages: [{}],
-    hobbies: [{}],
-  });
-
-  normalizeContentState(state);
-
-  assert.deepEqual(state.bodyOrder, ['jobs', 'about', 'education']);
-  assert.deepEqual(state.sidebarOrder, ['languages', 'hobbies']);
-  assert.equal(state.education[0].hidden, true);
-  assert.equal(state.experience.jobs[0].hidden, false);
-});
-
-test('migrates legacy markdown and education details to shared text fields', () => {
-  const state = stub<LegacyCvState>({
-    version: 2,
-    about: { text: 'Intro\n- About point' },
-    education: [{ thesisTopic: 'Machine Learning', thesisBullets: ['Research', 'Publication'], courses: [{ title: 'Algorithms', description: 'Advanced' }, { title: 'Databases', description: '' }] }],
-    experience: {
-      jobs: [{ bullets: ['Launch', 'Mentor'] }],
-      addExp: [{ desc: 'Prototype\n- Validated idea' }],
-      projects: [{ desc: 'CLI utility' }],
-    },
-    customSections: [{ id: 'custom', name: 'Custom', entries: [{ desc: 'Talk\n- Audience Q&A' }] }],
-  });
-
-  normalizeContentState(state);
-
-  assert.equal(state.version, 5);
-  assert.equal(state.experience.jobs[0].bullets, '- Launch\n- Mentor');
-  assert.equal(state.education[0].thesis, 'Machine Learning\n- Research\n- Publication');
-  assert.equal(state.education[0].coursesText, '- Algorithms — Advanced\n- Databases');
-  assert.equal(Reflect.get(state.education[0], 'thesisTopic'), undefined);
-  assert.equal(Reflect.get(state.education[0], 'thesisBullets'), undefined);
-  assert.equal(Reflect.get(state.education[0], 'courses'), undefined);
-  assert.equal(Reflect.get(state.experience, 'addExp'), undefined);
-  assert.equal(Reflect.get(state.experience, 'projects'), undefined);
-  assert.equal(state.customSections.some((section) => section.entries.some((entry) => entry.desc === 'Prototype\n- Validated idea')), true);
-  assert.equal(state.customSections[0].entries[0].desc, 'Talk\n- Audience Q&A');
-});
-
-test('preserves existing v5 education text while removing obsolete fields', () => {
-  const state = stub<LegacyCvState>({
-    version: 5,
-    education: [{
-      thesis: '**Existing thesis**',
-      coursesText: '- Existing course',
-      thesisTopic: 'Old topic',
-      thesisBullets: ['Old detail'],
-      courses: [{ title: 'Old course' }],
-    }],
-    experience: {},
-  });
-
-  normalizeContentState(state);
-
-  assert.equal(state.education[0].thesis, '**Existing thesis**');
-  assert.equal(state.education[0].coursesText, '- Existing course');
-  assert.equal(Reflect.get(state.education[0], 'thesisTopic'), undefined);
-  assert.equal(Reflect.get(state.education[0], 'thesisBullets'), undefined);
-  assert.equal(Reflect.get(state.education[0], 'courses'), undefined);
-});
-
-// Sparse legacy documents must satisfy the shared state contract after migration.
-test('normalization fills missing editor metadata and contact fields', () => {
-  const state: LegacyCvState = { contact: { name: 'Ada' } };
-  normalizeContentState(state);
-  assert.equal(state.lang, 'en');
-  assert.deepEqual(state.design, {});
-  assert.deepEqual(state.completedSections, []);
-  assert.equal(state.contact.name, 'Ada');
-  assert.equal(state.contact.email, '');
-  assert.ok(Array.isArray(state.experience.jobs));
+  const normalized = createNormalizedContentState(state);
+  assert.deepEqual(normalized.customSections[0].fields, CUSTOM_BODY_FIELDS);
+  assert.equal(normalized.customSections[0].entries[0].state, 'planned');
+  assert.equal(normalized.customSections[0].entries[0].institution, '');
+  assert.deepEqual(normalized.customSections[1].fields, ['title', 'desc']);
+  assert.equal(normalized.customSections[1].text, '**Notes**');
+  assert.equal(normalized.customSections[1].entryMode, 'textarea');
+  assert.deepEqual(normalized.education, state.education);
+  assert.equal(normalized.experience.jobs[0].state, 'ongoing');
+  assert.equal(normalized.sidebarSections[0].items[0].levelValue, 4);
+  assert.equal(state.customSections[0].fields, undefined);
 });

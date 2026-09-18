@@ -3,13 +3,13 @@ import { computed } from 'vue';
 import { normalizeMarkdownText } from '../composables/markdownText.ts';
 
 const props = defineProps({
-  modelValue: { type: [String, Array], default: '' },
+  modelValue: { type: String, default: '' },
   placeholder: { type: String, default: '' },
   ariaLabel: { type: String, default: '' },
   help: { type: String, default: '' },
   rows: { type: Number, default: 3 },
 });
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
 
 const value = computed({
   get: () => normalizeMarkdownText(props.modelValue),

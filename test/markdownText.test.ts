@@ -16,8 +16,9 @@ test('continues the current bullet and ignores blank lines after a list starts',
   assert.deepEqual(parsed.bullets, ['First bullet\ncontinued detail', 'Second bullet']);
 });
 
-test('converts legacy bullet arrays to markdown text', () => {
-  assert.equal(normalizeMarkdownText(['First', 'Second']), '- First\n- Second');
+test('normalizes line endings and handles optional empty text', () => {
+  assert.equal(normalizeMarkdownText('First\r\nSecond'), 'First\nSecond');
+  assert.equal(normalizeMarkdownText(undefined), '');
   assert.equal(hasMarkdownText('- A point'), true);
   assert.equal(hasMarkdownText(''), false);
 });

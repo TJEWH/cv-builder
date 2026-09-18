@@ -1,18 +1,27 @@
 <script setup lang="ts">
 import type { PropType } from 'vue';
-import type { CvDesign } from '../types';
+import type { CvDesign, KeysOfType, SelectOption } from '../types';
 import { computed, reactive, ref } from 'vue';
-type StringDesignKey = { [K in keyof CvDesign]-?: CvDesign[K] extends string | undefined ? K : never }[keyof CvDesign];
-interface FavoriteLink { linkKey: 'pageMarginVerticalLinked' | 'pageMarginHorizontalLinked' | 'headerBottomSpacingLinked'; primaryKey: StringDesignKey; secondaryKey: StringDesignKey }
-interface FavoriteOption { key: keyof CvDesign; label: string; type: 'range' | 'select' | 'color'; options?: { value: string; label: string }[]; min?: number; max?: number; step?: number; unit?: string; suffix?: string; fallback?: number; link?: FavoriteLink }
-type FavoriteRow = { type: 'single'; option: FavoriteOption } | { type: 'linked'; key: string; label: string; link: FavoriteLink; options: FavoriteOption[] };
 import { makeT } from '../i18n/dict';
+type StringDesignKey = KeysOfType<CvDesign, string>;
+interface FavoriteLink { linkKey: 'pageMarginVerticalLinked' | 'pageMarginHorizontalLinked' | 'headerBottomSpacingLinked'; primaryKey: StringDesignKey; secondaryKey: StringDesignKey }
+type FavoriteOption = {
+  label: string; options?: SelectOption[];
+  min?: number; max?: number; step?: number; suffix?: string; fallback?: number;
+} & (
+  | { type: 'select' | 'color'; key: StringDesignKey; unit?: never; link?: never }
+  | ({ type: 'range'; min: number; max: number; step: number; fallback: number } & (
+    | { key: StringDesignKey; unit: 'mm' | 'px' | 'pt' | 'fr'; link?: FavoriteLink }
+    | { key: KeysOfType<CvDesign, number>; unit?: never; link?: never }
+  ))
+);
+type FavoriteRow = { type: 'single'; option: FavoriteOption } | { type: 'linked'; key: string; label: string; link: FavoriteLink; options: [FavoriteOption, FavoriteOption] };
 
 const props = defineProps({
   modelValue: { type: Object as PropType<CvDesign>, required: true },
   lang: { type: String, default: 'en' },
 });
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits<{ 'update:modelValue': [design: CvDesign] }>();
 
 const design = computed({
   get: () => props.modelValue,
@@ -104,10 +113,11 @@ function favoriteShortLabel(option: FavoriteOption) {
 }
 const favoriteRows = computed(() => {
   const rows = new Map<string, FavoriteRow[]>();
-  const handledLinks = new Set();
+  const handledLinks = new Set<FavoriteLink['linkKey']>();
   const add = (section: string, entry: FavoriteRow) => {
-    if (!rows.has(section)) rows.set(section, []);
-    rows.get(section)!.push(entry);
+    const entries = rows.get(section) || [];
+    entries.push(entry);
+    rows.set(section, entries);
   };
 
   selectedFavoriteOptions.value.forEach((option) => {
@@ -121,17 +131,24 @@ const favoriteRows = computed(() => {
 
     const primary = favoriteOptionByKey.get(option.link.primaryKey);
     const secondary = favoriteOptionByKey.get(option.link.secondaryKey);
+    if (!primary || !secondary) {
+      add(section, { type: 'single', option });
+      return;
+    }
     handledLinks.add(option.link.linkKey);
     add(section, {
       type: 'linked',
       key: option.link.linkKey,
       label: favoritePairLabel(option.link.linkKey),
       link: option.link,
-      options: [primary!, secondary!],
+      options: [primary, secondary],
     });
   });
 
-  return favoriteSectionOrder.filter((key) => rows.has(key)).map((key) => ({ key, label: favoriteSectionLabels[key], entries: rows.get(key)! }));
+  return favoriteSectionOrder.flatMap((key) => {
+    const entries = rows.get(key);
+    return entries ? [{ key, label: favoriteSectionLabels[key], entries }] : [];
+  });
 });
 function setFavorite(key: string, enabled: boolean) {
   const next = new Set(favoriteKeys.value);
@@ -151,15 +168,19 @@ function favoriteValueLabel(option: FavoriteOption) {
 }
 function setFavoriteValue(option: FavoriteOption, value: string | number) {
   if (option.type !== 'range') {
-    Reflect.set(design.value, option.key, value);
+    design.value[option.key] = String(value);
     return;
   }
 
-  const nextValue = option.unit ? `${value}${option.unit}` : Number(value);
-  Reflect.set(design.value, option.key, nextValue);
-  if (option.link && isLinked(option.link.linkKey)) {
-    const pairedKey = option.link.primaryKey === option.key ? option.link.secondaryKey : option.link.primaryKey;
-    Reflect.set(design.value, pairedKey, nextValue);
+  if (option.unit !== undefined) {
+    const nextValue = `${value}${option.unit}`;
+    design.value[option.key] = nextValue;
+    if (option.link && isLinked(option.link.linkKey)) {
+      const pairedKey = option.link.primaryKey === option.key ? option.link.secondaryKey : option.link.primaryKey;
+      design.value[pairedKey] = nextValue;
+    }
+  } else {
+    design.value[option.key] = Number(value);
   }
 }
 function toggleFavoriteLink(link: FavoriteLink) {
@@ -324,7 +345,7 @@ function pixels(value: unknown, fallback = 1) {
 
       <section class="editor-subsection" :class="{ collapsed: sections.spacing }" @click="onSubsectionClick('spacing', $event)">
         <div class="section-head"><font-awesome-icon :icon="['fas', 'arrows-left-right-to-line']" class="section-icon" aria-hidden="true" /><h4>Spacing</h4></div>
-        <div class="editor-subsection__body grid-3"><label>Separator Width: {{ pixels(design.separatorWidth) }}px<input type="range" min="0.5" max="5" step="0.5" :value="pixels(design.separatorWidth)" @input="design.separatorWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label><label>Body Section Spacing: {{ design.sectionSpacingBody || design.sectionSpacing }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingBody || design.sectionSpacing || '')" @input="design.sectionSpacingBody = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'mm'"></label><label>Sidebar Section Spacing: {{ design.sectionSpacingSidebar || design.sectionSpacing }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingSidebar || design.sectionSpacing || '')" @input="design.sectionSpacingSidebar = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'mm'"></label></div>
+        <div class="editor-subsection__body grid-3"><label>Separator Width: {{ pixels(design.separatorWidth) }}px<input type="range" min="0.5" max="5" step="0.5" :value="pixels(design.separatorWidth)" @input="design.separatorWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label><label>Body Section Spacing: {{ design.sectionSpacingBody || '6mm' }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingBody || '6mm')" @input="design.sectionSpacingBody = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'mm'"></label><label>Sidebar Section Spacing: {{ design.sectionSpacingSidebar || '6mm' }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingSidebar || '6mm')" @input="design.sectionSpacingSidebar = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'mm'"></label></div>
         <div class="editor-subsection__body grid-3 subsection-row"><label>Body / Sidebar Spacing: {{ design.bodySidebarSpacing || '10mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.bodySidebarSpacing, 10)" @input="setMillimeters('bodySidebarSpacing', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label></div>
       </section>
 

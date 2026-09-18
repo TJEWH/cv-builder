@@ -19,8 +19,6 @@
     "badgeMode": "solid",
     "badgeBorderWidth": "1px",
     "badgeBorderRadius": "6px",
-    "itemBorderWidth": "1px",
-    "sectionSpacing": "6mm",
     "sectionSpacingBody": "6mm",
     "sectionSpacingSidebar": "6mm",
     "itemSpacing": "3.5mm",
@@ -51,9 +49,12 @@
     "email": "muster-ex@mp.le",
     "phone": "+49 123 456789",
     "website": "https://alexmuster.dev",
-    "linkedin": "https://linkedin.com/in/alexmuster"
+    "linkedin": "https://linkedin.com/in/alexmuster",
+    "github": ""
   },
-  "about": { "text": "Software Engineer mit Fokus auf sauberen Code, Performance und DX. Erfahrung in Backend/Cloud & Frontend." },
+  "about": {
+    "text": "Software Engineer mit Fokus auf sauberen Code, Performance und DX. Erfahrung in Backend/Cloud & Frontend."
+  },
   "experience": {
     "jobs": [
       {
@@ -63,43 +64,109 @@
         "start": "2021",
         "end": "heute",
         "state": "ongoing",
-        "bullets": "- Skalierung von X\n- Einführung CI/CD\n- Mentoring"
+        "bullets": "- Skalierung von X\n- Einführung CI/CD\n- Mentoring",
+        "id": "job_default_1"
       }
     ]
   },
   "education": [
-    { "title": "M.Sc. Informatik", "sub": "TU München", "place": "München", "start": "2017", "end": "2020", "coursesText": "- KI\n- Softwarearchitektur" }
+    {
+      "title": "M.Sc. Informatik",
+      "sub": "TU München",
+      "place": "München",
+      "start": "2017",
+      "end": "2020",
+      "coursesText": "- KI\n- Softwarearchitektur",
+      "id": "education_default_1"
+    }
   ],
   "languages": [
-    { "name": "Deutsch", "level": "Muttersprache" },
-    { "name": "Englisch", "level": "C1" }
+    {
+      "name": "Deutsch",
+      "level": "Muttersprache",
+      "id": "language_default_1"
+    },
+    {
+      "name": "Englisch",
+      "level": "C1",
+      "id": "language_default_2"
+    }
   ],
   "hobbies": [
-    { "name": "Musikproduktion" }
+    {
+      "name": "Musikproduktion",
+      "id": "hobby_default_1"
+    }
   ],
   "customSections": [
     {
       "id": "body_default_custom",
       "name": "Konferenzen",
-      "fields": ["title", "institution", "place", "start", "end", "state", "desc"],
+      "fields": [
+        "title",
+        "institution",
+        "place",
+        "start",
+        "end",
+        "state",
+        "desc"
+      ],
       "entries": [
-        { "id": "entry_default_custom", "title": "Konferenzen", "place": "Köln", "start": "2023", "end": "2025", "state": "complete", "desc": "Sprecher auf JSConf; Mitorganisator lokaler Meetup-Reihe" }
+        {
+          "id": "entry_default_custom",
+          "title": "Konferenzen",
+          "place": "Köln",
+          "start": "2023",
+          "end": "2025",
+          "state": "complete",
+          "desc": "Sprecher auf JSConf; Mitorganisator lokaler Meetup-Reihe"
+        }
       ]
     },
     {
       "id": "body_default_additional",
       "name": "Weitere Erfahrung",
-      "fields": ["title", "institution", "place", "start", "end", "state", "desc"],
+      "fields": [
+        "title",
+        "institution",
+        "place",
+        "start",
+        "end",
+        "state",
+        "desc"
+      ],
       "entries": [
-        { "id": "entry_default_additional", "title": "Hackathon XYZ", "place": "Dortmund", "start": "2024/03", "end": "2024/03", "desc": "1. Platz – Team von 4\nPrototyp einer ML-App, 48h Sprint …" }
+        {
+          "id": "entry_default_additional",
+          "title": "Hackathon XYZ",
+          "place": "Dortmund",
+          "start": "2024/03",
+          "end": "2024/03",
+          "desc": "1. Platz – Team von 4\nPrototyp einer ML-App, 48h Sprint …"
+        }
       ]
     },
     {
       "id": "body_default_projects",
       "name": "Projekte & Publikationen",
-      "fields": ["title", "institution", "place", "start", "end", "state", "desc"],
+      "fields": [
+        "title",
+        "institution",
+        "place",
+        "start",
+        "end",
+        "state",
+        "desc"
+      ],
       "entries": [
-        { "id": "entry_default_project", "title": "Open Source Tool – repo/name", "place": "Remote", "start": "2025", "end": "2025", "desc": "CLI-Tool zur …" }
+        {
+          "id": "entry_default_project",
+          "title": "Open Source Tool – repo/name",
+          "place": "Remote",
+          "start": "2025",
+          "end": "2025",
+          "desc": "CLI-Tool zur …"
+        }
       ]
     }
   ],
@@ -108,10 +175,31 @@
       "id": "sidebar_default_certificates",
       "name": "Zertifikate",
       "levelType": null,
-      "items": [{ "id": "skill_default_certificate", "name": "AWS Solutions Architect · 2023", "levelValue": 0 }]
+      "items": [
+        {
+          "id": "skill_default_certificate",
+          "name": "AWS Solutions Architect · 2023",
+          "levelValue": 0
+        }
+      ]
     }
   ],
-  "bodyOrder": ["about", "education", "jobs", "body_default_additional", "body_default_projects", "body_default_custom"],
-  "sidebarOrder": ["languages", "hobbies", "sidebar_default_certificates"],
-  "disabled": []
+  "bodyOrder": [
+    "about",
+    "education",
+    "jobs",
+    "body_default_additional",
+    "body_default_projects",
+    "body_default_custom"
+  ],
+  "sidebarOrder": [
+    "languages",
+    "hobbies",
+    "sidebar_default_certificates"
+  ],
+  "disabled": [],
+  "completedSections": [],
+  "keepTogetherSections": [],
+  "sectionNames": {},
+  "sectionHeaderSizes": {}
 }

@@ -37,8 +37,8 @@ Modern resume generator built with Vue 3, TypeScript and Vite. Create profession
 - **Auto-Save**: Automatic saving with status indicator
 - **Backup System**:
   - Browser-local persistence (LocalStorage)
-  - Multiple named configurations
-  - Import/Export
+  - Multiple named configurations, loaded automatically when selected
+  - Import/Export of the current versioned JSON format (CV data version 7)
 - **Multilingual**: German/English (UI + content)
 - **Drag & Drop**: Reorder sections and entries
 
@@ -46,7 +46,7 @@ Modern resume generator built with Vue 3, TypeScript and Vite. Create profession
 - **PDF Export**: Direct-download vector PDF with visible selectable text, clickable links and vector SVG icons
 - **Vector Previews**: Inline and full-size previews reuse the same scalable SVG pages; no raster images, quality settings, size estimates, or higher-resolution replacement render
 - **Consistent Layout**: SVG previews and PDF downloads share one vector paint list, page slices, margins and sidebar positioning
-- **Vector Fonts**: Uses the selected downloadable Google fonts (internet access required), including font weights and Unicode subsets. Legacy “System” body-font selections migrate to Inter. Other unsupported fonts or missing glyphs show an actionable error instead of silently substituting a different face
+- **Vector Fonts**: Uses the selected downloadable Google fonts (internet access required), including font weights and Unicode subsets. Unsupported fonts or missing glyphs show an actionable error instead of silently substituting a different face
 - **Page-Break Control**: Intelligent page breaks
 - **GDPR Compliant**: No cloud, all data local
 
@@ -185,12 +185,15 @@ Create build: `npm run build` → `/dist` folder
 ### Type checking
 
 Application code, Vue scripts, build adapters and tests use TypeScript with
-strict checking. Run `npm run typecheck` to check them without emitting files.
+strict checking, including unused imports and parameters. Run `npm run typecheck`
+to check them without emitting files.
 `npm run build` performs the same check before producing the Vite bundle.
 Run `npm test` for the TypeScript regression suite via tsx.
 
 Shared CV contracts are in `src/types.ts`; PDF recording, rendering and page
-contracts are in `src/pdfTypes.ts`. Legacy JSON is handled at the persistence
-boundary. The reflective Canvas command boundary and PDFKit 0.20 adapter are
+contracts are in `src/pdfTypes.ts`. Imported JSON, browser saves and bundled defaults
+are validated against the current schema before use. Older versions and raw JSON
+imports are rejected. Optional editor fields still receive defaults. Component events declare their payloads, and form schemas restrict
+controls to compatible field types. The reflective Canvas command boundary and PDFKit 0.20 adapter are
 explicitly isolated because the third-party APIs are dynamic or have older
 type declarations.

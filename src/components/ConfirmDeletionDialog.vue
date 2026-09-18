@@ -9,7 +9,7 @@ const props = defineProps({
   confirmLabel: { type: String, required: true },
 });
 
-const emit = defineEmits(['cancel', 'confirm']);
+const emit = defineEmits<{ cancel: []; confirm: [] }>();
 const cancelButton = ref<HTMLButtonElement | null>(null);
 
 const cancel = () => emit('cancel');

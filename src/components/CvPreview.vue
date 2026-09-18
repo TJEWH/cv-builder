@@ -24,6 +24,11 @@ const visibleItems = (items: CvItem[]) => Array.isArray(items) ? items.filter((i
 const hasVisibleItems = (items: CvItem[]) => visibleItems(items).length > 0;
 const getBodySection = (id: string) => props.state.customSections?.find((section) => section.id === id);
 const getSidebarSection = (id: string) => props.state.sidebarSections?.find((section) => section.id === id);
+const bodyRows = computed(() => bodyKeys.value.map((key) => {
+  const section = getBodySection(key);
+  return { key, section, entries: section ? visibleItems(section.entries) : [] };
+}));
+const sidebarRows = computed(() => sidebarKeys.value.map((key) => ({ key, section: getSidebarSection(key) })));
 const getSectionHeaderSize = (key: string) => props.state.sectionHeaderSizes?.[key] || 'h2';
 const isSectionHeaderHidden = (key: string) => props.state.sectionHeaderSizes?.[key] === 'null';
 const getSectionDisplayName = (key: string) => getBodySection(key)?.name || props.state.sectionNames?.[key] || ({
@@ -44,7 +49,8 @@ const isHiddenFor = (key: string) => {
   if (bodySection) return bodySection.entryMode === 'textarea'
     ? !hasMarkdownText(bodySection.text)
     : !hasVisibleItems(bodySection.entries);
-  if (getSidebarSection(key)!) return !hasVisibleItems(getSidebarSection(key)!.items);
+  const sidebarSection = getSidebarSection(key);
+  if (sidebarSection) return !hasVisibleItems(sidebarSection.items);
   return false;
 };
 const hasVisibleSidebarContent = computed(() => sidebarKeys.value.some((key: string) => !isHiddenFor(key)));
@@ -122,7 +128,7 @@ onBeforeUnmount(() => {
     <section class="content">
       <aside v-if="hasVisibleSidebarContent" class="sidebar" id="cv_side">
         <div class="sidebar-content">
-        <section v-for="key in sidebarKeys" :key="key" class="section" :class="{ 'is-hidden': isHiddenFor(key) }">
+        <section v-for="{ key, section } in sidebarRows" :key="key" class="section" :class="{ 'is-hidden': isHiddenFor(key) }">
           <template v-if="key === 'languages'">
             <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
             <div class="language-items"><div v-for="language in visibleItems(state.languages)" :key="language.id" class="language-item"><span class="language-name">{{ language.name }}</span><span class="language-level">{{ language.level }}</span></div></div>
@@ -131,17 +137,17 @@ onBeforeUnmount(() => {
             <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
             <ul class="lang-list"><li v-for="hobby in visibleItems(state.hobbies)" :key="hobby.id">{{ hobby.name }}</li></ul>
           </template>
-          <template v-else-if="getSidebarSection(key)!">
-            <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSidebarSection(key)!.name }}</component>
-            <div v-if="!getSidebarSection(key)!.levelType" class="tags"><span v-for="item in visibleItems(getSidebarSection(key)!.items)" :key="item.id" class="tag">{{ item.name }}</span></div>
-            <div v-else class="skill-items-list"><SkillItem v-for="item in visibleItems(getSidebarSection(key)!.items)" :key="item.id" :name="item.name || ''" :level-type="getSidebarSection(key)!.levelType || ''" :level-value="item.levelValue || 0" :lang="langRef" /></div>
+          <template v-else-if="section">
+            <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ section.name }}</component>
+            <div v-if="!section.levelType" class="tags"><span v-for="item in visibleItems(section.items)" :key="item.id" class="tag">{{ item.name }}</span></div>
+            <div v-else class="skill-items-list"><SkillItem v-for="item in visibleItems(section.items)" :key="item.id" :name="item.name || ''" :level-type="section.levelType || ''" :level-value="item.levelValue || 0" :lang="langRef" /></div>
           </template>
         </section>
         </div>
       </aside>
 
       <div id="cv_main">
-        <section v-for="key in bodyKeys" :key="key" class="section" :class="{ 'is-hidden': isHiddenFor(key), 'section--keep-together': isKeptTogether(key) }">
+        <section v-for="{ key, section, entries } in bodyRows" :key="key" class="section" :class="{ 'is-hidden': isHiddenFor(key), 'section--keep-together': isKeptTogether(key) }">
           <svg v-if="key === 'jobs' || key === 'education'" class="timeline-rail" aria-hidden="true"><path d="" /></svg>
           <template v-if="key === 'about'">
             <div class="section-lead">
@@ -163,13 +169,13 @@ onBeforeUnmount(() => {
             </div>
             <div v-if="visibleItems(state.education).length > 1" class="timeline timeline--continued"><CvBodyItem v-for="item in visibleItems(state.education).slice(1)" :key="item.id" kind="education" :item="item" :meta="formatMeta(item)" :anonymized="anonymized" /></div>
           </template>
-          <template v-else-if="getBodySection(key)!">
+          <template v-else-if="section">
             <div class="section-lead">
               <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
-              <MarkdownContent v-if="getBodySection(key)!.entryMode === 'textarea'" :value="getBodySection(key)!.text" :anonymized="anonymized" />
-              <CvBodyItem v-else-if="visibleItems(getBodySection(key)!.entries).length" kind="custom" :item="visibleItems(getBodySection(key)!.entries)[0]" :meta="formatCustomMeta(getBodySection(key)!, visibleItems(getBodySection(key)!.entries)[0])" :institution="hasCustomInstitution(getBodySection(key)!, visibleItems(getBodySection(key)!.entries)[0])" :show-title="customFieldEnabled(getBodySection(key)!, 'title')" :show-description="customFieldEnabled(getBodySection(key)!, 'desc')" :anonymized="anonymized" />
+              <MarkdownContent v-if="section.entryMode === 'textarea'" :value="section.text" :anonymized="anonymized" />
+              <CvBodyItem v-else-if="entries.length" kind="custom" :item="entries[0]" :meta="formatCustomMeta(section, entries[0])" :institution="hasCustomInstitution(section, entries[0])" :show-title="customFieldEnabled(section, 'title')" :show-description="customFieldEnabled(section, 'desc')" :anonymized="anonymized" />
             </div>
-            <div v-if="getBodySection(key)!.entryMode !== 'textarea' && visibleItems(getBodySection(key)!.entries).length > 1"><CvBodyItem v-for="entry in visibleItems(getBodySection(key)!.entries).slice(1)" :key="entry.id" kind="custom" :item="entry" :meta="formatCustomMeta(getBodySection(key)!, entry)" :institution="hasCustomInstitution(getBodySection(key)!, entry)" :show-title="customFieldEnabled(getBodySection(key)!, 'title')" :show-description="customFieldEnabled(getBodySection(key)!, 'desc')" :anonymized="anonymized" /></div>
+            <div v-if="section.entryMode !== 'textarea' && entries.length > 1"><CvBodyItem v-for="entry in entries.slice(1)" :key="entry.id" kind="custom" :item="entry" :meta="formatCustomMeta(section, entry)" :institution="hasCustomInstitution(section, entry)" :show-title="customFieldEnabled(section, 'title')" :show-description="customFieldEnabled(section, 'desc')" :anonymized="anonymized" /></div>
           </template>
         </section>
       </div>

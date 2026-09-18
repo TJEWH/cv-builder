@@ -1,6 +1,5 @@
 import { createPdfRenderTask } from '../src/composables/pdfRenderTask';
 import type { VectorSnapshot, TextRecord, GraphicsState } from '../src/pdfTypes';
-import { stub } from './helpers';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

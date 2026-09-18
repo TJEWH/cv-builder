@@ -29,11 +29,13 @@ const props = defineProps({
   versionMode: { type: Boolean, default: false },
 });
 
-const emit = defineEmits([
-  'update:modelValue', 'toggle-section', 'toggle-complete', 'toggle-collapse',
-  'toggle-keep-together',
-  'start-edit-title', 'finish-edit-title', 'cancel-edit-title', 'update-editing-value', 'header-size-change',
-]);
+const emit = defineEmits<{
+  'update:modelValue': [items: CvItem[]];
+  'toggle-section': []; 'toggle-complete': []; 'toggle-collapse': [];
+  'toggle-keep-together': [];
+  'start-edit-title': []; 'finish-edit-title': []; 'cancel-edit-title': [];
+  'update-editing-value': [value: string]; 'header-size-change': [size: string];
+}>();
 
 const langRef = computed(() => props.lang || 'de');
 const t = makeT(langRef);
@@ -60,12 +62,10 @@ const onHeaderClick = (event: MouseEvent) => {
 const add = () => {
   const entry: CvItem = { id: createContentId(props.sectionKey || 'entry'), hidden: false };
   props.schema.forEach((field) => {
-    if (field.type === 'number') Reflect.set(entry, field.key, 0);
-    else if (field.type === 'select' && field.options?.length) {
-      const defaultOption = field.options[0];
-      Reflect.set(entry, field.key, field.optionValue && typeof defaultOption === 'object' ? defaultOption[field.optionValue] : defaultOption);
-    }
-    else Reflect.set(entry, field.key, '');
+    if (field.type === 'number') entry[field.key] = 0;
+    else if (field.type === 'select' && field.key === 'state') entry.state = field.options[0]?.value ?? 'planned';
+    else if (field.type === 'select') entry[field.key] = field.options[0]?.value ?? '';
+    else entry[field.key] = '';
   });
   items.value = [...items.value, entry];
   requestAnimationFrame(() => root.value?.querySelector('.item-row:last-of-type')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
@@ -115,7 +115,7 @@ const confirmRemoveAt = () => {
           :model-value="editingTitleValue"
           class="section-name-input"
           :placeholder="titlePlaceholder"
-          @update:model-value="emit('update-editing-value', $event)"
+          @update:model-value="emit('update-editing-value', $event ?? '')"
           @click.stop
           @blur="emit('finish-edit-title')"
           @keyup.enter="emit('finish-edit-title')"
@@ -144,7 +144,7 @@ const confirmRemoveAt = () => {
     <div class="section-content">
       <div class="section-content__inner">
         <Draggable v-model="items" item-key="id" handle=".entry-drag-handle" :animation="150" class="items" ghost-class="sortable-ghost" chosen-class="sortable-chosen">
-          <template #item="{ element: item, index }">
+          <template #item="{ element: item, index }: { element: CvItem; index: number }">
             <div class="item-row" :class="{ 'item-row--hidden': item.hidden }">
               <div class="item-row__actions">
                 <button class="mini entry-drag-handle" type="button" :aria-label="langRef === 'de' ? 'Eintrag verschieben' : 'Move entry'" :title="langRef === 'de' ? 'Eintrag verschieben' : 'Move entry'"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button>
@@ -156,8 +156,8 @@ const confirmRemoveAt = () => {
                   <label v-for="field in inlineFields" :key="field.key">
                     {{ field.label }}
                     <InputText v-if="field.type === 'text'" v-model="item[field.key]" :placeholder="field.placeholder || ''" fluid />
-                    <InputNumber v-else-if="field.type === 'number'" v-model="item[field.key]" :placeholder="field.placeholder || ''" :use-grouping="false" fluid />
-                    <Select v-else-if="field.type === 'select'" v-model="item[field.key]" :options="field.options" :option-label="field.optionLabel" :option-value="field.optionValue" fluid />
+                    <InputNumber v-else-if="field.type === 'number'" :model-value="item[field.key]" @update:model-value="item[field.key] = $event ?? 0" :placeholder="field.placeholder || ''" :use-grouping="false" fluid />
+                    <Select v-else-if="field.type === 'select'" v-model="item[field.key]" :options="field.options" option-label="label" option-value="value" fluid />
                   </label>
                 </div>
                 <label v-for="field in textareaFields" :key="field.key">

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { CvState, CvDesign, LegacyCvState, SavedConfiguration, SaveStatus } from './types';
+import type { CvState, CvDesign, SavedConfiguration, SaveStatus } from './types';
+import { CV_STATE_VERSION } from './types';
 import type { PreviewPage, RenderOptions } from './pdfTypes';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { debounce, loadLocal, saveLocal } from './composables/useStorage';
@@ -14,11 +15,12 @@ import BackupManager from './components/BackupManager.vue';
 import DesignPanel from './components/DesignPanel.vue';
 import AnonymizationPanel from './components/AnonymizationPanel.vue';
 import { makeT } from './i18n/dict';
-import { createContentId, normalizeContentState } from './composables/contentLayout';
+import { createContentId, createNormalizedContentState, normalizeContentState } from './composables/contentLayout';
+import { readCvState } from './composables/cvStateValidation';
 import { createAnonymizedState } from './composables/anonymization';
 
 const state = reactive<CvState>({
-  version: 7,
+  version: CV_STATE_VERSION,
   disabled: [],
   completedSections: [],
   keepTogetherSections: [],
@@ -28,7 +30,7 @@ const state = reactive<CvState>({
     ink: '#111827', graphicOpacity: 100, dateOpacity: 100,
     fontBody: 'Inter', fontHead: 'Inter', hstyle: 'clean',
     badgeMode: 'solid', badgeBorderWidth: '1px', badgeBorderRadius: '6px',
-    sectionSpacing: '6mm', sectionSpacingBody: '6mm', sectionSpacingSidebar: '6mm', itemSpacing: '3.5mm',
+    sectionSpacingBody: '6mm', sectionSpacingSidebar: '6mm', itemSpacing: '3.5mm',
     sidebarWidth: '0.7fr', sidebarAlign: 'right', sidebarFillMode: 'start', sidebarHeightMode: 'content', sidebarBottomPadding: '6mm', headerLayoutStyle: 'separator', sidebarLayoutStyle: 'separator', contactLayout: 'side', separatorWidth: '1px',
     pageMarginTop: '12mm', pageMarginRight: '12mm', pageMarginBottom: '12mm', pageMarginLeft: '12mm',
     pageMarginHorizontalLinked: true, pageMarginVerticalLinked: true,
@@ -50,9 +52,7 @@ const state = reactive<CvState>({
   bodyOrder: ['about', 'education', 'jobs'],
   sidebarOrder: ['languages', 'hobbies'],
 });
-const stateKeys = Object.keys(state) as (keyof CvState)[];
 const initialState: CvState = JSON.parse(JSON.stringify(state));
-const createInitialState = (): CvState => JSON.parse(JSON.stringify(initialState));
 
 const lang = computed({
   get: () => state.lang ?? 'en',
@@ -145,141 +145,10 @@ function toggleLanguage() {
 watch(state, scheduleStateSave, { deep: true });
 useCvDesign(() => state.design);
 
-function designMillimeters(value: unknown, fallback = 0) {
-  const parsed = Number.parseFloat(String(value));
-  return Number.isFinite(parsed) ? Math.max(0, parsed) : fallback;
-}
-
-function addDesignMillimeters(...values: unknown[]) {
-  return `${values.reduce<number>((total, value) => total + designMillimeters(value), 0)}mm`;
-}
-
-function migrateLegacySpacing(design: CvDesign & Record<string, unknown>) {
-  const legacySpacingKeys = [
-    'headerPaddingTop',
-    'headerPaddingVertical',
-    'headerPaddingHorizontal',
-    'contentPaddingVertical',
-    'contentPaddingHorizontal',
-    'headerContentPaddingVerticalLinked',
-    'headerContentPaddingHorizontalLinked',
-  ];
-  if (!legacySpacingKeys.some((key) => Object.hasOwn(design, key))) return;
-
-  const legacyHeaderVertical = design.headerPaddingVertical;
-  const headerTop = design.headerPaddingTop ?? legacyHeaderVertical ?? '12mm';
-  const headerBottom = design.headerPaddingBottom ?? legacyHeaderVertical ?? '12mm';
-  const contentVertical = design.contentPaddingVertical ?? '12mm';
-  const contentHorizontal = design.contentPaddingHorizontal ?? design.headerPaddingHorizontal ?? '12mm';
-
-  // Page margins now own the outer whitespace. This preserves the effective
-  // inset of older layouts before removing their separate horizontal controls.
-  design.pageMarginTop = addDesignMillimeters(design.pageMarginTop, headerTop);
-  design.pageMarginBottom = addDesignMillimeters(design.pageMarginBottom, contentVertical);
-  design.pageMarginRight = addDesignMillimeters(design.pageMarginRight, contentHorizontal);
-  design.pageMarginLeft = addDesignMillimeters(design.pageMarginLeft, contentHorizontal);
-  design.headerPaddingBottom = String(headerBottom);
-  design.headerBottomMargin ??= String(contentVertical);
-}
-
-function ensureDesignLayoutDefaults() {
-  state.design ||= {};
-  // Legacy system-font selections cannot be embedded in vector PDFs.
-  state.design.fontBody ||= 'Inter';
-  const legacyLayoutStyle = Reflect.get(state.design, 'layoutStyle') === 'separator' ? 'separator' : 'boxed';
-  migrateLegacySpacing(state.design as CvDesign & Record<string, unknown>);
-  const defaults = {
-    ink: '#111827',
-    graphicOpacity: 100,
-    dateOpacity: 100,
-    hstyle: 'clean',
-    sidebarFillMode: 'start',
-    sidebarHeightMode: 'content',
-    sidebarBottomPadding: '6mm',
-    headerLayoutStyle: legacyLayoutStyle,
-    sidebarLayoutStyle: legacyLayoutStyle,
-    contactLayout: 'side',
-    separatorWidth: '1px',
-    pageMarginTop: '12mm',
-    pageMarginRight: '12mm',
-    pageMarginBottom: '12mm',
-    pageMarginLeft: '12mm',
-    headerPaddingBottom: '12mm',
-    headerBottomMargin: '12mm',
-    itemSpacing: '3.5mm',
-    bodySidebarSpacing: '10mm',
-    badgeMode: 'solid',
-    badgeBorderWidth: '1px',
-    favoriteControls: [],
-  };
-
-  Object.entries(defaults).forEach(([key, value]) => {
-    if (Reflect.get(state.design, key) == null) Reflect.set(state.design, key, value);
-  });
-  if (!['start', 'last-page', 'after-cover'].includes(state.design.sidebarFillMode || '')) {
-    state.design.sidebarFillMode = 'start';
-  }
-  if (!['full-page', 'content'].includes(state.design.sidebarHeightMode || '')) {
-    state.design.sidebarHeightMode = 'content';
-  }
-  if (!['solid', 'border'].includes(state.design.badgeMode || '')) {
-    state.design.badgeMode = 'solid';
-  }
-  if (!['clean', 'underline', 'leftbar', 'pill'].includes(state.design.hstyle || '')) {
-    state.design.hstyle = 'clean';
-  }
-  [
-    ['pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft'],
-    ['pageMarginVerticalLinked', 'pageMarginTop', 'pageMarginBottom'],
-    ['headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin'],
-  ].forEach(([linkKey, primaryKey, secondaryKey]) => {
-    if (typeof Reflect.get(state.design, linkKey) !== 'boolean') {
-      Reflect.set(state.design, linkKey, Reflect.get(state.design, primaryKey) === Reflect.get(state.design, secondaryKey));
-    }
-  });
-
-  ['accent', 'bg', 'headerbg', 'sidebarbg', 'subtitle', 'graphic', 'dateColor', 'invertBadge', 'enableBoxShadow', 'layoutStyle', 'addExpColumns', 'bulletStyle', 'radius', 'itemBorderWidth', 'headerRadius', 'headerPadYmm', 'headerPaddingTop', 'headerPaddingVertical', 'headerPaddingHorizontal', 'contentPaddingVertical', 'contentPaddingHorizontal', 'headerContentPaddingVerticalLinked', 'headerContentPaddingHorizontalLinked'].forEach((key) => {
-    Reflect.deleteProperty(state.design, key);
-  });
-}
-
-function isStateRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
 function mergeIn(data: unknown) {
-  if (!isStateRecord(data)) return;
-
-  const defaults = createInitialState();
-  const nextState = createInitialState();
-  stateKeys.forEach((key) => {
-    if (Object.hasOwn(data, key)) Reflect.set(nextState, key, data[key]);
-  });
-  ['disabled', 'completedSections', 'keepTogetherSections', 'education', 'languages', 'hobbies', 'customSections', 'sidebarSections', 'bodyOrder', 'sidebarOrder'].forEach((key) => {
-    if (!Array.isArray(Reflect.get(nextState, key))) Reflect.set(nextState, key, Reflect.get(defaults, key));
-  });
-  ['design', 'anonymization', 'contact', 'about', 'experience', 'sectionNames', 'sectionHeaderSizes'].forEach((key) => {
-    if (!isStateRecord(Reflect.get(nextState, key))) Reflect.set(nextState, key, Reflect.get(defaults, key));
-  });
-  nextState.design = { ...defaults.design, ...nextState.design };
-  nextState.anonymization = { ...defaults.anonymization, ...nextState.anonymization };
-  nextState.contact = { ...defaults.contact, ...nextState.contact };
-  nextState.about = { ...defaults.about, ...nextState.about };
-  nextState.experience = { ...defaults.experience, ...nextState.experience };
-  if (typeof nextState.lang !== 'string') nextState.lang = 'en';
-
-  Object.keys(state).forEach((key) => {
-    if (!stateKeys.includes(key as keyof CvState)) Reflect.deleteProperty(state, key);
-  });
+  const nextState = createNormalizedContentState(readCvState(data));
+  nextState.design = { ...initialState.design, ...nextState.design };
   Object.assign(state, nextState);
-  state.version = 7;
-  ensureDesignLayoutDefaults();
-  state.completedSections = Array.isArray(state.completedSections) ? [...new Set(state.completedSections)] : [];
-  state.contact ||= { ...defaults.contact };
-  if (state.contact.github == null) state.contact.github = '';
-  state.experience ||= { jobs: [] };
-  if (!Array.isArray(state.experience.jobs)) state.experience.jobs = [];
-  normalizeContentState(state);
 }
 
 normalizeContentState(state);

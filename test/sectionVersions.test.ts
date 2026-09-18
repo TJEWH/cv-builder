@@ -1,6 +1,6 @@
 import type { TestContext } from 'node:test';
-import type { CvState, LegacyCvState, SaveStatus } from '../src/types';
-import { stub } from './helpers';
+import type { CvState, SaveStatus } from '../src/types';
+import { createTestState } from './helpers';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { effectScope, nextTick, reactive, ref, watch } from 'vue';
@@ -9,15 +9,15 @@ import { useSectionVersions } from '../src/composables/useSectionVersions.ts';
 
 function fixture(t: TestContext) {
   const makeVersion = (name: string, customIds: string[]): CvState => {
-    const data = {
-      version: 7, contact: { name }, about: { text: name }, completedSections: [],
+    const data = createTestState({
+      contact: { ...createTestState().contact, name }, about: { text: name }, completedSections: [],
       experience: { jobs: [{ id: 'job', title: name }] },
-      customSections: customIds.map((id) => ({ id, name: `${name} ${id}`, entries: [{ title: name }] })),
-      sidebarSections: [{ id: 'skills', name: 'Skills', items: [{ name }] }],
+      customSections: customIds.map((id) => ({ id, name: `${name} ${id}`, entries: [{ id: `${id}_entry`, title: name }] })),
+      sidebarSections: [{ id: 'skills', name: 'Skills', levelType: null, items: [{ id: 'skill', name }] }],
       design: { fontBody: name }, anonymization: { excludedSections: [], excludedItems: [] },
-    };
-    normalizeContentState(stub<LegacyCvState>(data));
-    return stub<CvState>(data);
+    });
+    normalizeContentState(data);
+    return data;
   };
   const saved = new Map([
     ['one', makeVersion('One', ['shared'])],

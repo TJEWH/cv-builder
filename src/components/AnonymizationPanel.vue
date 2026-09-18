@@ -10,7 +10,7 @@ const props = defineProps({
   lang: { type: String, default: 'de' },
 });
 
-const emit = defineEmits(['export']);
+const emit = defineEmits<{ export: [] }>();
 const langRef = computed(() => props.lang || 'de');
 const t = makeT(langRef);
 

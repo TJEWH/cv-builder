@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { parseInlineMarkdown, parseMarkdownText, renderConfidentialText } from '../composables/markdownText.ts';
 
 const props = defineProps({
-  value: { type: [String, Array], default: '' },
+  value: { type: String, default: '' },
   anonymized: { type: Boolean, default: false },
 });
 

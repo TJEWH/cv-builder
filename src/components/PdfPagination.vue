@@ -9,7 +9,7 @@ const props = defineProps({
   fullscreen: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['update:page']);
+const emit = defineEmits<{ 'update:page': [page: number] }>();
 const langRef = computed(() => props.lang || 'de');
 const t = makeT(langRef);
 const totalPages = computed(() => props.pages.length);

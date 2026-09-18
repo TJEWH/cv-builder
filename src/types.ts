@@ -1,3 +1,5 @@
+export const CV_STATE_VERSION = 7;
+
 /** Shared state contracts for the editor, saved configurations and previews. */
 export type ItemState = 'planned' | 'ongoing' | 'complete';
 export type SaveStatus = 'saving' | 'saved' | 'error';
@@ -51,7 +53,7 @@ export interface CvDesign {
   ink?: string; graphicOpacity?: number; dateOpacity?: number;
   fontBody?: string; fontHead?: string; hstyle?: string;
   badgeMode?: string; badgeBorderWidth?: string; badgeBorderRadius?: string;
-  sectionSpacing?: string; sectionSpacingBody?: string; sectionSpacingSidebar?: string; itemSpacing?: string;
+  sectionSpacingBody?: string; sectionSpacingSidebar?: string; itemSpacing?: string;
   sidebarWidth?: string; sidebarAlign?: string; sidebarFillMode?: string; sidebarHeightMode?: string;
   sidebarBottomPadding?: string; headerLayoutStyle?: string; sidebarLayoutStyle?: string;
   contactLayout?: string; separatorWidth?: string;
@@ -82,34 +84,14 @@ export interface CvState {
   sidebarOrder: string[];
 }
 export interface SavedConfiguration { id: string; name: string; mtime?: number }
-/** Earlier backups are normalized at the persistence boundary. */
-export interface LegacyItem extends Omit<CvItem, 'id' | 'state'> {
-  id?: string;
-  state?: string;
-  tools?: unknown;
-  year?: string;
-  thesisTopic?: string;
-  thesisBullets?: unknown;
-  courses?: unknown;
-}
-export type LegacyCvState = Omit<Partial<CvState>, 'experience' | 'education' | 'hobbies' | 'design' | 'contact' | 'customSections' | 'sidebarSections'> & {
-  contact?: Partial<Contact>;
-  education?: LegacyItem[];
-  hobbies?: LegacyItem[] | Record<string, string>;
-  experience?: { jobs?: LegacyItem[]; addExp?: LegacyItem[]; projects?: LegacyItem[] };
-  customSections?: (Omit<Partial<CustomSection>, 'entries' | 'fields'> & { entries?: LegacyItem[]; fields?: string[] })[];
-  sidebarSections?: Partial<SidebarSection>[];
-  design?: CvDesign & { addExpColumns?: unknown };
-  custom?: LegacyItem[];
-  certs?: LegacyItem[];
-  skills?: unknown;
-  orderMain?: string[];
-  orderSide?: string[];
-  sectionPlacement?: unknown;
-};
-
-export interface ItemField {
-  key: keyof CvItem; label: string; type: string; placeholder?: string;
-  options?: (string | Record<string, string>)[];
-  optionLabel?: string; optionValue?: string;
-}
+export type KeysOfType<T, Value> = { [K in keyof T]-?: NonNullable<T[K]> extends Value ? K : never }[keyof T];
+type ItemTextKey = Exclude<KeysOfType<CvItem, string>, 'id' | 'state'>;
+interface FieldLabel { label: string; placeholder?: string }
+export interface SelectOption<T extends string = string> { label: string; value: T }
+export type ItemField = FieldLabel & (
+  | { type: 'text'; key: ItemTextKey }
+  | { type: 'textarea'; key: ItemTextKey }
+  | { type: 'number'; key: KeysOfType<CvItem, number> }
+  | { type: 'select'; key: ItemTextKey; options: SelectOption[] }
+  | { type: 'select'; key: 'state'; options: SelectOption<ItemState>[] }
+);

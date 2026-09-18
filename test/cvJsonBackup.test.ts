@@ -1,59 +1,92 @@
-import { stub } from './helpers';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import { createTestState } from './helpers';
+import { CV_STATE_VERSION } from '../src/types';
+import { readCvState } from '../src/composables/cvStateValidation';
 import {
-  CV_JSON_FORMAT,
-  CV_JSON_FORMAT_VERSION,
-  createCvJsonBackup,
-  parseCvJsonBackup,
-} from '../src/composables/cvJsonBackup.ts';
+  CV_JSON_FORMAT, CV_JSON_FORMAT_VERSION, createCvJsonBackup, parseCvJsonBackup, parseStoredCvState,
+} from '../src/composables/cvJsonBackup';
 
-const sampleCv = {
-  version: 7,
-  contact: { name: 'Ada Lovelace' },
-  experience: { jobs: [] },
-};
+const sampleCv = createTestState();
+sampleCv.contact.name = 'Ada Lovelace';
 
-test('creates a portable, versioned JSON CV export', () => {
+test('exports and imports the current portable format without changing data', () => {
   const backup = createCvJsonBackup(sampleCv, new Date('2026-09-17T12:00:00.000Z'));
-
   assert.deepEqual(backup, {
-    format: CV_JSON_FORMAT,
-    formatVersion: CV_JSON_FORMAT_VERSION,
-    cvVersion: 7,
-    exportedAt: '2026-09-17T12:00:00.000Z',
-    data: sampleCv,
+    format: CV_JSON_FORMAT, formatVersion: CV_JSON_FORMAT_VERSION,
+    cvVersion: CV_STATE_VERSION, exportedAt: '2026-09-17T12:00:00.000Z', data: sampleCv,
   });
+  assert.deepEqual(parseCvJsonBackup(JSON.stringify(backup)), sampleCv);
 });
 
-test('imports the portable format and legacy raw CV state', () => {
-  const portable = JSON.stringify(createCvJsonBackup(sampleCv));
-
-  assert.deepEqual(parseCvJsonBackup(portable), sampleCv);
-  assert.deepEqual(parseCvJsonBackup(JSON.stringify(sampleCv)), sampleCv);
-  assert.deepEqual(parseCvJsonBackup(JSON.stringify({ __meta: { id: 'saved-cv' }, data: sampleCv })), sampleCv);
-});
-
-test('rejects malformed, unsupported, and non-CV JSON files', () => {
+test('rejects raw documents, browser wrappers and unsupported file or data versions', () => {
   assert.throws(() => parseCvJsonBackup('{'), /not valid JSON/);
-  assert.throws(
-    () => parseCvJsonBackup(JSON.stringify({ format: CV_JSON_FORMAT, formatVersion: 2, data: sampleCv })),
-    /unsupported CV export format/,
-  );
-  assert.throws(() => parseCvJsonBackup(JSON.stringify({ note: 'not a CV' })), /does not contain a CV/);
+  const backup = createCvJsonBackup(sampleCv);
+  for (const data of [
+    sampleCv,
+    { __meta: { id: 'saved-cv' }, data: sampleCv },
+    { ...backup, formatVersion: 2 },
+    { ...backup, format: 'unknown' },
+  ]) {
+    assert.throws(() => parseCvJsonBackup(JSON.stringify(data)), /unsupported CV export format/);
+  }
+  for (const version of [undefined, '7', 1, 5, 6, 8]) {
+    assert.throws(() => readCvState({ ...sampleCv, version }), /Unsupported CV data version/);
+    assert.throws(() => parseCvJsonBackup(JSON.stringify({ ...backup, cvVersion: version })), /Unsupported CV data version/);
+    assert.throws(() => parseCvJsonBackup(JSON.stringify({ ...backup, data: { ...sampleCv, version } })), /Unsupported CV data version/);
+  }
+});
+
+test('named browser configurations retain their current storage wrapper', () => {
+  const stored = JSON.stringify({ __meta: { id: 'saved-cv', name: 'Ada', updatedAt: 42 }, data: sampleCv });
+  assert.deepEqual(parseStoredCvState(stored), sampleCv);
+  assert.throws(() => parseStoredCvState(JSON.stringify(sampleCv)), /Invalid saved configuration/);
+  assert.throws(() => parseStoredCvState(JSON.stringify({ __meta: {}, data: { ...sampleCv, version: 6 } })), /Unsupported CV data version/);
 });
 
 test('drops prototype-changing keys from imported JSON', () => {
-  const imported = parseCvJsonBackup(`{
-    "format": "${CV_JSON_FORMAT}",
-    "formatVersion": ${CV_JSON_FORMAT_VERSION},
-    "data": {
-      "version": 7,
-      "__proto__": { "polluted": true },
-      "contact": { "name": "Ada Lovelace", "constructor": "discard" }
-    }
-  }`);
+  const backup = createCvJsonBackup(sampleCv);
+  const data = JSON.parse('{"__proto__":{"polluted":true},"constructor":"discard","prototype":{}}');
+  Object.assign(data, sampleCv);
+  const imported = parseCvJsonBackup(JSON.stringify({ ...backup, data }));
+  for (const key of ['__proto__', 'constructor', 'prototype']) assert.equal(Object.hasOwn(imported, key), false);
+});
 
-  assert.equal(Object.hasOwn(imported, '__proto__'), false);
-  assert.equal(Object.hasOwn(imported.contact!, 'constructor'), false);
+test('rejects missing required fields, invalid nested types and former data shapes', () => {
+  const malformed = [
+    { contact: { ...sampleCv.contact, name: 42 } },
+    { experience: 'invalid' },
+    { education: [null] },
+    { education: [{ title: 'Missing ID' }] },
+    { education: [{ id: 'item', title: {} }] },
+    { experience: { jobs: [{ id: 'job', bullets: ['Old bullet list'] }] } },
+    { hobbies: { first: 'Music' } },
+    { customSections: [{ id: 'section', name: 'Section', fields: ['tools'], entries: [] }] },
+    { design: { graphicOpacity: 'opaque' } },
+    { sidebarSections: [{ id: 'skills', name: 'Skills', levelType: null, items: [{ id: 'item', levelValue: '4' }] }] },
+    { anonymization: { excludedItems: [false], excludedSections: [] } },
+    { sectionNames: { jobs: 42 } },
+    { bodyOrder: undefined },
+  ];
+  for (const fields of malformed) {
+    const data = { ...sampleCv, ...fields };
+    assert.throws(() => readCvState(data), /invalid or missing fields/, JSON.stringify(fields));
+    assert.throws(() => parseCvJsonBackup(JSON.stringify({ ...createCvJsonBackup(sampleCv), data })), /invalid or missing fields/);
+  }
+});
+
+test('bundled defaults and exports satisfy the current schema', () => {
+  const defaults = readFileSync(new URL('../public/cv-defaults.json', import.meta.url), 'utf8');
+  const state = readCvState(JSON.parse(defaults));
+  assert.deepEqual(parseCvJsonBackup(JSON.stringify(createCvJsonBackup(state))), state);
+});
+
+test('optional current fields may be omitted', () => {
+  const state = createTestState({
+    design: {},
+    education: [{ id: 'education' }],
+    customSections: [{ id: 'custom', name: 'Custom', entries: [] }],
+  });
+  assert.equal(readCvState(state), state);
 });
