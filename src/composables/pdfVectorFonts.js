@@ -33,7 +33,7 @@ function faceKey(face) {
 
 /** Parse the @font-face declarations actually advertised to this browser. */
 export function parseVectorFontFaces(css, stylesheetUrl) {
-  return [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/@font-face\s*\{([^}]+)\}/gi)].flatMap(([, block]) => {
+  return [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/@font-face\s*\{([^}]+)}/gi)].flatMap(([, block]) => {
     const family = cleanFamily(descriptor(block, 'font-family'));
     const source = descriptor(block, 'src').match(/url\(\s*(['"]?)(.*?)\1\s*\)/i)?.[2];
     if (!family || !source) return [];

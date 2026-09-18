@@ -43,9 +43,9 @@ const content = computed(() => {
 .markdown-content__prose a,
 .markdown-bullets a {
   color: inherit;
-  /* html2canvas does not reliably apply text-underline-offset. A padded border
-     keeps the link rule visibly below its glyphs in the PDF. */
-  padding-bottom: 0px;
+  /* html2canvas does not reliably apply text-underline-offset. A border
+     keeps the link rule below its glyphs in the PDF. */
+  padding-bottom: 0;
   border-bottom: 1px solid currentColor;
   text-decoration: none;
 }

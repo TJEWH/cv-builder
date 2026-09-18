@@ -89,7 +89,7 @@ test('raises simple-glyph limits to cover flattened variable compound glyphs', a
 
 test('exposes the WASM decoder as ESM without Node filesystem or CommonJS dependencies', async () => {
   const source = makeWoff2DecoderModule(readFileSync(require.resolve('wawoff2/build/decompress_binding.js'), 'utf8'));
-  assert.doesNotMatch(source, /require\(|module\["exports"\]/);
+  assert.doesNotMatch(source, /require\(|module\["exports"]/);
   const { default: runtime } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
   if (!runtime.calledRun) await new Promise((resolve) => { runtime.onRuntimeInitialized = resolve; });
   assert.equal(typeof runtime.decompress, 'function');

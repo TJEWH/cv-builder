@@ -22,7 +22,7 @@ export function createSvgDocument(prefix = `cv-vector-${++previewSerial}`) {
     restore() { state = stack.pop() || state; return doc; },
     transform(...matrix) { state.matrix = multiplyCanvasMatrices(state.matrix, matrix); return doc; },
     translate(x, y) { return doc.transform(1, 0, 0, 1, x, y); },
-    scale(x, y = x) { return doc.transform(x, 0, 0, y, 0, 0); },
+    scale(scaleX, scaleY = scaleX) { return doc.transform(scaleX, 0, 0, scaleY, 0, 0); },
     moveTo(x, y) { path += `M${x} ${y}`; return doc; },
     lineTo(x, y) { path += `L${x} ${y}`; return doc; },
     bezierCurveTo(...points) { path += `C${points.join(' ')}`; return doc; },
@@ -37,7 +37,7 @@ export function createSvgDocument(prefix = `cv-vector-${++previewSerial}`) {
     lineJoin(value) { state.join = value; return doc; },
     miterLimit(value) { state.miter = value; return doc; },
     addContent(value) {
-      const match = value.match(/^\[([^\]]*)\]\s+([\d.e+-]+) d$/);
+      const match = value.match(/^\[([^\]]*)]\s+([\d.e+-]+) d$/);
       if (!match) throw new Error('Unsupported SVG vector command');
       state.dash = match[1].trim() ? match[1].trim().split(/\s+/).map(Number) : [];
       state.dashOffset = Number(match[2]);

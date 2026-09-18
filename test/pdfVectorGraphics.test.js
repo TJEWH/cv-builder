@@ -122,7 +122,7 @@ test('SVG root margins shift vector content inside the unchanged image crop', as
   });
   const graphics = createVectorGraphicsContext(doc);
   graphics.apply({ type: 'call', method: 'drawImage', args: [{
-    src: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="22px" height="12px" viewBox="0 0 384 512" style="margin: 0px 0px 0px 8px; margin-top: 3px; margin-inline: 8px 0px; width: 22px; height: 12px;"><path d="M0 0 L384 0 L384 512 Z"/></svg>')}`,
+    src: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="22px" height="12px" viewBox="0 0 384 512" style="margin: 0 0 0 8px; margin-top: 3px; margin-inline: 8px 0; width: 22px; height: 12px;"><path d="M0 0 L384 0 L384 512 Z"/></svg>')}`,
     width: 22,
     height: 12,
   }, 0, 0, 22, 12, 30, 40, 22, 12] });

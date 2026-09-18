@@ -140,7 +140,7 @@ onBeforeUnmount(() => {
 
       <div id="cv_main">
         <section v-for="key in bodyKeys" :key="key" class="section" :class="{ 'is-hidden': isHiddenFor(key), 'section--keep-together': isKeptTogether(key) }">
-          <svg v-if="key === 'jobs' || key === 'education'" class="timeline-rail" aria-hidden="true"><path /></svg>
+          <svg v-if="key === 'jobs' || key === 'education'" class="timeline-rail" aria-hidden="true"><path d="" /></svg>
           <template v-if="key === 'about'">
             <div class="section-lead">
               <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>

@@ -974,11 +974,6 @@ body,
 }
 .builder-group-enter-from, .builder-group-leave-to { opacity: 0; }
 
-.builder-layout__controls .workbench {
-  max-width: none;
-  padding: 0;
-}
-
 .builder-layout--below {
   display: flex;
   flex-direction: column;
@@ -1064,6 +1059,7 @@ body,
   overflow: auto;
   overscroll-behavior: contain;
 }
+
 
 .inline-preview .pdf-preview {
   width: min(100%, 794px);

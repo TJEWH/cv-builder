@@ -18,7 +18,7 @@ test('the vector layout adapter preserves cooperative cloning, parsing and paint
 test('the main painter uses a dimension-only vector surface and a recording context', () => {
   const transformed = makeCanvasCooperative(source);
   const painter = transformed.slice(transformed.indexOf('function CanvasRenderer('), transformed.indexOf('CanvasRenderer.prototype.applyEffects'));
-  assert.match(painter, /_this.canvas = \{ width: 0, height: 0, style: \{\} \}/);
+  assert.match(painter, /_this.canvas = \{ width: 0, height: 0, style: \{} }/);
   assert.match(painter, /context.createVectorContext\(_this.canvas\)/);
   assert.doesNotMatch(painter, /getContext|createElement\('canvas'\)/);
 });
