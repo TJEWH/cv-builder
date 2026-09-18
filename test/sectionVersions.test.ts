@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { effectScope, nextTick, reactive, ref, watch } from 'vue';
 import { normalizeContentState } from '../src/composables/contentLayout.ts';
+import { SAMPLE_DOCUMENT_ID } from '../src/composables/builtinConfigurations';
 import { useSectionVersions } from '../src/composables/useSectionVersions.ts';
 
 function fixture(t: TestContext) {
@@ -133,4 +134,19 @@ test('deleted versions disappear from choices and draft content remains independ
   assert.equal(versions.versionId('shared'), '');
   assert.equal(versions.sectionState('shared'), state);
   assert.equal(versions.order('body').includes('extra'), false);
+});
+
+test('sample CV is excluded from section choices even when it is the active document', async (t) => {
+  const { versions, configurations, selectedId, saved, state } = fixture(t);
+  saved.set(SAMPLE_DOCUMENT_ID, createTestState());
+  configurations.value.push({ id: SAMPLE_DOCUMENT_ID, name: 'Sample CV' });
+  await nextTick();
+  assert.equal(versions.options('header').some(({ id }) => id === SAMPLE_DOCUMENT_ID), false);
+  selectedId.value = SAMPLE_DOCUMENT_ID;
+  versions.enabled.value = true;
+  assert.equal(versions.options('header').some(({ id }) => id === SAMPLE_DOCUMENT_ID), false);
+  configurations.value = [{ id: SAMPLE_DOCUMENT_ID, name: 'Sample CV' }];
+  await nextTick();
+  assert.deepEqual(versions.options('header'), []);
+  assert.equal(versions.sectionState('header'), state);
 });

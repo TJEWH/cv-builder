@@ -11,7 +11,8 @@ defineEmits<{ 'update:modelValue': [id: string] }>();
 </script>
 
 <template>
-  <select class="section-version-select" :value="modelValue" :aria-label="label" @click.stop @change="$emit('update:modelValue', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
+  <select class="section-version-select" :value="modelValue ?? ''" :disabled="!options.length" :aria-label="label" @click.stop @change="$emit('update:modelValue', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
+    <option v-if="!options.length" value="" disabled>{{ draftLabel }}</option>
     <option v-for="option in options" :key="option.id" :value="option.id">{{ option.name || draftLabel }}</option>
   </select>
 </template>

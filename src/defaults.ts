@@ -8,8 +8,8 @@ export const SAMPLE_CONTACT: Readonly<Contact> = Object.freeze({
   email: 'muster-ex@mp.le',
   phone: '+49 123 456789',
   website: 'https://alexmuster.dev',
-  linkedin: 'https://linkedin.com/in/alexmuster',
-  github: 'https://github.com/alexmuster',
+  linkedin: 'https://link.com/in/alexmuster',
+  github: 'https://git.com/musterlex',
 });
 
 /** The only source of initial CV settings. Saved values always take precedence. */

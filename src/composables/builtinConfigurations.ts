@@ -6,6 +6,10 @@ import { makeT } from '../i18n/dict';
 export const EMPTY_DOCUMENT_ID = 'builtin:empty';
 export const SAMPLE_DOCUMENT_ID = 'builtin:sample';
 
+export function isBuiltinDocument(id: string) {
+  return id === EMPTY_DOCUMENT_ID || id === SAMPLE_DOCUMENT_ID;
+}
+
 export function builtinConfigurations(lang: string): SavedConfiguration[] {
   const t = makeT({ value: lang });
   return [

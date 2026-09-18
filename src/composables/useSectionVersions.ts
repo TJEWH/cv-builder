@@ -9,6 +9,7 @@ import { computed, onScopeDispose, reactive, ref, watch } from 'vue';
 import { createNormalizedContentState } from './contentLayout.ts';
 import { readCvState } from './cvStateValidation';
 import { debounce } from './useStorage.ts';
+import { isBuiltinDocument } from './builtinConfigurations';
 
 const builtInSections = ['header', 'about', 'education', 'jobs', 'languages', 'hobbies'];
 
@@ -19,7 +20,8 @@ export function hasContentSection(state: CvState, key: string) {
 
 // Alternate versions are separate reactive documents. Only the active document
 // is observed by the app's preview; editing another document saves it in place.
-export function useSectionVersions({ state, selectedId, configurations, readVersion, saveVersion, onStatus }: SectionVersionsOptions) {
+export function useSectionVersions({ state, selectedId, configurations: allConfigurations, readVersion, saveVersion, onStatus }: SectionVersionsOptions) {
+  const configurations = () => allConfigurations().filter(({ id }) => !isBuiltinDocument(id));
   const enabled = ref(false);
   const selections = reactive<Record<string, string>>({});
   const records = new Map<string, { data: CvState; stop: () => void }>();
@@ -70,7 +72,7 @@ export function useSectionVersions({ state, selectedId, configurations, readVers
     return [current, ...configurations().filter(({ id }) => id !== current.id && records.has(id))
       .map(({ id }) => ({ id, data: records.get(id)!.data }))];
   });
-  const options = (key: string) => sources.value.filter(({ data }) => hasContentSection(data, key)).map(({ id }) => ({
+  const options = (key: string) => sources.value.filter(({ id, data }) => !isBuiltinDocument(id) && hasContentSection(data, key)).map(({ id }) => ({
     id,
     name: configurations().find((item) => item.id === id)?.name || '',
   }));

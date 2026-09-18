@@ -16,7 +16,7 @@ import DesignPanel from './components/DesignPanel.vue';
 import AnonymizationPanel from './components/AnonymizationPanel.vue';
 import { makeT } from './i18n/dict';
 import { createNormalizedContentState, normalizeContentState } from './composables/contentLayout';
-import { createEmptyDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID } from './composables/builtinConfigurations';
+import { createEmptyDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID, isBuiltinDocument } from './composables/builtinConfigurations';
 import { readCvState } from './composables/cvStateValidation';
 import { createAnonymizedState } from './composables/anonymization';
 
@@ -43,7 +43,7 @@ const activeBuilderGroup = ref('content');
 const savedConfigurations = ref<SavedConfiguration[]>([]);
 const selectedConfigurationId = ref('');
 const isEmptyDocument = computed(() => selectedConfigurationId.value === EMPTY_DOCUMENT_ID);
-const selectableConfigurations = computed(() => savedConfigurations.value.filter(({ id }) => id !== EMPTY_DOCUMENT_ID));
+const selectableConfigurations = computed(() => savedConfigurations.value.filter(({ id }) => !isBuiltinDocument(id)));
 watch(isEmptyDocument, (empty) => {
   if (empty) activeBuilderGroup.value = 'versions';
 }, { flush: 'sync' });
@@ -529,8 +529,8 @@ function openFullPreview() {
           </button>
           <label class="builder-topbar__configuration">
             <font-awesome-icon :icon="['fas', 'layer-group']" aria-hidden="true" />
-            <select :value="isEmptyDocument ? '' : selectedConfigurationId" :aria-label="t('versions')" @change="selectConfiguration">
-              <option v-if="!selectedConfigurationId || isEmptyDocument" value="" disabled>{{ t('noSavedVersion') }}</option>
+            <select :value="isBuiltinDocument(selectedConfigurationId) ? '' : selectedConfigurationId" :aria-label="t('versions')" @change="selectConfiguration">
+              <option v-if="!selectedConfigurationId || isBuiltinDocument(selectedConfigurationId)" value="" disabled>{{ t('noSavedVersion') }}</option>
               <option v-for="configuration in selectableConfigurations" :key="configuration.id" :value="configuration.id">{{ configuration.name }}</option>
             </select>
           </label>
