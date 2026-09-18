@@ -33,7 +33,7 @@ test('captures independent stylesheet and FontFace snapshots from the final clon
     querySelectorAll: () => [],
     ownerDocument: {
       querySelectorAll(selector: string) {
-        assert.equal(selector, 'link[id^="gf-"]');
+        assert.equal(selector, 'link[id^="cv-font-"]');
         return stylesheets;
       },
       fonts: faces,

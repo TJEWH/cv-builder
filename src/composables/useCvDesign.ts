@@ -1,30 +1,24 @@
-import type { CvDesign } from '../types';
+import type { CustomFont, CvDesign } from '../types';
 import { watch } from 'vue';
+import { fontStylesheetUrl, selectedFont } from './webFonts';
 
-const googleFontAlternatives: Record<string, string> = {
-  'Browallia New': 'Noto Sans Thai',
-  'Century Gothic': 'Montserrat',
-};
-
-const resolvedFontFamily = (family: string) => googleFontAlternatives[family] || family;
-
-function ensureFontLink(id: string, family?: string) {
-  const elementId = `gf-${id}`;
+function ensureFontLink(id: string, font?: CustomFont) {
+  const elementId = `cv-font-${id}`;
   let link = document.getElementById(elementId) as HTMLLinkElement | null;
 
-  if (!family) {
+  if (!font) {
     link?.remove();
     return;
   }
 
-  const fontFamily = resolvedFontFamily(family).replace(/\s+/g, '+');
   if (!link) {
     link = document.createElement('link');
     link.id = elementId;
     link.rel = 'stylesheet';
     document.head.appendChild(link);
   }
-  link.href = `https://fonts.googleapis.com/css2?family=${fontFamily}:wght@300;400;600;700&display=swap`;
+  const href = fontStylesheetUrl(font);
+  if (link.href !== href) link.href = href;
 }
 
 function millimeters(value: unknown, fallback: string) {
@@ -98,13 +92,13 @@ export function applyCvDesign(design: CvDesign = {}) {
   root.setProperty('--badge-color', badgeMode === 'solid' ? '#ffffff' : 'var(--graphic)');
   root.setProperty('--badge-border-color', 'var(--graphic)');
   root.setProperty('--box-shadow', 'none');
-  const bodyFont = design.fontBody ? resolvedFontFamily(design.fontBody) : '';
-  const headFont = design.fontHead ? resolvedFontFamily(design.fontHead) : '';
-  root.setProperty('--font-body', `${bodyFont ? `'${bodyFont}', ` : ''}ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`);
-  root.setProperty('--font-head', `${headFont ? `'${headFont}', ` : ''}var(--font-body)`);
+  const bodyFont = design.fontBody ? selectedFont(design.fontBody, design) : undefined;
+  const headFont = design.fontHead ? selectedFont(design.fontHead, design) : undefined;
+  root.setProperty('--font-body', `${bodyFont ? `${JSON.stringify(bodyFont.name)}, ` : ''}ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`);
+  root.setProperty('--font-head', `${headFont ? `${JSON.stringify(headFont.name)}, ` : ''}var(--font-body)`);
 
-  ensureFontLink('body', design.fontBody);
-  ensureFontLink('head', design.fontHead);
+  ensureFontLink('body', bodyFont);
+  ensureFontLink('head', headFont);
   document.documentElement.setAttribute('data-hstyle', design.hstyle || 'clean');
   document.documentElement.setAttribute('data-sidebar-align', design.sidebarAlign || 'right');
   document.documentElement.setAttribute('data-header-layout-style', design.headerLayoutStyle === 'separator' ? 'separator' : 'boxed');

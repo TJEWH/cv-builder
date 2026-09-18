@@ -6,7 +6,7 @@ export function capturePdfLinks(root: HTMLElement): LinkCapture {
   return {
     width: Math.ceil(bounds.width),
     height: Math.ceil(bounds.height),
-    fontStyleUrls: Array.from(root.ownerDocument?.querySelectorAll<HTMLLinkElement>('link[id^="gf-"]') || [], (link) => link.href),
+    fontStyleUrls: Array.from(root.ownerDocument?.querySelectorAll<HTMLLinkElement>('link[id^="cv-font-"]') || [], (link) => link.href),
     loadedFaces: root.ownerDocument?.fonts ? Array.from(root.ownerDocument.fonts, (face) => ({
       family: face.family, style: face.style, weight: face.weight, unicodeRange: face.unicodeRange, status: face.status,
     })) : undefined,

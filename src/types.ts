@@ -48,10 +48,13 @@ export interface Contact {
   linkedin: string;
   github: string;
 }
+export type FontSource = 'bunny' | 'google';
+export interface CustomFont { name: string; source: FontSource }
 export interface CvDesign {
   h1?: string; h2?: string; h3?: string; bullets?: string;
   ink?: string; graphicOpacity?: number; dateOpacity?: number;
   fontBody?: string; fontHead?: string; hstyle?: string;
+  customFonts?: CustomFont[];
   badgeMode?: string; badgeBorderWidth?: string; badgeBorderRadius?: string;
   sectionSpacingBody?: string; sectionSpacingSidebar?: string; itemSpacing?: string;
   sidebarWidth?: string; sidebarAlign?: string; sidebarFillMode?: string; sidebarHeightMode?: string;

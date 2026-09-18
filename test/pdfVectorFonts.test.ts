@@ -31,6 +31,21 @@ test('parses variable weights, relative sources, wildcard and supplementary Unic
   });
 });
 
+test('parses Bunny font faces with unquoted WOFF2 and WOFF sources', () => {
+  const [face] = parseVectorFontFaces(`/* latin */
+    @font-face {
+      font-family: 'Inter'; font-style: normal; font-weight: 400;
+      font-stretch: 100%; font-display: swap;
+      src: url(https://fonts.bunny.net/inter/files/inter-latin-400-normal.woff2) format('woff2'), url(https://fonts.bunny.net/inter/files/inter-latin-400-normal.woff) format('woff');
+      unicode-range: U+0000-00FF, U+20AC;
+    }`, 'https://fonts.bunny.net/css?family=inter:400&display=swap');
+  assert.deepEqual(face, {
+    family: 'Inter', style: 'normal', weight: [400, 400],
+    url: 'https://fonts.bunny.net/inter/files/inter-latin-400-normal.woff2',
+    ranges: [[0, 0xff], [0x20ac, 0x20ac]],
+  });
+});
+
 test('parses the canvas font shorthand without losing quoted fallback families', () => {
   assert.deepEqual(parseVectorCanvasFont('italic normal 600 12pt "Source Sans 3", Inter, sans-serif'), {
     fontSize: 16, weight: 600, style: 'italic', families: ['Source Sans 3', 'Inter', 'sans-serif'],

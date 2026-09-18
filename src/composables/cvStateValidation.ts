@@ -1,4 +1,4 @@
-import type { Contact, CvDesign, CvState, CustomSection, CvItem, SidebarSection } from '../types';
+import type { Contact, CvDesign, CvState, CustomFont, CustomSection, CvItem, SidebarSection } from '../types';
 import { CV_STATE_VERSION } from '../types';
 
 type Guard<T> = (value: unknown) => value is T;
@@ -40,6 +40,10 @@ const design = partialObject<CvDesign>({
   h1: string, h2: string, h3: string, bullets: string,
   ink: string, graphicOpacity: number, dateOpacity: number,
   fontBody: string, fontHead: string, hstyle: string,
+  customFonts: array(object<CustomFont>({
+    name: (value): value is string => string(value) && value.trim().length > 0 && value.length <= 100 && !/[\u0000-\u001f\u007f]/.test(value),
+    source: literals('bunny', 'google'),
+  })),
   badgeMode: string, badgeBorderWidth: string, badgeBorderRadius: string,
   sectionSpacingBody: string, sectionSpacingSidebar: string, itemSpacing: string,
   sidebarWidth: string, sidebarAlign: string, sidebarFillMode: string, sidebarHeightMode: string,

@@ -25,7 +25,8 @@ Modern resume generator built with Vue 3, TypeScript and Vite. Create profession
 ### Design
 - **Layouts**: Sidebar left/right, adjustable column ratio and starting page; content-sized height by default with adjustable bottom padding, or full-page height. The body returns to full width below a content-sized sidebar
 - **Colors**: Font color with separate graphic and date opacity
-- **Fonts**: Google Fonts integration for body and headings
+- **Fonts**: Bunny Fonts for supported built-in families; Google Fonts for families unavailable on Bunny (including Century Gothic). Font names are never replaced with a different family. Browallia New is unavailable from both providers
+- **Custom fonts**: In Design → Typography, choose Bunny or Google, enter a font family name, and import it. Imports verify the provider response and decode a font file before saving. A missing Bunny font is retried on Google; other errors are reported by type. Imported fonts become available for body text and headings, including favorite controls. The family name and actual source are saved in `design.customFonts` and retained in saved versions and JSON exports; reimporting a family updates its source
 - **Typography**: H1-H3 and bullet font sizes
 - **Heading Styles**: clean, underline, leftbar, pill
 - **Badges**: Solid or outlined, with adjustable border radius
@@ -46,7 +47,7 @@ Modern resume generator built with Vue 3, TypeScript and Vite. Create profession
 - **PDF Export**: Direct-download vector PDF with visible selectable text, clickable links and vector SVG icons
 - **Vector Previews**: Inline and full-size previews reuse the same scalable SVG pages; no raster images, quality settings, size estimates, or higher-resolution replacement render
 - **Consistent Layout**: SVG previews and PDF downloads share one vector paint list, page slices, margins and sidebar positioning
-- **Vector Fonts**: Uses the selected downloadable Google fonts (internet access required), including font weights and Unicode subsets. Unsupported fonts or missing glyphs show an actionable error instead of silently substituting a different face
+- **Vector Fonts**: Uses the selected downloadable Bunny or Google fonts (internet access required), including font weights and Unicode subsets. Unsupported fonts or missing glyphs show an actionable error instead of silently substituting a different face
 - **Page-Break Control**: Intelligent page breaks
 - **GDPR Compliant**: No cloud, all data local
 
@@ -103,7 +104,7 @@ App runs at `http://localhost:5173/cv-builder/`
 - **PDFKit + Fontkit**: Lazy-loaded browser-only vector PDF export; no server or print dialog required, compatible with GitHub Pages
 - **FontAwesome 7**: Icon system
 - **VueDraggable**: Handle-based section and item sorting
-- **Google Fonts**: Dynamic font loading
+- **Bunny Fonts / Google Fonts**: Dynamic font loading with source-aware custom imports
 - **LocalStorage**: Persistent storage and named browser configurations
 
 ---

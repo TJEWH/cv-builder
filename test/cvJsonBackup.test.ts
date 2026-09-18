@@ -90,3 +90,15 @@ test('optional current fields may be omitted', () => {
   });
   assert.equal(readCvState(state), state);
 });
+
+test('custom font families and sources survive portable and browser backups', () => {
+  const state = createTestState({ design: {
+    fontBody: 'Open Sans', fontHead: 'Century Gothic',
+    customFonts: [{ name: 'Open Sans', source: 'bunny' }, { name: 'Century Gothic', source: 'google' }],
+  } });
+  assert.deepEqual(parseCvJsonBackup(JSON.stringify(createCvJsonBackup(state))), state);
+  assert.deepEqual(parseStoredCvState(JSON.stringify({ __meta: {}, data: state })), state);
+  for (const customFonts of [[{ name: 'Inter', source: 'other' }], [{ name: '', source: 'google' }], [{ name: 'Inter' }], ['Inter']]) {
+    assert.throws(() => readCvState({ ...state, design: { customFonts } }), /invalid or missing fields/);
+  }
+});

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { PropType } from 'vue';
-import type { CvDesign, KeysOfType, SelectOption } from '../types';
-import { computed, reactive, ref } from 'vue';
+import type { CustomFont, CvDesign, FontSource, KeysOfType, SelectOption } from '../types';
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { makeT } from '../i18n/dict';
+import { BODY_FONTS, HEADING_FONTS, FontImportError, fontOptions, importWebFont, storeCustomFont } from '../composables/webFonts';
 type StringDesignKey = KeysOfType<CvDesign, string>;
 interface FavoriteLink { linkKey: 'pageMarginVerticalLinked' | 'pageMarginHorizontalLinked' | 'headerBottomSpacingLinked'; primaryKey: StringDesignKey; secondaryKey: StringDesignKey }
 type FavoriteOption = {
@@ -30,8 +31,52 @@ const design = computed({
 const langRef = computed(() => props.lang || 'en');
 const t = makeT(langRef);
 
-const bodyFonts = ['Browallia New', 'Century Gothic', 'Inter', 'Source Sans 3', 'IBM Plex Sans', 'Work Sans', 'Nunito Sans', 'Rubik', 'Merriweather Sans', 'Hind'];
-const headFonts = ['Browallia New', 'Century Gothic', 'Inter', 'Montserrat', 'Poppins', 'Raleway', 'Space Grotesk'];
+const bodyFonts = computed(() => fontOptions(BODY_FONTS, design.value, design.value.fontBody));
+const headFonts = computed(() => fontOptions(HEADING_FONTS, design.value, design.value.fontHead));
+const fontSource = ref<FontSource>('bunny');
+const fontName = ref('');
+const isImportingFont = ref(false);
+const importedFont = ref<CustomFont>();
+const fontImportError = ref<FontImportError>();
+let fontImportController: AbortController | undefined;
+function resetFontImport() {
+  fontImportController?.abort();
+  fontImportController = undefined;
+  isImportingFont.value = false;
+  importedFont.value = undefined;
+  fontImportError.value = undefined;
+}
+watch(() => props.modelValue, resetFontImport);
+watch([fontName, fontSource], () => {
+  importedFont.value = undefined;
+  fontImportError.value = undefined;
+});
+onBeforeUnmount(resetFontImport);
+async function importFont() {
+  if (isImportingFont.value) return;
+  resetFontImport();
+  const controller = new AbortController();
+  fontImportController = controller;
+  const target = design.value;
+  isImportingFont.value = true;
+  try {
+    const font = await importWebFont(fontName.value, fontSource.value, { signal: controller.signal });
+    if (controller.signal.aborted || design.value !== target) return;
+    target.customFonts = storeCustomFont(target.customFonts, font);
+    // Preserve selections when a family is reimported with a different source.
+    for (const key of ['fontBody', 'fontHead'] as const) {
+      if (target[key]?.toLowerCase() === font.name.toLowerCase()) target[key] = font.name;
+    }
+    importedFont.value = font;
+  } catch (error) {
+    if (!controller.signal.aborted) fontImportError.value = error instanceof FontImportError ? error : new FontImportError('network');
+  } finally {
+    if (fontImportController === controller) {
+      isImportingFont.value = false;
+      fontImportController = undefined;
+    }
+  }
+}
 const hStyles = ['clean', 'underline', 'leftbar', 'pill'];
 const favoritesMode = ref(false);
 const isContentHeight = computed(() => design.value.sidebarHeightMode !== 'full-page');
@@ -40,7 +85,7 @@ const favoriteLinks: Record<string, FavoriteLink> = {
   pageMarginHorizontal: { linkKey: 'pageMarginHorizontalLinked', primaryKey: 'pageMarginRight', secondaryKey: 'pageMarginLeft' },
   headerBottomSpacing: { linkKey: 'headerBottomSpacingLinked', primaryKey: 'headerPaddingBottom', secondaryKey: 'headerBottomMargin' },
 };
-const favoriteOptions: FavoriteOption[] = [
+const favoriteOptions = computed<FavoriteOption[]>(() => [
   { key: 'contactLayout', label: 'Contact Layout', type: 'select', options: [{ value: 'side', label: 'Right column' }, { value: 'below', label: 'Below title (one row)' }] },
   { key: 'separatorWidth', label: 'Separator Width', type: 'range', min: 0.5, max: 5, step: 0.5, unit: 'px', fallback: 1 },
   { key: 'hstyle', label: 'Heading Style', type: 'select', options: hStyles.map((value) => ({ value, label: value })) },
@@ -65,19 +110,19 @@ const favoriteOptions: FavoriteOption[] = [
   { key: 'h2', label: 'H2 Font Size', type: 'range', min: 10, max: 20, step: 1, unit: 'pt', fallback: 12 },
   { key: 'h3', label: 'H3 Font Size', type: 'range', min: 8, max: 16, step: 1, unit: 'pt', fallback: 10 },
   { key: 'bullets', label: 'Bullet Font Size', type: 'range', min: 8, max: 14, step: 0.5, unit: 'pt', fallback: 10.5 },
-  { key: 'fontBody', label: 'Body Font', type: 'select', options: bodyFonts.map((value) => ({ value, label: value })) },
-  { key: 'fontHead', label: 'Headings Font', type: 'select', options: [{ value: '', label: '(Body font)' }, ...headFonts.map((value) => ({ value, label: value }))] },
+  { key: 'fontBody', label: 'Body Font', type: 'select', options: bodyFonts.value },
+  { key: 'fontHead', label: 'Headings Font', type: 'select', options: [{ value: '', label: '(Body font)' }, ...headFonts.value] },
   { key: 'ink', label: 'Font Color', type: 'color' },
   { key: 'graphicOpacity', label: 'Graphic Opacity', type: 'range', min: 0, max: 100, step: 1, suffix: '%', fallback: 100 },
   { key: 'dateOpacity', label: 'Date Opacity', type: 'range', min: 0, max: 100, step: 1, suffix: '%', fallback: 100 },
   { key: 'badgeMode', label: 'Badge Mode', type: 'select', options: [{ value: 'solid', label: 'Solid' }, { value: 'border', label: 'Border' }] },
   { key: 'badgeBorderRadius', label: 'Badge Border Radius', type: 'range', min: 0, max: 20, step: 1, unit: 'px', fallback: 6 },
-];
+]);
 const favoriteKeys = computed(() => (Array.isArray(design.value.favoriteControls) ? design.value.favoriteControls : []));
-const availableFavoriteOptions = computed(() => favoriteOptions.filter((option) => option.key !== 'sidebarBottomPadding' || isContentHeight.value));
+const availableFavoriteOptions = computed(() => favoriteOptions.value.filter((option) => option.key !== 'sidebarBottomPadding' || isContentHeight.value));
 const selectedFavoriteOptions = computed(() => availableFavoriteOptions.value.filter((option) => favoriteKeys.value.includes(option.key)));
 const isFavorite = (key: string) => favoriteKeys.value.includes(key);
-const favoriteOptionByKey = new Map(favoriteOptions.map((option) => [option.key, option]));
+const favoriteOptionByKey = computed(() => new Map(favoriteOptions.value.map((option) => [option.key, option])));
 const favoriteSectionLabels: Record<string, string> = {
   layout: 'Layout',
   header: 'Header',
@@ -129,8 +174,8 @@ const favoriteRows = computed(() => {
     }
     if (handledLinks.has(option.link.linkKey)) return;
 
-    const primary = favoriteOptionByKey.get(option.link.primaryKey);
-    const secondary = favoriteOptionByKey.get(option.link.secondaryKey);
+    const primary = favoriteOptionByKey.value.get(option.link.primaryKey);
+    const secondary = favoriteOptionByKey.value.get(option.link.secondaryKey);
     if (!primary || !secondary) {
       add(section, { type: 'single', option });
       return;
@@ -154,7 +199,7 @@ function setFavorite(key: string, enabled: boolean) {
   const next = new Set(favoriteKeys.value);
   if (enabled) next.add(key);
   else next.delete(key);
-  design.value.favoriteControls = favoriteOptions.filter((option) => next.has(option.key)).map((option) => option.key);
+  design.value.favoriteControls = favoriteOptions.value.filter((option) => next.has(option.key)).map((option) => option.key);
 }
 function favoriteValue(option: FavoriteOption) {
   const value = design.value[option.key];
@@ -361,9 +406,18 @@ function pixels(value: unknown, fallback = 1) {
             <label>Bullet Point Font Size: {{ design.bullets }}<input type="range" min="8" max="14" step="0.5" :value="parseFloat(design.bullets || '')" @input="design.bullets = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'pt'"></label>
           </div>
           <div class="grid-3 subsection-row">
-            <label>Body-Font<select v-model="design.fontBody"><option v-for="font in bodyFonts" :key="font" :value="font">{{ font }}</option></select></label>
-            <label>Headings-Font<select v-model="design.fontHead"><option :value="''">(wie Body)</option><option v-for="font in headFonts" :key="font" :value="font">{{ font }}</option></select></label>
+            <label>Body-Font<select v-model="design.fontBody"><option v-for="font in bodyFonts" :key="font.value" :value="font.value">{{ font.label }}</option></select></label>
+            <label>Headings-Font<select v-model="design.fontHead"><option :value="''">(wie Body)</option><option v-for="font in headFonts" :key="font.value" :value="font.value">{{ font.label }}</option></select></label>
           </div>
+          <div class="font-import subsection-row" @click.stop>
+            <label>{{ t('fontSource') }}<select v-model="fontSource" :disabled="isImportingFont"><option value="bunny">Bunny Fonts</option><option value="google">Google Fonts</option></select></label>
+            <label>{{ t('customFontName') }}<input v-model="fontName" :disabled="isImportingFont" maxlength="100" placeholder="Open Sans" @keydown.enter.prevent="importFont"></label>
+            <button class="mini font-import-button" type="button" :disabled="isImportingFont" @click="importFont">{{ t(isImportingFont ? 'importingFont' : 'importFont') }}</button>
+          </div>
+          <p class="note">{{ t('customFontHelp') }}</p>
+          <p v-if="importedFont" class="font-import-success" role="status">{{ t('fontImportSuccess') }} {{ importedFont.name }} ({{ importedFont.source === 'bunny' ? 'Bunny Fonts' : 'Google Fonts' }}). {{ t('fontImportSelect') }}</p>
+          <p v-if="fontImportError" class="font-import-error" role="alert">{{ t(`fontImportError_${fontImportError.code}`) }}<template v-if="fontImportError.source"> ({{ fontImportError.source === 'bunny' ? 'Bunny Fonts' : 'Google Fonts' }}<template v-if="fontImportError.status && fontImportError.status >= 400">, HTTP {{ fontImportError.status }}</template>)</template></p>
+          <p v-if="fontImportError?.code === 'network' && fontImportError.source === 'google'" class="note">{{ t('googleFontErrorHelp') }}</p>
           <p class="note">{{ t('webfontHelp') }}</p>
         </div>
       </section>
@@ -411,6 +465,11 @@ function pixels(value: unknown, fallback = 1) {
 .editor-subsection h4 { margin: 0; color: #9be8c7; font-size: 10pt; text-transform: uppercase; letter-spacing: .5px; }
 .editor-subsection > .section-head > .section-icon { width: 34px; color: var(--muted); text-align: center; }
 .subsection-row { margin-top: 8px; }
+.font-import { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+.font-import-button { min-height: 34px; padding-inline: 12px; }
+.font-import-success { color: #9be8c7; font-size: 12px; }
+.font-import-error { color: #fda4af; font-size: 12px; }
+@media (max-width: 640px) { .font-import { grid-template-columns: 1fr; } }
 .linked-control__heading { display: flex; align-items: center; gap: 6px; color: #78d1b8; font-size: 10pt; }
 .layout-control-group h5 { margin: 0 0 6px; color: var(--muted); font-size: 9pt; text-transform: uppercase; letter-spacing: .4px; }
 .link-toggle { width: 28px; min-width: 28px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }

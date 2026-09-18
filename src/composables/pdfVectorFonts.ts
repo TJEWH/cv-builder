@@ -123,7 +123,7 @@ function resource(url: string, type: 'css' | 'font', fetchImpl: typeof fetch) {
  */
 export async function createVectorFontResolver({ document: documentRef = globalThis.document, stylesheetUrls, loadedFaces, fetch: fetchImpl = globalThis.fetch, createFont }: FontResolverOptions = {}) {
   if (typeof createFont !== 'function') throw new TypeError('Vector font resolution requires fontkit.create');
-  const urls = [...new Set(stylesheetUrls ?? ['gf-body', 'gf-head'].map((id) => (documentRef?.getElementById(id) as HTMLLinkElement | null)?.href).filter((url): url is string => Boolean(url)))];
+  const urls = [...new Set(stylesheetUrls ?? ['cv-font-body', 'cv-font-head'].map((id) => (documentRef?.getElementById(id) as HTMLLinkElement | null)?.href).filter((url): url is string => Boolean(url)))];
   const availableFaces = loadedFaces === undefined ? null : new Set(loadedFaces
     .filter((face) => face.status === 'loaded')
     .map((face) => faceKey({
