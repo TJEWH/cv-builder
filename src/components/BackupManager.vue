@@ -13,6 +13,7 @@ const props = defineProps({
   selectedId: { type: String, default: '' },
   onSave: { type: Function, default: () => {} },
   onLoad: { type: Function, default: () => {} },
+  beforeLoad: { type: Function, default: () => true },
 });
 const emit = defineEmits(['update:selectedId', 'configs-change', 'save-result']);
 
@@ -150,7 +151,7 @@ function uniqueConfigId(name) {
   return candidate;
 }
 
-function saveConfig(id, name, { announce = true, data = snapshotState() } = {}) {
+function saveConfig(id, name, { announce = true, data = snapshotState(), activate = true } = {}) {
   try {
     const meta = { id, name, updatedAt: Date.now() };
     if (!writeStorage(localDataKey(id), JSON.stringify({ __meta: meta, data }))) throw new Error('Configuration data could not be written');
@@ -161,7 +162,7 @@ function saveConfig(id, name, { announce = true, data = snapshotState() } = {}) 
     else items.push({ id, name, mtime: meta.updatedAt });
     if (!writeIndex(items)) throw new Error('Configuration index could not be written');
 
-    const activeIdSaved = setCurrentId(id);
+    const activeIdSaved = !activate || setCurrentId(id);
     refreshConfigs();
     if (!activeIdSaved) throw new Error('Active configuration could not be written');
     if (announce) backupMsg.value = labels.value.saved;
@@ -179,6 +180,12 @@ function saveCurrent({ announce = false } = {}) {
   return saveConfig(chosen.id, chosen.name, { announce });
 }
 
+function saveVersion(id, data) {
+  const chosen = readIndex().find((item) => item.id === id);
+  // Never recreate a version that was deleted while it was being edited.
+  return Boolean(chosen) && saveConfig(id, chosen.name, { data, announce: false, activate: false });
+}
+
 function saveAs() {
   const name = newName.value.trim();
   if (!name) {
@@ -187,6 +194,7 @@ function saveAs() {
   }
 
   try {
+    if (!props.beforeLoad()) return;
     const data = snapshotState();
     const saved = saveConfig(uniqueConfigId(name), name, { data });
     if (saved) newName.value = '';
@@ -200,6 +208,7 @@ function saveAs() {
 
 function loadConfig(id = currentId.value, { confirmLoad = true } = {}) {
   if (!id || (confirmLoad && !confirm(labels.value.confirmLoad))) return false;
+  if (!props.beforeLoad()) return false;
   const data = readConfigData(id);
   if (!data) return false;
   try {
@@ -245,6 +254,7 @@ function restoreActiveConfig() {
 
 function deleteCurrent() {
   if (!currentId.value || !confirm(labels.value.confirmDelete)) return;
+  if (!props.beforeLoad()) return;
   try {
     // Deleting a saved version must not discard the content currently being edited.
     if (!saveLocal(snapshotState())) throw new Error('Current content could not be written');
@@ -299,6 +309,7 @@ async function importJson(event) {
   try {
     const data = parseCvJsonBackup(await file.text());
     if (!confirm(labels.value.confirmImport)) return;
+    if (!props.beforeLoad()) return;
     setCurrentId('');
     props.onLoad(data);
     props.onSave();
@@ -309,7 +320,7 @@ async function importJson(event) {
   }
 }
 
-defineExpose({ selectConfiguration, restoreActiveConfig, saveCurrent });
+defineExpose({ selectConfiguration, restoreActiveConfig, saveCurrent, readConfigData, saveVersion });
 onMounted(refreshConfigs);
 </script>
 

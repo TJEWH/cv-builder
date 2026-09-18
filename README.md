@@ -72,6 +72,7 @@ App runs at `http://localhost:5173/cv-builder/`
 - Fill sections with `+` button, remove with `×`
 - Eye icon (👁️) shows/hides sections
 - Turn on Reorder at the top right of Content to drag the Body/Sidebar section cards directly (or use arrow keys on a handle); turning it off restores expanded editors
+- Turn on Versions next to Reorder to edit each section in a different saved CV version. Each section lists only versions containing it; edits save to that version, while the preview continues to show the whole version selected in the topbar. Custom sections retain their identity when a version is duplicated, even if renamed later.
 - Use item handles to drag entries and sidebar skills directly
 - Auto-save saves all changes automatically
 

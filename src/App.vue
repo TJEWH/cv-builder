@@ -74,6 +74,18 @@ const savedConfigurations = ref([]);
 const selectedConfigurationId = ref('');
 const saveStatus = ref('saved');
 const backupManager = ref(null);
+const formBuilder = ref(null);
+const sectionSaveStatus = ref('saved');
+const combinedSaveStatus = computed(() => {
+  const statuses = [saveStatus.value, sectionSaveStatus.value];
+  return statuses.includes('error') ? 'error' : statuses.includes('saving') ? 'saving' : 'saved';
+});
+const readSectionVersion = (id) => backupManager.value?.readConfigData(id);
+const saveSectionVersion = (id, data) => backupManager.value?.saveVersion(id, data) ?? false;
+function prepareConfigurationChange() {
+  flushStateSave();
+  return formBuilder.value?.resetSectionVersions() !== false && saveStatus.value !== 'error';
+}
 const builderGroups = computed(() => [
   { key: 'versions', label: t('versions'), icon: 'layer-group' },
   { key: 'content', label: t('content'), icon: 'table-cells-large' },
@@ -84,9 +96,9 @@ const saveStatusLabel = computed(() => t({
   saving: 'saving',
   saved: 'saved',
   error: 'saveFailed',
-}[saveStatus.value] || 'saved'));
+}[combinedSaveStatus.value] || 'saved'));
 const saveStatusIcon = computed(() => (
-  saveStatus.value === 'saving' ? 'spinner' : saveStatus.value === 'error' ? 'xmark' : 'check'
+  combinedSaveStatus.value === 'saving' ? 'spinner' : combinedSaveStatus.value === 'error' ? 'xmark' : 'check'
 ));
 
 function persistState() {
@@ -300,6 +312,7 @@ let renderedAnonymizedSourceVersion = -1;
 let isSliderPreviewUpdateDeferred = false;
 let sliderPreviewUpdatePending = false;
 let sliderSaveUpdatePending = false;
+let textPreviewUpdatePending = false;
 
 function exportMarginMillimeters(value) {
   const parsed = Number.parseFloat(value);
@@ -365,6 +378,7 @@ function invalidatePdfPreview() {
 }
 
 function requestPdfPreview() {
+  textPreviewUpdatePending = false;
   const version = invalidatePdfPreview();
   isPreviewRendering.value = true;
   schedulePdfPreview(version);
@@ -503,7 +517,7 @@ onMounted(() => window.addEventListener('pagehide', flushStateSave));
 onBeforeUnmount(() => window.removeEventListener('pagehide', flushStateSave));
 
 function onPreviewInputBlur(event) {
-  if (isTextEntryInput(event.target)) requestPdfPreview();
+  if (textPreviewUpdatePending && isTextEntryInput(event.target)) requestPdfPreview();
 }
 
 watch(previewState, () => {
@@ -514,6 +528,7 @@ watch(previewState, () => {
     return;
   }
   if (isTextEntryInput(document.activeElement)) {
+    textPreviewUpdatePending = true;
     invalidatePdfPreview();
     isPreviewRendering.value = false;
     return;
@@ -584,6 +599,8 @@ function toggleAnonymizedFullPreview() {
 }
 
 function openFullPreview() {
+  flushStateSave();
+  if (formBuilder.value?.flushSectionSaves() === false) return;
   previewMode.value = true;
   if (isAnonymizedFullPreview.value) requestAnonymizedPdfPreview();
 }
@@ -668,8 +685,8 @@ function openFullPreview() {
               <option v-for="configuration in savedConfigurations" :key="configuration.id" :value="configuration.id">{{ configuration.name }}</option>
             </select>
           </label>
-          <output class="builder-topbar__save-status" :class="`is-${saveStatus}`" aria-live="polite">
-            <font-awesome-icon :icon="['fas', saveStatusIcon]" :spin="saveStatus === 'saving'" />
+          <output class="builder-topbar__save-status" :class="`is-${combinedSaveStatus}`" aria-live="polite">
+            <font-awesome-icon :icon="['fas', saveStatusIcon]" :spin="combinedSaveStatus === 'saving'" />
             {{ saveStatusLabel }}
           </output>
         </div>
@@ -688,13 +705,14 @@ function openFullPreview() {
               :selected-id="selectedConfigurationId"
               :on-save="scheduleStateSave"
               :on-load="mergeIn"
+              :before-load="prepareConfigurationChange"
               @update:selected-id="selectedConfigurationId = $event"
               @configs-change="savedConfigurations = $event"
               @save-result="handleConfigurationSaveResult"
             />
           </Transition>
           <Transition name="builder-group">
-            <FormBuilder v-show="activeBuilderGroup === 'content'" id="builder-group-content" class="builder-group-panel" :state="state" />
+            <FormBuilder v-show="activeBuilderGroup === 'content'" id="builder-group-content" ref="formBuilder" class="builder-group-panel" :state="state" :configurations="savedConfigurations" :selected-id="selectedConfigurationId" :read-version="readSectionVersion" :save-version="saveSectionVersion" @section-save-status="sectionSaveStatus = $event" />
           </Transition>
           <Transition name="builder-group">
             <DesignPanel

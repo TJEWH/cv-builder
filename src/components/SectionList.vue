@@ -24,6 +24,7 @@ const props = defineProps({
   editingTitleValue: { type: String, default: '' },
   titlePlaceholder: { type: String, default: '' },
   headerSize: { type: String, default: 'h2' },
+  versionMode: { type: Boolean, default: false },
 });
 
 const emit = defineEmits([
@@ -103,7 +104,7 @@ const confirmRemoveAt = () => {
         <font-awesome-icon :icon="['fas', disabled ? 'eye-slash' : 'eye']" />
       </button>
 
-      <template v-if="editableTitle">
+      <template v-if="editableTitle && !versionMode">
         <h3 v-if="!isEditingTitle" class="section-name-label" @click.stop="emit('start-edit-title')">
           {{ title }}
         </h3>
@@ -119,9 +120,10 @@ const confirmRemoveAt = () => {
           @keyup.esc="emit('cancel-edit-title')"
         />
       </template>
-      <h3 v-else>{{ title }}</h3>
+      <h3 v-else :class="{ 'section-name-label': versionMode, 'section-name-label--static': versionMode }">{{ title }}</h3>
 
-      <div class="section-head__actions">
+      <slot v-if="versionMode" name="section-version" />
+      <div v-else class="section-head__actions">
         <button v-if="showKeepTogether" class="section-header-control section-break-toggle" :class="{ 'section-break-toggle--active': keepTogether }" type="button" :aria-pressed="keepTogether" :aria-label="keepTogether ? t('allowPageBreaks') : t('preventPageBreaks')" :title="keepTogether ? t('allowPageBreaks') : t('preventPageBreaks')" @click.stop="emit('toggle-keep-together')"><font-awesome-icon :icon="['fas', keepTogether ? 'lock' : 'lock-open']" /></button>
         <Select
           :model-value="headerSize"
