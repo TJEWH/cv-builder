@@ -1,7 +1,7 @@
 import { isTextRecord } from '../pdfTypes';
 import type { FontRun, PaintRecord, TextRecord, VectorSnapshot } from '../pdfTypes';
 import * as pdfkit from 'pdfkit';
-import type { Font } from 'fontkit';
+import type { Font, FontCollection } from 'fontkit';
 // PDFKit 0.20 exposes a named ESM constructor and accepts Fontkit objects;
 // the upstream DefinitelyTyped declarations still describe its older API.
 interface VectorPdfDocument extends PDFKit.PDFDocument {
@@ -18,6 +18,10 @@ import { vectorTextIntersectsPage } from './pdfVectorText.ts';
 import { vectorPageLinks } from './pdfVectorLinks.ts';
 
 const POINTS_PER_MILLIMETER = 72 / 25.4;
+// Fontkit's public TypeScript declarations are Node-oriented and only name
+// Buffer here. Its browser module accepts Uint8Array directly, which keeps the
+// PDF export free of Node globals.
+const createBrowserFont = createFont as unknown as (bytes: Uint8Array) => Font | FontCollection;
 
 function drawText(context: ReturnType<typeof createVectorGraphicsContext<VectorPdfDocument>>, record: TextRecord, runs: FontRun[]) {
   const [text, x, y, maxWidth] = record.args;
@@ -59,7 +63,7 @@ function drawText(context: ReturnType<typeof createVectorGraphicsContext<VectorP
  * Replay the shared vector paint list as PDF paths and visible embedded fonts.
  */
 export async function renderVectorPdf({ recording, canvas, pages, links, fontStyleUrls, loadedFaces, pageWidth, pageHeight, task }: VectorSnapshot) {
-  const resolver = await task.wait(createVectorFontResolver({ document: globalThis.document, stylesheetUrls: fontStyleUrls, loadedFaces, createFont: (bytes) => createFont(Buffer.from(bytes)) }));
+  const resolver = await task.wait(createVectorFontResolver({ document: globalThis.document, stylesheetUrls: fontStyleUrls, loadedFaces, createFont: createBrowserFont }));
   const textRuns = new Map<PaintRecord, FontRun[]>();
   for (const record of recording.records) {
     if (!isTextRecord(record) || !record.fontString) continue;
