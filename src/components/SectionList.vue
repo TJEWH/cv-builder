@@ -1,8 +1,10 @@
-<script setup>
+<script setup lang="ts">
+import type { PropType } from 'vue';
+import type { CvItem, ItemField } from '../types';
 import { computed, ref } from 'vue';
 import Draggable from 'vuedraggable';
-import { makeT } from '../i18n/dict.js';
-import { createContentId } from '../composables/contentLayout.js';
+import { makeT } from '../i18n/dict.ts';
+import { createContentId } from '../composables/contentLayout.ts';
 import MarkdownTextarea from './MarkdownTextarea.vue';
 import ConfirmDeletionDialog from './ConfirmDeletionDialog.vue';
 
@@ -10,8 +12,8 @@ const props = defineProps({
   title: String,
   sectionKey: String,
   lang: { type: String, default: 'de' },
-  modelValue: { type: Array, required: true },
-  schema: { type: Array, required: true },
+  modelValue: { type: Array as PropType<CvItem[]>, required: true },
+  schema: { type: Array as PropType<ItemField[]>, required: true },
   addLabel: { type: String, default: 'Hinzufügen' },
   toggleable: { type: Boolean, default: true },
   disabled: { type: Boolean, default: false },
@@ -35,8 +37,8 @@ const emit = defineEmits([
 
 const langRef = computed(() => props.lang || 'de');
 const t = makeT(langRef);
-const root = ref(null);
-const pendingDeleteIndex = ref(null);
+const root = ref<HTMLElement | null>(null);
+const pendingDeleteIndex = ref<number | null>(null);
 const items = computed({
   get: () => Array.isArray(props.modelValue) ? props.modelValue : [],
   set: (value) => emit('update:modelValue', value),
@@ -50,29 +52,29 @@ const headerSizeOptions = computed(() => [
   { label: langRef.value === 'de' ? 'Kein Titel' : 'No Title', value: 'null' },
 ]);
 
-const isHeaderControl = (target) => target?.closest?.('button, input, select, textarea, a, [contenteditable="true"], .p-select');
-const onHeaderClick = (event) => {
+const isHeaderControl = (target: EventTarget | null) => target instanceof Element && target.closest('button, input, select, textarea, a, [contenteditable="true"], .p-select');
+const onHeaderClick = (event: MouseEvent) => {
   if (!isHeaderControl(event.target)) emit('toggle-collapse');
 };
 
 const add = () => {
-  const entry = { id: createContentId(props.sectionKey || 'entry'), hidden: false };
+  const entry: CvItem = { id: createContentId(props.sectionKey || 'entry'), hidden: false };
   props.schema.forEach((field) => {
-    if (field.type === 'number') entry[field.key] = 0;
+    if (field.type === 'number') Reflect.set(entry, field.key, 0);
     else if (field.type === 'select' && field.options?.length) {
       const defaultOption = field.options[0];
-      entry[field.key] = field.optionValue ? defaultOption?.[field.optionValue] : defaultOption;
+      Reflect.set(entry, field.key, field.optionValue && typeof defaultOption === 'object' ? defaultOption[field.optionValue] : defaultOption);
     }
-    else entry[field.key] = '';
+    else Reflect.set(entry, field.key, '');
   });
   items.value = [...items.value, entry];
   requestAnimationFrame(() => root.value?.querySelector('.item-row:last-of-type')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
 };
 
-const removeAt = (index) => {
+const removeAt = (index: number) => {
   items.value = items.value.filter((_, itemIndex) => itemIndex !== index);
 };
-const requestRemoveAt = (index) => { pendingDeleteIndex.value = index; };
+const requestRemoveAt = (index: number) => { pendingDeleteIndex.value = index; };
 const confirmRemoveAt = () => {
   if (pendingDeleteIndex.value !== null) removeAt(pendingDeleteIndex.value);
   pendingDeleteIndex.value = null;

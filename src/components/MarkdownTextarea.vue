@@ -1,6 +1,6 @@
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue';
-import { normalizeMarkdownText } from '../composables/markdownText.js';
+import { normalizeMarkdownText } from '../composables/markdownText.ts';
 
 const props = defineProps({
   modelValue: { type: [String, Array], default: '' },

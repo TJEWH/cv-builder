@@ -1,5 +1,5 @@
 // Centralized dictionary for language translation (i18n)
-export const dict = {
+export const dict: Record<string, Record<string, string>> = {
     openPreview:        {de: 'Vorschau öffnen', en: 'Open preview'},
     showHtmlPreview:    {de: 'Raw HTML anzeigen', en: 'Show Raw HTML'},
     showPdfPreview:     {de: 'PDF anzeigen', en: 'Show PDF'},
@@ -124,6 +124,6 @@ export const dict = {
     rangeSep:{ de:' – ', en:' – ' },
 };
 
-export function makeT(langRef){
-    return (key)=> (dict[key]?.[langRef.value] ?? dict[key]?.de ?? key);
+export function makeT(langRef: Readonly<{ value: string }>){
+    return (key: string)=> (dict[key]?.[langRef.value] ?? dict[key]?.de ?? key);
 }

@@ -1,9 +1,15 @@
-<script setup>
+<script setup lang="ts">
+import type { PropType } from 'vue';
+import type { CvDesign } from '../types';
 import { computed, reactive, ref } from 'vue';
+type StringDesignKey = { [K in keyof CvDesign]-?: CvDesign[K] extends string | undefined ? K : never }[keyof CvDesign];
+interface FavoriteLink { linkKey: 'pageMarginVerticalLinked' | 'pageMarginHorizontalLinked' | 'headerBottomSpacingLinked'; primaryKey: StringDesignKey; secondaryKey: StringDesignKey }
+interface FavoriteOption { key: keyof CvDesign; label: string; type: 'range' | 'select' | 'color'; options?: { value: string; label: string }[]; min?: number; max?: number; step?: number; unit?: string; suffix?: string; fallback?: number; link?: FavoriteLink }
+type FavoriteRow = { type: 'single'; option: FavoriteOption } | { type: 'linked'; key: string; label: string; link: FavoriteLink; options: FavoriteOption[] };
 import { makeT } from '../i18n/dict';
 
 const props = defineProps({
-  modelValue: { type: Object, required: true },
+  modelValue: { type: Object as PropType<CvDesign>, required: true },
   lang: { type: String, default: 'en' },
 });
 const emit = defineEmits(['update:modelValue']);
@@ -20,12 +26,12 @@ const headFonts = ['Browallia New', 'Century Gothic', 'Inter', 'Montserrat', 'Po
 const hStyles = ['clean', 'underline', 'leftbar', 'pill'];
 const favoritesMode = ref(false);
 const isContentHeight = computed(() => design.value.sidebarHeightMode !== 'full-page');
-const favoriteLinks = {
+const favoriteLinks: Record<string, FavoriteLink> = {
   pageMarginVertical: { linkKey: 'pageMarginVerticalLinked', primaryKey: 'pageMarginTop', secondaryKey: 'pageMarginBottom' },
   pageMarginHorizontal: { linkKey: 'pageMarginHorizontalLinked', primaryKey: 'pageMarginRight', secondaryKey: 'pageMarginLeft' },
   headerBottomSpacing: { linkKey: 'headerBottomSpacingLinked', primaryKey: 'headerPaddingBottom', secondaryKey: 'headerBottomMargin' },
 };
-const favoriteOptions = [
+const favoriteOptions: FavoriteOption[] = [
   { key: 'contactLayout', label: 'Contact Layout', type: 'select', options: [{ value: 'side', label: 'Right column' }, { value: 'below', label: 'Below title (one row)' }] },
   { key: 'separatorWidth', label: 'Separator Width', type: 'range', min: 0.5, max: 5, step: 0.5, unit: 'px', fallback: 1 },
   { key: 'hstyle', label: 'Heading Style', type: 'select', options: hStyles.map((value) => ({ value, label: value })) },
@@ -61,9 +67,9 @@ const favoriteOptions = [
 const favoriteKeys = computed(() => (Array.isArray(design.value.favoriteControls) ? design.value.favoriteControls : []));
 const availableFavoriteOptions = computed(() => favoriteOptions.filter((option) => option.key !== 'sidebarBottomPadding' || isContentHeight.value));
 const selectedFavoriteOptions = computed(() => availableFavoriteOptions.value.filter((option) => favoriteKeys.value.includes(option.key)));
-const isFavorite = (key) => favoriteKeys.value.includes(key);
+const isFavorite = (key: string) => favoriteKeys.value.includes(key);
 const favoriteOptionByKey = new Map(favoriteOptions.map((option) => [option.key, option]));
-const favoriteSectionLabels = {
+const favoriteSectionLabels: Record<string, string> = {
   layout: 'Layout',
   header: 'Header',
   sidebar: 'Sidebar Layout',
@@ -73,7 +79,7 @@ const favoriteSectionLabels = {
   badges: 'Badges & Items',
 };
 const favoriteSectionOrder = ['layout', 'header', 'sidebar', 'spacing', 'typography', 'colors', 'badges'];
-function favoriteSection(option) {
+function favoriteSection(option: FavoriteOption) {
   if (['hstyle', 'pageMarginTop', 'pageMarginBottom', 'pageMarginRight', 'pageMarginLeft'].includes(option.key)) return 'layout';
   if (['contactLayout', 'headerLayoutStyle', 'headerPaddingBottom', 'headerBottomMargin'].includes(option.key)) return 'header';
   if (['sidebarWidth', 'sidebarAlign', 'sidebarLayoutStyle', 'sidebarFillMode', 'sidebarHeightMode', 'sidebarBottomPadding'].includes(option.key)) return 'sidebar';
@@ -82,32 +88,32 @@ function favoriteSection(option) {
   if (['ink', 'graphicOpacity', 'dateOpacity'].includes(option.key)) return 'colors';
   return 'badges';
 }
-function favoritePairLabel(linkKey) {
+function favoritePairLabel(linkKey: FavoriteLink['linkKey']) {
   return {
     pageMarginVerticalLinked: 'Vertical Page Margins',
     pageMarginHorizontalLinked: 'Horizontal Page Margins',
     headerBottomSpacingLinked: 'Header Bottom Spacing',
   }[linkKey] || 'Linked controls';
 }
-function favoriteShortLabel(option) {
-  return {
+function favoriteShortLabel(option: FavoriteOption) {
+  return ({
     pageMarginTop: 'Top', pageMarginBottom: 'Bottom',
     pageMarginRight: 'Right', pageMarginLeft: 'Left',
     headerPaddingBottom: 'Padding', headerBottomMargin: 'Margin',
-  }[option.key] || option.label;
+  } as Partial<Record<keyof CvDesign, string>>)[option.key] || option.label;
 }
 const favoriteRows = computed(() => {
-  const rows = new Map();
+  const rows = new Map<string, FavoriteRow[]>();
   const handledLinks = new Set();
-  const add = (section, entry) => {
+  const add = (section: string, entry: FavoriteRow) => {
     if (!rows.has(section)) rows.set(section, []);
-    rows.get(section).push(entry);
+    rows.get(section)!.push(entry);
   };
 
   selectedFavoriteOptions.value.forEach((option) => {
     const section = favoriteSection(option);
     const hasFavoritePair = option.link && isFavorite(option.link.primaryKey) && isFavorite(option.link.secondaryKey);
-    if (!hasFavoritePair) {
+    if (!hasFavoritePair || !option.link) {
       add(section, { type: 'single', option });
       return;
     }
@@ -121,46 +127,46 @@ const favoriteRows = computed(() => {
       key: option.link.linkKey,
       label: favoritePairLabel(option.link.linkKey),
       link: option.link,
-      options: [primary, secondary],
+      options: [primary!, secondary!],
     });
   });
 
-  return favoriteSectionOrder.filter((key) => rows.has(key)).map((key) => ({ key, label: favoriteSectionLabels[key], entries: rows.get(key) }));
+  return favoriteSectionOrder.filter((key) => rows.has(key)).map((key) => ({ key, label: favoriteSectionLabels[key], entries: rows.get(key)! }));
 });
-function setFavorite(key, enabled) {
+function setFavorite(key: string, enabled: boolean) {
   const next = new Set(favoriteKeys.value);
   if (enabled) next.add(key);
   else next.delete(key);
   design.value.favoriteControls = favoriteOptions.filter((option) => next.has(option.key)).map((option) => option.key);
 }
-function favoriteValue(option) {
+function favoriteValue(option: FavoriteOption) {
   const value = design.value[option.key];
   if (option.type !== 'range') return value ?? '';
-  const parsed = Number.parseFloat(value);
+  const parsed = Number.parseFloat(String(value));
   return Number.isFinite(parsed) ? parsed : option.fallback;
 }
-function favoriteValueLabel(option) {
+function favoriteValueLabel(option: FavoriteOption) {
   const value = favoriteValue(option);
   return option.type === 'range' ? `${value}${option.unit || option.suffix || ''}` : value;
 }
-function setFavoriteValue(option, value) {
+function setFavoriteValue(option: FavoriteOption, value: string | number) {
   if (option.type !== 'range') {
-    design.value[option.key] = value;
+    Reflect.set(design.value, option.key, value);
     return;
   }
 
   const nextValue = option.unit ? `${value}${option.unit}` : Number(value);
-  design.value[option.key] = nextValue;
+  Reflect.set(design.value, option.key, nextValue);
   if (option.link && isLinked(option.link.linkKey)) {
     const pairedKey = option.link.primaryKey === option.key ? option.link.secondaryKey : option.link.primaryKey;
-    design.value[pairedKey] = nextValue;
+    Reflect.set(design.value, pairedKey, nextValue);
   }
 }
-function toggleFavoriteLink(link) {
+function toggleFavoriteLink(link: FavoriteLink) {
   const { linkKey, primaryKey, secondaryKey } = link;
   setLinked(linkKey, primaryKey, secondaryKey, !isLinked(linkKey));
 }
-const sections = reactive({
+const sections = reactive<Record<string, boolean>>({
   typography: true,
   colors: true,
   spacing: true,
@@ -169,42 +175,42 @@ const sections = reactive({
   layout: true,
   header: true,
 });
-function toggleSection(key) {
+function toggleSection(key: string) {
   sections[key] = !sections[key];
 }
 
-function onSubsectionClick(key, event) {
-  if (!event.target?.closest?.('button, input, select, textarea, label, a, [contenteditable="true"], .p-select')) {
+function onSubsectionClick(key: string, event: MouseEvent) {
+  if (!(event.target instanceof Element && event.target.closest('button, input, select, textarea, label, a, [contenteditable="true"], .p-select'))) {
     toggleSection(key);
   }
 }
 
-function millimeters(value, fallback) {
-  const parsed = Number.parseFloat(value);
+function millimeters(value: unknown, fallback: number) {
+  const parsed = Number.parseFloat(String(value));
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function setMillimeters(key, value) {
-  design.value[key] = `${Math.max(0, Number.parseFloat(value) || 0)}mm`;
+function setMillimeters(key: StringDesignKey, value: unknown) {
+  design.value[key] = `${Math.max(0, Number.parseFloat(String(value)) || 0)}mm`;
 }
 
-function isLinked(key) {
+function isLinked(key: FavoriteLink['linkKey']) {
   return design.value[key] !== false;
 }
 
-function setLinked(key, primaryKey, secondaryKey, linked) {
+function setLinked(key: FavoriteLink['linkKey'], primaryKey: StringDesignKey, secondaryKey: StringDesignKey, linked: boolean) {
   design.value[key] = linked;
   if (linked) design.value[secondaryKey] = design.value[primaryKey];
 }
 
-function setLinkedMillimeters(linkKey, primaryKey, secondaryKey, value) {
-  const normalized = `${Math.max(0, Number.parseFloat(value) || 0)}mm`;
+function setLinkedMillimeters(linkKey: FavoriteLink['linkKey'], primaryKey: StringDesignKey, secondaryKey: StringDesignKey, value: unknown) {
+  const normalized = `${Math.max(0, Number.parseFloat(String(value)) || 0)}mm`;
   design.value[primaryKey] = normalized;
   if (isLinked(linkKey)) design.value[secondaryKey] = normalized;
 }
 
-function pixels(value, fallback = 1) {
-  const parsed = Number.parseFloat(value);
+function pixels(value: unknown, fallback = 1) {
+  const parsed = Number.parseFloat(String(value));
   return Number.isFinite(parsed) ? Math.min(5, Math.max(0.5, parsed)) : fallback;
 }
 
@@ -228,7 +234,7 @@ function pixels(value, fallback = 1) {
 
       <div v-if="favoritesMode" class="design-favorites__picker" aria-label="Choose favorite controls">
         <label v-for="option in availableFavoriteOptions" :key="option.key">
-          <input type="checkbox" :checked="isFavorite(option.key)" @change="setFavorite(option.key, $event.target.checked)">
+          <input type="checkbox" :checked="isFavorite(option.key)" @change="setFavorite(option.key, ($event.target as HTMLInputElement).checked)">
           {{ option.label }}
         </label>
       </div>
@@ -245,19 +251,19 @@ function pixels(value, fallback = 1) {
                       <span>{{ isLinked(entry.link.linkKey) ? entry.label : favoriteShortLabel(entry.options[0]) }}: {{ favoriteValueLabel(entry.options[0]) }}</span>
                       <button class="mini link-toggle" type="button" :aria-label="isLinked(entry.link.linkKey) ? `Unlink ${entry.label.toLowerCase()}` : `Link ${entry.label.toLowerCase()}`" :aria-pressed="isLinked(entry.link.linkKey)" @click="toggleFavoriteLink(entry.link)"><font-awesome-icon :icon="['fas', isLinked(entry.link.linkKey) ? 'link' : 'link-slash']" /></button>
                     </div>
-                    <input type="range" :aria-label="isLinked(entry.link.linkKey) ? entry.label : entry.options[0].label" :min="entry.options[0].min" :max="entry.options[0].max" :step="entry.options[0].step" :value="favoriteValue(entry.options[0])" @input="setFavoriteValue(entry.options[0], $event.target.value)">
+                    <input type="range" :aria-label="isLinked(entry.link.linkKey) ? entry.label : entry.options[0].label" :min="entry.options[0].min" :max="entry.options[0].max" :step="entry.options[0].step" :value="favoriteValue(entry.options[0])" @input="setFavoriteValue(entry.options[0], ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
                   </div>
                   <label v-if="!isLinked(entry.link.linkKey)">
                     <span>{{ favoriteShortLabel(entry.options[1]) }}: {{ favoriteValueLabel(entry.options[1]) }}</span>
-                    <input type="range" :aria-label="entry.options[1].label" :min="entry.options[1].min" :max="entry.options[1].max" :step="entry.options[1].step" :value="favoriteValue(entry.options[1])" @input="setFavoriteValue(entry.options[1], $event.target.value)">
+                    <input type="range" :aria-label="entry.options[1].label" :min="entry.options[1].min" :max="entry.options[1].max" :step="entry.options[1].step" :value="favoriteValue(entry.options[1])" @input="setFavoriteValue(entry.options[1], ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
                   </label>
                 </div>
               </div>
               <div v-else class="design-favorites__control">
                 <div class="design-favorites__control-label"><span>{{ entry.option.label }}<template v-if="entry.option.type === 'range'">: {{ favoriteValueLabel(entry.option) }}</template></span></div>
-                <input v-if="entry.option.type === 'range'" type="range" :aria-label="entry.option.label" :min="entry.option.min" :max="entry.option.max" :step="entry.option.step" :value="favoriteValue(entry.option)" @input="setFavoriteValue(entry.option, $event.target.value)">
-                <input v-else-if="entry.option.type === 'color'" type="color" :aria-label="entry.option.label" :value="favoriteValue(entry.option) || '#111827'" @input="setFavoriteValue(entry.option, $event.target.value)">
-                <select v-else :aria-label="entry.option.label" :value="favoriteValue(entry.option)" @change="setFavoriteValue(entry.option, $event.target.value)">
+                <input v-if="entry.option.type === 'range'" type="range" :aria-label="entry.option.label" :min="entry.option.min" :max="entry.option.max" :step="entry.option.step" :value="favoriteValue(entry.option)" @input="setFavoriteValue(entry.option, ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
+                <input v-else-if="entry.option.type === 'color'" type="color" :aria-label="entry.option.label" :value="favoriteValue(entry.option) || '#111827'" @input="setFavoriteValue(entry.option, ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
+                <select v-else :aria-label="entry.option.label" :value="favoriteValue(entry.option)" @change="setFavoriteValue(entry.option, ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
                   <option v-for="choice in entry.option.options" :key="choice.value" :value="choice.value">{{ choice.label }}</option>
                 </select>
               </div>
@@ -278,14 +284,14 @@ function pixels(value, fallback = 1) {
             <div class="grid-2">
               <div class="linked-control">
                 <div class="linked-control__heading"><span>{{ isLinked('pageMarginVerticalLinked') ? 'Vertical' : 'Top' }}: {{ design.pageMarginTop || '12mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('pageMarginVerticalLinked') ? 'Unlink top and bottom page margins' : 'Link top and bottom page margins'" :aria-pressed="isLinked('pageMarginVerticalLinked')" :title="isLinked('pageMarginVerticalLinked') ? 'Top and bottom margins linked' : 'Top and bottom margins independent'" @click="setLinked('pageMarginVerticalLinked', 'pageMarginTop', 'pageMarginBottom', !isLinked('pageMarginVerticalLinked'))"><font-awesome-icon :icon="['fas', isLinked('pageMarginVerticalLinked') ? 'link' : 'link-slash']" /></button></div>
-                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('pageMarginVerticalLinked') ? 'Vertical page margin' : 'Top page margin'" :value="millimeters(design.pageMarginTop, 12)" @input="setLinkedMillimeters('pageMarginVerticalLinked', 'pageMarginTop', 'pageMarginBottom', $event.target.value)">
+                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('pageMarginVerticalLinked') ? 'Vertical page margin' : 'Top page margin'" :value="millimeters(design.pageMarginTop, 12)" @input="setLinkedMillimeters('pageMarginVerticalLinked', 'pageMarginTop', 'pageMarginBottom', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
               </div>
               <div class="linked-control">
                 <div class="linked-control__heading"><span>{{ isLinked('pageMarginHorizontalLinked') ? 'Horizontal' : 'Right' }}: {{ design.pageMarginRight || '12mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('pageMarginHorizontalLinked') ? 'Unlink right and left page margins' : 'Link right and left page margins'" :aria-pressed="isLinked('pageMarginHorizontalLinked')" :title="isLinked('pageMarginHorizontalLinked') ? 'Right and left margins linked' : 'Right and left margins independent'" @click="setLinked('pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft', !isLinked('pageMarginHorizontalLinked'))"><font-awesome-icon :icon="['fas', isLinked('pageMarginHorizontalLinked') ? 'link' : 'link-slash']" /></button></div>
-                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('pageMarginHorizontalLinked') ? 'Horizontal page margin' : 'Right page margin'" :value="millimeters(design.pageMarginRight, 12)" @input="setLinkedMillimeters('pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft', $event.target.value)">
+                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('pageMarginHorizontalLinked') ? 'Horizontal page margin' : 'Right page margin'" :value="millimeters(design.pageMarginRight, 12)" @input="setLinkedMillimeters('pageMarginHorizontalLinked', 'pageMarginRight', 'pageMarginLeft', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
               </div>
-              <label v-if="!isLinked('pageMarginVerticalLinked')">Bottom: {{ design.pageMarginBottom || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginBottom, 12)" @input="setMillimeters('pageMarginBottom', $event.target.value)"></label>
-              <label v-if="!isLinked('pageMarginHorizontalLinked')">Left: {{ design.pageMarginLeft || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginLeft, 12)" @input="setMillimeters('pageMarginLeft', $event.target.value)"></label>
+              <label v-if="!isLinked('pageMarginVerticalLinked')">Bottom: {{ design.pageMarginBottom || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginBottom, 12)" @input="setMillimeters('pageMarginBottom', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label>
+              <label v-if="!isLinked('pageMarginHorizontalLinked')">Left: {{ design.pageMarginLeft || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.pageMarginLeft, 12)" @input="setMillimeters('pageMarginLeft', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label>
             </div>
           </div>
         </div>
@@ -300,9 +306,9 @@ function pixels(value, fallback = 1) {
             <div class="grid-2">
               <div class="linked-control">
                 <div class="linked-control__heading"><span>{{ isLinked('headerBottomSpacingLinked') ? 'Header Bottom Spacing' : 'Header Bottom Padding' }}: {{ design.headerPaddingBottom || '12mm' }}</span><button class="mini link-toggle" type="button" :aria-label="isLinked('headerBottomSpacingLinked') ? 'Unlink header bottom padding and margin' : 'Link header bottom padding and margin'" :aria-pressed="isLinked('headerBottomSpacingLinked')" :title="isLinked('headerBottomSpacingLinked') ? 'Header bottom padding and margin linked' : 'Header bottom padding and margin independent'" @click="setLinked('headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin', !isLinked('headerBottomSpacingLinked'))"><font-awesome-icon :icon="['fas', isLinked('headerBottomSpacingLinked') ? 'link' : 'link-slash']" /></button></div>
-                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('headerBottomSpacingLinked') ? 'Header bottom spacing' : 'Header bottom padding'" :value="millimeters(design.headerPaddingBottom, 12)" @input="setLinkedMillimeters('headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin', $event.target.value)">
+                <input type="range" min="0" max="30" step="1" :aria-label="isLinked('headerBottomSpacingLinked') ? 'Header bottom spacing' : 'Header bottom padding'" :value="millimeters(design.headerPaddingBottom, 12)" @input="setLinkedMillimeters('headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
               </div>
-              <label v-if="!isLinked('headerBottomSpacingLinked')">Header Bottom Margin: {{ design.headerBottomMargin || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.headerBottomMargin, 12)" @input="setMillimeters('headerBottomMargin', $event.target.value)"></label>
+              <label v-if="!isLinked('headerBottomSpacingLinked')">Header Bottom Margin: {{ design.headerBottomMargin || '12mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.headerBottomMargin, 12)" @input="setMillimeters('headerBottomMargin', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label>
             </div>
             <p class="spacing-hint">With a separator header, padding is above the line and margin is below it.</p>
           </div>
@@ -311,27 +317,27 @@ function pixels(value, fallback = 1) {
 
       <section class="editor-subsection" :class="{ collapsed: sections.sidebar }" @click="onSubsectionClick('sidebar', $event)">
         <div class="section-head"><font-awesome-icon :icon="['fas', 'table-columns']" class="section-icon" aria-hidden="true" /><h4>Sidebar Layout</h4></div>
-        <div class="editor-subsection__body grid-3"><label>Sidebar Width: {{ design.sidebarWidth }}<input type="range" min="0.1" max="3.0" step="0.1" :value="parseFloat(design.sidebarWidth)" @input="design.sidebarWidth = $event.target.value + 'fr'"></label><label>Sidebar Position<select v-model="design.sidebarAlign"><option value="left">Links</option><option value="right">Rechts</option></select></label><label>Sidebar Style<select v-model="design.sidebarLayoutStyle"><option value="boxed">Boxed</option><option value="separator">Separator</option></select></label></div>
-        <div class="editor-subsection__body grid-3 subsection-row"><label>Sidebar Start<select v-model="design.sidebarFillMode"><option value="start">Fill from start</option><option value="last-page">Fill from last PDF page</option><option value="after-cover">Skip cover page</option></select></label><label>Sidebar Height<select v-model="design.sidebarHeightMode"><option value="content">Fit content</option><option value="full-page">Full page</option></select></label><label v-if="isContentHeight">Sidebar Bottom Padding: {{ design.sidebarBottomPadding || '6mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.sidebarBottomPadding, 6)" @input="setMillimeters('sidebarBottomPadding', $event.target.value)"></label></div>
+        <div class="editor-subsection__body grid-3"><label>Sidebar Width: {{ design.sidebarWidth }}<input type="range" min="0.1" max="3.0" step="0.1" :value="parseFloat(design.sidebarWidth || '')" @input="design.sidebarWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'fr'"></label><label>Sidebar Position<select v-model="design.sidebarAlign"><option value="left">Links</option><option value="right">Rechts</option></select></label><label>Sidebar Style<select v-model="design.sidebarLayoutStyle"><option value="boxed">Boxed</option><option value="separator">Separator</option></select></label></div>
+        <div class="editor-subsection__body grid-3 subsection-row"><label>Sidebar Start<select v-model="design.sidebarFillMode"><option value="start">Fill from start</option><option value="last-page">Fill from last PDF page</option><option value="after-cover">Skip cover page</option></select></label><label>Sidebar Height<select v-model="design.sidebarHeightMode"><option value="content">Fit content</option><option value="full-page">Full page</option></select></label><label v-if="isContentHeight">Sidebar Bottom Padding: {{ design.sidebarBottomPadding || '6mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.sidebarBottomPadding, 6)" @input="setMillimeters('sidebarBottomPadding', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label></div>
         <p class="editor-subsection__body spacing-hint">Fit content lets the body use the full width below the sidebar.</p>
       </section>
 
       <section class="editor-subsection" :class="{ collapsed: sections.spacing }" @click="onSubsectionClick('spacing', $event)">
         <div class="section-head"><font-awesome-icon :icon="['fas', 'arrows-left-right-to-line']" class="section-icon" aria-hidden="true" /><h4>Spacing</h4></div>
-        <div class="editor-subsection__body grid-3"><label>Separator Width: {{ pixels(design.separatorWidth) }}px<input type="range" min="0.5" max="5" step="0.5" :value="pixels(design.separatorWidth)" @input="design.separatorWidth = $event.target.value + 'px'"></label><label>Body Section Spacing: {{ design.sectionSpacingBody || design.sectionSpacing }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingBody || design.sectionSpacing)" @input="design.sectionSpacingBody = $event.target.value + 'mm'"></label><label>Sidebar Section Spacing: {{ design.sectionSpacingSidebar || design.sectionSpacing }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingSidebar || design.sectionSpacing)" @input="design.sectionSpacingSidebar = $event.target.value + 'mm'"></label></div>
-        <div class="editor-subsection__body grid-3 subsection-row"><label>Body / Sidebar Spacing: {{ design.bodySidebarSpacing || '10mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.bodySidebarSpacing, 10)" @input="setMillimeters('bodySidebarSpacing', $event.target.value)"></label></div>
+        <div class="editor-subsection__body grid-3"><label>Separator Width: {{ pixels(design.separatorWidth) }}px<input type="range" min="0.5" max="5" step="0.5" :value="pixels(design.separatorWidth)" @input="design.separatorWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label><label>Body Section Spacing: {{ design.sectionSpacingBody || design.sectionSpacing }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingBody || design.sectionSpacing || '')" @input="design.sectionSpacingBody = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'mm'"></label><label>Sidebar Section Spacing: {{ design.sectionSpacingSidebar || design.sectionSpacing }}<input type="range" min="2" max="20" step="1" :value="parseInt(design.sectionSpacingSidebar || design.sectionSpacing || '')" @input="design.sectionSpacingSidebar = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'mm'"></label></div>
+        <div class="editor-subsection__body grid-3 subsection-row"><label>Body / Sidebar Spacing: {{ design.bodySidebarSpacing || '10mm' }}<input type="range" min="0" max="30" step="1" :value="millimeters(design.bodySidebarSpacing, 10)" @input="setMillimeters('bodySidebarSpacing', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)"></label></div>
       </section>
 
       <section class="editor-subsection" :class="{ collapsed: sections.typography }" @click="onSubsectionClick('typography', $event)">
         <div class="section-head"><font-awesome-icon :icon="['fas', 'font']" class="section-icon" aria-hidden="true" /><h4>Typography</h4></div>
         <div class="editor-subsection__body">
           <div class="grid-3">
-            <label>H1 Font Size: {{ design.h1 }}<input type="range" min="18" max="30" step="1" :value="parseInt(design.h1)" @input="design.h1 = $event.target.value + 'pt'"></label>
-            <label>H2 Font Size: {{ design.h2 }}<input type="range" min="10" max="20" step="1" :value="parseInt(design.h2)" @input="design.h2 = $event.target.value + 'pt'"></label>
-            <label>H3 Font Size: {{ design.h3 }}<input type="range" min="8" max="16" step="1" :value="parseInt(design.h3)" @input="design.h3 = $event.target.value + 'pt'"></label>
+            <label>H1 Font Size: {{ design.h1 }}<input type="range" min="18" max="30" step="1" :value="parseInt(design.h1 || '')" @input="design.h1 = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'pt'"></label>
+            <label>H2 Font Size: {{ design.h2 }}<input type="range" min="10" max="20" step="1" :value="parseInt(design.h2 || '')" @input="design.h2 = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'pt'"></label>
+            <label>H3 Font Size: {{ design.h3 }}<input type="range" min="8" max="16" step="1" :value="parseInt(design.h3 || '')" @input="design.h3 = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'pt'"></label>
           </div>
           <div class="grid-3 subsection-row">
-            <label>Bullet Point Font Size: {{ design.bullets }}<input type="range" min="8" max="14" step="0.5" :value="parseFloat(design.bullets)" @input="design.bullets = $event.target.value + 'pt'"></label>
+            <label>Bullet Point Font Size: {{ design.bullets }}<input type="range" min="8" max="14" step="0.5" :value="parseFloat(design.bullets || '')" @input="design.bullets = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'pt'"></label>
           </div>
           <div class="grid-3 subsection-row">
             <label>Body-Font<select v-model="design.fontBody"><option v-for="font in bodyFonts" :key="font" :value="font">{{ font }}</option></select></label>
@@ -349,7 +355,7 @@ function pixels(value, fallback = 1) {
       <section class="editor-subsection" :class="{ collapsed: sections.badges }" @click="onSubsectionClick('badges', $event)">
         <div class="section-head"><font-awesome-icon :icon="['fas', 'tag']" class="section-icon" aria-hidden="true" /><h4>Badges & Items</h4></div>
         <div class="editor-subsection__body">
-          <div class="grid-3"><label>Badge Mode<select v-model="design.badgeMode"><option value="solid">Solid</option><option value="border">Border</option></select></label><label v-if="design.badgeMode === 'border'">Badge Border Width: {{ design.badgeBorderWidth || '1px' }}<input type="range" min="0.5" max="4" step="0.5" :value="parseFloat(design.badgeBorderWidth || '1')" @input="design.badgeBorderWidth = $event.target.value + 'px'"></label><label>Badge Border Radius: {{ design.badgeBorderRadius }}<input type="range" min="0" max="20" step="1" :value="parseInt(design.badgeBorderRadius)" @input="design.badgeBorderRadius = $event.target.value + 'px'"></label></div>
+          <div class="grid-3"><label>Badge Mode<select v-model="design.badgeMode"><option value="solid">Solid</option><option value="border">Border</option></select></label><label v-if="design.badgeMode === 'border'">Badge Border Width: {{ design.badgeBorderWidth || '1px' }}<input type="range" min="0.5" max="4" step="0.5" :value="parseFloat(design.badgeBorderWidth || '1')" @input="design.badgeBorderWidth = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label><label>Badge Border Radius: {{ design.badgeBorderRadius }}<input type="range" min="0" max="20" step="1" :value="parseInt(design.badgeBorderRadius || '')" @input="design.badgeBorderRadius = ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value + 'px'"></label></div>
         </div>
       </section>
 

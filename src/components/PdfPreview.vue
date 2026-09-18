@@ -1,9 +1,11 @@
-<script setup>
+<script setup lang="ts">
+import type { PropType } from 'vue';
+import type { PreviewPage } from '../pdfTypes';
 import { computed } from 'vue';
-import { makeT } from '../i18n/dict.js';
+import { makeT } from '../i18n/dict.ts';
 
 const props = defineProps({
-  pages: { type: Array, default: () => [] },
+  pages: { type: Array as PropType<PreviewPage[]>, default: () => [] },
   page: { type: Number, default: 1 },
   isUpdating: { type: Boolean, default: false },
   lang: { type: String, default: 'de' },

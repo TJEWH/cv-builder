@@ -1,6 +1,6 @@
 # CV Builder – Vue.js
 
-Modern resume generator built with Vue 3 and Vite. Create professional CVs with real-time preview and PDF export.
+Modern resume generator built with Vue 3, TypeScript and Vite. Create professional CVs with real-time preview and PDF export.
 
 ## 📋 Table of Contents
 
@@ -136,14 +136,14 @@ npm test             # Content, PDF geometry, rendering and storage tests
 
 Preview renders are cancelable: a newer content change aborts the previous job,
 retaining the last complete vector preview until the replacement is ready. The DOM-based
-renderer cannot run in a Web Worker, so `pdfRenderTask.js` schedules short,
+renderer cannot run in a Web Worker, so `pdfRenderTask.ts` schedules short,
 background-priority batches with a timer fallback. Inline and full-screen views
 reuse the same SVG pages; opening a larger view does not render again.
 
-`build/responsivePdfRenderer.js` adds checkpoints to html2canvas's DOM clone,
+`build/responsivePdfRenderer.ts` adds checkpoints to html2canvas's DOM clone,
 parser and painter. Its bitmap surface is replaced with a vector command recorder;
 a 1×1 native context is used only for font measurement and CSS state normalization.
-Page-break spacing lives in `pdfPageBreaks.js`. The layout dependency is pinned;
+Page-break spacing lives in `pdfPageBreaks.ts`. The layout dependency is pinned;
 when upgrading it, review the guarded
 adapter and run `npm test` and `npm run build`. Check rapid section lock/unlock
 during rendering in the browser as well (development and production builds).
@@ -168,7 +168,7 @@ Create build: `npm run build` → `/dist` folder
 - Build Command: `npm run build`
 - Output: `dist`
 
-**Custom Domain Deployment**: This build targets the GitHub Pages project URL at `/cv-builder/`. If you later use a custom domain served from its root, change `base` in `vite.config.js` to `/` and add the domain configuration appropriate to that host.
+**Custom Domain Deployment**: This build targets the GitHub Pages project URL at `/cv-builder/`. If you later use a custom domain served from its root, change `base` in `vite.config.ts` to `/` and add the domain configuration appropriate to that host.
 
 ---
 
@@ -181,3 +181,16 @@ Create build: `npm run build` → `/dist` folder
 ---
 
 **Good luck! 🎉**
+
+### Type checking
+
+Application code, Vue scripts, build adapters and tests use TypeScript with
+strict checking. Run `npm run typecheck` to check them without emitting files.
+`npm run build` performs the same check before producing the Vite bundle.
+Run `npm test` for the TypeScript regression suite via tsx.
+
+Shared CV contracts are in `src/types.ts`; PDF recording, rendering and page
+contracts are in `src/pdfTypes.ts`. Legacy JSON is handled at the persistence
+boundary. The reflective Canvas command boundary and PDFKit 0.20 adapter are
+explicitly isolated because the third-party APIs are dynamic or have older
+type declarations.

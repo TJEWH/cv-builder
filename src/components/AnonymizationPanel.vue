@@ -1,9 +1,11 @@
-<script setup>
+<script setup lang="ts">
+import type { PropType } from 'vue';
+import type { CvState, CvItem } from '../types';
 import { computed } from 'vue';
 import { makeT } from '../i18n/dict';
 
 const props = defineProps({
-  state: { type: Object, required: true },
+  state: { type: Object as PropType<CvState>, required: true },
   isExporting: { type: Boolean, default: false },
   lang: { type: String, default: 'de' },
 });
@@ -20,11 +22,11 @@ const builtInNames = computed(() => ({
   hobbies: t('hobbiesTitle'),
 }));
 
-function entryLabel(item, fallback) {
+function entryLabel(item: CvItem, fallback: string) {
   return item.title || item.name || item.company || item.sub || fallback;
 }
 
-function itemRows(items, fallback) {
+function itemRows(items: CvItem[], fallback: string) {
   return (items || []).map((item, index) => ({
     id: item.id,
     label: entryLabel(item, `${fallback} ${index + 1}`),
@@ -37,20 +39,20 @@ const bodySections = computed(() => (props.state.bodyOrder || []).map((key) => {
   if (key === 'jobs') return { key, name: builtInNames.value.jobs, items: itemRows(props.state.experience?.jobs, builtInNames.value.jobs) };
   const section = (props.state.customSections || []).find((candidate) => candidate.id === key);
   return section ? { key, name: section.name, items: itemRows(section.entries, section.name) } : null;
-}).filter(Boolean));
+}).filter((section) => section !== null));
 
 const sidebarSections = computed(() => (props.state.sidebarOrder || []).map((key) => {
   if (key === 'languages') return { key, name: builtInNames.value.languages, items: itemRows(props.state.languages, builtInNames.value.languages) };
   if (key === 'hobbies') return { key, name: builtInNames.value.hobbies, items: itemRows(props.state.hobbies, builtInNames.value.hobbies) };
   const section = (props.state.sidebarSections || []).find((candidate) => candidate.id === key);
   return section ? { key, name: section.name, items: itemRows(section.items, section.name) } : null;
-}).filter(Boolean));
+}).filter((section) => section !== null));
 
-function excluded(key, id) {
+function excluded(key: keyof CvState['anonymization'], id: string) {
   return Array.isArray(props.state.anonymization?.[key]) && props.state.anonymization[key].includes(id);
 }
 
-function setExcluded(key, id, shouldExclude) {
+function setExcluded(key: keyof CvState['anonymization'], id: string, shouldExclude: boolean) {
   const values = new Set(props.state.anonymization?.[key] || []);
   if (shouldExclude) values.add(id);
   else values.delete(id);
@@ -83,12 +85,12 @@ function setExcluded(key, id, shouldExclude) {
           <h4>{{ t('body') }}</h4>
           <div v-for="section in bodySections" :key="section.key" class="anonymization-panel__section">
             <label class="anonymization-panel__row">
-              <input type="checkbox" :checked="excluded('excludedSections', section.key)" @change="setExcluded('excludedSections', section.key, $event.target.checked)">
+              <input type="checkbox" :checked="excluded('excludedSections', section.key)" @change="setExcluded('excludedSections', section.key, ($event.target as HTMLInputElement).checked)">
               <span>{{ section.name }}</span>
             </label>
             <div v-if="section.items.length" class="anonymization-panel__items">
               <label v-for="item in section.items" :key="item.id" class="anonymization-panel__row anonymization-panel__item" :class="{ disabled: excluded('excludedSections', section.key) }">
-                <input type="checkbox" :checked="excluded('excludedItems', item.id)" :disabled="excluded('excludedSections', section.key)" @change="setExcluded('excludedItems', item.id, $event.target.checked)">
+                <input type="checkbox" :checked="excluded('excludedItems', item.id)" :disabled="excluded('excludedSections', section.key)" @change="setExcluded('excludedItems', item.id, ($event.target as HTMLInputElement).checked)">
                 <span>{{ item.label }}</span>
               </label>
             </div>
@@ -99,12 +101,12 @@ function setExcluded(key, id, shouldExclude) {
           <h4>{{ t('sidebar') }}</h4>
           <div v-for="section in sidebarSections" :key="section.key" class="anonymization-panel__section">
             <label class="anonymization-panel__row">
-              <input type="checkbox" :checked="excluded('excludedSections', section.key)" @change="setExcluded('excludedSections', section.key, $event.target.checked)">
+              <input type="checkbox" :checked="excluded('excludedSections', section.key)" @change="setExcluded('excludedSections', section.key, ($event.target as HTMLInputElement).checked)">
               <span>{{ section.name }}</span>
             </label>
             <div v-if="section.items.length" class="anonymization-panel__items">
               <label v-for="item in section.items" :key="item.id" class="anonymization-panel__row anonymization-panel__item" :class="{ disabled: excluded('excludedSections', section.key) }">
-                <input type="checkbox" :checked="excluded('excludedItems', item.id)" :disabled="excluded('excludedSections', section.key)" @change="setExcluded('excludedItems', item.id, $event.target.checked)">
+                <input type="checkbox" :checked="excluded('excludedItems', item.id)" :disabled="excluded('excludedSections', section.key)" @change="setExcluded('excludedItems', item.id, ($event.target as HTMLInputElement).checked)">
                 <span>{{ item.label }}</span>
               </label>
             </div>

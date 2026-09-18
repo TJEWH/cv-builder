@@ -1,10 +1,12 @@
-<script setup>
+<script setup lang="ts">
+import type { PropType } from 'vue';
+import type { CvItem } from '../types';
 import MarkdownContent from './MarkdownContent.vue';
-import { hasMarkdownText } from '../composables/markdownText.js';
+import { hasMarkdownText } from '../composables/markdownText.ts';
 
 defineProps({
   kind: { type: String, required: true },
-  item: { type: Object, required: true },
+  item: { type: Object as PropType<CvItem>, required: true },
   meta: { type: String, default: '' },
   anonymized: { type: Boolean, default: false },
   institution: { type: Boolean, default: false },

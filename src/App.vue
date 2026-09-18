@@ -1,9 +1,11 @@
-<script setup>
+<script setup lang="ts">
+import type { CvState, CvDesign, LegacyCvState, SavedConfiguration, SaveStatus } from './types';
+import type { PreviewPage, RenderOptions } from './pdfTypes';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { debounce, loadLocal, saveLocal } from './composables/useStorage';
 import { useCvDesign } from './composables/useCvDesign';
 import { usePdfExport } from './composables/usePdfExport';
-import { createPreviewRenderSlot } from './composables/pdfRenderTask.js';
+import { createPreviewRenderSlot } from './composables/pdfRenderTask.ts';
 import FormBuilder from './components/FormBuilder.vue';
 import CvPreview from './components/CvPreview.vue';
 import PdfPreview from './components/PdfPreview.vue';
@@ -12,10 +14,10 @@ import BackupManager from './components/BackupManager.vue';
 import DesignPanel from './components/DesignPanel.vue';
 import AnonymizationPanel from './components/AnonymizationPanel.vue';
 import { makeT } from './i18n/dict';
-import { normalizeContentState } from './composables/contentLayout';
+import { createContentId, normalizeContentState } from './composables/contentLayout';
 import { createAnonymizedState } from './composables/anonymization';
 
-const state = reactive({
+const state = reactive<CvState>({
   version: 7,
   disabled: [],
   completedSections: [],
@@ -40,7 +42,7 @@ const state = reactive({
   education: [],
   experience: { jobs: [] },
   languages: [],
-  hobbies: [{ name: 'Musik' }],
+  hobbies: [{ id: createContentId('hobby'), name: 'Musik' }],
   customSections: [],
   sidebarSections: [],
   sectionNames: {},
@@ -48,9 +50,9 @@ const state = reactive({
   bodyOrder: ['about', 'education', 'jobs'],
   sidebarOrder: ['languages', 'hobbies'],
 });
-const stateKeys = Object.keys(state);
-const initialState = JSON.parse(JSON.stringify(state));
-const createInitialState = () => JSON.parse(JSON.stringify(initialState));
+const stateKeys = Object.keys(state) as (keyof CvState)[];
+const initialState: CvState = JSON.parse(JSON.stringify(state));
+const createInitialState = (): CvState => JSON.parse(JSON.stringify(initialState));
 
 const lang = computed({
   get: () => state.lang ?? 'en',
@@ -59,29 +61,29 @@ const lang = computed({
 const previewMode = ref(false);
 const fullPreviewView = ref('pdf');
 const previewPlacement = ref('side');
-const previewPages = ref([]);
+const previewPages = ref<PreviewPage[]>([]);
 const previewPage = ref(1);
 const isPreviewRendering = ref(true);
-const pdfRenderSource = ref(null);
-const anonymizedPreviewPages = ref([]);
+const pdfRenderSource = ref<HTMLElement | null>(null);
+const anonymizedPreviewPages = ref<PreviewPage[]>([]);
 const anonymizedPreviewPage = ref(1);
 const isAnonymizedPreviewRendering = ref(false);
-const anonymizedPdfRenderSource = ref(null);
+const anonymizedPdfRenderSource = ref<HTMLElement | null>(null);
 const fullPreviewVariant = ref('normal');
 const t = makeT(lang);
 const activeBuilderGroup = ref('content');
-const savedConfigurations = ref([]);
+const savedConfigurations = ref<SavedConfiguration[]>([]);
 const selectedConfigurationId = ref('');
-const saveStatus = ref('saved');
-const backupManager = ref(null);
-const formBuilder = ref(null);
-const sectionSaveStatus = ref('saved');
+const saveStatus = ref<SaveStatus>('saved');
+const backupManager = ref<InstanceType<typeof BackupManager> | null>(null);
+const formBuilder = ref<InstanceType<typeof FormBuilder> | null>(null);
+const sectionSaveStatus = ref<SaveStatus>('saved');
 const combinedSaveStatus = computed(() => {
   const statuses = [saveStatus.value, sectionSaveStatus.value];
   return statuses.includes('error') ? 'error' : statuses.includes('saving') ? 'saving' : 'saved';
 });
-const readSectionVersion = (id) => backupManager.value?.readConfigData(id);
-const saveSectionVersion = (id, data) => backupManager.value?.saveVersion(id, data) ?? false;
+const readSectionVersion = (id: string) => backupManager.value?.readConfigData(id);
+const saveSectionVersion = (id: string, data: CvState) => backupManager.value?.saveVersion(id, data) ?? false;
 function prepareConfigurationChange() {
   flushStateSave();
   return formBuilder.value?.resetSectionVersions() !== false && saveStatus.value !== 'error';
@@ -125,13 +127,14 @@ function scheduleStateSave() {
   saveDebounced();
 }
 
-function selectConfiguration(event) {
-  const nextId = event.target.value;
+function selectConfiguration(event: Event) {
+  const target = event.target as HTMLSelectElement;
+  const nextId = target.value;
   if (nextId === selectedConfigurationId.value) return;
-  if (!backupManager.value?.selectConfiguration(nextId)) event.target.value = selectedConfigurationId.value;
+  if (!backupManager.value?.selectConfiguration(nextId)) target.value = selectedConfigurationId.value;
 }
 
-function handleConfigurationSaveResult(saved) {
+function handleConfigurationSaveResult(saved: boolean) {
   saveStatus.value = saved ? 'saved' : 'error';
 }
 
@@ -142,16 +145,16 @@ function toggleLanguage() {
 watch(state, scheduleStateSave, { deep: true });
 useCvDesign(() => state.design);
 
-function designMillimeters(value, fallback = 0) {
-  const parsed = Number.parseFloat(value);
+function designMillimeters(value: unknown, fallback = 0) {
+  const parsed = Number.parseFloat(String(value));
   return Number.isFinite(parsed) ? Math.max(0, parsed) : fallback;
 }
 
-function addDesignMillimeters(...values) {
-  return `${values.reduce((total, value) => total + designMillimeters(value), 0)}mm`;
+function addDesignMillimeters(...values: unknown[]) {
+  return `${values.reduce<number>((total, value) => total + designMillimeters(value), 0)}mm`;
 }
 
-function migrateLegacySpacing(design) {
+function migrateLegacySpacing(design: CvDesign & Record<string, unknown>) {
   const legacySpacingKeys = [
     'headerPaddingTop',
     'headerPaddingVertical',
@@ -175,16 +178,16 @@ function migrateLegacySpacing(design) {
   design.pageMarginBottom = addDesignMillimeters(design.pageMarginBottom, contentVertical);
   design.pageMarginRight = addDesignMillimeters(design.pageMarginRight, contentHorizontal);
   design.pageMarginLeft = addDesignMillimeters(design.pageMarginLeft, contentHorizontal);
-  design.headerPaddingBottom = headerBottom;
-  design.headerBottomMargin ??= contentVertical;
+  design.headerPaddingBottom = String(headerBottom);
+  design.headerBottomMargin ??= String(contentVertical);
 }
 
 function ensureDesignLayoutDefaults() {
   state.design ||= {};
   // Legacy system-font selections cannot be embedded in vector PDFs.
   state.design.fontBody ||= 'Inter';
-  const legacyLayoutStyle = state.design.layoutStyle === 'separator' ? 'separator' : 'boxed';
-  migrateLegacySpacing(state.design);
+  const legacyLayoutStyle = Reflect.get(state.design, 'layoutStyle') === 'separator' ? 'separator' : 'boxed';
+  migrateLegacySpacing(state.design as CvDesign & Record<string, unknown>);
   const defaults = {
     ink: '#111827',
     graphicOpacity: 100,
@@ -211,18 +214,18 @@ function ensureDesignLayoutDefaults() {
   };
 
   Object.entries(defaults).forEach(([key, value]) => {
-    if (state.design[key] == null) state.design[key] = value;
+    if (Reflect.get(state.design, key) == null) Reflect.set(state.design, key, value);
   });
-  if (!['start', 'last-page', 'after-cover'].includes(state.design.sidebarFillMode)) {
+  if (!['start', 'last-page', 'after-cover'].includes(state.design.sidebarFillMode || '')) {
     state.design.sidebarFillMode = 'start';
   }
-  if (!['full-page', 'content'].includes(state.design.sidebarHeightMode)) {
+  if (!['full-page', 'content'].includes(state.design.sidebarHeightMode || '')) {
     state.design.sidebarHeightMode = 'content';
   }
-  if (!['solid', 'border'].includes(state.design.badgeMode)) {
+  if (!['solid', 'border'].includes(state.design.badgeMode || '')) {
     state.design.badgeMode = 'solid';
   }
-  if (!['clean', 'underline', 'leftbar', 'pill'].includes(state.design.hstyle)) {
+  if (!['clean', 'underline', 'leftbar', 'pill'].includes(state.design.hstyle || '')) {
     state.design.hstyle = 'clean';
   }
   [
@@ -230,33 +233,33 @@ function ensureDesignLayoutDefaults() {
     ['pageMarginVerticalLinked', 'pageMarginTop', 'pageMarginBottom'],
     ['headerBottomSpacingLinked', 'headerPaddingBottom', 'headerBottomMargin'],
   ].forEach(([linkKey, primaryKey, secondaryKey]) => {
-    if (typeof state.design[linkKey] !== 'boolean') {
-      state.design[linkKey] = state.design[primaryKey] === state.design[secondaryKey];
+    if (typeof Reflect.get(state.design, linkKey) !== 'boolean') {
+      Reflect.set(state.design, linkKey, Reflect.get(state.design, primaryKey) === Reflect.get(state.design, secondaryKey));
     }
   });
 
   ['accent', 'bg', 'headerbg', 'sidebarbg', 'subtitle', 'graphic', 'dateColor', 'invertBadge', 'enableBoxShadow', 'layoutStyle', 'addExpColumns', 'bulletStyle', 'radius', 'itemBorderWidth', 'headerRadius', 'headerPadYmm', 'headerPaddingTop', 'headerPaddingVertical', 'headerPaddingHorizontal', 'contentPaddingVertical', 'contentPaddingHorizontal', 'headerContentPaddingVerticalLinked', 'headerContentPaddingHorizontalLinked'].forEach((key) => {
-    delete state.design[key];
+    Reflect.deleteProperty(state.design, key);
   });
 }
 
-function isStateRecord(value) {
+function isStateRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function mergeIn(data) {
+function mergeIn(data: unknown) {
   if (!isStateRecord(data)) return;
 
   const defaults = createInitialState();
   const nextState = createInitialState();
   stateKeys.forEach((key) => {
-    if (Object.hasOwn(data, key)) nextState[key] = data[key];
+    if (Object.hasOwn(data, key)) Reflect.set(nextState, key, data[key]);
   });
   ['disabled', 'completedSections', 'keepTogetherSections', 'education', 'languages', 'hobbies', 'customSections', 'sidebarSections', 'bodyOrder', 'sidebarOrder'].forEach((key) => {
-    if (!Array.isArray(nextState[key])) nextState[key] = defaults[key];
+    if (!Array.isArray(Reflect.get(nextState, key))) Reflect.set(nextState, key, Reflect.get(defaults, key));
   });
   ['design', 'anonymization', 'contact', 'about', 'experience', 'sectionNames', 'sectionHeaderSizes'].forEach((key) => {
-    if (!isStateRecord(nextState[key])) nextState[key] = defaults[key];
+    if (!isStateRecord(Reflect.get(nextState, key))) Reflect.set(nextState, key, Reflect.get(defaults, key));
   });
   nextState.design = { ...defaults.design, ...nextState.design };
   nextState.anonymization = { ...defaults.anonymization, ...nextState.anonymization };
@@ -266,13 +269,13 @@ function mergeIn(data) {
   if (typeof nextState.lang !== 'string') nextState.lang = 'en';
 
   Object.keys(state).forEach((key) => {
-    if (!stateKeys.includes(key)) delete state[key];
+    if (!stateKeys.includes(key as keyof CvState)) Reflect.deleteProperty(state, key);
   });
   Object.assign(state, nextState);
   state.version = 7;
   ensureDesignLayoutDefaults();
   state.completedSections = Array.isArray(state.completedSections) ? [...new Set(state.completedSections)] : [];
-  state.contact ||= {};
+  state.contact ||= { ...defaults.contact };
   if (state.contact.github == null) state.contact.github = '';
   state.experience ||= { jobs: [] };
   if (!Array.isArray(state.experience.jobs)) state.experience.jobs = [];
@@ -314,12 +317,12 @@ let sliderPreviewUpdatePending = false;
 let sliderSaveUpdatePending = false;
 let textPreviewUpdatePending = false;
 
-function exportMarginMillimeters(value) {
-  const parsed = Number.parseFloat(value);
+function exportMarginMillimeters(value: unknown) {
+  const parsed = Number.parseFloat(String(value));
   return Number.isFinite(parsed) ? Math.min(30, Math.max(0, parsed)) : 0;
 }
 
-function getPdfMargins(design = {}) {
+function getPdfMargins(design: CvDesign = {}) {
   return [
     exportMarginMillimeters(design.pageMarginTop),
     exportMarginMillimeters(design.pageMarginLeft),
@@ -328,7 +331,7 @@ function getPdfMargins(design = {}) {
   ];
 }
 
-function getPdfRenderOptions(options = {}) {
+function getPdfRenderOptions(options: RenderOptions = {}) {
   return {
     margin: getPdfMargins(state.design),
     continuationTopPadding: exportMarginMillimeters(state.design?.headerBottomMargin || '12mm'),
@@ -339,16 +342,16 @@ function getPdfRenderOptions(options = {}) {
 }
 
 function getPdfSourceElement() {
-  return pdfRenderSource.value?.querySelector('.page') || null;
+  return pdfRenderSource.value?.querySelector<HTMLElement>('.page') || null;
 }
 
 function getAnonymizedPdfSourceElement() {
-  return anonymizedPdfRenderSource.value?.querySelector('.page') || null;
+  return anonymizedPdfRenderSource.value?.querySelector<HTMLElement>('.page') || null;
 }
 
 const anonymizedState = computed(() => createAnonymizedState(state));
 
-async function refreshPdfPreview(version) {
+async function refreshPdfPreview(version: number) {
   if (version !== previewRenderVersion) return;
   const signal = inlineRenderSlot.start();
   try {
@@ -369,7 +372,7 @@ async function refreshPdfPreview(version) {
   }
 }
 
-const schedulePdfPreview = debounce((version) => refreshPdfPreview(version), 100);
+const schedulePdfPreview = debounce((version: number) => refreshPdfPreview(version), 100);
 
 function invalidatePdfPreview() {
   inlineRenderSlot.cancel();
@@ -384,7 +387,7 @@ function requestPdfPreview() {
   schedulePdfPreview(version);
 }
 
-async function refreshAnonymizedPdfPreview(renderVersion, sourceVersion) {
+async function refreshAnonymizedPdfPreview(renderVersion: number, sourceVersion: number) {
   if (renderVersion !== anonymizedPreviewRenderVersion || sourceVersion !== anonymizedSourceVersion) return;
   const signal = anonymizedRenderSlot.start();
   try {
@@ -406,7 +409,7 @@ async function refreshAnonymizedPdfPreview(renderVersion, sourceVersion) {
   }
 }
 
-const scheduleAnonymizedPdfPreview = debounce((renderVersion, sourceVersion) => (
+const scheduleAnonymizedPdfPreview = debounce((renderVersion: number, sourceVersion: number) => (
   refreshAnonymizedPdfPreview(renderVersion, sourceVersion)
 ), 500);
 
@@ -436,7 +439,7 @@ onBeforeUnmount(() => {
 });
 
 const previewDesign = computed(() => Object.keys(state.design || {}).reduce((design, key) => {
-  if (key !== 'favoriteControls') design[key] = state.design[key];
+  if (key !== 'favoriteControls') Reflect.set(design, key, Reflect.get(state.design, key));
   return design;
 }, {}));
 
@@ -465,8 +468,8 @@ const anonymizedPreviewState = computed(() => ({
   anonymization: state.anonymization,
 }));
 
-function isTextEntryInput(element) {
-  return Boolean(element?.matches?.([
+function isTextEntryInput(element: EventTarget | null) {
+  return Boolean(element instanceof Element && element.matches([
     'textarea',
     '[contenteditable="true"]',
     'input:not([type])',
@@ -480,11 +483,11 @@ function isTextEntryInput(element) {
   ].join(',')));
 }
 
-function isRangeInput(element) {
-  return element?.matches?.('input[type="range"]') ?? false;
+function isRangeInput(element: EventTarget | null) {
+  return element instanceof Element && element.matches('input[type="range"]');
 }
 
-function onPreviewSliderPointerDown(event) {
+function onPreviewSliderPointerDown(event: PointerEvent) {
   if (isRangeInput(event.target)) isSliderPreviewUpdateDeferred = true;
 }
 
@@ -516,7 +519,7 @@ function flushStateSave() {
 onMounted(() => window.addEventListener('pagehide', flushStateSave));
 onBeforeUnmount(() => window.removeEventListener('pagehide', flushStateSave));
 
-function onPreviewInputBlur(event) {
+function onPreviewInputBlur(event: FocusEvent) {
   if (textPreviewUpdatePending && isTextEntryInput(event.target)) requestPdfPreview();
 }
 

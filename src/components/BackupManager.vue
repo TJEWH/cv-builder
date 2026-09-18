@@ -1,4 +1,6 @@
-<script setup>
+<script setup lang="ts">
+import type { PropType } from 'vue';
+import type { CvState, LegacyCvState, SavedConfiguration } from '../types';
 import { computed, onMounted, ref } from 'vue';
 import { saveLocal } from '../composables/useStorage';
 import {
@@ -8,12 +10,12 @@ import {
 } from '../composables/cvJsonBackup';
 
 const props = defineProps({
-  state: { type: Object, required: true },
+  state: { type: Object as PropType<CvState>, required: true },
   lang: { type: String, default: 'en' },
   selectedId: { type: String, default: '' },
-  onSave: { type: Function, default: () => {} },
-  onLoad: { type: Function, default: () => {} },
-  beforeLoad: { type: Function, default: () => true },
+  onSave: { type: Function as PropType<() => void>, default: () => {} },
+  onLoad: { type: Function as PropType<(data: LegacyCvState) => void>, default: () => {} },
+  beforeLoad: { type: Function as PropType<() => boolean>, default: () => true },
 });
 const emit = defineEmits(['update:selectedId', 'configs-change', 'save-result']);
 
@@ -62,18 +64,18 @@ const labels = computed(() => langRef.value === 'de' ? {
   saveAsHint: 'A new configuration is a copy of the currently displayed content and settings.',
 });
 
-const configs = ref([]);
+const configs = ref<SavedConfiguration[]>([]);
 const newName = ref('');
 const backupMsg = ref('');
-const fileInput = ref(null);
+const fileInput = ref<HTMLInputElement | null>(null);
 const localIndexKey = 'CV_CONF_INDEX';
 const localActiveKey = 'CV_CONF_ACTIVE_ID';
-const localDataKey = (id) => `CV_CONF_DATA:${id}`;
+const localDataKey = (id: string) => `CV_CONF_DATA:${id}`;
 
-function readStorage(key) {
+function readStorage(key: string) {
   try { return localStorage.getItem(key); } catch { return null; }
 }
-function writeStorage(key, value) {
+function writeStorage(key: string, value: string) {
   try {
     localStorage.setItem(key, value);
     return true;
@@ -82,7 +84,7 @@ function writeStorage(key, value) {
     return false;
   }
 }
-function removeStorage(key) {
+function removeStorage(key: string) {
   try {
     localStorage.removeItem(key);
     return true;
@@ -92,7 +94,7 @@ function removeStorage(key) {
   }
 }
 
-function setCurrentId(value) {
+function setCurrentId(value: string) {
   const id = value || '';
   const persisted = id ? writeStorage(localActiveKey, id) : removeStorage(localActiveKey);
   emit('update:selectedId', id);
@@ -102,13 +104,13 @@ const currentId = computed({
   get: () => props.selectedId || '',
   set: setCurrentId,
 });
-function slug(value) {
+function slug(value: unknown) {
   return String(value || '')
     .trim().toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '')
     .replace(/-+/g, '-').replace(/^-+|-+$/g, '') || 'cv-backup';
 }
 
-function readIndex() {
+function readIndex(): SavedConfiguration[] {
   try {
     const parsed = JSON.parse(readStorage(localIndexKey) || '[]');
     return Array.isArray(parsed)
@@ -118,17 +120,17 @@ function readIndex() {
     return [];
   }
 }
-function writeIndex(items) { return writeStorage(localIndexKey, JSON.stringify(items)); }
+function writeIndex(items: SavedConfiguration[]) { return writeStorage(localIndexKey, JSON.stringify(items)); }
 function refreshConfigs() {
   const items = readIndex();
   configs.value = items;
   if (currentId.value && !items.some((item) => item.id === currentId.value)) currentId.value = '';
   emit('configs-change', items);
 }
-function snapshotState() {
+function snapshotState(): CvState {
   return JSON.parse(JSON.stringify(props.state));
 }
-function readConfigData(id) {
+function readConfigData(id: string): LegacyCvState | null {
   try {
     const raw = readStorage(localDataKey(id));
     if (!raw) return null;
@@ -139,7 +141,7 @@ function readConfigData(id) {
     return null;
   }
 }
-function uniqueConfigId(name) {
+function uniqueConfigId(name: string) {
   const base = slug(name);
   const taken = new Set(readIndex().map((item) => item.id));
   let candidate = base;
@@ -151,7 +153,7 @@ function uniqueConfigId(name) {
   return candidate;
 }
 
-function saveConfig(id, name, { announce = true, data = snapshotState(), activate = true } = {}) {
+function saveConfig(id: string, name: string, { announce = true, data = snapshotState(), activate = true } = {}) {
   try {
     const meta = { id, name, updatedAt: Date.now() };
     if (!writeStorage(localDataKey(id), JSON.stringify({ __meta: meta, data }))) throw new Error('Configuration data could not be written');
@@ -180,10 +182,10 @@ function saveCurrent({ announce = false } = {}) {
   return saveConfig(chosen.id, chosen.name, { announce });
 }
 
-function saveVersion(id, data) {
+function saveVersion(id: string, data: CvState) {
   const chosen = readIndex().find((item) => item.id === id);
   // Never recreate a version that was deleted while it was being edited.
-  return Boolean(chosen) && saveConfig(id, chosen.name, { data, announce: false, activate: false });
+  return chosen !== undefined && saveConfig(id, chosen.name, { data, announce: false, activate: false });
 }
 
 function saveAs() {
@@ -225,14 +227,14 @@ function loadConfig(id = currentId.value, { confirmLoad = true } = {}) {
   }
 }
 
-function selectConfiguration(id) {
+function selectConfiguration(id: string) {
   return id ? loadConfig(id) : false;
 }
 
-function onConfigurationChange(event) {
-  const nextId = event.target.value;
+function onConfigurationChange(event: Event) {
+  const nextId = (event.target as HTMLSelectElement).value;
   if (nextId === currentId.value) return;
-  if (!selectConfiguration(nextId)) event.target.value = currentId.value;
+  if (!selectConfiguration(nextId)) (event.target as HTMLSelectElement).value = currentId.value;
 }
 
 function restoreActiveConfig() {
@@ -295,8 +297,8 @@ function chooseJsonFile() {
   fileInput.value?.click();
 }
 
-async function importJson(event) {
-  const input = event.target;
+async function importJson(event: Event) {
+  const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   input.value = '';
   if (!file) return;

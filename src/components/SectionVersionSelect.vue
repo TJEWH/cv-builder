@@ -1,7 +1,9 @@
-<script setup>
+<script setup lang="ts">
+import type { PropType } from 'vue';
+import type { SavedConfiguration } from '../types';
 defineProps({
   modelValue: String,
-  options: { type: Array, default: () => [] },
+  options: { type: Array as PropType<SavedConfiguration[]>, default: () => [] },
   label: String,
   draftLabel: String,
 });
@@ -9,7 +11,7 @@ defineEmits(['update:modelValue']);
 </script>
 
 <template>
-  <select class="section-version-select" :value="modelValue" :aria-label="label" @click.stop @change="$emit('update:modelValue', $event.target.value)">
+  <select class="section-version-select" :value="modelValue" :aria-label="label" @click.stop @change="$emit('update:modelValue', ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
     <option v-for="option in options" :key="option.id" :value="option.id">{{ option.name || draftLabel }}</option>
   </select>
 </template>

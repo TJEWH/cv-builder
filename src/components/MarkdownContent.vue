@@ -1,6 +1,6 @@
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue';
-import { parseInlineMarkdown, parseMarkdownText, renderConfidentialText } from '../composables/markdownText.js';
+import { parseInlineMarkdown, parseMarkdownText, renderConfidentialText } from '../composables/markdownText.ts';
 
 const props = defineProps({
   value: { type: [String, Array], default: '' },

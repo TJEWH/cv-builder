@@ -1,6 +1,6 @@
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue';
-import { makeT } from '../i18n/dict.js';
+import { makeT } from '../i18n/dict.ts';
 
 const props = defineProps({
   pages: { type: Array, default: () => [] },
@@ -17,7 +17,7 @@ const currentPage = computed(() => Math.min(Math.max(props.page, 1), Math.max(to
 const hasPreviousPage = computed(() => currentPage.value > 1);
 const hasNextPage = computed(() => currentPage.value < totalPages.value);
 
-function setPage(nextPage) {
+function setPage(nextPage: number) {
   emit('update:page', Math.min(Math.max(nextPage, 1), Math.max(totalPages.value, 1)));
 }
 </script>

@@ -1,4 +1,4 @@
-<script setup>
+<script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 const props = defineProps({
@@ -10,10 +10,10 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['cancel', 'confirm']);
-const cancelButton = ref(null);
+const cancelButton = ref<HTMLButtonElement | null>(null);
 
 const cancel = () => emit('cancel');
-const onKeydown = (event) => {
+const onKeydown = (event: KeyboardEvent) => {
   if (props.visible && event.key === 'Escape') cancel();
 };
 
