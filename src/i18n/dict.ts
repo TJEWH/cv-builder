@@ -266,7 +266,6 @@ export const dict: Record<string, Record<Language, string>> = {
     degreePlaceholder: { de: 'M.Sc. Informatik', en: 'M.Sc. Computer Science' },
     universityPlaceholder: { de: 'Technische Universität München', en: 'Technical University of Munich' },
     organizationPlaceholder: { de: 'Organisation', en: 'Organization' },
-    rolePlaceholder: { de: 'Softwareentwickler/in', en: 'Software Engineer' },
     seniorRolePlaceholder: { de: 'Senior Softwareentwickler/in', en: 'Senior Software Engineer' },
     // Formatting tokens
     dotSep: { de:' · ', en:' · ' },

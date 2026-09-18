@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { builtinConfigurations, createEmptyDocument, createSampleDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID } from '../src/composables/builtinConfigurations';
 import { createNormalizedContentState } from '../src/composables/contentLayout';
+import { ANONYMIZED_CONTACT, createAnonymizedContact } from '../src/composables/anonymization';
 import { readCvState } from '../src/composables/cvStateValidation';
 
 test('empty document contains no sample content and uses the default design', () => {
@@ -34,4 +35,13 @@ test('editing a document never changes the bundled source or another new documen
   const empty = createEmptyDocument();
   empty.hobbies.push({ id: 'new', name: 'Reading' });
   assert.deepEqual(createEmptyDocument().hobbies, []);
+});
+
+test('sample header shares anonymized defaults without sharing mutable document data', () => {
+  const sample = createSampleDocument();
+  assert.deepEqual(sample.contact, ANONYMIZED_CONTACT);
+  assert.deepEqual(createAnonymizedContact(sample.contact), sample.contact);
+  sample.contact.email = 'edited@example.com';
+  assert.notEqual(createSampleDocument().contact.email, sample.contact.email);
+  assert.equal(createEmptyDocument().contact.email, '');
 });

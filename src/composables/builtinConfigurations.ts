@@ -1,6 +1,6 @@
 import type { CvState, SavedConfiguration } from '../types';
 import { CV_STATE_VERSION } from '../types';
-import { createDefaultDesign, DEFAULT_LANGUAGE } from '../defaults';
+import { createDefaultDesign, DEFAULT_LANGUAGE, SAMPLE_CONTACT } from '../defaults';
 import { makeT } from '../i18n/dict';
 
 export const EMPTY_DOCUMENT_ID = 'builtin:empty';
@@ -29,10 +29,7 @@ export function createEmptyDocument(): CvState {
 /** Shipped with the app; each caller receives an independent editable copy. */
 export function createSampleDocument(): CvState {
   const state = createEmptyDocument();
-  state.contact = {
-    name: 'Alex Morgan', role: 'Senior Software Engineer', location: 'Berlin, Germany',
-    email: 'alex.morgan@example.com', phone: '+49 30 000000', website: 'https://example.com', linkedin: '', github: '',
-  };
+  state.contact = { ...SAMPLE_CONTACT };
   state.about.text = 'Software engineer with eight years of experience building accessible web applications and reliable cloud services. I enjoy turning complex problems into clear, useful products and helping teams deliver maintainable software. My work combines hands-on development, thoughtful technical leadership, and close collaboration with design and product teams.';
   state.experience.jobs = [
     {

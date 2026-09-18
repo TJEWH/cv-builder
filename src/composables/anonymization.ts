@@ -1,17 +1,9 @@
 import type { CvState, CvItem, Contact } from '../types';
+import { SAMPLE_CONTACT } from '../defaults';
 const BUILT_IN_BODY_SECTION_KEYS = ['about', 'education', 'jobs'];
 const BUILT_IN_SIDEBAR_SECTION_KEYS = ['languages', 'hobbies'];
 
-export const ANONYMIZED_CONTACT = Object.freeze({
-  name: 'Alex Muster',
-  location: 'Neustadt',
-  role: 'Software Engineer',
-  email: 'muster-ex@mp.le',
-  phone: '+49 123 456789',
-  website: 'https://alexmuster.dev',
-  linkedin: 'https://linkedin.com/in/alexmuster',
-  github: 'https://github.com/alexmuster',
-});
+export { SAMPLE_CONTACT as ANONYMIZED_CONTACT } from '../defaults';
 
 function uniqueKnownIds(value: unknown, knownIds: Set<string | undefined>) {
   const seen = new Set();
@@ -60,7 +52,7 @@ function hideMatchingItems(items: CvItem[], excludedItems: Set<string>) {
 }
 
 export function createAnonymizedContact(contact: Partial<Contact> = {}): Contact {
-  return Object.fromEntries(Object.entries(ANONYMIZED_CONTACT).map(([key, dummyValue]) => [
+  return Object.fromEntries(Object.entries(SAMPLE_CONTACT).map(([key, dummyValue]) => [
     key,
     contact?.[key as keyof Contact] ? dummyValue : '',
   ])) as unknown as Contact;

@@ -1,4 +1,16 @@
-import type { CvDesign } from './types';
+import type { Contact, CvDesign } from './types';
+
+/** Shared header examples for placeholders, sample CVs, and anonymized output. */
+export const SAMPLE_CONTACT: Readonly<Contact> = Object.freeze({
+  name: 'Alex Muster',
+  location: 'Neustadt',
+  role: 'Software Engineer',
+  email: 'muster-ex@mp.le',
+  phone: '+49 123 456789',
+  website: 'https://alexmuster.dev',
+  linkedin: 'https://linkedin.com/in/alexmuster',
+  github: 'https://github.com/alexmuster',
+});
 
 /** The only source of initial CV settings. Saved values always take precedence. */
 export const DEFAULT_LANGUAGE = 'en';

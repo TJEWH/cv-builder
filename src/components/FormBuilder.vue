@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { DEFAULT_SECTION_HEADER_SIZE } from '../defaults';
+import { DEFAULT_SECTION_HEADER_SIZE, SAMPLE_CONTACT } from '../defaults';
 import type { PropType } from 'vue';
 import type { CvState, SavedConfiguration, SaveStatus, CvItem, CustomSection, SidebarSection, ContentArea, CustomBodyField, ItemField, ItemState, SelectOption } from '../types';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
@@ -379,10 +379,10 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
           <SectionVersionSelect v-if="versionMode" v-bind="versionSelectProps('header')" @update:model-value="selectSectionVersion('header', $event)" />
           <div v-else class="section-head__actions"><label class="section-complete-toggle" :title="t('markComplete')" @click.stop><input type="checkbox" :checked="isComplete('header')" :aria-label="t('markComplete')" @change="toggleComplete('header')" /></label></div>
         </div>
-        <div class="grid-2"><label>{{ t('name') }}<InputText v-model="state.contact.name" placeholder="Alex Muster" fluid /></label><label>{{ t('location') }}<InputText v-model="state.contact.location" placeholder="Neustadt" fluid /></label></div>
-        <div class="grid-2"><label>{{ t('role') }}<InputText v-model="state.contact.role" :placeholder="t('rolePlaceholder')" fluid /></label><span /></div>
-        <div class="grid-2"><label>{{ t('email') }}<InputText v-model="state.contact.email" type="email" placeholder="muster-ex@mp.le" fluid /></label><label>{{ t('phone') }}<InputText v-model="state.contact.phone" type="tel" placeholder="+49 123 456789" fluid /></label></div>
-        <div class="grid-3"><label>{{ t('website') }}<InputText v-model="state.contact.website" type="url" placeholder="https://alexmuster.dev" fluid /></label><label>{{ t('linkedin') }}<InputText v-model="state.contact.linkedin" type="url" placeholder="https://linkedin.com/in/alexmuster" fluid /></label><label>{{ t('github') }}<InputText v-model="state.contact.github" type="url" placeholder="https://github.com/alexmuster" fluid /></label></div>
+        <div class="grid-2"><label>{{ t('name') }}<InputText v-model="state.contact.name" :placeholder="SAMPLE_CONTACT.name" fluid /></label><label>{{ t('location') }}<InputText v-model="state.contact.location" :placeholder="SAMPLE_CONTACT.location" fluid /></label></div>
+        <div class="grid-2"><label>{{ t('role') }}<InputText v-model="state.contact.role" :placeholder="SAMPLE_CONTACT.role" fluid /></label><span /></div>
+        <div class="grid-2"><label>{{ t('email') }}<InputText v-model="state.contact.email" type="email" :placeholder="SAMPLE_CONTACT.email" fluid /></label><label>{{ t('phone') }}<InputText v-model="state.contact.phone" type="tel" :placeholder="SAMPLE_CONTACT.phone" fluid /></label></div>
+        <div class="grid-3"><label>{{ t('website') }}<InputText v-model="state.contact.website" type="url" :placeholder="SAMPLE_CONTACT.website" fluid /></label><label>{{ t('linkedin') }}<InputText v-model="state.contact.linkedin" type="url" :placeholder="SAMPLE_CONTACT.linkedin" fluid /></label><label>{{ t('github') }}<InputText v-model="state.contact.github" type="url" :placeholder="SAMPLE_CONTACT.github" fluid /></label></div>
       </section>
 
       <Draggable v-show="activeContentTab === 'body'" id="content-panel-body" v-model="bodyRows" item-key="key" tag="section" class="content-tab-panel content-column" role="tabpanel" aria-labelledby="content-tab-body" :disabled="!reorderMode" handle=".content-section-card" :animation="150" ghost-class="sortable-ghost">
