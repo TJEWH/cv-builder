@@ -4,7 +4,7 @@ import type { PropType } from 'vue';
 import type { CvState, CvItem, CustomSection, CustomBodyField, ItemState } from '../types';
 import { computed, onBeforeUnmount, onMounted, onUpdated, ref, watch } from 'vue';
 import { makeT } from '../i18n/dict.ts';
-import SkillItem from './skills/SkillItem.vue';
+import SkillItem from './SkillItem.vue';
 import MarkdownContent from './MarkdownContent.vue';
 import CvBodyItem from './CvBodyItem.vue';
 import { hasMarkdownText } from '../composables/markdownText.ts';

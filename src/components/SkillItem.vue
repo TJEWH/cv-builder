@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { makeT } from '../../i18n/dict';
+import { makeT } from '../i18n/dict.ts';
 
 const props = defineProps({
   name: { type: String, required: true },

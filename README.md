@@ -7,6 +7,7 @@ Modern resume generator built with Vue 3, TypeScript and Vite. Create profession
 - [Features](#-features)
 - [Quick Start](#-quick-start)
 - [Usage](#-usage)
+- [Optional Supabase workspace](#optional-supabase-workspace)
 - [Tech Stack](#-tech-stack)
 - [Development](#-development)
 
@@ -34,6 +35,7 @@ Modern resume generator built with Vue 3, TypeScript and Vite. Create profession
 - **Favorites**: Choose frequently used design controls for quick access
 
 ### Workflow
+- **Optional Supabase login**: Existing accounts can filter and review a shared opportunities table, privately mark interest, create applications in one click, assign privacy CV snapshots later, and export combined research context for ChatGPT. The local builder works without Supabase
 - **Live Preview**: Inline live preview with a full-size in-app preview mode
 - **Auto-Save**: Automatic saving with status indicator
 - **Backup System**:
@@ -54,7 +56,23 @@ Modern resume generator built with Vue 3, TypeScript and Vite. Create profession
 - **Consistent Layout**: SVG previews and PDF downloads share one vector paint list, page slices, margins and sidebar positioning
 - **Vector Fonts**: Uses the selected bundled or downloadable font, including its available weights and Unicode subsets. Bundled faces work offline; unsupported fonts or missing glyphs show an actionable error instead of silently substituting a different face
 - **Page-Break Control**: Intelligent page breaks
-- **GDPR Compliant**: No cloud, all data local
+
+## Optional Supabase workspace
+
+The app remains a static frontend. Supabase is optional; local CV versions, autosave, JSON and PDF exports retain their existing browser storage behavior. Signing in never uploads a CV automatically.
+
+1. For a new setup, apply [`supabase/schema.sql`](supabase/schema.sql) once using the Supabase SQL editor or a migration. It preserves an existing `opportunities` catalogue and creates private `opportunity_reviews`, `cv_variants`, `applications` and `drafts` tables, ownership policies and application RPCs. The complete schema is already applied to the deployment project **phd-workflow** (`ehkfzvjgesomteqpwrwa`); do not rerun the setup there. The earlier Test project is no longer the deployment target. Research records remain shared and read-only for signed-in users; catalogue imports are managed outside this app. See [database setup and migration history](supabase/README.md).
+2. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env.local` as shown in [`.env.example`](.env.example). Existing `NEXT_PUBLIC_SUPABASE_*` names are also accepted. Restart Vite after changing configuration. Use only a publishable key (or legacy anon key); privileged keys and insecure production URLs are rejected before they can enter the bundle.
+3. Provision users in Supabase Authentication and use their existing email/password in the topbar **Sign in** form. Account registration and password recovery are managed by the project administrator. The frontend verifies sessions with Auth; the database enforces authorization through RLS. Sessions use `sessionStorage`, without changing CV localStorage, and passwords are not persisted by the app.
+4. **Opportunities** hides past deadlines and opportunities marked **Not interesting** by default. Missing or invalid deadlines stay visible; a date-only deadline includes its entire local day, and precise deadline times/timezones are respected. Change the filters to restore hidden records. **Review** expands the row into Links & contacts, Research context, Salary & funding, Topics, Requirements, Application documents and Metadata. Your **Not reviewed / Interested / Not interesting** state is private to your account.
+5. **Create application** saves immediately, without an email form or CV selection. The database captures the opportunity's requirements, documents, researched contacts, deadline, `supervisor_research_focus`, `supervisor_top_papers` and other context. Repeated clicks open the existing application. In **Applications**, expand the row to edit status, notes and contact/submission dates. Save a named CV under **Versions**, select it in the application, review its privacy projection and save to assign an immutable snapshot. Applications can exist without a CV until you are ready.
+6. **Refresh research** explicitly replaces the saved opportunity context with the current catalogue record, preserving your CV and progress. Research is otherwise stable when the catalogue changes. **Prepare evaluation context** loads the saved application and its exact assigned privacy CV, then lets you copy or download a Markdown brief for ChatGPT. It includes advisor research and papers, requirements, documents, contacts, deadlines, notes, source links, capture time and the selected privacy CV. Missing research/CV inputs are identified explicitly. The brief supports a fit evaluation and later one-page motivation-letter drafting; it does not call ChatGPT or send emails. Email links open your mail client.
+
+The upload boundary reuses the existing privacy rules: contact information becomes sample data; hidden/excluded sections and items are removed; `!!confidential text!!` is redacted. Local version names, item identifiers and unsupported configuration strings are omitted or replaced. Unmarked CV text remains included, so review the privacy settings before uploading. Notes and researched employer contacts are stored in your private application context. Deleting or editing a local CV does not change an existing cloud snapshot. Context exports read the assigned cloud snapshot, never the current private editor state. The `drafts` table is available for future integrations; this UI does not generate or edit motivation letters yet.
+
+For GitHub Pages, configure **environment variables** `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` under **Settings → Environments → phd-workflow → Environment variables**. The workflow's build job uses the `phd-workflow` GitHub environment and embeds those values into the static frontend; the final publishing job uses the `github-pages` environment. Set the URL to `https://ehkfzvjgesomteqpwrwa.supabase.co` and use that project’s publishable key. The deployed Supabase project is determined by these variables, independently of local `.env.local` configuration. Omitting both produces a standalone local builder. These are public build-time configuration values, never a service-role or secret key. A public Supabase key is safe only together with the provided grants and RLS policies. See [Supabase API security](https://supabase.com/docs/guides/api/securing-your-api).
+
+Run `npm test` and `npm run build` with Node 22+ for client checks. [`supabase/tests/workspace_security.sql`](supabase/tests/workspace_security.sql) and [`supabase/tests/review_workflow.sql`](supabase/tests/review_workflow.sql) exercise access control, tenant isolation, privacy constraints, review states, one-click creation and authoritative context capture/refresh inside transactions that roll back their fixtures. The dev-only [browser fixture](test/browser/job-workspace.html) uses in-memory data to check the full UI without an account or cloud writes.
 
 ---
 

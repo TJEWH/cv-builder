@@ -19,8 +19,12 @@ import { createNormalizedContentState, normalizeContentState } from './composabl
 import { createEmptyDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID, isBuiltinDocument } from './composables/builtinConfigurations';
 import { readCvState } from './composables/cvStateValidation';
 import { createAnonymizedState } from './composables/anonymization';
+import SupabaseAuth from './components/SupabaseAuth.vue';
+import JobWorkspace from './components/JobWorkspace.vue';
+import { useSupabaseAuth } from './composables/useSupabaseAuth';
 
 const state = reactive<CvState>(createEmptyDocument());
+const { user: cloudUser, client: supabaseClient } = useSupabaseAuth();
 
 const lang = computed({
   get: () => state.lang,
@@ -48,6 +52,11 @@ const anonymizedPdfRenderSource = ref<HTMLElement | null>(null);
 const fullPreviewVariant = ref('normal');
 const t = makeT(lang);
 const activeBuilderGroup = ref('content');
+const isCloudTab = computed(() => Boolean(cloudUser.value) && ['opportunities', 'applications'].includes(activeBuilderGroup.value));
+const cloudTab = computed(() => activeBuilderGroup.value === 'applications' ? 'applications' : 'opportunities');
+watch(cloudUser, (user) => {
+  if (!user && ['opportunities', 'applications'].includes(activeBuilderGroup.value)) activeBuilderGroup.value = 'versions';
+});
 const savedConfigurations = ref<SavedConfiguration[]>([]);
 const selectedConfigurationId = ref('');
 const isEmptyDocument = computed(() => selectedConfigurationId.value === EMPTY_DOCUMENT_ID);
@@ -74,7 +83,20 @@ const builderGroups = computed(() => [
   { key: 'content', label: t('content'), icon: 'table-cells-large' },
   { key: 'design', label: t('design'), icon: 'palette' },
   { key: 'privacy', label: t('privacy'), icon: 'user-secret' },
+  ...(cloudUser.value ? [
+    { key: 'opportunities', label: lang.value === 'de' ? 'Stellenangebote' : 'Opportunities', icon: 'briefcase' },
+    { key: 'applications', label: lang.value === 'de' ? 'Bewerbungen' : 'Applications', icon: 'envelope' },
+  ] : []),
 ]);
+function groupDisabled(key: string) {
+  return isEmptyDocument.value && ['content', 'design', 'privacy'].includes(key);
+}
+function readCloudVersion(id: string): CvState | null {
+  flushStateSave();
+  if (formBuilder.value?.flushSectionSaves() === false || saveStatus.value === 'error') return null;
+  if (id === selectedConfigurationId.value) return JSON.parse(JSON.stringify(state));
+  return backupManager.value?.readConfigData(id) || null;
+}
 const saveStatusLabel = computed(() => t({
   saving: 'saving',
   saved: 'saved',
@@ -570,8 +592,8 @@ function selectBuilderGroup(group: string) {
             role="tab"
             :aria-selected="activeBuilderGroup === group.key"
             :aria-controls="`builder-group-${group.key}`"
-            :disabled="isEmptyDocument && group.key !== 'versions'"
-            @click="activeBuilderGroup = group.key"
+            :disabled="groupDisabled(group.key)"
+            @click="selectBuilderGroup(group.key)"
           >
             <font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" />
             <span>{{ group.label }}</span>
@@ -579,6 +601,7 @@ function selectBuilderGroup(group: string) {
         </nav>
 
         <div class="builder-topbar__utilities">
+          <SupabaseAuth class="builder-topbar__auth" :lang="lang === 'de' ? 'de' : 'en'" />
           <label class="builder-topbar__configuration">
             <font-awesome-icon :icon="['fas', 'layer-group']" aria-hidden="true" />
             <select :value="isBuiltinDocument(selectedConfigurationId) ? '' : selectedConfigurationId" :aria-label="t('versions')" @change="selectConfiguration">
@@ -603,7 +626,21 @@ function selectBuilderGroup(group: string) {
         </div>
       </header>
 
-      <section class="builder-layout" :class="`builder-layout--${isMobile ? 'side' : previewPlacement}`">
+      <JobWorkspace
+        v-if="cloudUser"
+        v-show="isCloudTab"
+        :key="cloudUser.id"
+        :client="supabaseClient"
+        :user-id="cloudUser.id"
+        :tab="cloudTab"
+        :lang="lang"
+        :configurations="selectableConfigurations"
+        :selected-id="selectedConfigurationId"
+        :read-version="readCloudVersion"
+        @navigate="selectBuilderGroup"
+      />
+
+      <section v-show="!isCloudTab" class="builder-layout" :class="`builder-layout--${isMobile ? 'side' : previewPlacement}`">
         <div class="builder-layout__controls">
           <Transition name="builder-group">
             <BackupManager
@@ -679,7 +716,7 @@ function selectBuilderGroup(group: string) {
         role="tab"
         :aria-selected="!previewMode && activeBuilderGroup === group.key"
         :aria-controls="`builder-group-${group.key}`"
-        :disabled="isEmptyDocument && group.key !== 'versions'"
+        :disabled="groupDisabled(group.key)"
         @click="selectBuilderGroup(group.key)"
       >
         <font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" />
@@ -774,7 +811,8 @@ body,
 
 .builder-topbar__tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(76px, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(76px, 1fr);
   gap: 8px;
   min-width: 0;
 }
@@ -830,6 +868,7 @@ body,
 .builder-topbar__save-status { display: inline-flex; grid-column: 1 / -1; justify-self: center; align-items: center; gap: 6px; color: #9be8c7; font-size: 11px; white-space: nowrap; }
 .builder-topbar__save-status.is-saving { color: #f0cd86; }
 .builder-topbar__save-status.is-error { color: #fca5a5; }
+.builder-topbar__auth { grid-column: 1 / -1; }
 
 .builder-layout {
   display: grid;
@@ -1072,8 +1111,11 @@ body,
 
   .cv-builder-app.has-content-toolbar { --mobile-content-toolbar-space: var(--mobile-content-toolbar-height); }
   .cv-builder-app.is-preview-mode { overflow: hidden; }
-  .builder-topbar { display: none; }
-  .builder-shell,
+  .builder-topbar { display: block; }
+  .builder-topbar__tabs { display: none; }
+  .builder-topbar__utilities { display: block; padding: 6px 8px; }
+  .builder-topbar__utilities > :not(.builder-topbar__auth) { display: none; }
+  .builder-shell { grid-template-rows: auto minmax(0, 1fr); gap: 10px; }
   .builder-layout { grid-template-rows: minmax(0, 1fr); gap: 0; }
   .inline-preview { display: none; }
 
@@ -1082,7 +1124,9 @@ body,
     inset: auto 0 0;
     z-index: 40;
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(66px, 1fr);
+    overflow-x: auto;
     gap: 4px;
     height: var(--mobile-tabs-height);
     padding: 8px max(8px, env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));

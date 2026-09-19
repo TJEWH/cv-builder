@@ -1,0 +1,242 @@
+import { safeEmailUrl, safeLinkUrl, safeWebUrl } from './safeUrl';
+
+export interface OpportunityContextNode {
+  id: string;
+  label: string | null;
+  text?: string;
+  href?: string;
+  children?: OpportunityContextNode[];
+  missing?: boolean;
+}
+
+export type OpportunityContextGroupId = 'links' | 'research' | 'salary' | 'topics' | 'requirements' | 'documents' | 'metadata';
+export interface OpportunityContextGroup {
+  id: OpportunityContextGroupId;
+  label: string;
+  items: OpportunityContextNode[];
+}
+
+const GROUPS: [OpportunityContextGroupId, string, string][] = [
+  ['links', 'Links & contacts', 'Links & Kontakte'],
+  ['research', 'Research context', 'Forschungskontext'],
+  ['salary', 'Salary & funding', 'Gehalt & Finanzierung'],
+  ['topics', 'Topics', 'Themen'],
+  ['requirements', 'Requirements', 'Anforderungen'],
+  ['documents', 'Application documents', 'Bewerbungsunterlagen'],
+  ['metadata', 'Metadata', 'Metadaten'],
+];
+
+const FIELD_GROUPS: Record<OpportunityContextGroupId, string[]> = {
+  links: ['official_url', 'application_url', 'source_url', 'sources', 'links', 'contacts', 'contact', 'contact_email', 'email', 'website'],
+  research: ['supervisor_research_focus', 'supervisor_top_papers', 'supervisors', 'supervisor', 'supervisor_reputation',
+    'research_career_potential', 'rd_career_potential', 'hardware_software_balance', 'hardware_software_profile',
+    'personal_fit', 'particularly_suitable', 'particularly_suitable_reason', 'special_features', 'research_context',
+    'research_track', 'cv_track', 'project_description', 'project_summary', 'research_summary', 'research_focus'],
+  salary: ['salary', 'salary_text', 'funding', 'compensation', 'stipend', 'scholarship', 'benefits'],
+  topics: ['topics', 'keywords', 'research_topics', 'research_areas'],
+  requirements: ['requirements', 'eligibility', 'qualifications', 'required_skills', 'desired_skills', 'language_requirements'],
+  documents: ['required_documents', 'application_documents', 'documents', 'submission_documents'],
+  metadata: [],
+};
+
+const LABELS: Record<string, [string, string]> = {
+  official_url: ['Official listing', 'Offizielle Ausschreibung'], application_url: ['Application portal', 'Bewerbungsportal'],
+  source_url: ['Source', 'Quelle'], sources: ['Sources', 'Quellen'], links: ['Links', 'Links'],
+  contact: ['Contacts', 'Kontakte'], contacts: ['Contacts', 'Kontakte'], contact_email: ['Contact email', 'Kontakt-E-Mail'],
+  email: ['Email', 'E-Mail'], website: ['Website', 'Website'], url: ['Link', 'Link'], href: ['Link', 'Link'],
+  supervisor_research_focus: ['Advisor research focus', 'Forschungsschwerpunkte der Betreuung'],
+  supervisor_top_papers: ['Representative papers', 'Repräsentative Publikationen'],
+  supervisor: ['Advisors', 'Betreuung'], supervisors: ['Advisors', 'Betreuung'],
+  supervisor_reputation: ['Advisor background', 'Hintergrund der Betreuung'],
+  research_career_potential: ['Academic career potential', 'Akademische Karrierechancen'],
+  rd_career_potential: ['R&D career potential', 'Karrierechancen in Forschung & Entwicklung'],
+  hardware_software_balance: ['Hardware / software balance', 'Hardware- / Software-Anteil'],
+  hardware_software_profile: ['Hardware / software profile', 'Hardware- / Software-Profil'],
+  personal_fit: ['Personal fit', 'Persönliche Passung'], particularly_suitable: ['Particularly suitable', 'Besonders passend'],
+  particularly_suitable_reason: ['Suitability rationale', 'Begründung der Passung'], special_features: ['Distinctive features', 'Besonderheiten'],
+  research_context: ['Research context', 'Forschungskontext'], research_track: ['Research track', 'Forschungsschwerpunkt'],
+  cv_track: ['CV track', 'CV-Schwerpunkt'], research_summary: ['Research summary', 'Forschungsüberblick'],
+  project_description: ['Project description', 'Projektbeschreibung'], project_summary: ['Project summary', 'Projektüberblick'],
+  research_focus: ['Research focus', 'Forschungsschwerpunkt'], focus_summary: ['Focus summary', 'Überblick der Schwerpunkte'],
+  focus: ['Focus', 'Schwerpunkt'], summary: ['Summary', 'Überblick'], description: ['Description', 'Beschreibung'],
+  keywords: ['Keywords', 'Schlagwörter'], topics: ['Topics', 'Themen'], research_topics: ['Research topics', 'Forschungsthemen'],
+  research_areas: ['Research areas', 'Forschungsgebiete'], evidence: ['Evidence', 'Belege'], evidence_urls: ['Evidence links', 'Beleglinks'],
+  limitations: ['Limitations', 'Einschränkungen'], papers: ['Papers', 'Publikationen'], publications: ['Publications', 'Publikationen'],
+  title: ['Title', 'Titel'], year: ['Year', 'Jahr'], venue: ['Venue', 'Publikationsort'], journal: ['Journal', 'Fachzeitschrift'],
+  authors: ['Authors', 'Autorinnen und Autoren'], doi: ['DOI', 'DOI'], selection_basis: ['Selection basis', 'Auswahlgrundlage'],
+  why_relevant: ['Relevance to the opportunity', 'Bezug zur Stelle'], citations: ['Citations', 'Zitationen'],
+  citation_count: ['Citation count', 'Anzahl Zitationen'], name: ['Name', 'Name'], role: ['Role', 'Rolle'],
+  scientific_contact: ['Scientific contact', 'Wissenschaftlicher Kontakt'], administrative_contact: ['Administrative contact', 'Administrativer Kontakt'],
+  main_supervisor: ['Main advisor', 'Hauptbetreuung'], co_supervisor: ['Co-advisor', 'Mitbetreuung'],
+  assessment: ['Assessment', 'Einschätzung'], reason: ['Rationale', 'Begründung'], details: ['Details', 'Details'],
+  salary: ['Salary', 'Gehalt'], salary_text: ['Salary', 'Gehalt'], funding: ['Funding', 'Finanzierung'],
+  compensation: ['Compensation', 'Vergütung'], stipend: ['Stipend', 'Stipendium'], scholarship: ['Scholarship', 'Stipendium'],
+  benefits: ['Benefits', 'Zusatzleistungen'], model: ['Pay model', 'Vergütungsmodell'], amount: ['Amount', 'Betrag'],
+  min: ['Minimum', 'Minimum'], max: ['Maximum', 'Maximum'], currency: ['Currency', 'Währung'], period: ['Period', 'Zeitraum'],
+  gross: ['Gross', 'Brutto'], net: ['Net', 'Netto'], monthly: ['Monthly', 'Monatlich'], annually: ['Annually', 'Jährlich'],
+  requirements: ['Requirements', 'Anforderungen'], eligibility: ['Eligibility', 'Zulassungsvoraussetzungen'],
+  qualifications: ['Qualifications', 'Qualifikationen'], required_skills: ['Required skills', 'Erforderliche Kenntnisse'],
+  desired_skills: ['Desired skills', 'Gewünschte Kenntnisse'], language_requirements: ['Language requirements', 'Sprachkenntnisse'],
+  required_documents: ['Required documents', 'Erforderliche Unterlagen'], application_documents: ['Application documents', 'Bewerbungsunterlagen'],
+  documents: ['Documents', 'Unterlagen'], submission_documents: ['Submission documents', 'Einzureichende Unterlagen'],
+  institution: ['Institution', 'Einrichtung'], university: ['Institution', 'Einrichtung'], unit: ['Department / group', 'Fachbereich / Gruppe'],
+  country: ['Country', 'Land'], city: ['City', 'Stadt'], position_type: ['Position type', 'Art der Stelle'],
+  duration_months: ['Duration (months)', 'Dauer (Monate)'], duration_details: ['Duration details', 'Angaben zur Dauer'],
+  deadline: ['Application deadline', 'Bewerbungsfrist'], deadline_time_local: ['Deadline time', 'Uhrzeit der Frist'],
+  deadline_timezone: ['Deadline timezone', 'Zeitzone der Frist'], deadline_original_text: ['Original deadline wording', 'Frist im Original'],
+  start_date: ['Start date', 'Beginn'], availability: ['Availability', 'Verfügbarkeit'], opportunity_key: ['Reference', 'Referenz'],
+  vacancy_id: ['Vacancy reference', 'Ausschreibungsnummer'], record_type: ['Record type', 'Art des Eintrags'],
+  verification_level: ['Verification', 'Verifizierungsstand'], historical_match_status: ['Historical match', 'Historische Zuordnung'],
+  source_context: ['Source context', 'Quellenkontext'], open_questions: ['Open questions', 'Offene Fragen'],
+  metadata_schema_version: ['Record format version', 'Version des Datensatzformats'], created_at: ['Added', 'Hinzugefügt'],
+  updated_at: ['Updated', 'Aktualisiert'], last_checked_at: ['Last checked', 'Zuletzt geprüft'],
+  checked_at: ['Checked', 'Geprüft'], context_captured_at: ['Context captured', 'Kontext gespeichert'],
+  historical_context: ['Historical context', 'Historischer Kontext'], official_listing: ['Official listing', 'Offizielle Ausschreibung'],
+  open: ['Open', 'Offen'], closed: ['Closed', 'Geschlossen'], unknown: ['Unknown', 'Unbekannt'],
+  matched: ['Matched', 'Zugeordnet'], probable: ['Probable', 'Wahrscheinlich'], unresolved: ['Unresolved', 'Ungeklärt'],
+};
+
+const ALIASES: Record<string, string> = { university: 'institution', supervisor: 'supervisors', contact: 'contacts',
+  salary_text: 'salary', application_documents: 'required_documents', documents: 'required_documents' };
+const PRIVATE_KEYS = new Set(['id', 'user_id']);
+const ENUM_KEYS = new Set(['role', 'availability', 'verification_level', 'historical_match_status', 'period']);
+
+function keyName(value: string) { return value.replace(/([a-z\d])([A-Z])/g, '$1_$2').toLowerCase().replace(/[ -]+/g, '_'); }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+function phrase(en: string, de: string, lang: string) { return lang === 'de' ? de : en; }
+
+export function opportunityFieldLabel(key: string, lang: string): string {
+  const known = LABELS[keyName(key)];
+  if (known) return known[lang === 'de' ? 1 : 0];
+  const words = key.replace(/([a-z\d])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim();
+  return (words.charAt(0).toUpperCase() + words.slice(1))
+    .replace(/\b(?:url|doi|cv|ai|id|orcid|isbn)\b/gi, (value) => value.toUpperCase());
+}
+
+function humanText(value: string | number | boolean, key: string, lang: string): string {
+  if (typeof value === 'boolean') return phrase(value ? 'Yes' : 'No', value ? 'Ja' : 'Nein', lang);
+  if (typeof value === 'number') return key === 'year' ? String(value) : new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-GB').format(value);
+  if (ENUM_KEYS.has(key) && LABELS[keyName(value)]) return opportunityFieldLabel(value, lang);
+  if ((key.endsWith('_at') || key === 'start_date' || key === 'deadline') && /^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value)) {
+    const date = new Date(value);
+    if (Number.isFinite(date.getTime())) {
+      return new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', value.length === 10
+        ? { dateStyle: 'medium', timeZone: 'UTC' } : { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+    }
+  }
+  return value.trim();
+}
+
+function safeHref(value: string, key: string): string | null {
+  const web = safeWebUrl(value);
+  if (web) return web;
+  if (/^mailto:/i.test(value)) return safeLinkUrl(value);
+  const email = safeEmailUrl(value);
+  if (email) return email;
+  if (key === 'doi' && /^10\.\d{4,9}\/[^\s\u0000-\u001f\u007f]+$/.test(value)) {
+    return safeWebUrl(`https://doi.org/${encodeURIComponent(value).replace(/%2F/g, '/')}`);
+  }
+  return null;
+}
+
+function buildNode(value: unknown, key: string, id: string, lang: string, ancestors: Set<object>, label: string | null): OpportunityContextNode | null {
+  if (value === null || value === undefined || value === '' || (typeof value === 'number' && !Number.isFinite(value))) return null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    const text = humanText(value, keyName(key), lang);
+    if (!text) return null;
+    const href = typeof value === 'string' ? safeHref(value.trim(), keyName(key)) : null;
+    return { id, label, text, ...(href ? { href } : {}) };
+  }
+  if (typeof value !== 'object' || ancestors.has(value)) return null;
+  const nextAncestors = new Set(ancestors).add(value);
+  const children = Array.isArray(value)
+    ? value.map((item, index) => {
+      if (isRecord(item)) {
+        const headingKey = ['name', 'title', 'label', 'document', 'requirement'].find((candidate) => typeof item[candidate] === 'string' && String(item[candidate]).trim());
+        if (headingKey) {
+          const heading = String(item[headingKey]).trim();
+          const detail = Object.fromEntries(Object.entries(item).filter(([childKey]) => childKey !== headingKey));
+          return buildNode(detail, key, `${id}.${index}`, lang, nextAncestors, heading)
+            || buildNode(heading, key, `${id}.${index}`, lang, nextAncestors, null);
+        }
+      }
+      return buildNode(item, key, `${id}.${index}`, lang, nextAncestors, null);
+    }).filter((item): item is OpportunityContextNode => item !== null)
+    : Object.entries(value).filter(([childKey]) => !PRIVATE_KEYS.has(childKey))
+      .map(([childKey, item]) => buildNode(item, childKey, `${id}.${childKey}`, lang, nextAncestors, opportunityFieldLabel(childKey, lang)))
+      .filter((item): item is OpportunityContextNode => item !== null);
+  return children.length ? { id, label, children } : null;
+}
+
+function fieldGroup(key: string): OpportunityContextGroupId {
+  const normalized = keyName(key);
+  for (const [group, keys] of Object.entries(FIELD_GROUPS)) {
+    if (keys.includes(normalized)) return group as OpportunityContextGroupId;
+  }
+  if (/(?:^|_)(?:url|urls|link|links|email)$/.test(normalized)) return 'links';
+  return 'metadata';
+}
+
+/** Keep arbitrary research JSON readable without presenting serialized implementation data. */
+export function buildOpportunityGroups(context: Record<string, unknown>, lang: string): OpportunityContextGroup[] {
+  const groups = GROUPS.map(([id, en, de]) => ({ id, label: phrase(en, de, lang), items: [] as OpportunityContextNode[] }));
+  const byGroup = new Map(groups.map((group) => [group.id, group]));
+  const seen = new Map<string, string[]>();
+  const visitedWrappers = new Set<object>();
+  const add = (rawKey: string, value: unknown, source: string) => {
+    const key = keyName(rawKey);
+    if (PRIVATE_KEYS.has(key) || key === 'title') return;
+    if ((key === 'data' || key === 'details') && isRecord(value)) {
+      if (visitedWrappers.has(value)) return;
+      visitedWrappers.add(value);
+      Object.entries(value).forEach(([nestedKey, nestedValue]) => add(nestedKey, nestedValue, `${source}.${key}`));
+      return;
+    }
+    const node = buildNode(value, key, `${source}.${rawKey}`, lang, new Set(), opportunityFieldLabel(rawKey, lang));
+    if (!node) return;
+    const canonicalKey = ALIASES[key] || key;
+    const signature = JSON.stringify(node, (name, item) => name === 'id' ? undefined : item);
+    const previous = seen.get(canonicalKey) || [];
+    if (previous.includes(signature)) return;
+    if (previous.length) node.label += phrase(' (additional detail)', ' (ergänzende Angaben)', lang);
+    seen.set(canonicalKey, [...previous, signature]);
+    byGroup.get(fieldGroup(key))!.items.push(node);
+  };
+  // Put the two advisor context sections first and surface absent research explicitly.
+  for (const [key, en, de] of [
+    ['supervisor_research_focus', 'Advisor research focus not recorded.', 'Forschungsschwerpunkte der Betreuung nicht erfasst.'],
+    ['supervisor_top_papers', 'Representative papers not recorded.', 'Repräsentative Publikationen nicht erfasst.'],
+  ]) {
+    const candidates = [context[key], isRecord(context.data) ? context.data[key] : undefined];
+    const value = candidates.find((candidate) => buildNode(candidate, key, `root.${key}`, lang, new Set(), opportunityFieldLabel(key, lang)));
+    const node = buildNode(value, key, `root.${key}`, lang, new Set(), opportunityFieldLabel(key, lang));
+    if (node) add(key, value, 'root');
+    else byGroup.get('research')!.items.push({ id: `root.${key}`, label: opportunityFieldLabel(key, lang), text: phrase(en, de, lang), missing: true });
+  }
+  Object.entries(context).forEach(([key, value]) => add(key, value, 'root'));
+  return groups.filter((group) => group.items.length);
+}
+
+function escapeMarkdown(text: string): string {
+  return text.replace(/\\/g, '\\\\').replace(/([`*_[\]])/g, '\\$1').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/^(\s*)([#>+\-])(?=\s)/gm, '$1\\$2');
+}
+
+function nodeMarkdown(node: OpportunityContextNode, depth = 0): string {
+  const indentation = '  '.repeat(depth);
+  const label = node.label ? `**${escapeMarkdown(node.label)}:**` : '';
+  const text = node.text ? escapeMarkdown(node.text) : '';
+  const value = node.href ? `[${text}](<${node.href}>)` : text;
+  const line = `${indentation}- ${[label, value].filter(Boolean).join(' ')}`;
+  return [line.replace(/\n/g, `\n${indentation}  `), ...(node.children || []).map((child) => nodeMarkdown(child, depth + 1))].join('\n');
+}
+
+/** Human-readable context suitable for copy/download; contains no raw JSON or executable HTML. */
+export function opportunityContextMarkdown(context: Record<string, unknown>, lang: string): string {
+  const title = typeof context.title === 'string' && context.title.trim() ? context.title.trim()
+    : phrase('Opportunity context', 'Kontext zur Stelle', lang);
+  return [`# ${escapeMarkdown(title)}`, ...buildOpportunityGroups(context, lang).map((group) =>
+    `## ${group.label}\n\n${group.items.map((item) => nodeMarkdown(item)).join('\n')}`)].join('\n\n');
+}
