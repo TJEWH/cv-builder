@@ -8,6 +8,7 @@ import SkillItem from './skills/SkillItem.vue';
 import MarkdownContent from './MarkdownContent.vue';
 import CvBodyItem from './CvBodyItem.vue';
 import { hasMarkdownText } from '../composables/markdownText.ts';
+import { safeEmailUrl, safeWebUrl } from '../composables/safeUrl';
 import { updateTimelineRails } from '../composables/timelineLayout.ts';
 
 const props = defineProps({
@@ -137,11 +138,11 @@ onBeforeUnmount(() => {
       <div class="title"><h1 class="name">{{ state.contact.name || '-' }}</h1><p class="role">{{ state.contact.role }}</p></div>
       <address class="contact">
         <div v-if="state.contact.location">{{ state.contact.location }}<font-awesome-icon :icon="['fas', 'location-dot']" class="contact-icon" /></div>
-        <div v-if="state.contact.email"><a :href="`mailto:${state.contact.email}`">{{ state.contact.email }}</a><font-awesome-icon :icon="['fas', 'envelope']" class="contact-icon" /></div>
+        <div v-if="state.contact.email"><a :href="safeEmailUrl(state.contact.email) || undefined">{{ state.contact.email }}</a><font-awesome-icon :icon="['fas', 'envelope']" class="contact-icon" /></div>
         <div v-if="state.contact.phone">{{ state.contact.phone }}<font-awesome-icon :icon="['fas', 'phone']" class="contact-icon" /></div>
-        <div v-if="state.contact.website"><a :href="state.contact.website">{{ state.contact.website.replace(/^https?:\/\//, '') }}</a><font-awesome-icon :icon="['fas', 'globe']" class="contact-icon" /></div>
-        <div v-if="state.contact.linkedin"><a :href="state.contact.linkedin">{{ state.contact.linkedin.replace(/^https?:\/\//, '') }}</a><font-awesome-icon :icon="['fab', 'linkedin']" class="contact-icon" /></div>
-        <div v-if="state.contact.github"><a :href="state.contact.github">{{ state.contact.github.replace(/^https?:\/\//, '') }}</a><font-awesome-icon :icon="['fab', 'github']" class="contact-icon" /></div>
+        <div v-if="state.contact.website"><a :href="safeWebUrl(state.contact.website) || undefined" rel="noreferrer">{{ state.contact.website.replace(/^https?:\/\//, '') }}</a><font-awesome-icon :icon="['fas', 'globe']" class="contact-icon" /></div>
+        <div v-if="state.contact.linkedin"><a :href="safeWebUrl(state.contact.linkedin) || undefined" rel="noreferrer">{{ state.contact.linkedin.replace(/^https?:\/\//, '') }}</a><font-awesome-icon :icon="['fab', 'linkedin']" class="contact-icon" /></div>
+        <div v-if="state.contact.github"><a :href="safeWebUrl(state.contact.github) || undefined" rel="noreferrer">{{ state.contact.github.replace(/^https?:\/\//, '') }}</a><font-awesome-icon :icon="['fab', 'github']" class="contact-icon" /></div>
       </address>
     </header>
 

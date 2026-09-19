@@ -30,6 +30,7 @@ export function useSectionVersions({ state, selectedId, configurations: allConfi
 
   function flush() {
     saveLater.cancel();
+    discardDeletedRecords();
     for (const id of [...dirty]) {
       const record = records.get(id);
       if (!record) continue;
@@ -40,15 +41,22 @@ export function useSectionVersions({ state, selectedId, configurations: allConfi
   }
   const saveLater = debounce(flush, 250);
 
-  function refresh() {
-    if (!enabled.value) return;
+  function discardDeletedRecords() {
     const available = new Set(configurations().map(({ id }) => id));
     for (const [id, record] of records) {
-      if (!available.has(id) && !dirty.has(id)) {
+      if (!available.has(id)) {
         record.stop();
         records.delete(id);
+        dirty.delete(id);
+        for (const key of Object.keys(selections)) if (selections[key] === id) delete selections[key];
       }
     }
+  }
+
+  function refresh() {
+    discardDeletedRecords();
+    revision.value += 1;
+    if (!enabled.value) return;
     for (const { id } of configurations()) {
       if (id === selectedId() || records.has(id)) continue;
       const saved = readVersion(id);
@@ -97,7 +105,7 @@ export function useSectionVersions({ state, selectedId, configurations: allConfi
   }
 
   watch(enabled, (value) => value ? refresh() : flush(), { flush: 'sync' });
-  watch(() => configurations().map(({ id }) => id).join('\n'), refresh);
+  watch(() => configurations().map(({ id }) => id).join('\n'), refresh, { flush: 'sync' });
   watch(selectedId, () => { reset(); }, { flush: 'sync' });
   onScopeDispose(() => {
     flush();

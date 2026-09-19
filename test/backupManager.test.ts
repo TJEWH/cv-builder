@@ -4,8 +4,9 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
-import { createRenderer, nextTick, reactive } from 'vue';
+import { createRenderer, h, nextTick, reactive } from 'vue';
 import type { Component } from 'vue';
+import type { TestContext } from 'node:test';
 import type { CvState, SavedConfiguration } from '../src/types';
 import { createEmptyDocument, createSampleDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID } from '../src/composables/builtinConfigurations';
 import { createNormalizedContentState } from '../src/composables/contentLayout';
@@ -114,4 +115,103 @@ test('switching versions never asks for confirmation', async (t) => {
   await nextTick();
   assert.equal(props.selectedId, EMPTY_DOCUMENT_ID);
   assert.equal((loaded as CvState | null)?.contact.name, '');
+});
+
+function savedVersionFixture(t: TestContext) {
+  const state = createSampleDocument();
+  state.contact.name = 'Private Person';
+  const storage = new Map([
+    ['CV_CONF_INDEX', JSON.stringify([{ id: 'target', name: 'Engineering 2026' }, { id: 'other', name: 'Other version' }])],
+    ['CV_CONF_DATA:target', JSON.stringify({ __meta: { id: 'target' }, data: state })],
+    ['CV_CONF_DATA:other', JSON.stringify({ __meta: { id: 'other' }, data: createEmptyDocument() })],
+    ['CV_CONF_ACTIVE_ID', 'target'],
+    ['cv-session', JSON.stringify(state)],
+  ]);
+  function global(name: string, value: unknown) {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, name);
+    Object.defineProperty(globalThis, name, { configurable: true, value });
+    t.after(() => previous ? Object.defineProperty(globalThis, name, previous) : Reflect.deleteProperty(globalThis, name));
+  }
+  global('localStorage', {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => storage.set(key, value),
+    removeItem: (key: string) => storage.delete(key),
+  });
+  global('confirm', () => true);
+  const deleted: string[] = [];
+  const props = reactive({
+    state, selectedId: 'target', lang: 'en',
+    onLoad: (data: CvState) => { props.state = data; },
+    'onUpdate:selectedId': (id: string) => { props.selectedId = id; },
+    onVersionDeleted: (id: string) => deleted.push(id),
+  });
+  let mounted: unknown;
+  const app = renderer.createApp({ render: () => h(component, { ...props, ref: (value: unknown) => { mounted = value; } }) });
+  app.mount({});
+  const instance = mounted as {
+    saveCurrent(): boolean; saveVersion(id: string, data: CvState): boolean;
+    restoreActiveConfig(): CvState | null;
+    $: { setupState: { deleteCurrent(): void; exportJson(): void; onStorageChange(event: StorageEvent): void } };
+  };
+  t.after(() => app.unmount());
+  return { storage, props, instance, setup: instance.$.setupState, deleted, global };
+}
+
+test('deletion removes persisted data and the recovery copy, opens empty state, and cannot autosave the old version', async (t) => {
+  const { storage, props, instance, setup, deleted } = savedVersionFixture(t);
+  const original = storage.get('CV_CONF_DATA:other');
+  setup.deleteCurrent();
+  await nextTick();
+  assert.equal(storage.has('CV_CONF_DATA:target'), false);
+  assert.equal(storage.has('cv-session'), false);
+  assert.deepEqual(JSON.parse(storage.get('CV_CONF_INDEX')!), [{ id: 'other', name: 'Other version' }]);
+  assert.equal(storage.get('CV_CONF_ACTIVE_ID'), EMPTY_DOCUMENT_ID);
+  assert.equal(props.selectedId, EMPTY_DOCUMENT_ID);
+  assert.equal(props.state.contact.name, '');
+  assert.deepEqual(deleted, ['target']);
+  assert.equal(instance.restoreActiveConfig()?.contact.name, '');
+  assert.equal(instance.saveCurrent(), true);
+  assert.equal(instance.saveVersion('target', createSampleDocument()), false);
+  assert.equal(storage.has('CV_CONF_DATA:target'), false);
+  assert.equal(storage.has('cv-session'), false);
+  assert.equal(storage.get('CV_CONF_DATA:other'), original);
+});
+
+test('a stale tab drops its deleted active version before autosaving', async (t) => {
+  const { storage, props, instance, deleted } = savedVersionFixture(t);
+  storage.delete('CV_CONF_DATA:target');
+  // Even before the index storage event arrives, a deleted payload is final.
+  assert.equal(instance.saveCurrent(), true);
+  await nextTick();
+  assert.equal(props.state.contact.name, '');
+  assert.equal(props.selectedId, EMPTY_DOCUMENT_ID);
+  assert.equal(storage.has('CV_CONF_DATA:target'), false);
+  assert.equal(instance.saveVersion('target', createSampleDocument()), false);
+  assert.deepEqual(deleted, ['target']);
+});
+
+test('another tab deletion clears the current editor through the storage event', async (t) => {
+  const { storage, props, setup, deleted } = savedVersionFixture(t);
+  storage.delete('CV_CONF_DATA:target');
+  setup.onStorageChange({ storageArea: localStorage, key: 'CV_CONF_DATA:target' } as StorageEvent);
+  await nextTick();
+  assert.equal(props.state.contact.name, '');
+  assert.equal(props.selectedId, EMPTY_DOCUMENT_ID);
+  assert.deepEqual(deleted, ['target']);
+});
+
+test('JSON filenames use the version title, with a neutral fallback for an unsaved draft', async (t) => {
+  const { props, setup, global } = savedVersionFixture(t);
+  const filenames: string[] = [];
+  const link = { href: '', download: '', click() { filenames.push(this.download); }, remove() {} };
+  global('document', { createElement: () => link, body: { appendChild() {} } });
+  global('window', { setTimeout: (fn: () => void) => fn(), removeEventListener() {} });
+  t.mock.method(URL, 'createObjectURL', () => 'blob:test');
+  t.mock.method(URL, 'revokeObjectURL', () => {});
+  setup.exportJson();
+  props.selectedId = '';
+  await nextTick();
+  setup.exportJson();
+  assert.deepEqual(filenames, [`engineering-2026-v${props.state.version}.json`, `cv-backup-v${props.state.version}.json`]);
+  assert.ok(filenames.every((name) => !name.includes('private-person')));
 });

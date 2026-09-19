@@ -7,7 +7,7 @@ test('vector links follow separate clone scales and continuation page offsets', 
   const capture = { width: 100, height: 200, links: [{ href: 'https://example.com', x: 10, y: 90, width: 20, height: 30 }] };
   const canvas = { width: 300, height: 400 };
   const page = { canvasWidth: 300, contentWidth: 150, sourceTop: 200, sourceBottom: 400, leftOffset: 12, topOffset: 24 };
-  assert.deepEqual(vectorPageLinks(capture, canvas, page), [{ href: 'https://example.com', x: 27, y: 24, width: 30, height: 20 }]);
+  assert.deepEqual(vectorPageLinks(capture, canvas, page), [{ href: 'https://example.com/', x: 27, y: 24, width: 30, height: 20 }]);
   assert.deepEqual(vectorPageLinks({ ...capture, links: [{ ...capture.links[0], y: 0 }] }, canvas, page), []);
 });
 

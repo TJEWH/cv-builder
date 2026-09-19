@@ -150,3 +150,19 @@ test('sample CV is excluded from section choices even when it is the active docu
   assert.deepEqual(versions.options('header'), []);
   assert.equal(versions.sectionState('header'), state);
 });
+
+test('deleting a dirty alternate version discards its pending save and retained editor state', (t) => {
+  const { versions, configurations, saved, saves, state } = fixture(t);
+  versions.select('header', 'two');
+  const oldRecord = versions.sectionState('header');
+  oldRecord.contact.name = 'Deleted private edit';
+  saved.delete('two');
+  configurations.value = configurations.value.filter(({ id }) => id !== 'two');
+  assert.equal(versions.sectionState('header'), state);
+  assert.equal(versions.flush(), true);
+  assert.equal(saved.has('two'), false);
+  assert.deepEqual(saves, []);
+  oldRecord.contact.name = 'Stale reference';
+  assert.equal(versions.flush(), true);
+  assert.deepEqual(saves, []);
+});

@@ -1,4 +1,5 @@
 import type { LinkCapture, Surface, PageSlice } from '../pdfTypes';
+import { safeLinkUrl } from './safeUrl';
 // Capture link rectangles in the same final clone that supplies the painter.
 // Previews and downloads share these clickable areas.
 export function capturePdfLinks(root: HTMLElement): LinkCapture {
@@ -11,8 +12,8 @@ export function capturePdfLinks(root: HTMLElement): LinkCapture {
       family: face.family, style: face.style, weight: face.weight, unicodeRange: face.unicodeRange, status: face.status,
     })) : undefined,
     links: Array.from(root.querySelectorAll<HTMLAnchorElement>('a[href]')).flatMap((anchor) => {
-      const href = anchor.href;
-      if (!/^(https?:|mailto:|tel:)/i.test(href)) return [];
+      const href = safeLinkUrl(anchor.href);
+      if (!href) return [];
       return Array.from(anchor.getClientRects(), (rect) => ({
         href,
         x: rect.left - bounds.left,
@@ -30,13 +31,15 @@ export function vectorPageLinks(capture: LinkCapture | undefined, canvas: Surfac
   const scaleY = canvas.height / capture.height;
   const millimetersPerPixel = page.contentWidth / page.canvasWidth;
   return capture.links.flatMap((link) => {
+    const href = safeLinkUrl(link.href);
+    if (!href) return [];
     const top = Math.max(link.y * scaleY, page.sourceTop);
     const bottom = Math.min((link.y + link.height) * scaleY, page.sourceBottom);
     const left = Math.max(0, link.x * scaleX);
     const right = Math.min(canvas.width, (link.x + link.width) * scaleX);
     if (bottom <= top || right <= left) return [];
     return [{
-      href: link.href,
+      href,
       x: page.leftOffset + left * millimetersPerPixel,
       y: page.topOffset + (top - page.sourceTop) * millimetersPerPixel,
       width: (right - left) * millimetersPerPixel,

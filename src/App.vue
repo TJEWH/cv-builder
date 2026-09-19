@@ -121,6 +121,7 @@ useCvDesign(() => state.design);
 function mergeIn(data: unknown) {
   const nextState = createNormalizedContentState(readCvState(data));
   nextState.design = resolveDesign(nextState.design);
+  for (const key of Object.keys(state)) if (!Object.hasOwn(nextState, key)) Reflect.deleteProperty(state, key);
   Object.assign(state, nextState);
 }
 
@@ -146,9 +147,11 @@ onMounted(async () => {
   }
 });
 
-const { exportToPdf, renderPreview } = usePdfExport();
+const { exportToPdf, renderPreview, revokeDownloads } = usePdfExport();
 const inlineRenderSlot = createPreviewRenderSlot();
 const anonymizedRenderSlot = createPreviewRenderSlot();
+const exportRenderSlot = createPreviewRenderSlot();
+const anonymizedExportRenderSlot = createPreviewRenderSlot();
 const isExporting = ref(false);
 const isAnonymizedExporting = ref(false);
 const pdfExportError = ref('');
@@ -278,9 +281,30 @@ function invalidateAnonymizedPdfPreview({ defer = false } = {}) {
   if (!defer && fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
 }
 
+function handleVersionDeleted() {
+  saveDebounced.cancel();
+  isSliderPreviewUpdateDeferred = false;
+  sliderSaveUpdatePending = false;
+  sliderPreviewUpdatePending = false;
+  textPreviewUpdatePending = false;
+  invalidatePdfPreview();
+  invalidateAnonymizedPdfPreview({ defer: true });
+  exportRenderSlot.cancel();
+  anonymizedExportRenderSlot.cancel();
+  revokeDownloads();
+  previewPages.value = [];
+  previewPage.value = 1;
+  pdfExportError.value = '';
+  previewMode.value = false;
+  activeBuilderGroup.value = 'versions';
+}
+
 onBeforeUnmount(() => {
   invalidatePdfPreview();
   invalidateAnonymizedPdfPreview({ defer: true });
+  exportRenderSlot.cancel();
+  anonymizedExportRenderSlot.cancel();
+  revokeDownloads();
 });
 
 const previewDesign = computed(() => Object.keys(state.design || {}).reduce((design, key) => {
@@ -394,6 +418,7 @@ watch(anonymizedPreviewState, () => {
 }, { deep: true, flush: 'post' });
 
 async function handleExportPdf() {
+  const signal = exportRenderSlot.start();
   isExporting.value = true;
   pdfExportError.value = '';
   try {
@@ -401,24 +426,25 @@ async function handleExportPdf() {
     const cvElement = getPdfSourceElement();
     if (!cvElement) throw new Error('CV preview element not found');
     const filename = `${(state.contact?.name || 'CV').replace(/\s+/g, '_')}_CV`;
-    await exportToPdf(cvElement, filename, getPdfRenderOptions());
+    await exportToPdf(cvElement, filename, getPdfRenderOptions({ signal }));
   } catch (error) {
-    pdfExportError.value = error instanceof Error ? error.message : String(error);
+    if (!signal.aborted) pdfExportError.value = error instanceof Error ? error.message : String(error);
   } finally {
     isExporting.value = false;
   }
 }
 
 async function handleAnonymizedExportPdf() {
+  const signal = anonymizedExportRenderSlot.start();
   isAnonymizedExporting.value = true;
   pdfExportError.value = '';
   try {
     await nextTick();
     const cvElement = getAnonymizedPdfSourceElement();
     if (!cvElement) throw new Error('Anonymized CV preview element not found');
-    await exportToPdf(cvElement, 'anonymized-cv', getPdfRenderOptions());
+    await exportToPdf(cvElement, 'anonymized-cv', getPdfRenderOptions({ signal }));
   } catch (error) {
-    pdfExportError.value = error instanceof Error ? error.message : String(error);
+    if (!signal.aborted) pdfExportError.value = error instanceof Error ? error.message : String(error);
   } finally {
     isAnonymizedExporting.value = false;
   }
@@ -558,6 +584,7 @@ function openFullPreview() {
               @update:selected-id="selectedConfigurationId = $event"
               @configs-change="savedConfigurations = $event"
               @save-result="handleConfigurationSaveResult"
+              @version-deleted="handleVersionDeleted"
             />
           </Transition>
           <Transition name="builder-group">

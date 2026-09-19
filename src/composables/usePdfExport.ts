@@ -320,6 +320,14 @@ async function captureVectorSnapshot(element: HTMLElement, options: RenderOption
 
 /** One vector paint capture feeds scalable SVG previews and direct PDF files. */
 export function usePdfExport() {
+  const downloads = new Map<string, ReturnType<typeof setTimeout>>();
+  function revokeDownloads() {
+    for (const [url, timer] of downloads) {
+      clearTimeout(timer);
+      URL.revokeObjectURL(url);
+    }
+    downloads.clear();
+  }
   async function render<T>(element: HTMLElement, options: RenderOptions = {}, output: (snapshot: VectorSnapshot) => Promise<T>) {
     if (!element) throw new Error('CV preview element not found');
     const task = createPdfRenderTask(options.signal);
@@ -336,6 +344,7 @@ export function usePdfExport() {
       const { renderVectorPdf } = await import('./pdfVectorExport.ts');
       return renderVectorPdf(snapshot);
     });
+    options.signal?.throwIfAborted();
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -344,7 +353,10 @@ export function usePdfExport() {
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    downloads.set(url, setTimeout(() => {
+      URL.revokeObjectURL(url);
+      downloads.delete(url);
+    }, 60_000));
   };
-  return { renderPreview, exportToPdf };
+  return { renderPreview, exportToPdf, revokeDownloads };
 }

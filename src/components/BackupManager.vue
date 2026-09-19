@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type { PropType } from 'vue';
 import type { CvState, SavedConfiguration } from '../types';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { makeT } from '../i18n/dict';
-import { saveLocal } from '../composables/useStorage';
+import { STORAGE_KEY } from '../composables/useStorage';
 import { builtinConfigurations, createEmptyDocument, createSampleDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID } from '../composables/builtinConfigurations';
 import { createNormalizedContentState } from '../composables/contentLayout';
 import {
@@ -25,6 +25,7 @@ const emit = defineEmits<{
   'update:selectedId': [id: string];
   'configs-change': [configurations: SavedConfiguration[]];
   'save-result': [saved: boolean];
+  'version-deleted': [id: string];
 }>();
 
 const langRef = computed(() => props.lang);
@@ -89,11 +90,11 @@ function readIndex(): SavedConfiguration[] {
   }
 }
 function writeIndex(items: SavedConfiguration[]) { return writeStorage(localIndexKey, JSON.stringify(items)); }
-function refreshConfigs() {
+function refreshConfigs(clearMissing = true) {
   const builtins = builtinConfigurations(props.lang);
   const items = [...builtins, ...readIndex().filter(({ id }) => !builtins.some((item) => item.id === id))];
   configs.value = items;
-  if (currentId.value && !items.some((item) => item.id === currentId.value)) currentId.value = '';
+  if (clearMissing && currentId.value && !items.some((item) => item.id === currentId.value)) currentId.value = '';
   emit('configs-change', items);
 }
 function snapshotState(): CvState {
@@ -148,6 +149,12 @@ function saveConfig(id: string, name: string, { announce = true, data = snapshot
 
 function saveCurrent({ announce = false } = {}) {
   if (currentId.value === EMPTY_DOCUMENT_ID) return true;
+  // A stale tab must not recreate a version removed in another tab.
+  if (currentId.value && currentId.value !== SAMPLE_DOCUMENT_ID
+    && (!readIndex().some(({ id }) => id === currentId.value) || !readStorage(localDataKey(currentId.value)))) {
+    clearDeletedVersion(currentId.value);
+    return true;
+  }
   // The bundled sample needs no browser storage until somebody edits it.
   if (currentId.value === SAMPLE_DOCUMENT_ID && !readStorage(localDataKey(SAMPLE_DOCUMENT_ID))
     && JSON.stringify(props.state) === JSON.stringify(createNormalizedContentState(createSampleDocument()))) return true;
@@ -159,7 +166,8 @@ function saveCurrent({ announce = false } = {}) {
 function saveVersion(id: string, data: CvState) {
   const chosen = [...builtinConfigurations(props.lang), ...readIndex()].find((item) => item.id === id);
   // Never recreate a version that was deleted while it was being edited.
-  return chosen !== undefined && saveConfig(id, chosen.name, { data, announce: false, activate: false });
+  return chosen !== undefined && Boolean(readStorage(localDataKey(id)))
+    && saveConfig(id, chosen.name, { data, announce: false, activate: false });
 }
 
 function saveAs() {
@@ -228,17 +236,31 @@ function restoreActiveConfig() {
   return data;
 }
 
+function clearDeletedVersion(id: string) {
+  // Update the save destination before replacing state; never leave a deleted
+  // document available as an unsaved draft or a stale preview.
+  emit('update:selectedId', EMPTY_DOCUMENT_ID);
+  props.onLoad({ ...createEmptyDocument(), lang: props.lang });
+  newName.value = '';
+  backupMsg.value = '';
+  emit('version-deleted', id);
+  refreshConfigs(false);
+}
+
 function deleteCurrent() {
   if (!currentId.value || builtinConfigurations(props.lang).some(({ id }) => id === currentId.value) || !confirm(t('versionConfirmDelete'))) return;
   if (!props.beforeLoad()) return;
+  const id = currentId.value;
   try {
-    // Deleting a saved version must not discard the content currently being edited.
-    if (!saveLocal(snapshotState())) throw new Error('Current content could not be written');
-    const nextIndex = readIndex().filter((item) => item.id !== currentId.value);
-    if (!writeIndex(nextIndex)) throw new Error('Configuration index could not be written');
-    if (!removeStorage(localDataKey(currentId.value))) throw new Error('Configuration data could not be removed');
-    setCurrentId('');
-    refreshConfigs();
+    if (!removeStorage(localDataKey(id))) throw new Error('Configuration data could not be removed');
+    // Legacy session snapshots have no version ownership; clear the fallback
+    // instead of allowing deleted content to reappear on reload.
+    const sessionRemoved = removeStorage(STORAGE_KEY);
+    const indexSaved = writeIndex(readIndex().filter((item) => item.id !== id));
+    const activeSaved = writeStorage(localActiveKey, EMPTY_DOCUMENT_ID);
+    clearDeletedVersion(id);
+    if (!sessionRemoved || !indexSaved || !activeSaved) throw new Error('Configuration cleanup failed');
+    backupMsg.value = 'versionDeleted';
     emit('save-result', true);
   } catch (error) {
     console.warn('Failed to delete configuration', error);
@@ -255,7 +277,8 @@ function exportJson() {
     const link = document.createElement('a');
     const version = Number.isFinite(Number(props.state?.version)) ? `-v${props.state.version}` : '';
     link.href = url;
-    link.download = `${slug(props.state?.contact?.name || 'cv')}${version}.json`;
+    const name = configs.value.find((config) => config.id === currentId.value)?.name || 'cv-backup';
+    link.download = `${slug(name)}${version}.json`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -296,9 +319,27 @@ async function importJson(event: Event) {
   }
 }
 
+function onStorageChange(event: StorageEvent) {
+  if (event.storageArea !== localStorage) return;
+  const id = currentId.value;
+  if (id && !builtinConfigurations(props.lang).some((item) => item.id === id)
+    && (event.key === null || event.key === localIndexKey || event.key === localDataKey(id))
+    && (!readIndex().some((item) => item.id === id) || !readStorage(localDataKey(id)))) {
+    clearDeletedVersion(id);
+    return;
+  }
+  if (event.key === null || event.key === localIndexKey || event.key?.startsWith('CV_CONF_DATA:')) refreshConfigs();
+}
+
 defineExpose({ selectConfiguration, restoreActiveConfig, saveCurrent, readConfigData, saveVersion });
-onMounted(refreshConfigs);
-watch(() => props.lang, refreshConfigs);
+onMounted(() => {
+  refreshConfigs();
+  if (typeof window !== 'undefined') window.addEventListener('storage', onStorageChange);
+});
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') window.removeEventListener('storage', onStorageChange);
+});
+watch(() => props.lang, () => refreshConfigs());
 </script>
 
 <template>

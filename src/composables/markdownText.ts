@@ -1,3 +1,5 @@
+import { safeWebUrl } from './safeUrl';
+
 export type InlineToken = { type: 'text' | 'bold' | 'strike'; value: string } | { type: 'link'; value: string; href: string };
 
 export function normalizeMarkdownText(value: string | undefined) {
@@ -42,14 +44,7 @@ export function parseMarkdownText(value: string | undefined) {
   };
 }
 
-export function safeMarkdownUrl(value: unknown) {
-  try {
-    const url = new URL(String(value || '').trim());
-    return ['http:', 'https:'].includes(url.protocol) ? url.href : null;
-  } catch {
-    return null;
-  }
-}
+export const safeMarkdownUrl = safeWebUrl;
 
 export function parseInlineMarkdown(value: unknown, { confidentialMarkers = true } = {}) {
   const source = String(value ?? '');

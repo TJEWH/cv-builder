@@ -40,6 +40,9 @@ Modern resume generator built with Vue 3, TypeScript and Vite. Create profession
   - Browser-local persistence (LocalStorage)
   - Multiple named configurations, loaded automatically when selected
   - Import/Export of the current versioned JSON format (CV data version 7)
+  - JSON filenames use the selected configuration title; unsaved drafts use `cv-backup`
+  - Deleting a configuration removes its stored document and the session recovery copy, clears the active editor/preview, and opens the empty document. Other saved configurations remain available. Open tabs discard deleted versions instead of autosaving them again
+- **Safe Links**: Contact websites and Markdown links require explicit HTTP(S) URLs. Invalid links remain plain text; email links reject injected headers or extra recipients. PDF and SVG link annotations use the same URL checks
 - **Multilingual**: German/English (UI + content)
 - **Drag & Drop**: Reorder sections and entries
 
