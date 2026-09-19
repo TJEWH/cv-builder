@@ -16,6 +16,7 @@
     "@fortawesome/free-solid-svg-icons": "^7.1.0",
     "@fortawesome/vue-fontawesome": "^3.1.2",
     "@primeuix/themes": "^1.2.5",
+    "@supabase/supabase-js": "2.116.0",
     "fontkit": "2.0.4",
     "html2canvas": "1.4.1",
     "pdfkit": "0.20.2",
