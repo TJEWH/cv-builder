@@ -81,6 +81,7 @@ export function applyCvDesign(input: CvDesign = {}) {
   root.setProperty('--page-margin-left', millimeters(design.pageMarginLeft, DEFAULT_DESIGN.pageMarginLeft));
   root.setProperty('--header-padding-bottom', millimeters(design.headerPaddingBottom, DEFAULT_DESIGN.headerPaddingBottom));
   root.setProperty('--header-bottom-margin', millimeters(design.headerBottomMargin, DEFAULT_DESIGN.headerBottomMargin));
+  root.setProperty('--contact-item-spacing', millimeters(design.contactItemSpacing, DEFAULT_DESIGN.contactItemSpacing));
   root.setProperty('--separator-width', pixels(design.separatorWidth, DEFAULT_DESIGN.separatorWidth));
   root.setProperty('--badge-border-width', pixels(design.badgeBorderWidth, DEFAULT_DESIGN.badgeBorderWidth));
   root.setProperty('--badge-border-radius', design.badgeBorderRadius);

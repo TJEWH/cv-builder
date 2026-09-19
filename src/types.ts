@@ -60,7 +60,7 @@ export interface CvDesign {
   sectionSpacingBody?: string; sectionSpacingSidebar?: string; itemSpacing?: string;
   sidebarWidth?: string; sidebarAlign?: string; sidebarFillMode?: string; sidebarHeightMode?: string;
   sidebarBottomPadding?: string; headerLayoutStyle?: string; sidebarLayoutStyle?: string;
-  contactLayout?: string; separatorWidth?: string;
+  contactLayout?: string; contactItemSpacing?: string; separatorWidth?: string;
   pageMarginTop?: string; pageMarginRight?: string; pageMarginBottom?: string; pageMarginLeft?: string;
   pageMarginHorizontalLinked?: boolean; pageMarginVerticalLinked?: boolean;
   headerPaddingBottom?: string; headerBottomMargin?: string; headerBottomSpacingLinked?: boolean;

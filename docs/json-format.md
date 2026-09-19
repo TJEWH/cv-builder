@@ -124,3 +124,7 @@ page. They continue to use the same `contact` data and privacy substitutions;
 the sidebar Contact section is not a custom section or a `sidebarOrder` entry.
 Its visibility toggle stores `sidebar-contact` in `disabled`, independently of
 the header's name and title.
+
+`design.contactItemSpacing` controls the gap between contact details in every
+contact layout. The Header design control ranges from 0 to 12 mm in 0.5 mm steps
+and defaults to `"2mm"`.

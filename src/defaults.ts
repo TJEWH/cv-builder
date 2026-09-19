@@ -25,7 +25,7 @@ export const DEFAULT_DESIGN: Readonly<Required<CvDesign>> = Object.freeze({
   badgeMode: 'border', badgeBorderWidth: '2.5px', badgeBorderRadius: '8px',
   sectionSpacingBody: '10mm', sectionSpacingSidebar: '6mm', itemSpacing: '3.5mm',
   sidebarWidth: '0.7fr', sidebarAlign: 'right', sidebarFillMode: 'after-cover', sidebarHeightMode: 'content', sidebarBottomPadding: '0mm',
-  headerLayoutStyle: 'boxed', sidebarLayoutStyle: 'separator', contactLayout: 'side', separatorWidth: '3px',
+  headerLayoutStyle: 'boxed', sidebarLayoutStyle: 'separator', contactLayout: 'side', contactItemSpacing: '2mm', separatorWidth: '3px',
   pageMarginTop: '12mm', pageMarginRight: '12mm', pageMarginBottom: '12mm', pageMarginLeft: '12mm',
   pageMarginHorizontalLinked: true, pageMarginVerticalLinked: true,
   headerPaddingBottom: '0mm', headerBottomMargin: '2mm', headerBottomSpacingLinked: false,

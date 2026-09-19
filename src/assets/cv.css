@@ -218,7 +218,7 @@ textarea{min-height:64px}
 }
 .name{margin:0;font-weight:800;font-size:var(--h1-size);font-family:var(--font-head),sans-serif;color:var(--accent)}
 .role{margin:.5mm 0 0;color:var(--subtitle)}
-.contact{display:grid;gap:2mm;justify-items:end;text-align:right;font-size:9.5pt}
+.contact{display:grid;gap:var(--contact-item-spacing,2mm);justify-items:end;text-align:right;font-size:9.5pt}
 .contact > div{display:flex;align-items:center;gap:8px}
 .contact a{color:inherit;text-decoration:none;border-bottom:0.5pt solid rgba(0,0,0,.2)}
 .contact-icon{flex:none;opacity:0.6;width:22px;height:12px;text-align:center;shape-rendering:geometricPrecision;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
@@ -227,7 +227,7 @@ textarea{min-height:64px}
 .contact-section .contact a{min-width:0;overflow-wrap:anywhere}
 .page:has(> .page-footer):not(.pdf-export-source){display:flex;flex-direction:column}
 .page-footer{margin-top:auto;padding-top:4mm}
-.page-footer .contact{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:2mm 4mm;font-size:8pt;font-style:normal;text-align:left}
+.page-footer .contact{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:var(--contact-item-spacing,2mm);font-size:8pt;font-style:normal;text-align:left}
 .page-footer .contact > div{flex-direction:row-reverse;gap:1mm;max-width:100%;overflow-wrap:anywhere}
 .page-footer .contact a{min-width:0;overflow-wrap:anywhere}
 :root:is([data-contact-layout="sidebar"],[data-contact-layout="footer"]) .header{grid-template-columns:1fr}
@@ -263,7 +263,7 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--ink);text-transform:u
 :root[data-sidebar-layout-style="separator"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 0 var(--sidebar-bottom-padding) 6mm;background:#ffffff;border-left:var(--separator-width) solid var(--accent);border-radius:0;box-shadow:none}
 :root[data-sidebar-layout-style="separator"][data-sidebar-align="left"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 6mm var(--sidebar-bottom-padding) 0;border-right:var(--separator-width) solid var(--accent);border-left:0}
 :root[data-contact-layout="below"] .header{grid-template-columns:1fr}
-:root[data-contact-layout="below"] .contact{display:flex;align-items:center;gap:4mm;justify-content:flex-start;text-align:left;white-space:nowrap}
+:root[data-contact-layout="below"] .contact{display:flex;align-items:center;justify-content:flex-start;text-align:left;white-space:nowrap}
 :root[data-contact-layout="below"] .contact > div{display:inline-flex;align-items:center;flex-direction:row-reverse;gap:1.5mm}
 .timeline{position:relative;padding-left:7mm}
 .item{margin:0 0 var(--section-item-spacing);display:flow-root;min-width:0}
