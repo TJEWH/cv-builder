@@ -1,6 +1,12 @@
 /* ==== Root Vars ==== */
 *{box-sizing:border-box}
-html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+html{
+    -webkit-print-color-adjust:exact;print-color-adjust:exact;
+    /* iPhone Safari otherwise inflates text in the fixed-width A4 source.
+       Inherit the same sizing in measurement snapshots and the renderer iframe
+       so paragraph wrapping, page-break spacers and em-sized bullets agree. */
+    -webkit-text-size-adjust:100%;text-size-adjust:100%;
+}
 :root{
     --muted:#9bb3ad;--border:#2a3441;--valid:#16a34a;--invalid:#dc2626;
     --header-radius:12px;
