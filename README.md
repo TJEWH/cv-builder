@@ -82,6 +82,7 @@ App runs at `http://localhost:5173/cv-builder/`
 - Use item handles to drag entries and sidebar skills directly
 - Auto-save saves all changes automatically
 - On mobile, use the bottom tabs to switch between Versions, Content, Design, Privacy and Preview. Preview fits the complete PDF page to the screen; swipe left or right with one finger, or use the page arrows.
+- Mobile Content tools sit above the bottom tabs. In Preview, switch between Normal and Privacy view; Download PDF exports the selected view.
 
 ### Customize Design
 

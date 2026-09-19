@@ -133,5 +133,10 @@ function setExcluded(key: keyof CvState['anonymization'], id: string, shouldExcl
 .anonymization-panel__row.disabled input, .anonymization-panel__contact input { cursor: not-allowed; }
 .anonymization-panel__contact { margin-top: 12px; cursor: default; }
 .anonymization-panel__header .anonymization-panel__export { grid-column: 3; justify-self: end; width: auto; }
-@media (max-width: 640px) { .anonymization-panel__columns { grid-template-columns: 1fr; gap: 0; } .anonymization-panel__header { grid-template-columns: 1fr auto; } .anonymization-panel__header h3 { grid-column: 1; justify-self: start; } .anonymization-panel__header .anonymization-panel__export { grid-column: 2; font-size: 0; padding: 9px; } .anonymization-panel__export .svg-inline--fa { margin: 0; font-size: 14px; } }
+@media (max-width: 760px) {
+  .anonymization-panel__header { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 10px; text-align: center; }
+  .anonymization-panel__header h2 { grid-column: 1; justify-self: center; }
+  .anonymization-panel__header .anonymization-panel__export { grid-column: 1; justify-self: center; max-width: 100%; min-height: 44px; font-size: 12px; }
+}
+@media (max-width: 640px) { .anonymization-panel__columns { grid-template-columns: 1fr; gap: 0; } }
 </style>

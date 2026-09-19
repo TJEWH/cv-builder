@@ -109,6 +109,18 @@ body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f1
 .builder .section-name-label:not(.section-name-label--static):hover{background:rgba(16,185,129,.1);border-color:#134e4a}
 .builder .section-name-label--static{cursor:default}
 .builder .section-name-input{width:30%;min-width:200px}
+@media (max-width:760px){
+    .builder .content-section > .section-head{gap:4px}
+    .builder .section-name-label{flex:1 1 0;min-width:0;padding:4px 2px;font-size:clamp(11px,3.2vw,14px);line-height:1.3;letter-spacing:0;overflow-wrap:anywhere}
+    .builder .section-name-input{flex:1 1 0;width:0;min-width:0;padding:6px 3px;font-size:13px}
+    .builder .content-section > .section-head > .visibility-toggle{flex:0 0 28px;min-width:28px;padding:4px}
+    .builder .section-head__actions{flex:0 1 auto;flex-wrap:wrap;justify-content:flex-end;gap:4px;max-width:62%}
+    .builder .section-header-control{min-width:32px;min-height:36px;padding:5px;font-size:12px}
+    .builder .section-head__actions .header-size-select{flex:0 0 56px;width:56px;min-width:0;min-height:36px;font-size:12px}
+    .builder .header-size-select .p-select-label{padding:7px 4px}
+    .builder .header-size-select .p-select-dropdown{width:20px;flex-shrink:0}
+    .builder .section-version-select{flex:0 1 45%;width:45%;min-width:0;padding:7px 4px;font-size:12px}
+}
 .builder .item-row__actions{display:flex;flex-direction:column;align-items:center;gap:6px;align-self:center}
 .builder .sortable-ghost{opacity:.4}
 .builder .add-section-row,.builder .add-item-row{display:flex;align-items:center;justify-content:center;gap:8px;background:transparent;color:#9be8c7;cursor:pointer;font:inherit}

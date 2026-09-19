@@ -3,6 +3,9 @@ import type { Language } from '../defaults';
 // Centralized dictionary for language translation (i18n)
 export const dict: Record<string, Record<Language, string>> = {
     preview:            {de: 'Vorschau', en: 'Preview'},
+    normalPreview:      {de: 'Normale Ansicht', en: 'Normal view'},
+    privacyPreview:     {de: 'Private Ansicht', en: 'Privacy view'},
+    contentTools:       {de: 'Inhaltswerkzeuge', en: 'Content tools'},
     builderNavigation:  {de: 'CV-Navigation', en: 'CV navigation'},
     openPreview:        {de: 'Vorschau öffnen', en: 'Open preview'},
     showHtmlPreview:    {de: 'Raw HTML anzeigen', en: 'Show Raw HTML'},

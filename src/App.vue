@@ -459,6 +459,15 @@ async function handleAnonymizedExportPdf() {
 }
 
 const isAnonymizedFullPreview = computed(() => fullPreviewVariant.value === 'anonymized');
+const isActiveFullPreviewExporting = computed(() => isAnonymizedFullPreview.value ? isAnonymizedExporting.value : isExporting.value);
+const activeFullPreviewDownloadLabel = computed(() => isAnonymizedFullPreview.value
+  ? t(isAnonymizedExporting.value ? 'exportingAnonymizedPdf' : 'downloadAnonymizedPdf')
+  : t(isExporting.value ? 'exportingPdf' : 'downloadPdf'));
+
+function exportActiveFullPreview() {
+  return isAnonymizedFullPreview.value ? handleAnonymizedExportPdf() : handleExportPdf();
+}
+
 const activeFullPreviewPages = computed(() => (
   isAnonymizedFullPreview.value
     ? anonymizedPreviewPages.value
@@ -495,7 +504,7 @@ function selectBuilderGroup(group: string) {
 </script>
 
 <template>
-  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode }" @focusout="onPreviewInputBlur" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
+  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode, 'has-content-toolbar': !previewMode && activeBuilderGroup === 'content' && !isEmptyDocument }" @focusout="onPreviewInputBlur" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
     <div v-if="pdfExportError" class="pdf-export-error" role="alert">
       <span>{{ pdfExportError }}</span>
       <button class="mini" type="button" :aria-label="t('close')" @click="pdfExportError = ''">×</button>
@@ -513,7 +522,17 @@ function selectBuilderGroup(group: string) {
         {{ t('backToBuilder') }}
       </button>
 
-      <div class="fullscreen-preview__actions">
+      <div v-if="isMobile" class="fullscreen-preview__actions fullscreen-preview__actions--mobile">
+        <button class="btn" type="button" :aria-label="isAnonymizedFullPreview ? t('showNormalPreview') : t('showAnonymizedPreview')" :aria-pressed="isAnonymizedFullPreview" @click="toggleAnonymizedFullPreview">
+          <font-awesome-icon :icon="['fas', isAnonymizedFullPreview ? 'user-secret' : 'eye']" aria-hidden="true" />
+          <span>{{ isAnonymizedFullPreview ? t('privacyPreview') : t('normalPreview') }}</span>
+        </button>
+        <button class="btn btn--primary" type="button" :aria-label="activeFullPreviewDownloadLabel" :title="activeFullPreviewDownloadLabel" :disabled="isActiveFullPreviewExporting" @click="exportActiveFullPreview">
+          <font-awesome-icon :icon="['fas', isActiveFullPreviewExporting ? 'spinner' : 'download']" :spin="isActiveFullPreviewExporting" aria-hidden="true" />
+          <span>{{ isActiveFullPreviewExporting ? t('exportingPdf') : t('downloadPdf') }}</span>
+        </button>
+      </div>
+      <div v-else class="fullscreen-preview__actions">
         <button v-if="!isMobile" class="btn" type="button" :aria-pressed="fullPreviewView === 'html'" @click="fullPreviewView = fullPreviewView === 'pdf' ? 'html' : 'pdf'">
           <font-awesome-icon :icon="['fas', fullPreviewView === 'pdf' ? 'code' : 'file-pdf']" />
           {{ fullPreviewView === 'pdf' ? t('showHtmlPreview') : t('showPdfPreview') }}
@@ -1080,9 +1099,12 @@ body,
 @media (max-width: 760px) {
   .cv-builder-app {
     --mobile-tabs-height: calc(72px + env(safe-area-inset-bottom, 0px));
-    padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) calc(var(--mobile-tabs-height) + 12px) max(12px, env(safe-area-inset-left, 0px));
+    --mobile-content-toolbar-height: 60px;
+    --mobile-content-toolbar-space: 0px;
+    padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) calc(var(--mobile-tabs-height) + var(--mobile-content-toolbar-space) + 12px) max(12px, env(safe-area-inset-left, 0px));
   }
 
+  .cv-builder-app.has-content-toolbar { --mobile-content-toolbar-space: var(--mobile-content-toolbar-height); }
   .cv-builder-app.is-preview-mode { overflow: hidden; }
   .builder-topbar { display: none; }
   .builder-shell,
@@ -1102,13 +1124,13 @@ body,
     background: #06141f;
     box-shadow: 0 -4px 20px rgba(0, 0, 0, .2);
   }
-  .mobile-bottom-tabs .builder-topbar__tab { min-width: 0; min-height: 0; padding: 4px 2px; gap: 5px; font-size: 10px; }
+  .mobile-bottom-tabs .builder-topbar__tab { min-width: 0; min-height: 0; padding: 4px 2px; gap: 5px; font-size: 10px; border: none; }
   .mobile-bottom-tabs .builder-topbar__tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-  .pdf-export-error { bottom: calc(var(--mobile-tabs-height) + 12px); }
+  .pdf-export-error { bottom: calc(var(--mobile-tabs-height) + var(--mobile-content-toolbar-space) + 12px); }
 
   .fullscreen-preview {
     display: grid;
-    grid-template-rows: 44px minmax(0, 1fr) 44px;
+    grid-template-rows: 52px minmax(0, 1fr) 52px;
     gap: 8px;
     height: 100%;
     min-height: 0;
@@ -1119,10 +1141,9 @@ body,
   }
 
   .fullscreen-preview__back { display: none; }
-  .fullscreen-preview__actions { position: static; flex-direction: row; justify-content: center; }
-  .fullscreen-preview__actions-spacer { display: none; }
-  .fullscreen-preview__actions .btn { justify-content: center; min-width: 44px; min-height: 44px; font-size: 0; padding: 10px; }
-  .fullscreen-preview__actions .btn .svg-inline--fa { margin: 0; font-size: 16px; }
+  .fullscreen-preview__actions--mobile { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .fullscreen-preview__actions--mobile .btn { justify-content: center; min-width: 0; min-height: 44px; padding: 6px; font-size: clamp(11px, 3vw, 13px); line-height: 1.2; }
+  .fullscreen-preview__actions--mobile .btn .svg-inline--fa { flex: none; margin: 0; font-size: 16px; }
   .fullscreen-preview__content { container-type: size; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; }
   .fullscreen-preview .pdf-preview,
   .fullscreen-preview .pdf-preview__stage { height: 100%; min-height: 0; }
