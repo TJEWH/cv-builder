@@ -110,8 +110,6 @@ body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f1
 .builder .section-name-label--static{cursor:default}
 .builder .section-name-input{width:30%;min-width:200px}
 .builder .item-row__actions{display:flex;flex-direction:column;align-items:center;gap:6px;align-self:center}
-.builder .entry-drag-handle{cursor:grab}
-.builder .entry-drag-handle:active{cursor:grabbing}
 .builder .sortable-ghost{opacity:.4}
 .builder .add-section-row,.builder .add-item-row{display:flex;align-items:center;justify-content:center;gap:8px;background:transparent;color:#9be8c7;cursor:pointer;font:inherit}
 .builder .add-section-row:hover,.builder .add-section-row:focus-visible,.builder .add-item-row:hover,.builder .add-item-row:focus-visible{border-color:#27f3a2;background:rgba(16,185,129,.1)}

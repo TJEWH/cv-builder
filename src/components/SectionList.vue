@@ -2,8 +2,8 @@
 import { DEFAULT_SECTION_HEADER_SIZE } from '../defaults';
 import type { PropType } from 'vue';
 import type { CvItem, ItemField } from '../types';
-import { computed, ref } from 'vue';
-import Draggable from 'vuedraggable';
+import { computed, ref, watch } from 'vue';
+import SectionItems from './SectionItems.vue';
 import { makeT } from '../i18n/dict.ts';
 import { createContentId } from '../composables/contentLayout.ts';
 import MarkdownTextarea from './MarkdownTextarea.vue';
@@ -28,6 +28,9 @@ const props = defineProps({
   titlePlaceholder: { type: String, default: '' },
   headerSize: { type: String, default: DEFAULT_SECTION_HEADER_SIZE },
   versionMode: { type: Boolean, default: false },
+  todosMode: { type: Boolean, default: false },
+  configMode: { type: Boolean, default: false },
+  reorderMode: { type: Boolean, default: false },
 });
 
 const emit = defineEmits<{
@@ -42,6 +45,7 @@ const langRef = computed(() => props.lang);
 const t = makeT(langRef);
 const root = ref<HTMLElement | null>(null);
 const pendingDeleteIndex = ref<number | null>(null);
+watch(() => props.configMode, () => { pendingDeleteIndex.value = null; });
 const items = computed({
   get: () => Array.isArray(props.modelValue) ? props.modelValue : [],
   set: (value) => emit('update:modelValue', value),
@@ -89,7 +93,7 @@ const confirmRemoveAt = () => {
 </script>
 
 <template>
-  <section ref="root" class="section-group" :data-section="sectionKey" :class="{ disabled, completed, collapsed: isCollapsed }">
+  <section ref="root" class="section-group" :data-section="sectionKey" :class="{ disabled, completed: todosMode && completed, collapsed: isCollapsed }">
     <ConfirmDeletionDialog
       :visible="pendingDeleteIndex !== null"
       :title="t('confirmDeletion')"
@@ -112,7 +116,7 @@ const confirmRemoveAt = () => {
         <font-awesome-icon :icon="['fas', disabled ? 'eye-slash' : 'eye']" />
       </button>
 
-      <template v-if="editableTitle && !versionMode">
+      <template v-if="editableTitle && configMode && !versionMode && !reorderMode">
         <h3 v-if="!isEditingTitle" class="section-name-label" @click.stop="emit('start-edit-title')">
           {{ title }}
         </h3>
@@ -128,12 +132,13 @@ const confirmRemoveAt = () => {
           @keyup.esc="emit('cancel-edit-title')"
         />
       </template>
-      <h3 v-else :class="{ 'section-name-label': versionMode, 'section-name-label--static': versionMode }">{{ title }}</h3>
+      <h3 v-else class="section-name-label section-name-label--static">{{ title }}</h3>
 
       <slot v-if="versionMode" name="section-version" />
       <div v-else class="section-head__actions">
-        <button v-if="showKeepTogether" class="section-header-control section-break-toggle" :class="{ 'section-break-toggle--active': keepTogether }" type="button" :aria-pressed="keepTogether" :aria-label="keepTogether ? t('allowPageBreaks') : t('preventPageBreaks')" :title="keepTogether ? t('allowPageBreaks') : t('preventPageBreaks')" @click.stop="emit('toggle-keep-together')"><font-awesome-icon :icon="['fas', keepTogether ? 'lock' : 'lock-open']" /></button>
+        <button v-if="configMode && showKeepTogether" class="section-header-control section-break-toggle" :class="{ 'section-break-toggle--active': keepTogether }" type="button" :aria-pressed="keepTogether" :aria-label="keepTogether ? t('allowPageBreaks') : t('preventPageBreaks')" :title="keepTogether ? t('allowPageBreaks') : t('preventPageBreaks')" @click.stop="emit('toggle-keep-together')"><font-awesome-icon :icon="['fas', keepTogether ? 'lock' : 'lock-open']" /></button>
         <Select
+          v-if="configMode"
           :model-value="headerSize"
           :options="headerSizeOptions"
           option-label="label"
@@ -141,7 +146,7 @@ const confirmRemoveAt = () => {
           class="header-size-select"
           @update:model-value="emit('header-size-change', $event)"
         />
-        <label class="section-complete-toggle" :title="t('markComplete')" @click.stop>
+        <label v-if="todosMode" class="section-complete-toggle" :title="t('markComplete')" @click.stop>
           <input type="checkbox" :checked="completed" :aria-label="t('markComplete')" @change="emit('toggle-complete')" />
         </label>
       </div>
@@ -149,38 +154,31 @@ const confirmRemoveAt = () => {
 
     <div class="section-content">
       <div class="section-content__inner">
-        <Draggable v-model="items" item-key="id" handle=".entry-drag-handle" :animation="150" class="items" ghost-class="sortable-ghost" chosen-class="sortable-chosen">
-          <template #item="{ element: item, index }: { element: CvItem; index: number }">
-            <div class="item-row" :class="{ 'item-row--hidden': item.hidden }">
-              <div class="item-row__actions">
-                <button class="mini entry-drag-handle" type="button" :aria-label="t('moveEntry')" :title="t('moveEntry')"><font-awesome-icon :icon="['fas', 'grip-vertical']" /></button>
-                <button class="mini visibility-toggle" :class="item.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="item.hidden ? t('show') : t('hide')" :title="item.hidden ? t('show') : t('hide')" @click="item.hidden = !item.hidden"><font-awesome-icon :icon="['fas', item.hidden ? 'eye-slash' : 'eye']" /></button>
-                <button type="button" class="mini btn--danger" :aria-label="t('remove')" :title="t('remove')" @click="requestRemoveAt(index)"><font-awesome-icon :icon="['fas', 'trash']" /></button>
-              </div>
-              <div class="item-row__content">
-                <div v-if="inlineFields.length" :class="['row', schema.length === 2 ? 'row-2' : '', schema.length === 3 ? 'row-3' : '', schema.length === 4 ? 'row-4' : '']">
-                  <label v-for="field in inlineFields" :key="field.key">
-                    {{ field.label }}
-                    <InputText v-if="field.type === 'text'" v-model="item[field.key]" :placeholder="field.placeholder || ''" fluid />
-                    <InputNumber v-else-if="field.type === 'number'" :model-value="item[field.key]" @update:model-value="item[field.key] = $event ?? 0" :placeholder="field.placeholder || ''" :use-grouping="false" fluid />
-                    <Select v-else-if="field.type === 'select' && field.key === 'state'" :model-value="item.state || ''" :options="field.options" option-label="label" option-value="value" fluid @update:model-value="updateItemState(item, $event)" />
-                    <Select v-else-if="field.type === 'select'" v-model="item[field.key]" :options="field.options" option-label="label" option-value="value" fluid />
-                  </label>
-                </div>
-                <label v-for="field in textareaFields" :key="field.key">
+        <SectionItems v-model="items" :lang="lang" :reorder-mode="reorderMode">
+          <template #default="{ item, index }">
+            <div class="item-row__actions">
+              <button class="mini visibility-toggle" :class="item.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="item.hidden ? t('show') : t('hide')" :title="item.hidden ? t('show') : t('hide')" @click="item.hidden = !item.hidden"><font-awesome-icon :icon="['fas', item.hidden ? 'eye-slash' : 'eye']" /></button>
+              <button v-if="configMode" type="button" class="mini btn--danger" :aria-label="t('remove')" :title="t('remove')" @click="requestRemoveAt(index)"><font-awesome-icon :icon="['fas', 'trash']" /></button>
+            </div>
+            <div class="item-row__content">
+              <div v-if="inlineFields.length" :class="['row', schema.length === 2 ? 'row-2' : '', schema.length === 3 ? 'row-3' : '', schema.length === 4 ? 'row-4' : '']">
+                <label v-for="field in inlineFields" :key="field.key">
                   {{ field.label }}
-                  <MarkdownTextarea v-model="item[field.key]" :placeholder="field.placeholder || ''" :aria-label="field.label" :help="t('markdownTextareaHelp')" />
+                  <InputText v-if="field.type === 'text'" v-model="item[field.key]" :placeholder="field.placeholder || ''" fluid />
+                  <InputNumber v-else-if="field.type === 'number'" :model-value="item[field.key]" @update:model-value="item[field.key] = $event ?? 0" :placeholder="field.placeholder || ''" :use-grouping="false" fluid />
+                  <Select v-else-if="field.type === 'select' && field.key === 'state'" :model-value="item.state || ''" :options="field.options" option-label="label" option-value="value" fluid @update:model-value="updateItemState(item, $event)" />
+                  <Select v-else-if="field.type === 'select'" v-model="item[field.key]" :options="field.options" option-label="label" option-value="value" fluid />
                 </label>
               </div>
+              <label v-for="field in textareaFields" :key="field.key">
+                {{ field.label }}
+                <MarkdownTextarea v-model="item[field.key]" :placeholder="field.placeholder || ''" :aria-label="field.label" :help="t('markdownTextareaHelp')" />
+              </label>
             </div>
           </template>
-        </Draggable>
-        <button v-if="addLabel" type="button" class="add-item-row" @click="add"><font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />{{ addLabel }}</button>
+        </SectionItems>
+        <button v-if="addLabel && !reorderMode" type="button" class="add-item-row" @click="add"><font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />{{ addLabel }}</button>
       </div>
     </div>
   </section>
 </template>
-
-<style scoped>
-.sortable-chosen { outline: 1px solid #10b981; }
-</style>
