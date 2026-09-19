@@ -3,6 +3,7 @@ import type { VectorDocument, TextRecord, GraphicsState, VectorSnapshot } from '
 import { createVectorGraphicsContext, multiplyCanvasMatrices } from './pdfVectorGraphics.ts';
 import { vectorPageLinks } from './pdfVectorLinks.ts';
 import { vectorTextIntersectsPage } from './pdfVectorText.ts';
+import { vectorPageLayers } from './pdfVectorLayers.ts';
 
 const escape = (value: unknown) => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[char]!));
 let previewSerial = 0;
@@ -88,26 +89,33 @@ export function createSvgDocument(prefix = `cv-vector-${++previewSerial}`) {
   return doc;
 }
 
-export async function renderVectorPreview({ recording, canvas, pages, links, pageWidth, pageHeight, task }: Omit<VectorSnapshot, 'task'> & { task: Pick<VectorSnapshot['task'], 'checkpoint'> }) {
+export async function renderVectorPreview(snapshot: Omit<VectorSnapshot, 'task'> & { task: Pick<VectorSnapshot['task'], 'checkpoint'> }) {
+  const { pages, pageWidth, pageHeight, task } = snapshot;
   const result = [];
   for (const page of pages) {
     await task.checkpoint(true);
     const doc = createSvgDocument();
-    const scale = page.contentWidth / page.canvasWidth;
-    doc.translate(page.leftOffset, page.topOffset);
-    doc.rect(0, 0, page.contentWidth, (page.sourceBottom - page.sourceTop) * scale).clip();
-    doc.scale(scale).translate(0, -page.sourceTop);
-    const context = createVectorGraphicsContext(doc);
-    for (const record of recording.records) {
-      const pause = task.checkpoint();
-      if (pause) await pause;
-      if (isTextRecord(record) && record.method === 'fillText') {
-        if (vectorTextIntersectsPage(record, context.state, page)) context.withPaint((_, state) => doc.text(record, state));
+    let annotations = '';
+    for (const { recording, canvas, links, page: layerPage } of vectorPageLayers(snapshot, page)) {
+      const page = layerPage;
+      doc.save();
+      const scale = page.contentWidth / page.canvasWidth;
+      doc.translate(page.leftOffset, page.topOffset);
+      doc.rect(0, 0, page.contentWidth, (page.sourceBottom - page.sourceTop) * scale).clip();
+      doc.scale(scale).translate(0, -page.sourceTop);
+      const context = createVectorGraphicsContext(doc);
+      for (const record of recording.records) {
+        const pause = task.checkpoint();
+        if (pause) await pause;
+        if (isTextRecord(record) && record.method === 'fillText') {
+          if (vectorTextIntersectsPage(record, context.state, page)) context.withPaint((_, state) => doc.text(record, state));
+        }
+        else context.apply(record);
       }
-      else context.apply(record);
+      context.finish();
+      doc.restore();
+      annotations += vectorPageLinks(links, canvas, page).map((link) => `<a href="${escape(link.href)}" aria-label="${escape(link.href)}" target="_blank" rel="noopener noreferrer"><rect x="${link.x}" y="${link.y}" width="${link.width}" height="${link.height}" fill="transparent"/></a>`).join('');
     }
-    context.finish();
-    const annotations = vectorPageLinks(links, canvas, page).map((link) => `<a href="${escape(link.href)}" aria-label="${escape(link.href)}" target="_blank" rel="noopener noreferrer"><rect x="${link.x}" y="${link.y}" width="${link.width}" height="${link.height}" fill="transparent"/></a>`).join('');
     result.push({ ...page, svg: doc.output(pageWidth, pageHeight, annotations) });
   }
   return { pages: result };

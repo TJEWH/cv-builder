@@ -16,6 +16,7 @@ import { createVectorFontResolver } from './pdfVectorFonts.ts';
 import { createVectorGraphicsContext, parseCanvasColor } from './pdfVectorGraphics.ts';
 import { vectorTextIntersectsPage } from './pdfVectorText.ts';
 import { vectorPageLinks } from './pdfVectorLinks.ts';
+import { vectorPageLayers } from './pdfVectorLayers.ts';
 
 const POINTS_PER_MILLIMETER = 72 / 25.4;
 // Fontkit's public TypeScript declarations are Node-oriented and only name
@@ -62,10 +63,11 @@ function drawText(context: ReturnType<typeof createVectorGraphicsContext<VectorP
 /**
  * Replay the shared vector paint list as PDF paths and visible embedded fonts.
  */
-export async function renderVectorPdf({ recording, canvas, pages, links, fontStyleUrls, loadedFaces, pageWidth, pageHeight, task }: VectorSnapshot) {
+export async function renderVectorPdf(snapshot: VectorSnapshot) {
+  const { recording, pages, fontStyleUrls, loadedFaces, pageWidth, pageHeight, task } = snapshot;
   const resolver = await task.wait(createVectorFontResolver({ document: globalThis.document, stylesheetUrls: fontStyleUrls, loadedFaces, createFont: createBrowserFont }));
   const textRuns = new Map<PaintRecord, FontRun[]>();
-  for (const record of recording.records) {
+  for (const record of [...recording.records, ...(snapshot.footer?.recording.records || [])]) {
     if (!isTextRecord(record) || !record.fontString) continue;
     // Canvas treats ASCII control whitespace as spaces; PDFKit would otherwise
     // lay out a newline again, and fonts do not contain glyphs for these codes.
@@ -92,26 +94,29 @@ export async function renderVectorPdf({ recording, canvas, pages, links, fontSty
     for (const page of pages) {
       await task.checkpoint(true);
       doc.addPage(pageOptions);
-      const pixelScale = page.contentWidth * POINTS_PER_MILLIMETER / page.canvasWidth;
-      doc.save();
-      doc.translate(page.leftOffset * POINTS_PER_MILLIMETER, page.topOffset * POINTS_PER_MILLIMETER);
-      doc.rect(0, 0, page.canvasWidth * pixelScale, (page.sourceBottom - page.sourceTop) * pixelScale).clip();
-      doc.scale(pixelScale).translate(0, -page.sourceTop);
-      const context = createVectorGraphicsContext(doc);
-      for (const record of recording.records) {
-        const pause = task.checkpoint();
-        if (pause) await pause;
-        if (isTextRecord(record) && textRuns.has(record)) {
-          // Do not put an invisible copy of the entire CV on every page. Only
-          // text whose actual painted bounds intersect this slice belongs here.
-          if (vectorTextIntersectsPage(record, context.state, page)) drawText(context, record, textRuns.get(record)!);
-        } else context.apply(record);
-      }
-      context.finish();
-      doc.restore();
-      for (const link of vectorPageLinks(links, canvas, page)) {
-        doc.link(link.x * POINTS_PER_MILLIMETER, link.y * POINTS_PER_MILLIMETER,
-          link.width * POINTS_PER_MILLIMETER, link.height * POINTS_PER_MILLIMETER, link.href);
+      for (const { recording, canvas, links, page: layerPage } of vectorPageLayers(snapshot, page)) {
+        const page = layerPage;
+        const pixelScale = page.contentWidth * POINTS_PER_MILLIMETER / page.canvasWidth;
+        doc.save();
+        doc.translate(page.leftOffset * POINTS_PER_MILLIMETER, page.topOffset * POINTS_PER_MILLIMETER);
+        doc.rect(0, 0, page.canvasWidth * pixelScale, (page.sourceBottom - page.sourceTop) * pixelScale).clip();
+        doc.scale(pixelScale).translate(0, -page.sourceTop);
+        const context = createVectorGraphicsContext(doc);
+        for (const record of recording.records) {
+          const pause = task.checkpoint();
+          if (pause) await pause;
+          if (isTextRecord(record) && textRuns.has(record)) {
+            // Do not put an invisible copy of the entire CV on every page. Only
+            // text whose actual painted bounds intersect this slice belongs here.
+            if (vectorTextIntersectsPage(record, context.state, page)) drawText(context, record, textRuns.get(record)!);
+          } else context.apply(record);
+        }
+        context.finish();
+        doc.restore();
+        for (const link of vectorPageLinks(links, canvas, page)) {
+          doc.link(link.x * POINTS_PER_MILLIMETER, link.y * POINTS_PER_MILLIMETER,
+            link.width * POINTS_PER_MILLIMETER, link.height * POINTS_PER_MILLIMETER, link.href);
+        }
       }
     }
     doc.end();

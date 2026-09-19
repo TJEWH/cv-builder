@@ -36,6 +36,10 @@ export interface VectorSnapshot {
   recording: { records: PaintRecord[] }; canvas: Surface; pages: PageSlice[];
   links?: LinkCapture; fontStyleUrls?: string[]; loadedFaces?: LoadedFace[];
   pageWidth: number; pageHeight: number; task: RenderTask;
+  footer?: VectorLayer;
+}
+export interface VectorLayer {
+  recording: { records: PaintRecord[] }; canvas: Surface; links?: LinkCapture; page: PageSlice;
 }
 export interface RenderOptions {
   signal?: AbortSignal; margin?: number | number[]; continuationTopPadding?: number;

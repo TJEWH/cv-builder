@@ -204,6 +204,8 @@ export const dict: Record<string, Record<Language, string>> = {
     "designChooseFavoriteControls": { de: "Favoriten auswählen", en: "Choose favorite controls" },
     "designChooseControlsToKeepYourMostUsedDesignSettingsHere": { de: "Wähle Steuerelemente aus, um häufig verwendete Designeinstellungen hier anzuzeigen.", en: "Choose controls to keep your most-used design settings here." },
     "designContactLayout": { de: "Kontaktanordnung", en: "Contact Layout" },
+    "designContactSidebar": { de: "Sidebar-Sektion", en: "Sidebar section" },
+    "designContactFooter": { de: "Seitenfußzeilen", en: "Page footers" },
     "designSeparatorWidth": { de: "Trennlinienbreite", en: "Separator Width" },
     "designHeadingStyle": { de: "Überschriftenstil", en: "Heading Style" },
     "designHeaderStyle": { de: "Kopfbereichsstil", en: "Header Style" },

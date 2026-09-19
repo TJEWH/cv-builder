@@ -89,3 +89,27 @@ test('embeds visible selectable font text only on its own page and retains click
   assert.match(pdf, /https:\/\/example\.com\/resume/);
   assert.equal(pdf.includes('/Subtype /Image'), false);
 });
+
+test('PDF footers repeat selectable contact text and link annotations on every page', async (t) => {
+  const font = readFileSync(new URL('./fixtures/Inter-Regular.ttf', import.meta.url));
+  t.mock.method(globalThis, 'fetch', async (url: string) => new Response(url.endsWith('.css')
+    ? "@font-face { font-family: Inter; font-weight: 400; src: url('./inter.ttf'); }"
+    : font));
+  const blob = await renderVectorPdf(fixture({
+    recording: { records: [textRecord('A', 10, 20), textRecord('B', 10, 120)] },
+    pages: [page, { ...page, sourceTop: 100, sourceBottom: 200 }],
+    fontStyleUrls: ['https://vector.example.test/fonts.css'],
+    footer: {
+      recording: { records: [textRecord('Contact', 10, 12)] }, canvas: { width: 100, height: 20 },
+      page: { ...page, sourceTop: 0, sourceBottom: 20, topOffset: 260 },
+      links: { width: 100, height: 20, links: [{ href: 'mailto:contact@example.com', x: 10, y: 2, width: 40, height: 12 }] },
+    },
+  }));
+  const bytes = Buffer.from(await blob.arrayBuffer());
+  const pdf = bytes.toString('latin1');
+  const paint = pdfStreams(bytes).filter((stream) => /\bBT\b/.test(stream));
+  assert.equal(paint.length, 2);
+  for (const stream of paint) assert.equal([...stream.matchAll(/\bBT\b/g)].length, 2, 'one body text run and one footer run per page');
+  assert.equal([...pdf.matchAll(/mailto:contact@example.com/g)].length, 2);
+  assert.equal(pdf.includes('/Subtype /Image'), false);
+});

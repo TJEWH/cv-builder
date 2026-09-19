@@ -5,6 +5,7 @@ import type { CvState, SavedConfiguration, SaveStatus, CvItem, CustomSection, Si
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import Draggable from 'vuedraggable';
 import SectionList from './SectionList.vue';
+import ContactFields from './ContactFields.vue';
 import SectionItems from './SectionItems.vue';
 import MarkdownTextarea from './MarkdownTextarea.vue';
 import ConfirmDeletionDialog from './ConfirmDeletionDialog.vue';
@@ -28,6 +29,8 @@ const langRef = computed(() => props.state.lang);
 const t = makeT(langRef);
 const fieldConfigSectionId = ref<string | null>(null);
 const activeContentTab = ref('body');
+const sidebarContactCollapsed = ref(true);
+const contactInSidebar = computed(() => props.state.design.contactLayout === 'sidebar');
 const reorderMode = ref(false);
 const todosMode = ref(false);
 const configMode = ref(false);
@@ -111,6 +114,13 @@ const levelTypeOptions = computed(() => [
 ]);
 
 const isHidden = (key: string) => sectionState(key).disabled.includes(key);
+const sidebarContactHidden = computed(() => sectionState('header').disabled.includes('sidebar-contact'));
+const toggleSidebarContact = () => {
+  const target = sectionState('header');
+  target.disabled = sidebarContactHidden.value
+    ? target.disabled.filter((key) => key !== 'sidebar-contact')
+    : [...target.disabled, 'sidebar-contact'];
+};
 const isComplete = (key: string) => sectionState(key).completedSections.includes(key);
 const isKeptTogether = (key: string) => sectionState(key).keepTogetherSections.includes(key);
 const toggleKeepTogether = (key: string) => {
@@ -392,10 +402,8 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
           <SectionVersionSelect v-if="versionMode" v-bind="versionSelectProps('header')" @update:model-value="selectSectionVersion('header', $event)" />
           <div v-else class="section-head__actions"><label v-if="todosMode" class="section-complete-toggle" :title="t('markComplete')" @click.stop><input type="checkbox" :checked="isComplete('header')" :aria-label="t('markComplete')" @change="toggleComplete('header')" /></label></div>
         </div>
-        <div class="grid-2"><label>{{ t('name') }}<InputText v-model="state.contact.name" :placeholder="SAMPLE_CONTACT.name" fluid /></label><label>{{ t('location') }}<InputText v-model="state.contact.location" :placeholder="SAMPLE_CONTACT.location" fluid /></label></div>
-        <div class="grid-2"><label>{{ t('role') }}<InputText v-model="state.contact.role" :placeholder="SAMPLE_CONTACT.role" fluid /></label><span /></div>
-        <div class="grid-2"><label>{{ t('email') }}<InputText v-model="state.contact.email" type="email" :placeholder="SAMPLE_CONTACT.email" fluid /></label><label>{{ t('phone') }}<InputText v-model="state.contact.phone" type="tel" :placeholder="SAMPLE_CONTACT.phone" fluid /></label></div>
-        <div class="grid-3"><label>{{ t('website') }}<InputText v-model="state.contact.website" type="url" :placeholder="SAMPLE_CONTACT.website" fluid /></label><label>{{ t('linkedin') }}<InputText v-model="state.contact.linkedin" type="url" :placeholder="SAMPLE_CONTACT.linkedin" fluid /></label><label>{{ t('github') }}<InputText v-model="state.contact.github" type="url" :placeholder="SAMPLE_CONTACT.github" fluid /></label></div>
+        <div class="grid-2"><label>{{ t('name') }}<InputText v-model="state.contact.name" :placeholder="SAMPLE_CONTACT.name" fluid /></label><label>{{ t('role') }}<InputText v-model="state.contact.role" :placeholder="SAMPLE_CONTACT.role" fluid /></label></div>
+        <ContactFields v-if="!contactInSidebar" :contact="state.contact" :lang="langRef" />
       </section>
 
       <Draggable v-show="activeContentTab === 'body'" id="content-panel-body" v-model="bodyRows" item-key="key" tag="section" class="content-tab-panel content-column" role="tabpanel" aria-labelledby="content-tab-body" :disabled="!reorderMode" handle=".section-head, .section-drag-handle" :animation="150" ghost-class="sortable-ghost">
@@ -482,6 +490,18 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
       </Draggable>
 
       <Draggable v-show="activeContentTab === 'sidebar'" id="content-panel-sidebar" v-model="sidebarRows" item-key="key" tag="section" class="content-tab-panel content-column" role="tabpanel" aria-labelledby="content-tab-sidebar" :disabled="!reorderMode" handle=".section-head, .section-drag-handle" :animation="150" ghost-class="sortable-ghost">
+          <template #header>
+            <section v-if="contactInSidebar" class="section-group content-section" :class="{ collapsed: sidebarContactCollapsed, disabled: sidebarContactHidden }">
+              <div class="section-head" @click="sidebarContactCollapsed = !sidebarContactCollapsed">
+                <button class="mini visibility-toggle" :class="sidebarContactHidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="sidebarContactHidden ? t('show') : t('hide')" :title="sidebarContactHidden ? t('show') : t('hide')" @click.stop="toggleSidebarContact"><font-awesome-icon :icon="['fas', sidebarContactHidden ? 'eye-slash' : 'eye']" /></button>
+                <h3 class="section-name-label section-name-label--static">{{ t('headerTitle') }}</h3>
+                <SectionVersionSelect v-if="versionMode" v-bind="versionSelectProps('header')" @click.stop @update:model-value="selectSectionVersion('header', $event)" />
+              </div>
+              <div class="section-content"><div class="section-content__inner">
+                <ContactFields :contact="state.contact" :lang="langRef" />
+              </div></div>
+            </section>
+          </template>
           <template #item="{ element: { key, section } }: { element: SidebarRow }">
             <div class="content-section-card" :data-section-key="key">
               <button v-if="reorderMode" class="section-drag-handle" type="button" :aria-label="`${t('moveSection')}: ${getSectionDisplayName(key)}`" :title="t('moveSection')" @click.stop @keydown.up.prevent.stop="moveSection('sidebarOrder', key, -1, $event)" @keydown.down.prevent.stop="moveSection('sidebarOrder', key, 1, $event)"><font-awesome-icon :icon="['fas', 'grip-vertical']" aria-hidden="true" /></button>

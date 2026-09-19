@@ -8,7 +8,7 @@ import SkillItem from './skills/SkillItem.vue';
 import MarkdownContent from './MarkdownContent.vue';
 import CvBodyItem from './CvBodyItem.vue';
 import { hasMarkdownText } from '../composables/markdownText.ts';
-import { safeEmailUrl, safeWebUrl } from '../composables/safeUrl';
+import CvContact from './CvContact.vue';
 import { updateTimelineRails } from '../composables/timelineLayout.ts';
 
 const props = defineProps({
@@ -55,7 +55,10 @@ const isHiddenFor = (key: string) => {
   if (sidebarSection) return !hasVisibleItems(sidebarSection.items);
   return false;
 };
-const hasVisibleSidebarContent = computed(() => sidebarKeys.value.some((key: string) => !isHiddenFor(key)));
+const contactLayout = computed(() => designValue(props.state.design, 'contactLayout'));
+const hasContactFields = computed(() => ['location', 'email', 'phone', 'website', 'linkedin', 'github'].some((key) => props.state.contact[key as keyof typeof props.state.contact]));
+const showSidebarContact = computed(() => contactLayout.value === 'sidebar' && !isDisabled('header') && !isDisabled('sidebar-contact') && hasContactFields.value);
+const hasVisibleSidebarContent = computed(() => showSidebarContact.value || sidebarKeys.value.some((key: string) => !isHiddenFor(key)));
 const stateLabel = (state?: ItemState) => (({
   planned: t('planned'),
   ongoing: t('ongoing'),
@@ -120,7 +123,7 @@ const observeTimelines = () => {
   }
   refreshTimelines();
 };
-// Hidden export sources get their rails once, on the private paginated snapshot.
+// Hidden export sources get their rails on the private rendering snapshots.
 // Observing them here doubles layout work on every edit and serves no visible UI.
 onMounted(observeTimelines);
 onUpdated(observeTimelines);
@@ -135,19 +138,16 @@ onBeforeUnmount(() => {
   <div ref="page" class="page" :class="{ 'pdf-export-source': exportSource }" role="document">
     <header v-if="!isDisabled('header')" class="header">
       <div class="title"><h1 class="name">{{ state.contact.name || '-' }}</h1><p class="role">{{ state.contact.role }}</p></div>
-      <address class="contact">
-        <div v-if="state.contact.location">{{ state.contact.location }}<font-awesome-icon :icon="['fas', 'location-dot']" class="contact-icon" /></div>
-        <div v-if="state.contact.email"><a :href="safeEmailUrl(state.contact.email) || undefined">{{ state.contact.email }}</a><font-awesome-icon :icon="['fas', 'envelope']" class="contact-icon" /></div>
-        <div v-if="state.contact.phone">{{ state.contact.phone }}<font-awesome-icon :icon="['fas', 'phone']" class="contact-icon" /></div>
-        <div v-if="state.contact.website"><a :href="safeWebUrl(state.contact.website) || undefined" rel="noreferrer">{{ state.contact.website.replace(/^https?:\/\//, '') }}</a><font-awesome-icon :icon="['fas', 'globe']" class="contact-icon" /></div>
-        <div v-if="state.contact.linkedin"><a :href="safeWebUrl(state.contact.linkedin) || undefined" rel="noreferrer">{{ state.contact.linkedin.replace(/^https?:\/\//, '') }}</a><font-awesome-icon :icon="['fab', 'linkedin']" class="contact-icon" /></div>
-        <div v-if="state.contact.github"><a :href="safeWebUrl(state.contact.github) || undefined" rel="noreferrer">{{ state.contact.github.replace(/^https?:\/\//, '') }}</a><font-awesome-icon :icon="['fab', 'github']" class="contact-icon" /></div>
-      </address>
+      <CvContact v-if="contactLayout !== 'sidebar' && contactLayout !== 'footer'" :contact="state.contact" />
     </header>
 
     <section class="content">
       <aside v-if="hasVisibleSidebarContent" class="sidebar" id="cv_side">
         <div class="sidebar-content">
+        <section v-if="showSidebarContact" class="section contact-section">
+          <h2>{{ t('headerTitle') }}</h2>
+          <CvContact :contact="state.contact" />
+        </section>
         <section v-for="{ key, section } in sidebarRows" :key="key" class="section" :class="{ 'is-hidden': isHiddenFor(key) }">
           <template v-if="key === 'languages'">
             <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
@@ -201,12 +201,16 @@ onBeforeUnmount(() => {
       </div>
 
     </section>
+    <footer v-if="contactLayout === 'footer' && !isDisabled('header') && hasContactFields" class="page-footer">
+      <CvContact :contact="state.contact" />
+    </footer>
   </div>
 </template>
 
 <style scoped>
 .lang-list { margin: 0; padding-left: 16px; }
 .lang-list li { margin: 2px 0; }
+.lang-list li:last-child { margin-bottom: 0; }
 .language-items { display: grid; gap: 4px; margin: 4px 0; }
 .language-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 2px 0; }
 .language-name { flex: 1; min-width: 0; font-size: 9.5pt; overflow-wrap: anywhere; }

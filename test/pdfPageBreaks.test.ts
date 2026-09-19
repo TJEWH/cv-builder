@@ -2,6 +2,7 @@ import { stub } from './helpers';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyPdfPageBreaks } from '../src/composables/pdfPageBreaks.ts';
+import { createPdfPageGeometry } from '../src/composables/pdfPageGeometry.ts';
 
 function fixture(style: Partial<CSSStyleDeclaration>, top: number, bottom: number) {
   const inserted: { height: string; before: unknown }[] = [];
@@ -34,4 +35,17 @@ test('layout changes are synchronized immediately after inserting a spacer', asy
   const counts: number[] = [];
   await applyPdfPageBreaks(root, 100, { checkpoint() { return undefined; } }, () => counts.push(inserted.length));
   assert.deepEqual(counts, [1, 2]);
+});
+
+test('continuation items use the shorter exported page height after top padding', async () => {
+  const { root, inserted, element } = fixture({ breakInside: 'avoid' }, 175, 195);
+  const geometry = createPdfPageGeometry({ sourcePixelsPerMillimeter: 1, firstPageHeight: 100, continuationTopPadding: 20 });
+  await applyPdfPageBreaks(root, geometry, { checkpoint() { return undefined; } });
+  assert.deepEqual(inserted, [{ height: 'display:block;height:5px', before: element }], 'the second page ends at 180, not 200');
+});
+
+test('an item ending exactly at a page boundary is not pushed onto the next page', async () => {
+  const { root, inserted } = fixture({ breakInside: 'avoid' }, 60, 100);
+  await applyPdfPageBreaks(root, 100, { checkpoint() { return undefined; } });
+  assert.deepEqual(inserted, []);
 });

@@ -78,7 +78,7 @@ const favoriteLinks: Record<string, FavoriteLink> = {
   headerBottomSpacing: { linkKey: 'headerBottomSpacingLinked', primaryKey: 'headerPaddingBottom', secondaryKey: 'headerBottomMargin' },
 };
 const controls = computed<DesignControl[]>(() => [
-  { key: 'contactLayout', section: 'header', label: t('designContactLayout'), type: 'select', options: [{ value: 'side', label: t('designRightColumn') }, { value: 'below', label: t('designBelowTitleOneRow') }] },
+  { key: 'contactLayout', section: 'header', label: t('designContactLayout'), type: 'select', options: [{ value: 'side', label: t('designRightColumn') }, { value: 'below', label: t('designBelowTitleOneRow') }, { value: 'sidebar', label: t('designContactSidebar') }, { value: 'footer', label: t('designContactFooter') }] },
   { key: 'separatorWidth', section: 'spacing', label: t('designSeparatorWidth'), type: 'range', min: 0.5, max: 5, step: 0.5, unit: 'px' },
   { key: 'hstyle', section: 'layout', label: t('designHeadingStyle'), type: 'select', options: hStyles.map((value) => ({ value, label: t(`headingStyle_${value}`) })) },
   { key: 'headerLayoutStyle', section: 'header', label: t('designHeaderStyle'), type: 'select', options: [{ value: 'boxed', label: t('designBoxed') }, { value: 'separator', label: t('designSeparator') }] },

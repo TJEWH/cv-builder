@@ -116,3 +116,11 @@ design properties use the app defaults rather than retaining the previous design
 Both files are unencrypted JSON, limited to 5 MiB per import. For a complete backup,
 enable bypass when exporting content and export configuration too. To restore everything,
 enable bypass when importing content, then import configuration.
+
+`design.contactLayout` accepts `side`, `below`, `sidebar`, or `footer`. Name and
+professional title remain in the header. The other contact fields can appear in
+a built-in, non-deletable sidebar section or repeat at the bottom of every PDF
+page. They continue to use the same `contact` data and privacy substitutions;
+the sidebar Contact section is not a custom section or a `sidebarOrder` entry.
+Its visibility toggle stores `sidebar-contact` in `disabled`, independently of
+the header's name and title.

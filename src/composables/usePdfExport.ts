@@ -1,4 +1,4 @@
-import type { RenderTask, RenderOptions, VectorSnapshot, Surface, LinkCapture } from '../pdfTypes';
+import type { RenderTask, RenderOptions, VectorSnapshot, VectorLayer, Surface, LinkCapture } from '../pdfTypes';
 import type { PageGeometry } from './pdfPageGeometry';
 import paintLayout from 'virtual:responsive-html2canvas';
 import { createPdfRenderTask } from './pdfRenderTask.ts';
@@ -258,13 +258,14 @@ async function prepareLayoutContainer(element: HTMLElement, options: RenderOptio
   container.appendChild(element.cloneNode(true));
   host.appendChild(container);
   document.body.appendChild(host);
-  const [top, , bottom] = normaliseMargins(options.margin);
   const syncSidebarHeight = options.sidebarHeightMode !== 'full-page'
     ? () => fitDeferredSidebarToContent(container)
     : undefined;
   syncSidebarHeight?.();
-  await applyPdfPageBreaks(container, Math.floor((PAGE_HEIGHT - top - bottom) * 96 / 25.4), task, syncSidebarHeight);
-  updateTimelineRails(container);
+  const geometry = createSourcePageGeometry(container, options);
+  if (!geometry) throw new Error('PDF margins leave no space for content');
+  await applyPdfPageBreaks(container, geometry, task, syncSidebarHeight);
+  updateTimelineRails(container, geometry);
   return { host, container };
 }
 
@@ -300,22 +301,59 @@ async function captureVectorSnapshot(element: HTMLElement, options: RenderOption
   sourceHost.appendChild(source);
   document.body.appendChild(sourceHost);
   const renderOptions = { ...options, renderTask: task };
+  let footer: VectorLayer | undefined;
+  const footerElement = source.querySelector<HTMLElement>(':scope > .page-footer');
+  if (footerElement) {
+    const margins = normaliseMargins(options.margin);
+    const footerHost = task.own(document.createElement('div'));
+    footerHost.inert = true;
+    footerHost.setAttribute('aria-hidden', 'true');
+    Object.assign(footerHost.style, { position: 'fixed', top: '0', left: '0', opacity: '0', pointerEvents: 'none', zIndex: '-1' });
+    const footerContainer = document.createElement('div');
+    const contentWidth = PAGE_WIDTH - margins[1] - margins[3];
+    Object.assign(footerContainer.style, { width: `${contentWidth}mm`, backgroundColor: 'white' });
+    footerContainer.appendChild(footerElement);
+    footerHost.appendChild(footerContainer);
+    document.body.appendChild(footerHost);
+    try {
+      const capture = await capturePaint(footerContainer, task);
+      const footerHeight = capture.canvas.height / capture.canvas.width * contentWidth;
+      footer = { ...capture, page: {
+        sourceTop: 0, sourceBottom: capture.canvas.height, canvasWidth: capture.canvas.width,
+        contentWidth, leftOffset: margins[1], topOffset: PAGE_HEIGHT - margins[2] - footerHeight,
+      } };
+      margins[2] += footerHeight;
+      renderOptions.margin = margins;
+      source.style.minHeight = `${Math.max(0, PAGE_HEIGHT - margins[0] - margins[2])}mm`;
+    } finally { footerHost.remove(); }
+  }
   await preparePositionedSource(source, renderOptions);
   const { host, container } = await prepareLayoutContainer(source, renderOptions);
+  try {
+    const capture = await capturePaint(container, task, createSourcePageGeometry(container, renderOptions) || undefined);
+    const pages = sourcePageSlices(capture.canvas, renderOptions, options.continuationTopPadding);
+    return { ...capture, pages, footer, fontStyleUrls: capture.links?.fontStyleUrls, loadedFaces: capture.links?.loadedFaces, pageWidth: PAGE_WIDTH, pageHeight: PAGE_HEIGHT, task };
+  } finally { host.remove(); }
+}
+
+async function capturePaint(container: HTMLElement, task: RenderTask, geometry?: PageGeometry) {
   const recording = createPdfCanvasRecording();
   let links: LinkCapture | undefined;
-  try {
-    const head = document.head;
-    const canvas = await task.wait(paintLayout(container, {
-      scale: PAINT_SCALE, useCORS: true, scrollX: 0, scrollY: 0, logging: false,
-      windowWidth: source.scrollWidth, windowHeight: source.scrollHeight,
-      renderTask: task, createVectorContext: recording.createContext,
-      ignoreElements: (node) => !(node === head || head.contains(node) || node.contains(container) || container.contains(node)),
-      onclone: (_, clone) => { task.check(); links = capturePdfLinks(clone); },
-    }));
-    const pages = sourcePageSlices(canvas, options, options.continuationTopPadding);
-    return { recording, canvas, pages, links, fontStyleUrls: links?.fontStyleUrls, loadedFaces: links?.loadedFaces, pageWidth: PAGE_WIDTH, pageHeight: PAGE_HEIGHT, task };
-  } finally { host.remove(); }
+  const head = document.head;
+  const canvas = await task.wait(paintLayout(container, {
+    scale: PAINT_SCALE, useCORS: true, scrollX: 0, scrollY: 0, logging: false,
+    windowWidth: container.scrollWidth, windowHeight: container.scrollHeight,
+    renderTask: task, createVectorContext: recording.createContext,
+    ignoreElements: (node) => !(node === head || head.contains(node) || node.contains(container) || container.contains(node)),
+    onclone: (_, clone) => {
+      task.check();
+      // The renderer resolves fonts and CSS in its own document. Use those final
+      // item bottoms so continuation rails cannot retain earlier measurements.
+      if (geometry) updateTimelineRails(clone, geometry);
+      links = capturePdfLinks(clone);
+    },
+  }));
+  return { recording, canvas, links };
 }
 
 /** One vector paint capture feeds scalable SVG previews and direct PDF files. */

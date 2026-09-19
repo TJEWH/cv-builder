@@ -45,3 +45,26 @@ test('SVG target scopes clipping, transforms, opacity and line dashes with save/
   assert.match(svg, /<\/g><path[^>]*transform="matrix\(1 0 0 1 0 0\)"/);
   assert.match(svg, /stroke-dasharray="2 3" stroke-dashoffset="1"/);
 });
+
+test('contact footer text and links repeat outside the body clip on every preview page', async () => {
+  const { pages } = await renderVectorPreview({
+    recording: { records: [text('Body one', 20), text('Body two', 120)] },
+    canvas: { width: 100, height: 200 }, pages: [page, { ...page, sourceTop: 100, sourceBottom: 200 }],
+    footer: {
+      recording: { records: [text('contact@example.com', 12)] },
+      canvas: { width: 100, height: 20 },
+      page: { ...page, sourceTop: 0, sourceBottom: 20, topOffset: 250 },
+      links: { width: 100, height: 20, links: [{ href: 'mailto:contact@example.com', x: 10, y: 2, width: 40, height: 12 }] },
+    },
+    pageWidth: 210, pageHeight: 297, task,
+  });
+  assert.equal(pages.length, 2);
+  for (const { svg } of pages) {
+    assert.match(svg, />contact@example.com<\/text>/);
+    assert.match(svg, /transform="matrix\(1.8 0 0 1.8 10 250\)"/);
+    assert.match(svg, /href="mailto:contact@example.com"/);
+    assert.match(svg, /x="28" y="253.6"/);
+  }
+  assert.doesNotMatch(pages[0].svg, /Body two/);
+  assert.doesNotMatch(pages[1].svg, /Body one/);
+});
