@@ -87,6 +87,24 @@ export interface CvState {
   bodyOrder: string[];
   sidebarOrder: string[];
 }
+/** Portable CV content; presentation and editor settings live in CvConfig. */
+export type CvContentItem = Omit<CvItem, 'hidden'>;
+export interface CvContent {
+  contact: Contact;
+  about: { text: string };
+  education: CvContentItem[];
+  experience: { jobs: CvContentItem[] };
+  languages: CvContentItem[];
+  hobbies: CvContentItem[];
+  customSections: (Omit<CustomSection, 'entries'> & { entries: CvContentItem[] })[];
+  sidebarSections: (Omit<SidebarSection, 'items'> & { items: CvContentItem[] })[];
+  sectionNames: Record<string, string>;
+}
+export type CvConfig = Pick<CvState,
+  'lang' | 'design' | 'disabled' | 'completedSections' | 'keepTogetherSections' |
+  'anonymization' | 'sectionHeaderSizes' | 'bodyOrder' | 'sidebarOrder'
+> & { hiddenItems: string[] };
+export type CvJsonKind = 'content' | 'config';
 export interface SavedConfiguration { id: string; name: string; mtime?: number }
 export type KeysOfType<T, Value> = { [K in keyof T]-?: NonNullable<T[K]> extends Value ? K : never }[keyof T];
 type ItemTextKey = Exclude<KeysOfType<CvItem, string>, 'id' | 'state'>;

@@ -550,9 +550,6 @@ function openFullPreview() {
         </nav>
 
         <div class="builder-topbar__utilities">
-          <button class="builder-topbar__language-toggle" type="button" :class="{ 'is-on': lang === 'en' }" :aria-label="t('language')" @click="toggleLanguage">
-            <span class="builder-topbar__language-track"><span>DE</span><span>EN</span><span class="builder-topbar__language-thumb"></span></span>
-          </button>
           <label class="builder-topbar__configuration">
             <font-awesome-icon :icon="['fas', 'layer-group']" aria-hidden="true" />
             <select :value="isBuiltinDocument(selectedConfigurationId) ? '' : selectedConfigurationId" :aria-label="t('versions')" @change="selectConfiguration">
@@ -585,6 +582,7 @@ function openFullPreview() {
               @configs-change="savedConfigurations = $event"
               @save-result="handleConfigurationSaveResult"
               @version-deleted="handleVersionDeleted"
+              @toggle-language="toggleLanguage"
             />
           </Transition>
           <Transition name="builder-group">
@@ -767,13 +765,6 @@ body,
 }
 
 .builder-topbar__configuration select { width: min(190px, 22vw); min-width: 128px; }
-.builder-topbar__language-toggle { border: 0; padding: 0; background: transparent; cursor: pointer; }
-.builder-topbar__language-track { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 72px; height: 30px; border: 1px solid #134e4a; border-radius: 999px; background: #06141f; color: #cbd5e1; font-size: 10px; }
-.builder-topbar__language-track > span:not(.builder-topbar__language-thumb) { z-index: 1; display: grid; place-items: center; }
-.builder-topbar__language-thumb { position: absolute; inset: 2px calc(50% + 1px) 2px 2px; border: 1px solid rgba(255, 255, 255, .12); border-radius: 999px; background: rgba(255, 255, 255, .12); transition: inset .2s ease; }
-.builder-topbar__language-toggle.is-on .builder-topbar__language-thumb { inset: 2px 2px 2px calc(50% + 1px); }
-.builder-topbar__language-toggle.is-on .builder-topbar__language-track { border-color: rgba(16, 185, 129, .45); background: rgba(16, 185, 129, .15); }
-.builder-topbar__language-toggle:focus-visible { outline: 2px solid #9be8c7; outline-offset: 2px; border-radius: 999px; }
 .builder-topbar__save-status { display: inline-flex; align-items: center; gap: 6px; min-width: 88px; color: #9be8c7; font-size: 11px; white-space: nowrap; }
 .builder-topbar__save-status.is-saving { color: #f0cd86; }
 .builder-topbar__save-status.is-error { color: #fca5a5; }

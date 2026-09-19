@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { PropType } from 'vue';
-import type { CvState, SavedConfiguration } from '../types';
+import type { CvState, CvJsonKind, SavedConfiguration } from '../types';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { makeT } from '../i18n/dict';
 import { STORAGE_KEY } from '../composables/useStorage';
@@ -8,8 +8,8 @@ import { builtinConfigurations, createEmptyDocument, createSampleDocument, EMPTY
 import { createNormalizedContentState } from '../composables/contentLayout';
 import {
   MAX_CV_JSON_FILE_BYTES,
-  createCvJsonBackup,
-  parseCvJsonBackup,
+  createCvContentJson, createCvConfigJson,
+  parseCvContentJson, parseCvConfigJson, applyCvContent, applyCvConfig,
   parseStoredCvState,
 } from '../composables/cvJsonBackup';
 
@@ -26,6 +26,7 @@ const emit = defineEmits<{
   'configs-change': [configurations: SavedConfiguration[]];
   'save-result': [saved: boolean];
   'version-deleted': [id: string];
+  'toggle-language': [];
 }>();
 
 const langRef = computed(() => props.lang);
@@ -34,7 +35,9 @@ const t = makeT(langRef);
 const configs = ref<SavedConfiguration[]>([]);
 const newName = ref('');
 const backupMsg = ref('');
-const fileInput = ref<HTMLInputElement | null>(null);
+const contentFileInput = ref<HTMLInputElement | null>(null);
+const configFileInput = ref<HTMLInputElement | null>(null);
+const isImporting = ref(false);
 const localIndexKey = 'CV_CONF_INDEX';
 const localActiveKey = 'CV_CONF_ACTIVE_ID';
 const localDataKey = (id: string) => `CV_CONF_DATA:${id}`;
@@ -269,16 +272,16 @@ function deleteCurrent() {
   }
 }
 
-function exportJson() {
+function exportJson(kind: CvJsonKind) {
   try {
-    const backup = createCvJsonBackup(props.state);
+    const backup = kind === 'content' ? createCvContentJson(props.state) : createCvConfigJson(props.state);
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     const version = Number.isFinite(Number(props.state?.version)) ? `-v${props.state.version}` : '';
     link.href = url;
     const name = configs.value.find((config) => config.id === currentId.value)?.name || 'cv-backup';
-    link.download = `${slug(name)}${version}.json`;
+    link.download = `${slug(name)}-${kind}${version}.json`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -290,32 +293,53 @@ function exportJson() {
   }
 }
 
-function chooseJsonFile() {
-  fileInput.value?.click();
+function chooseJsonFile(kind: CvJsonKind) {
+  (kind === 'content' ? contentFileInput : configFileInput).value?.click();
 }
 
-async function importJson(event: Event) {
+async function importJson(event: Event, kind: CvJsonKind) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   input.value = '';
-  if (!file) return;
+  if (!file || isImporting.value) return;
 
   if (file.size > MAX_CV_JSON_FILE_BYTES) {
     backupMsg.value = 'versionFileTooLarge';
     return;
   }
 
+  const targetId = currentId.value;
+  isImporting.value = true;
   try {
-    const data = parseCvJsonBackup(await file.text());
-    if (!confirm(t('versionConfirmImport'))) return;
+    const text = await file.text();
+    // Validate the entire selected format before changing state or selection.
+    const imported = kind === 'content'
+      ? { kind: 'content' as const, data: parseCvContentJson(text) }
+      : { kind: 'config' as const, data: parseCvConfigJson(text) };
+    if (currentId.value !== targetId) {
+      backupMsg.value = 'versionImportTargetChanged';
+      return;
+    }
+    if (!confirm(t(kind === 'content' ? 'versionConfirmImportContent' : 'versionConfirmImportConfig'))) return;
     if (!props.beforeLoad()) return;
-    setCurrentId('');
+    const data = imported.kind === 'content'
+      ? applyCvContent(snapshotState(), imported.data)
+      : applyCvConfig(snapshotState(), imported.data);
+    // The empty template is immutable. Imports there become an editable draft;
+    // named versions keep their identity and autosave the replaced portion.
+    if (isEmptyDocument.value && !setCurrentId('')) {
+      backupMsg.value = 'versionSaveFailed';
+      emit('save-result', false);
+      return;
+    }
     props.onLoad(data);
     props.onSave();
-    backupMsg.value = 'versionImported';
+    backupMsg.value = kind === 'content' ? 'versionContentImported' : 'versionConfigImported';
   } catch (error) {
     console.warn('Failed to import JSON configuration', error);
-    backupMsg.value = 'versionInvalidFile';
+    backupMsg.value = kind === 'content' ? 'versionInvalidContentFile' : 'versionInvalidConfigFile';
+  } finally {
+    isImporting.value = false;
   }
 }
 
@@ -349,6 +373,12 @@ watch(() => props.lang, () => refreshConfigs());
     </div>
 
     <div class="group-panel__scroll-body">
+      <div class="backup-manager__language">
+        <span>{{ t('language') }}</span>
+        <button class="backup-manager__language-toggle" type="button" :class="{ 'is-on': lang === 'en' }" :aria-label="t('language')" :aria-pressed="lang === 'en'" @click="emit('toggle-language')">
+          <span class="backup-manager__language-track"><span>DE</span><span>EN</span><span class="backup-manager__language-thumb"></span></span>
+        </button>
+      </div>
       <div class="backup-manager__actions">
         <select :value="currentId" :aria-label="t('versions')" @change="onConfigurationChange">
           <option v-if="!currentId" value="" disabled>{{ t('noSavedVersion') }}</option>
@@ -363,12 +393,25 @@ watch(() => props.lang, () => refreshConfigs());
         <button type="submit" class="btn btn--success" :disabled="!newName.trim()">{{ t('versionSaveAs') }}</button>
       </form>
 
-      <div class="backup-manager__file-actions">
-        <input ref="fileInput" class="backup-manager__file-input" type="file" accept="application/json,.json" @change="importJson" />
-        <button type="button" class="btn" @click="exportJson">{{ t('versionExportJson') }}</button>
-        <button type="button" class="btn" @click="chooseJsonFile">{{ t('versionImportJson') }}</button>
-        <span v-if="backupMsg" class="note">{{ t(backupMsg) }}</span>
+      <div class="backup-manager__json-group">
+        <h3>{{ t('versionContentJson') }}</h3>
+        <p class="backup-manager__hint">{{ t('versionContentJsonHelp') }}</p>
+        <div class="backup-manager__file-actions">
+          <input ref="contentFileInput" class="backup-manager__file-input" type="file" accept="application/json,.json" @change="importJson($event, 'content')" />
+          <button type="button" class="btn" @click="exportJson('content')">{{ t('versionExportContent') }}</button>
+          <button type="button" class="btn" :disabled="isImporting" @click="chooseJsonFile('content')">{{ t('versionImportContent') }}</button>
+        </div>
       </div>
+      <div class="backup-manager__json-group">
+        <h3>{{ t('versionConfigJson') }}</h3>
+        <p class="backup-manager__hint">{{ t('versionConfigJsonHelp') }}</p>
+        <div class="backup-manager__file-actions">
+          <input ref="configFileInput" class="backup-manager__file-input" type="file" accept="application/json,.json" @change="importJson($event, 'config')" />
+          <button type="button" class="btn" @click="exportJson('config')">{{ t('versionExportConfig') }}</button>
+          <button type="button" class="btn" :disabled="isImporting" @click="chooseJsonFile('config')">{{ t('versionImportConfig') }}</button>
+        </div>
+      </div>
+      <span v-if="backupMsg" class="note" role="status">{{ t(backupMsg) }}</span>
     </div>
   </section>
 </template>
@@ -380,5 +423,16 @@ watch(() => props.lang, () => refreshConfigs());
 .backup-manager__actions select { flex: 1 1 220px; width: auto; }
 .backup-manager__save-as input { flex: 1 1 220px; width: auto; }
 .backup-manager__file-input { display: none; }
+.backup-manager__json-group { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid #ffffff26; }
+.backup-manager__json-group h3 { margin: 0; font-size: 14px; color: #9be8c7; letter-spacing: .4px; }
 .backup-manager__hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.backup-manager .btn:disabled { border-color: #3b5350; background: #182e2b; color: #8ba39d; opacity: .55; cursor: not-allowed; filter: none; }
+.backup-manager__language { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #9be8c7; font-size: 13px; }
+.backup-manager__language-toggle { border: 0; padding: 0; background: transparent; cursor: pointer; }
+.backup-manager__language-track { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 72px; height: 30px; border: 1px solid #134e4a; border-radius: 999px; background: #06141f; color: #cbd5e1; font-size: 10px; }
+.backup-manager__language-track > span:not(.backup-manager__language-thumb) { z-index: 1; display: grid; place-items: center; }
+.backup-manager__language-thumb { position: absolute; inset: 2px calc(50% + 1px) 2px 2px; border: 1px solid rgba(255, 255, 255, .12); border-radius: 999px; background: rgba(255, 255, 255, .12); transition: inset .2s ease; }
+.backup-manager__language-toggle.is-on .backup-manager__language-thumb { inset: 2px 2px 2px calc(50% + 1px); }
+.backup-manager__language-toggle.is-on .backup-manager__language-track { border-color: rgba(16, 185, 129, .45); background: rgba(16, 185, 129, .15); }
+.backup-manager__language-toggle:focus-visible { outline: 2px solid #9be8c7; outline-offset: 2px; border-radius: 999px; }
 </style>

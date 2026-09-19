@@ -39,8 +39,9 @@ Modern resume generator built with Vue 3, TypeScript and Vite. Create profession
 - **Backup System**:
   - Browser-local persistence (LocalStorage)
   - Multiple named configurations, loaded automatically when selected
-  - Import/Export of the current versioned JSON format (CV data version 7)
-  - JSON filenames use the selected configuration title; unsaved drafts use `cv-backup`
+  - Separate content and configuration JSON files (CV data version 7). Content imports replace CV text and entries while preserving settings; configuration imports replace settings while preserving CV content
+  - Only the split formats are supported; old combined exports and raw state JSON are rejected. See [JSON formats and editing workflow](docs/json-format.md)
+  - JSON filenames use the selected version title plus `-content` or `-config`; unsaved drafts use `cv-backup`
   - Deleting a configuration removes its stored document and the session recovery copy, clears the active editor/preview, and opens the empty document. Other saved configurations remain available. Open tabs discard deleted versions instead of autosaving them again
 - **Safe Links**: Contact websites and Markdown links require explicit HTTP(S) URLs. Invalid links remain plain text; email links reject injected headers or extra recipients. PDF and SVG link annotations use the same URL checks
 - **Multilingual**: German/English (UI + content)
@@ -202,8 +203,10 @@ Run `npm test` for the TypeScript regression suite via tsx.
 
 Shared CV contracts are in `src/types.ts`; PDF recording, rendering and page
 contracts are in `src/pdfTypes.ts`. Imported JSON, browser saves and bundled defaults
-are validated against the current schema before use. Older versions and raw JSON
-imports are rejected. Optional editor fields still receive defaults. Component events declare their payloads, and form schemas restrict
+are validated against the current schema before use. Portable files use strict,
+separate content/configuration schemas; older combined exports, mixed payloads,
+unknown fields and raw state imports are rejected. Internal browser storage retains
+the complete current state. Optional editor fields still receive defaults. Component events declare their payloads, and form schemas restrict
 controls to compatible field types. The reflective Canvas command boundary and PDFKit 0.20 adapter are
 explicitly isolated because the third-party APIs are dynamic or have older
 type declarations.

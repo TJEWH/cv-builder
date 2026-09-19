@@ -7,7 +7,8 @@ import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive } from 'vue';
 import type { Component } from 'vue';
 import type { TestContext } from 'node:test';
-import type { CvState, SavedConfiguration } from '../src/types';
+import type { CvState, CvJsonKind, SavedConfiguration } from '../src/types';
+import { createCvContentJson, createCvConfigJson, cvContent, cvConfig, MAX_CV_JSON_FILE_BYTES } from '../src/composables/cvJsonBackup';
 import { createEmptyDocument, createSampleDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID } from '../src/composables/builtinConfigurations';
 import { createNormalizedContentState } from '../src/composables/contentLayout';
 
@@ -141,6 +142,7 @@ function savedVersionFixture(t: TestContext) {
   const deleted: string[] = [];
   const props = reactive({
     state, selectedId: 'target', lang: 'en',
+    beforeLoad: (): boolean => true,
     onLoad: (data: CvState) => { props.state = data; },
     'onUpdate:selectedId': (id: string) => { props.selectedId = id; },
     onVersionDeleted: (id: string) => deleted.push(id),
@@ -151,7 +153,11 @@ function savedVersionFixture(t: TestContext) {
   const instance = mounted as {
     saveCurrent(): boolean; saveVersion(id: string, data: CvState): boolean;
     restoreActiveConfig(): CvState | null;
-    $: { setupState: { deleteCurrent(): void; exportJson(): void; onStorageChange(event: StorageEvent): void } };
+    $: { setupState: {
+      deleteCurrent(): void; exportJson(kind: CvJsonKind): void;
+      importJson(event: Event, kind: CvJsonKind): Promise<void>;
+      onStorageChange(event: StorageEvent): void; backupMsg: string;
+    } };
   };
   t.after(() => app.unmount());
   return { storage, props, instance, setup: instance.$.setupState, deleted, global };
@@ -200,7 +206,7 @@ test('another tab deletion clears the current editor through the storage event',
   assert.deepEqual(deleted, ['target']);
 });
 
-test('JSON filenames use the version title, with a neutral fallback for an unsaved draft', async (t) => {
+test('split JSON filenames use the version title and type, with a neutral draft fallback', async (t) => {
   const { props, setup, global } = savedVersionFixture(t);
   const filenames: string[] = [];
   const link = { href: '', download: '', click() { filenames.push(this.download); }, remove() {} };
@@ -208,10 +214,102 @@ test('JSON filenames use the version title, with a neutral fallback for an unsav
   global('window', { setTimeout: (fn: () => void) => fn(), removeEventListener() {} });
   t.mock.method(URL, 'createObjectURL', () => 'blob:test');
   t.mock.method(URL, 'revokeObjectURL', () => {});
-  setup.exportJson();
+  setup.exportJson('content');
+  setup.exportJson('config');
   props.selectedId = '';
   await nextTick();
-  setup.exportJson();
-  assert.deepEqual(filenames, [`engineering-2026-v${props.state.version}.json`, `cv-backup-v${props.state.version}.json`]);
+  setup.exportJson('content');
+  assert.deepEqual(filenames, [`engineering-2026-content-v${props.state.version}.json`, `engineering-2026-config-v${props.state.version}.json`, `cv-backup-content-v${props.state.version}.json`]);
   assert.ok(filenames.every((name) => !name.includes('private-person')));
+});
+
+function fileEvent(text: string, size = text.length) {
+  return { target: { files: [{ size, text: async () => text }], value: 'selected.json' } } as unknown as Event;
+}
+
+test('content import overwrites the selected version content and persists its existing configuration', async (t) => {
+  const { props, storage, instance, setup } = savedVersionFixture(t);
+  const settings = cvConfig(props.state);
+  const backup = createCvContentJson(createEmptyDocument());
+  backup.data.contact.name = 'Edited in another context';
+  backup.data.about.text = 'Replacement, not merged content';
+  await setup.importJson(fileEvent(JSON.stringify(backup)), 'content');
+  await nextTick();
+  assert.equal(props.selectedId, 'target');
+  assert.deepEqual(cvContent(props.state), backup.data);
+  assert.deepEqual(cvConfig(props.state), settings);
+  assert.equal(instance.saveCurrent(), true);
+  assert.deepEqual(cvContent(JSON.parse(storage.get('CV_CONF_DATA:target')!).data), backup.data);
+  assert.equal(setup.backupMsg, 'versionContentImported');
+});
+
+test('configuration import replaces settings without changing the selected version content', async (t) => {
+  const { props, instance, setup } = savedVersionFixture(t);
+  const content = cvContent(props.state);
+  const backup = createCvConfigJson(createEmptyDocument());
+  backup.data.design.ink = '#123456';
+  await setup.importJson(fileEvent(JSON.stringify(backup)), 'config');
+  await nextTick();
+  assert.equal(props.selectedId, 'target');
+  assert.deepEqual(cvContent(props.state), content);
+  assert.deepEqual(cvConfig(props.state), backup.data);
+  assert.equal(instance.saveCurrent(), true);
+  assert.equal(setup.backupMsg, 'versionConfigImported');
+});
+
+test('invalid, wrong-kind, legacy, oversized, and cancelled imports leave content and selection untouched', async (t) => {
+  const { props, storage, setup, global } = savedVersionFixture(t);
+  const before = JSON.stringify(props.state);
+  const saved = [...storage];
+  const content = createCvContentJson(props.state);
+  for (const file of [fileEvent('{'), fileEvent(JSON.stringify(createCvConfigJson(props.state))),
+    fileEvent(JSON.stringify({ ...content, format: 'cv-builder/cv', data: props.state })),
+    fileEvent(JSON.stringify({ ...content, data: { ...content.data, contact: null } })),
+    fileEvent(JSON.stringify(content), MAX_CV_JSON_FILE_BYTES + 1)]) {
+    await setup.importJson(file, 'content');
+    assert.equal(JSON.stringify(props.state), before);
+    assert.equal(props.selectedId, 'target');
+    assert.deepEqual([...storage], saved);
+  }
+  global('confirm', () => false);
+  await setup.importJson(fileEvent(JSON.stringify(content)), 'content');
+  assert.equal(JSON.stringify(props.state), before);
+  assert.deepEqual([...storage], saved);
+});
+
+test('imports into the empty template become editable drafts', async (t) => {
+  const { props, setup } = savedVersionFixture(t);
+  props.selectedId = EMPTY_DOCUMENT_ID;
+  props.state = createEmptyDocument();
+  await nextTick();
+  const content = createCvContentJson(createSampleDocument());
+  await setup.importJson(fileEvent(JSON.stringify(content)), 'content');
+  await nextTick();
+  assert.equal(props.selectedId, '');
+  assert.deepEqual(cvContent(props.state), content.data);
+});
+
+test('a failed pre-import save leaves the version unchanged', async (t) => {
+  const { props, setup } = savedVersionFixture(t);
+  const before = JSON.stringify(props.state);
+  props.beforeLoad = () => false;
+  await nextTick();
+  await setup.importJson(fileEvent(JSON.stringify(createCvContentJson(createEmptyDocument()))), 'content');
+  assert.equal(JSON.stringify(props.state), before);
+  assert.equal(props.selectedId, 'target');
+});
+
+test('changing versions while a file is being read cannot replace the newly selected version', async (t) => {
+  const { props, setup } = savedVersionFixture(t);
+  let finish!: (text: string) => void;
+  const reading = new Promise<string>((resolve) => { finish = resolve; });
+  const event = { target: { files: [{ size: 100, text: () => reading }], value: 'file.json' } } as unknown as Event;
+  const pending = setup.importJson(event, 'content');
+  props.selectedId = 'other';
+  await nextTick();
+  const before = JSON.stringify(props.state);
+  finish(JSON.stringify(createCvContentJson(createEmptyDocument())));
+  await pending;
+  assert.equal(JSON.stringify(props.state), before);
+  assert.equal(setup.backupMsg, 'versionImportTargetChanged');
 });

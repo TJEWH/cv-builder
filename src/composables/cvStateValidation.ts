@@ -1,4 +1,4 @@
-import type { Contact, CvDesign, CvState, CustomFont, CustomSection, CvItem, SidebarSection } from '../types';
+import type { Contact, CvDesign, CvState, CustomFont, CustomSection, CvItem, SidebarSection, CvContent, CvContentItem, CvConfig } from '../types';
 import { CV_STATE_VERSION } from '../types';
 import { SUPPORTED_LANGUAGES } from '../defaults';
 
@@ -10,13 +10,15 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 // Mapped shapes require a validator for every declared property.
-function partialObject<T>(shape: Shape<T>): Guard<Partial<T>> {
+function partialObject<T>(shape: Shape<T>, exact = false): Guard<Partial<T>> {
   return (value): value is Partial<T> => isRecord(value)
+    && (!exact || Object.keys(value).every((key) => Object.hasOwn(shape, key)))
     && (Object.keys(shape) as (keyof T & string)[]).every((key) =>
       value[key] === undefined || shape[key](value[key]));
 }
-function object<T>(shape: { [K in keyof T]-?: Guard<T[K]> }): Guard<T> {
+function object<T>(shape: { [K in keyof T]-?: Guard<T[K]> }, exact = false): Guard<T> {
   return (value): value is T => isRecord(value)
+    && (!exact || Object.keys(value).every((key) => Object.hasOwn(shape, key)))
     && (Object.keys(shape) as (keyof T & string)[]).every((key) => shape[key](value[key]));
 }
 function optional<T>(guard: Guard<T>): Guard<T | undefined> {
@@ -33,11 +35,12 @@ function literals<const T extends readonly (string | null)[]>(...values: T): Gua
 }
 const strings = array(string);
 const stringRecord: Guard<Record<string, string>> = (value): value is Record<string, string> => isRecord(value) && Object.values(value).every(string);
-const contact = object<Contact>({
+const contactShape: Shape<Contact> = {
   name: string, location: string, role: string, email: string,
   phone: string, website: string, linkedin: string, github: string,
-});
-const design = partialObject<CvDesign>({
+};
+const contact = object<Contact>(contactShape);
+const designShape: Shape<CvDesign> = {
   h1: string, h2: string, h3: string, bullets: string,
   showTimeline: boolean,
   ink: string, graphicOpacity: number, dateOpacity: number,
@@ -45,7 +48,7 @@ const design = partialObject<CvDesign>({
   customFonts: array(object<CustomFont>({
     name: (value): value is string => string(value) && value.trim().length > 0 && value.length <= 100 && !/[\u0000-\u001f\u007f]/.test(value),
     source: literals('bunny', 'google'),
-  })),
+  }, true)),
   badgeMode: string, badgeBorderWidth: string, badgeBorderRadius: string,
   sectionSpacingBody: string, sectionSpacingSidebar: string, itemSpacing: string,
   sidebarWidth: string, sidebarAlign: string, sidebarFillMode: string, sidebarHeightMode: string,
@@ -55,16 +58,18 @@ const design = partialObject<CvDesign>({
   pageMarginHorizontalLinked: boolean, pageMarginVerticalLinked: boolean,
   headerPaddingBottom: string, headerBottomMargin: string, headerBottomSpacingLinked: boolean,
   bodySidebarSpacing: string, favoriteControls: strings,
-});
+};
+const design = partialObject<CvDesign>(designShape);
 const id: Guard<string> = (value): value is string => string(value) && value.length > 0;
 const text = optional(string);
-const item = object<CvItem>({
-  id, hidden: optional(boolean), name: text, title: text, company: text,
+const contentItemShape: { [K in keyof CvContentItem]-?: Guard<CvContentItem[K]> } = {
+  id, name: text, title: text, company: text,
   institution: text, sub: text, place: text, start: text, end: text,
   state: optional(literals('planned', 'ongoing', 'complete')),
   bullets: text, desc: text, thesis: text, coursesText: text,
   level: text, levelValue: optional(number),
-});
+};
+const item = object<CvItem>({ ...contentItemShape, hidden: optional(boolean) });
 const items = array(item);
 const customSection = object<CustomSection>({
   id, name: string, entryMode: optional(literals('fields', 'textarea')), text,
@@ -89,5 +94,52 @@ const currentState = object<CvState>({
 export function readCvState(value: unknown): CvState {
   if (!isRecord(value) || value.version !== CV_STATE_VERSION) throw new Error('Unsupported CV data version.');
   if (!currentState(value)) throw new Error('The CV contains invalid or missing fields.');
+  return value;
+}
+
+const contentItems = array(object<CvContentItem>(contentItemShape, true));
+const contentShape: { [K in keyof CvContent]-?: Guard<CvContent[K]> } = {
+  contact: object<Contact>(contactShape, true),
+  about: object<CvContent['about']>({ text: string }, true),
+  education: contentItems,
+  experience: object<CvContent['experience']>({ jobs: contentItems }, true),
+  languages: contentItems, hobbies: contentItems,
+  customSections: array(object<CvContent['customSections'][number]>({
+    id, name: string, entryMode: optional(literals('fields', 'textarea')), text,
+    fields: optional(array(literals('title', 'institution', 'place', 'start', 'end', 'state', 'desc'))), entries: contentItems,
+  }, true)),
+  sidebarSections: array(object<CvContent['sidebarSections'][number]>({
+    id, name: string, levelType: literals('experience', 'years', null), items: contentItems,
+  }, true)),
+  sectionNames: stringRecord,
+};
+const configShape: { [K in keyof CvConfig]-?: Guard<CvConfig[K]> } = {
+  lang: literals(...SUPPORTED_LANGUAGES), design: partialObject<CvDesign>(designShape, true),
+  disabled: strings, completedSections: strings, keepTogetherSections: strings,
+  anonymization: object<CvConfig['anonymization']>({ excludedSections: strings, excludedItems: strings }, true),
+  sectionHeaderSizes: stringRecord, bodyOrder: strings, sidebarOrder: strings, hiddenItems: strings,
+};
+
+export const CV_CONTENT_KEYS = Object.keys(contentShape) as (keyof CvContent)[];
+export const CV_CONFIG_KEYS = Object.keys(configShape) as (keyof CvConfig)[];
+export const CV_CONTENT_ITEM_KEYS = Object.keys(contentItemShape) as (keyof CvContentItem)[];
+export const CV_DESIGN_KEYS = Object.keys(designShape) as (keyof CvDesign)[];
+export const CV_CONTACT_KEYS = Object.keys(contactShape) as (keyof Contact)[];
+
+export function readCvContent(value: unknown): CvContent {
+  if (!object<CvContent>(contentShape, true)(value)) throw new Error('Invalid CV content fields.');
+  // References in configuration must identify one unambiguous section/item.
+  const sections = [...value.customSections, ...value.sidebarSections].map(({ id }) => id);
+  const reserved = new Set(['header', 'about', 'education', 'jobs', 'languages', 'hobbies', '__proto__', 'constructor', 'prototype']);
+  if (new Set(sections).size !== sections.length || sections.some((id) => reserved.has(id))) throw new Error('Invalid section IDs.');
+  const ids = [value.education, value.experience.jobs, value.languages, value.hobbies,
+    ...value.customSections.map(({ entries }) => entries), ...value.sidebarSections.map(({ items }) => items)]
+    .flat().map(({ id }) => id);
+  if (new Set(ids).size !== ids.length || ids.some((id) => reserved.has(id) || sections.includes(id))) throw new Error('Invalid item IDs.');
+  return value;
+}
+
+export function readCvConfig(value: unknown): CvConfig {
+  if (!object<CvConfig>(configShape, true)(value)) throw new Error('Invalid CV configuration fields.');
   return value;
 }
