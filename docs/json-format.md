@@ -71,7 +71,8 @@ do not belong in this file. Unknown fields are rejected instead of silently igno
 
 Each entry has a required nonempty `id`. Optional text properties are `name`, `title`,
 `company`, `institution`, `sub`, `place`, `start`, `end`, `bullets`, `desc`, `thesis`,
-`coursesText` and `level`. `state` may be `planned`, `ongoing` or `complete`;
+`coursesText` and `level`. `state` may be `planned`, `ongoing` or `complete` and is
+only editable and displayed in custom body sections;
 `levelValue` is a finite number. Not every entry type displays every property.
 
 Custom body sections have `id`, `name`, and `entries`; optional `entryMode` is `fields`

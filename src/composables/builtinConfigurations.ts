@@ -37,15 +37,15 @@ export function createSampleDocument(): CvState {
   state.about.text = 'Software engineer with eight years of experience building accessible web applications and reliable cloud services. I enjoy turning complex problems into clear, useful products and helping teams deliver maintainable software. My work combines hands-on development, thoughtful technical leadership, and close collaboration with design and product teams.';
   state.experience.jobs = [
     {
-      id: 'sample-job-1', title: 'Senior Software Engineer', company: 'Northstar Studio', place: 'Berlin', start: '2022', end: 'Present', state: 'ongoing',
+      id: 'sample-job-1', title: 'Senior Software Engineer', company: 'Northstar Studio', place: 'Berlin', start: '2022', end: 'Present',
       bullets: '- Led a team of five engineers building a customer platform used by 40,000 people across Europe.\n- Designed a shared Vue and TypeScript component library, improving consistency and accessibility across three products.\n- Reduced page load times by 35% through profiling, smaller bundles, and better caching.\n- Introduced automated integration tests and gradual releases, making weekly deployments predictable.\n- Partnered with product managers to translate customer interviews into practical roadmap improvements.\n- Mentored junior developers through code reviews, pairing sessions, and individual development plans.',
     },
     {
-      id: 'sample-job-2', title: 'Software Engineer', company: 'Harbor Digital', place: 'Hamburg', start: '2019', end: '2022', state: 'complete',
+      id: 'sample-job-2', title: 'Software Engineer', company: 'Harbor Digital', place: 'Hamburg', start: '2019', end: '2022',
       bullets: '- Built reporting dashboards that helped operations teams understand delivery performance and customer needs.\n- Developed Node.js services and PostgreSQL data models for a growing logistics platform.\n- Replaced manual data imports with validated workflows, saving the support team several hours each week.\n- Worked with designers to improve keyboard navigation, form validation, and responsive layouts.\n- Added monitoring and documented incident procedures to make service recovery faster.\n- Coordinated releases with customer support and wrote clear migration notes for internal users.',
     },
     {
-      id: 'sample-job-3', title: 'Junior Web Developer', company: 'Fieldwork Labs', place: 'Leipzig', start: '2017', end: '2019', state: 'complete',
+      id: 'sample-job-3', title: 'Junior Web Developer', company: 'Fieldwork Labs', place: 'Leipzig', start: '2017', end: '2019',
       bullets: '- Delivered responsive websites and internal tools for education and nonprofit clients.\n- Implemented reusable forms and content management integrations with a focus on simplicity.\n- Collaborated with a small multidisciplinary team from discovery through launch and maintenance.\n- Established a practical checklist for cross-browser testing and accessibility reviews.',
     },
   ];

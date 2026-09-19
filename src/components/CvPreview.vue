@@ -61,12 +61,11 @@ const stateLabel = (state?: ItemState) => (({
   ongoing: t('ongoing'),
   complete: t('complete'),
 } as Partial<Record<string, string>>)[state || ''] || '');
-const formatMeta = ({ start, end, place, state }: CvItem) => {
+const formatMeta = ({ start, end, place }: CvItem) => {
   const values = [];
   const range = [start, end].filter(Boolean).join(t('rangeSep'));
   if (range) values.push(range);
   if (place) values.push(place);
-  if (stateLabel(state)) values.push(stateLabel(state));
   return values.join(t('dotSep'));
 };
 const customFieldEnabled = (section: CustomSection, field: CustomBodyField) => section.fields?.includes(field) ?? true;

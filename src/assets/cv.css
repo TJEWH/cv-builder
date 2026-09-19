@@ -177,6 +177,22 @@ textarea{min-height:64px}
 .caret{width:34px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:1px solid #134e4a;border-radius:4px;color:#9be8c7;background:#061017}
 @media (max-width:640px){.row,.row-2,.row-3,.row-4,.sidebar-skill-row__content{grid-template-columns:1fr}}
 
+@media (max-width:760px){
+    .builder .content-section > .section-content > .section-content__inner,
+    .builder .content-section > :not(.section-head):not(.section-content){margin-left:0;margin-right:0}
+    .builder .content-section .section-items{margin-left:0;padding-left:0;border-left:0}
+    .builder .item-row{grid-template-columns:minmax(0,1fr);gap:6px}
+    .builder .item-row + .item-row{border-top:1px solid #134e4a;padding-top:10px}
+    .builder .item-row__actions{align-items:stretch;align-self:stretch;width:100%}
+    .builder .item-row__actions > .mini{width:100%;min-height:36px}
+    .builder .item-row__content{padding:0 0 8px;border-top:0}
+    .builder .row,.builder .row-2,.builder .row-3,.builder .row-4,
+    .builder .grid-2,.builder .grid-3,
+    .builder .item-row .custom-body-entry__fields,
+    .builder .item-row .sidebar-skill-row__content{grid-template-columns:minmax(0,1fr)}
+    .builder .item-row__content label{min-width:0}
+}
+
 /* ==== Rendered CV ==== */
 .page{
     display:block;

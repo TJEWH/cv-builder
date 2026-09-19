@@ -329,7 +329,6 @@ const jobsSchema = computed<ItemField[]>(() => [
   { label: t('place'), key: 'place', type: 'text', placeholder: 'Berlin' },
   { label: t('start'), key: 'start', type: 'text', placeholder: '05.2021' },
   { label: t('end'), key: 'end', type: 'text', placeholder: t('current') },
-  { label: t('state'), key: 'state', type: 'select', options: itemStateOptions.value },
   { label: t('bulletsLabel'), key: 'bullets', type: 'textarea', placeholder: t('tasksPH') },
 ]);
 const languagesSchema = computed<ItemField[]>(() => [
