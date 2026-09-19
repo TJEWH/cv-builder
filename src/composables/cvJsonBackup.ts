@@ -1,5 +1,7 @@
 import type { CvConfig, CvContent, CvItem, CvState } from '../types';
 import { CV_STATE_VERSION } from '../types';
+import { anonymizeContentJson, preservePrivateContent } from './contentJsonPrivacy';
+import type { ContentPrivacyOptions } from './contentJsonPrivacy';
 import {
   CV_CONFIG_KEYS, CV_CONTACT_KEYS, CV_CONTENT_ITEM_KEYS, CV_CONTENT_KEYS, CV_DESIGN_KEYS,
   isRecord, readCvConfig, readCvContent, readCvState,
@@ -51,8 +53,9 @@ export function cvConfig(state: CvState): CvConfig {
 function envelope<T>(format: string, data: T, exportedAt: Date) {
   return { format, formatVersion: CV_JSON_FORMAT_VERSION, cvVersion: CV_STATE_VERSION, exportedAt: exportedAt.toISOString(), data };
 }
-export function createCvContentJson(state: CvState, exportedAt = new Date()) {
-  return envelope(CV_CONTENT_JSON_FORMAT, cvContent(state), exportedAt);
+export function createCvContentJson(state: CvState, { bypassPrivacy = false }: ContentPrivacyOptions = {}, exportedAt = new Date()) {
+  const content = cvContent(state);
+  return envelope(CV_CONTENT_JSON_FORMAT, bypassPrivacy ? content : anonymizeContentJson(content, state), exportedAt);
 }
 export function createCvConfigJson(state: CvState, exportedAt = new Date()) {
   return envelope(CV_CONFIG_JSON_FORMAT, cvConfig(state), exportedAt);
@@ -77,10 +80,12 @@ export function parseCvConfigJson(text: string): CvConfig {
   return readCvConfig(parseEnvelope(text, CV_CONFIG_JSON_FORMAT));
 }
 
-/** Replace content completely, preserving settings for matching stable IDs. */
-export function applyCvContent(state: CvState, content: CvContent): CvState {
+/** Replace editable content, protecting local private fields unless explicitly bypassed. */
+export function applyCvContent(state: CvState, content: CvContent, { bypassPrivacy = false }: ContentPrivacyOptions = {}): CvState {
   const hidden = new Map(allItems(state).map((item) => [item.id, item.hidden]));
-  const result = Object.assign(clone(readCvState(state)), clone(readCvContent(content)));
+  const imported = clone(readCvContent(content));
+  const next = bypassPrivacy ? imported : preservePrivateContent(cvContent(state), imported, state);
+  const result = Object.assign(clone(readCvState(state)), readCvContent(next));
   for (const item of allItems(result)) {
     if (hidden.get(item.id) !== undefined) item.hidden = hidden.get(item.id);
   }

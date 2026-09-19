@@ -38,6 +38,7 @@ const backupMsg = ref('');
 const contentFileInput = ref<HTMLInputElement | null>(null);
 const configFileInput = ref<HTMLInputElement | null>(null);
 const isImporting = ref(false);
+const bypassPrivacyProxy = ref(false);
 const localIndexKey = 'CV_CONF_INDEX';
 const localActiveKey = 'CV_CONF_ACTIVE_ID';
 const localDataKey = (id: string) => `CV_CONF_DATA:${id}`;
@@ -274,7 +275,9 @@ function deleteCurrent() {
 
 function exportJson(kind: CvJsonKind) {
   try {
-    const backup = kind === 'content' ? createCvContentJson(props.state) : createCvConfigJson(props.state);
+    const backup = kind === 'content'
+      ? createCvContentJson(props.state, { bypassPrivacy: bypassPrivacyProxy.value })
+      : createCvConfigJson(props.state);
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -309,6 +312,7 @@ async function importJson(event: Event, kind: CvJsonKind) {
   }
 
   const targetId = currentId.value;
+  const bypassPrivacy = bypassPrivacyProxy.value;
   isImporting.value = true;
   try {
     const text = await file.text();
@@ -320,10 +324,12 @@ async function importJson(event: Event, kind: CvJsonKind) {
       backupMsg.value = 'versionImportTargetChanged';
       return;
     }
-    if (!confirm(t(kind === 'content' ? 'versionConfirmImportContent' : 'versionConfirmImportConfig'))) return;
+    const confirmation = kind === 'config' ? 'versionConfirmImportConfig'
+      : bypassPrivacy ? 'versionConfirmImportContentBypass' : 'versionConfirmImportContent';
+    if (!confirm(t(confirmation))) return;
     if (!props.beforeLoad()) return;
     const data = imported.kind === 'content'
-      ? applyCvContent(snapshotState(), imported.data)
+      ? applyCvContent(snapshotState(), imported.data, { bypassPrivacy })
       : applyCvConfig(snapshotState(), imported.data);
     // The empty template is immutable. Imports there become an editable draft;
     // named versions keep their identity and autosave the replaced portion.
@@ -364,6 +370,7 @@ onBeforeUnmount(() => {
   if (typeof window !== 'undefined') window.removeEventListener('storage', onStorageChange);
 });
 watch(() => props.lang, () => refreshConfigs());
+watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
 </script>
 
 <template>
@@ -401,6 +408,12 @@ watch(() => props.lang, () => refreshConfigs());
           <button type="button" class="btn" @click="exportJson('content')">{{ t('versionExportContent') }}</button>
           <button type="button" class="btn" :disabled="isImporting" @click="chooseJsonFile('content')">{{ t('versionImportContent') }}</button>
         </div>
+        <label class="backup-manager__privacy-option">
+          <input v-model="bypassPrivacyProxy" type="checkbox" :disabled="isImporting" aria-describedby="content-json-privacy-help content-json-text-limit" />
+          <span>{{ t('versionBypassPrivacy') }}</span>
+        </label>
+        <p id="content-json-privacy-help" class="backup-manager__hint">{{ t(bypassPrivacyProxy ? 'versionBypassPrivacyHelp' : 'versionRespectPrivacyHelp') }}</p>
+        <p v-if="!bypassPrivacyProxy" id="content-json-text-limit" class="backup-manager__hint">{{ t('versionInlinePrivacyLimit') }}</p>
       </div>
       <div class="backup-manager__json-group">
         <h3>{{ t('versionConfigJson') }}</h3>
@@ -426,6 +439,8 @@ watch(() => props.lang, () => refreshConfigs());
 .backup-manager__json-group { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid #ffffff26; }
 .backup-manager__json-group h3 { margin: 0; font-size: 14px; color: #9be8c7; letter-spacing: .4px; }
 .backup-manager__hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.backup-manager__privacy-option { display: flex; align-items: center; gap: 8px; color: #d1fae5; font-size: 13px; cursor: pointer; }
+.backup-manager__privacy-option input { width: 16px; height: 16px; margin: 0; accent-color: #27f3a2; }
 .backup-manager .btn:disabled { border-color: #3b5350; background: #182e2b; color: #8ba39d; opacity: .55; cursor: not-allowed; filter: none; }
 .backup-manager__language { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #9be8c7; font-size: 13px; }
 .backup-manager__language-toggle { border: 0; padding: 0; background: transparent; cursor: pointer; }

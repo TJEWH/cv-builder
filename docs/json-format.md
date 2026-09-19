@@ -2,9 +2,27 @@
 
 The Versions panel has separate export and import actions for content and configuration.
 Export the content file, edit its `data` object in another editor or context, then use
-**Import content** to replace all content in the selected CV version. Its version name,
-design and other settings remain in place. Removed entries are removed, not merged back.
+**Import content** to replace editable content in the selected CV version. Its version name,
+design and other settings remain in place. Public entries absent from the file are removed.
 Importing into the empty template opens an editable draft.
+
+**Bypass privacy proxy** is off by default and applies to both content export and import.
+With it off, exports replace header/contact values with anonymous examples and omit hidden
+or privacy-excluded sections and entries. Paired `!!private text!!` markers become the
+static `!!confidential text!!` placeholder. Private Markdown link labels lose their link
+destination as well. Content imports preserve the current version's real header/contact,
+protected sections, and protected entries, even if absent or changed in the file. Keep IDs
+stable so those entries can be identified. If a public section containing a private entry
+is removed from the file, its container is retained for that private entry.
+
+Textarea redaction cannot reliably be reversed after external editing. Imported text is
+always used literally, including `!!confidential text!!`: it replaces the old textarea
+value and does not restore the original secret words. This applies with bypass either on
+or off; a wholly protected section or entry still remains untouched when bypass is off.
+
+With bypass enabled, exports contain all original content, including header/contact fields,
+hidden sections/entries and original inline markers. Imports can overwrite all those fields.
+The checkbox resets to off when switching versions and never changes configuration imports.
 
 **Import configuration** replaces design and settings while retaining the CV's text,
 entries and custom sections. Each action accepts only its matching format. Invalid files
@@ -69,8 +87,8 @@ must be unique and cannot use the built-in IDs `header`, `about`, `education`, `
 from section IDs. New sections are added to the layout automatically; settings tied
 to removed IDs may be discarded when the document is normalized.
 
-Content exports contain the original text of hidden/excluded entries too; they are
-not anonymized exports. Unsafe web/email values remain text rather than active links.
+Unsafe web/email values remain text rather than active links. Unmarked public content is
+retained in privacy-respecting exports; the checkbox does not automatically identify PII.
 
 ## Configuration file
 
@@ -94,5 +112,6 @@ IDs can still carry user-chosen labels. Applying configuration to different cont
 preserves the content, with ID-specific settings applying where IDs match. Unspecified
 design properties use the app defaults rather than retaining the previous design.
 
-Both files are unencrypted JSON, limited to 5 MiB per import. Export both if you need
-to restore both content and configuration; import content first, then configuration.
+Both files are unencrypted JSON, limited to 5 MiB per import. For a complete backup,
+enable bypass when exporting content and export configuration too. To restore everything,
+enable bypass when importing content, then import configuration.

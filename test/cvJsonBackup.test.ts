@@ -18,7 +18,7 @@ sampleCv.design.customFonts = [{ name: 'Literata', source: 'google' }];
 
 test('content and configuration exports round trip independently without leaking the other half', () => {
   const date = new Date('2026-09-19T12:00:00.000Z');
-  const content = createCvContentJson(sampleCv, date);
+  const content = createCvContentJson(sampleCv, { bypassPrivacy: true }, date);
   const config = createCvConfigJson(sampleCv, date);
   assert.equal(content.format, CV_CONTENT_JSON_FORMAT);
   assert.equal(config.format, CV_CONFIG_JSON_FORMAT);
@@ -47,7 +47,7 @@ test('content replacement removes old entries and preserves configuration for un
   content.experience.jobs = [];
   content.customSections = [];
   content.sectionNames = {};
-  const applied = applyCvContent(state, parseCvContentJson(JSON.stringify({ ...createCvContentJson(state), data: content })));
+  const applied = applyCvContent(state, parseCvContentJson(JSON.stringify({ ...createCvContentJson(state), data: content })), { bypassPrivacy: true });
   assert.deepEqual(cvContent(applied), content);
   assert.deepEqual(cvConfig(applied), cvConfig(before));
   assert.equal(applied.education[0].hidden, true);
@@ -68,7 +68,7 @@ test('configuration replacement preserves all content and replaces rather than m
 });
 
 test('only the two split formats are supported, with no combined, raw, or browser-wrapper imports', () => {
-  const content = createCvContentJson(sampleCv);
+  const content = createCvContentJson(sampleCv, { bypassPrivacy: true });
   const config = createCvConfigJson(sampleCv);
   const old = { ...content, format: 'cv-builder/cv', data: sampleCv };
   for (const parse of [parseCvContentJson, parseCvConfigJson]) {
@@ -88,7 +88,7 @@ test('only the two split formats are supported, with no combined, raw, or browse
 });
 
 test('strict schemas reject missing, mixed, unknown, and invalid nested fields before applying', () => {
-  const content = createCvContentJson(sampleCv);
+  const content = createCvContentJson(sampleCv, { bypassPrivacy: true });
   const config = createCvConfigJson(sampleCv);
   for (const fields of [
     { contact: { ...content.data.contact, name: 42 } }, { about: undefined }, { experience: 'invalid' },
@@ -111,10 +111,10 @@ test('strict schemas reject missing, mixed, unknown, and invalid nested fields b
 });
 
 test('content requires unambiguous IDs for preserving layout and privacy settings', () => {
-  const content = createCvContentJson(sampleCv);
+  const content = createCvContentJson(sampleCv, { bypassPrivacy: true });
   content.data.education.push({ ...content.data.education[0] });
   assert.throws(() => parseCvContentJson(JSON.stringify(content)), /Invalid item IDs/);
-  const section = createCvContentJson(sampleCv);
+  const section = createCvContentJson(sampleCv, { bypassPrivacy: true });
   section.data.customSections.push({ id: 'jobs', name: 'Reserved', entries: [] });
   assert.throws(() => parseCvContentJson(JSON.stringify(section)), /Invalid section IDs/);
 });
@@ -126,7 +126,7 @@ test('export projections omit unknown metadata and imports discard prototype-cha
   Object.assign(state.education[0], { privateUnknown: 'not exported' });
   Object.assign(state.design, { privateUnknown: 'not exported' });
   for (const backup of [createCvContentJson(state), createCvConfigJson(state)]) assert.equal(JSON.stringify(backup).includes('not exported'), false);
-  const content = createCvContentJson(sampleCv);
+  const content = createCvContentJson(sampleCv, { bypassPrivacy: true });
   const unsafe = JSON.parse('{"__proto__":{"polluted":true},"constructor":"discard","prototype":{}}');
   Object.assign(unsafe, content.data);
   const imported = parseCvContentJson(JSON.stringify({ ...content, data: unsafe }));

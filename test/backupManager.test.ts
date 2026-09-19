@@ -156,7 +156,7 @@ function savedVersionFixture(t: TestContext) {
     $: { setupState: {
       deleteCurrent(): void; exportJson(kind: CvJsonKind): void;
       importJson(event: Event, kind: CvJsonKind): Promise<void>;
-      onStorageChange(event: StorageEvent): void; backupMsg: string;
+      onStorageChange(event: StorageEvent): void; backupMsg: string; bypassPrivacyProxy: boolean;
     } };
   };
   t.after(() => app.unmount());
@@ -227,8 +227,9 @@ function fileEvent(text: string, size = text.length) {
   return { target: { files: [{ size, text: async () => text }], value: 'selected.json' } } as unknown as Event;
 }
 
-test('content import overwrites the selected version content and persists its existing configuration', async (t) => {
+test('bypassed content import overwrites the selected version content and preserves configuration', async (t) => {
   const { props, storage, instance, setup } = savedVersionFixture(t);
+  setup.bypassPrivacyProxy = true;
   const settings = cvConfig(props.state);
   const backup = createCvContentJson(createEmptyDocument());
   backup.data.contact.name = 'Edited in another context';
@@ -257,6 +258,48 @@ test('configuration import replaces settings without changing the selected versi
   assert.equal(setup.backupMsg, 'versionConfigImported');
 });
 
+test('the default content import preserves private local fields and imports textarea placeholders', async (t) => {
+  const { props, setup, instance, storage } = savedVersionFixture(t);
+  assert.equal(setup.bypassPrivacyProxy, false);
+  props.state.anonymization.excludedSections = ['jobs'];
+  const originalContact = structuredClone(JSON.parse(JSON.stringify(props.state.contact)));
+  const originalJobs = JSON.parse(JSON.stringify(props.state.experience.jobs));
+  const file = createCvContentJson(createEmptyDocument(), { bypassPrivacy: true });
+  file.data.contact.name = 'Anonymized header';
+  file.data.about.text = 'Worked for !!confidential text!!.';
+  await setup.importJson(fileEvent(JSON.stringify(file)), 'content');
+  await nextTick();
+  assert.deepEqual(props.state.contact, originalContact);
+  assert.deepEqual(props.state.experience.jobs, originalJobs);
+  assert.equal(props.state.about.text, file.data.about.text);
+  assert.equal(instance.saveCurrent(), true);
+  assert.deepEqual(JSON.parse(storage.get('CV_CONF_DATA:target')!).data.contact, originalContact);
+});
+
+test('the content checkbox controls export privacy and resets when the selected version changes', async (t) => {
+  const { props, setup, global } = savedVersionFixture(t);
+  props.state.anonymization.excludedSections = ['jobs'];
+  props.state.about.text = 'Built !!Private Product!!.';
+  const blobs: Blob[] = [];
+  global('document', { createElement: () => ({ click() {}, remove() {} }), body: { appendChild() {} } });
+  global('window', { setTimeout: (fn: () => void) => fn(), removeEventListener() {} });
+  t.mock.method(URL, 'createObjectURL', (blob: Blob) => { blobs.push(blob); return 'blob:test'; });
+  t.mock.method(URL, 'revokeObjectURL', () => {});
+  setup.exportJson('content');
+  setup.bypassPrivacyProxy = true;
+  setup.exportJson('content');
+  const [privateExport, completeExport] = await Promise.all(blobs.map(async (blob) => JSON.parse(await blob.text())));
+  assert.notEqual(privateExport.data.contact.name, 'Private Person');
+  assert.deepEqual(privateExport.data.experience.jobs, []);
+  assert.equal(privateExport.data.about.text, 'Built !!confidential text!!.');
+  assert.equal(completeExport.data.contact.name, 'Private Person');
+  assert.ok(completeExport.data.experience.jobs.length > 0);
+  assert.equal(completeExport.data.about.text, props.state.about.text);
+  props.selectedId = 'other';
+  await nextTick();
+  assert.equal(setup.bypassPrivacyProxy, false);
+});
+
 test('invalid, wrong-kind, legacy, oversized, and cancelled imports leave content and selection untouched', async (t) => {
   const { props, storage, setup, global } = savedVersionFixture(t);
   const before = JSON.stringify(props.state);
@@ -282,7 +325,8 @@ test('imports into the empty template become editable drafts', async (t) => {
   props.selectedId = EMPTY_DOCUMENT_ID;
   props.state = createEmptyDocument();
   await nextTick();
-  const content = createCvContentJson(createSampleDocument());
+  const content = createCvContentJson(createSampleDocument(), { bypassPrivacy: true });
+  setup.bypassPrivacyProxy = true;
   await setup.importJson(fileEvent(JSON.stringify(content)), 'content');
   await nextTick();
   assert.equal(props.selectedId, '');
