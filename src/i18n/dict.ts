@@ -4,6 +4,10 @@ import type { Language } from '../defaults';
 export const dict: Record<string, Record<Language, string>> = {
     preview:            {de: 'Vorschau', en: 'Preview'},
     normalPreview:      {de: 'Normale Ansicht', en: 'Normal view'},
+    previewFormat:      {de: 'Vorschauformat', en: 'Preview format'},
+    normalPdf:          {de: 'Normale PDF', en: 'Normal PDF'},
+    privacyPdf:         {de: 'Private PDF', en: 'Privacy PDF'},
+    rawHtml:            {de: 'Raw HTML', en: 'Raw HTML'},
     privacyPreview:     {de: 'Private Ansicht', en: 'Privacy view'},
     contentTools:       {de: 'Inhaltswerkzeuge', en: 'Content tools'},
     builderNavigation:  {de: 'CV-Navigation', en: 'CV navigation'},

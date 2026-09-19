@@ -64,10 +64,6 @@ function setExcluded(key: keyof CvState['anonymization'], id: string, shouldExcl
   <section class="section-group editor-panel anonymization-panel">
     <div class="section-head editor-panel__header editor-panel__header--centered anonymization-panel__header">
       <h2>{{ t('privacy') }}</h2>
-      <button class="btn btn--primary anonymization-panel__export" type="button" :disabled="isExporting" @click="$emit('export')">
-        <font-awesome-icon :icon="['fas', isExporting ? 'spinner' : 'user-secret']" :spin="isExporting" />
-        {{ isExporting ? t('exportingAnonymizedPdf') : t('downloadAnonymizedPdf') }}
-      </button>
     </div>
 
     <div class="editor-panel__body">
@@ -114,14 +110,21 @@ function setExcluded(key: keyof CvState['anonymization'], id: string, shouldExcl
         </section>
       </div>
     </div>
+    <div class="anonymization-panel__footer">
+      <button class="btn btn--primary anonymization-panel__export" type="button" :disabled="isExporting" @click="$emit('export')">
+        <font-awesome-icon :icon="['fas', isExporting ? 'spinner' : 'user-secret']" :spin="isExporting" />
+        {{ isExporting ? t('exportingAnonymizedPdf') : t('downloadAnonymizedPdf') }}
+      </button>
+    </div>
   </section>
 </template>
 
 <style scoped>
+.anonymization-panel > .editor-panel__body { align-content: start; }
 .anonymization-panel__help, .anonymization-panel__marker-help { margin: 0; color: #cbd5e1; font-size: 12px; }
 .anonymization-panel__marker-help { color: var(--muted); }
 .anonymization-panel__columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.anonymization-panel__column { display: grid; gap: 5px; margin-top: 12px; }
+.anonymization-panel__column { display: grid; align-content: start; gap: 5px; margin-top: 12px; }
 .anonymization-panel__column h4 { margin: 0; color: #9be8c7; font-size: 10pt; text-transform: uppercase; letter-spacing: .5px; }
 .anonymization-panel__section { display: grid; gap: 4px; }
 .anonymization-panel__items { display: grid; gap: 3px; margin-left: 24px; }
@@ -132,11 +135,12 @@ function setExcluded(key: keyof CvState['anonymization'], id: string, shouldExcl
 .anonymization-panel__row.disabled { cursor: not-allowed; opacity: .55; }
 .anonymization-panel__row.disabled input, .anonymization-panel__contact input { cursor: not-allowed; }
 .anonymization-panel__contact { margin-top: 12px; cursor: default; }
-.anonymization-panel__header .anonymization-panel__export { grid-column: 3; justify-self: end; width: auto; }
+.anonymization-panel__footer { display: flex; flex: none; justify-content: center; margin-top: auto; padding: 10px; border-top: 1px solid #134e4a; border-radius: 0 0 6px 6px; background: #06141f; }
+.anonymization-panel__export { width: auto; max-width: 100%; }
 @media (max-width: 760px) {
   .anonymization-panel__header { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 10px; text-align: center; }
   .anonymization-panel__header h2 { grid-column: 1; justify-self: center; }
-  .anonymization-panel__header .anonymization-panel__export { grid-column: 1; justify-self: center; max-width: 100%; min-height: 44px; font-size: 12px; }
+  .anonymization-panel__export { min-height: 44px; font-size: 12px; }
 }
 @media (max-width: 640px) { .anonymization-panel__columns { grid-template-columns: 1fr; gap: 0; } }
 </style>

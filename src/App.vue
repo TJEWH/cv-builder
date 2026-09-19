@@ -459,6 +459,14 @@ async function handleAnonymizedExportPdf() {
 }
 
 const isAnonymizedFullPreview = computed(() => fullPreviewVariant.value === 'anonymized');
+const fullPreviewMode = computed({
+  get: () => fullPreviewView.value === 'html' ? 'html' : fullPreviewVariant.value,
+  set: (mode: string) => {
+    fullPreviewView.value = mode === 'html' ? 'html' : 'pdf';
+    fullPreviewVariant.value = mode === 'anonymized' ? 'anonymized' : 'normal';
+    if (mode === 'anonymized') requestAnonymizedPdfPreview();
+  },
+});
 const isActiveFullPreviewExporting = computed(() => isAnonymizedFullPreview.value ? isAnonymizedExporting.value : isExporting.value);
 const activeFullPreviewDownloadLabel = computed(() => isAnonymizedFullPreview.value
   ? t(isAnonymizedExporting.value ? 'exportingAnonymizedPdf' : 'downloadAnonymizedPdf')
@@ -485,8 +493,7 @@ const isActiveFullPreviewRendering = computed(() => (
 ));
 
 function toggleAnonymizedFullPreview() {
-  fullPreviewVariant.value = isAnonymizedFullPreview.value ? 'normal' : 'anonymized';
-  if (fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
+  fullPreviewMode.value = isAnonymizedFullPreview.value ? 'normal' : 'anonymized';
 }
 
 function openFullPreview() {
@@ -533,29 +540,19 @@ function selectBuilderGroup(group: string) {
         </button>
       </div>
       <div v-else class="fullscreen-preview__actions">
-        <button v-if="!isMobile" class="btn" type="button" :aria-pressed="fullPreviewView === 'html'" @click="fullPreviewView = fullPreviewView === 'pdf' ? 'html' : 'pdf'">
-          <font-awesome-icon :icon="['fas', fullPreviewView === 'pdf' ? 'code' : 'file-pdf']" />
-          {{ fullPreviewView === 'pdf' ? t('showHtmlPreview') : t('showPdfPreview') }}
-        </button>
-        <button class="btn btn--primary" type="button" :aria-label="isExporting ? t('exportingPdf') : t('downloadPdf')" :title="t('downloadPdf')" @click="handleExportPdf" :disabled="isExporting">
-          <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
-          <font-awesome-icon v-else :icon="['fas', 'download']" />
-          {{ isExporting ? t('exportingPdf') : t('downloadPdf') }}
-        </button>
-        <span class="fullscreen-preview__actions-spacer" aria-hidden="true" />
-        <button class="btn" type="button" :aria-label="isAnonymizedFullPreview ? t('showNormalPreview') : t('showAnonymizedPreview')" :title="isAnonymizedFullPreview ? t('showNormalPreview') : t('showAnonymizedPreview')" :aria-pressed="isAnonymizedFullPreview" @click="toggleAnonymizedFullPreview">
-          <font-awesome-icon :icon="['fas', 'user-secret']" />
-          {{ isAnonymizedFullPreview ? t('showNormalPreview') : t('showAnonymizedPreview') }}
-        </button>
-        <button class="btn btn--primary" type="button" :aria-label="isAnonymizedExporting ? t('exportingAnonymizedPdf') : t('downloadAnonymizedPdf')" :title="t('downloadAnonymizedPdf')" @click="handleAnonymizedExportPdf" :disabled="isAnonymizedExporting">
-          <font-awesome-icon v-if="isAnonymizedExporting" :icon="['fas', 'spinner']" spin />
-          <font-awesome-icon v-else :icon="['fas', 'user-secret']" />
-          {{ isAnonymizedExporting ? t('exportingAnonymizedPdf') : t('downloadAnonymizedPdf') }}
+        <select v-model="fullPreviewMode" :aria-label="t('previewFormat')">
+          <option value="normal">{{ t('normalPdf') }}</option>
+          <option value="anonymized">{{ t('privacyPdf') }}</option>
+          <option value="html">{{ t('rawHtml') }}</option>
+        </select>
+        <button class="btn btn--primary" type="button" :aria-label="activeFullPreviewDownloadLabel" :title="activeFullPreviewDownloadLabel" :disabled="isActiveFullPreviewExporting" @click="exportActiveFullPreview">
+          <font-awesome-icon :icon="['fas', isActiveFullPreviewExporting ? 'spinner' : 'download']" :spin="isActiveFullPreviewExporting" aria-hidden="true" />
+          {{ isActiveFullPreviewExporting ? t('exportingPdf') : t('downloadPdf') }}
         </button>
       </div>
 
       <div class="fullscreen-preview__content">
-        <PdfPreview v-if="showPdfFullPreview" v-model:page="activeFullPreviewPage" :pages="activeFullPreviewPages" :is-updating="isActiveFullPreviewRendering" :lang="lang" gesture-navigation />
+        <PdfPreview v-if="showPdfFullPreview" v-model:page="activeFullPreviewPage" :pages="activeFullPreviewPages" :is-updating="isActiveFullPreviewRendering" :lang="lang" gesture-navigation :pinch-zoom="isMobile" :key="fullPreviewVariant" />
         <div v-else class="html-preview"><CvPreview :state="isAnonymizedFullPreview ? anonymizedState : state" :anonymized="isAnonymizedFullPreview" /></div>
       </div>
       <PdfPagination v-if="showPdfFullPreview" v-model:page="activeFullPreviewPage" :pages="activeFullPreviewPages" :lang="lang" fullscreen />
@@ -589,6 +586,16 @@ function selectBuilderGroup(group: string) {
               <option v-for="configuration in selectableConfigurations" :key="configuration.id" :value="configuration.id">{{ configuration.name }}</option>
             </select>
           </label>
+          <button
+            class="mini builder-topbar__placement-toggle"
+            type="button"
+            :aria-pressed="previewPlacement === 'below'"
+            :aria-label="previewPlacement === 'side' ? t('movePreviewBelow') : t('movePreviewSide')"
+            :title="previewPlacement === 'side' ? t('movePreviewBelow') : t('movePreviewSide')"
+            @click="previewPlacement = previewPlacement === 'side' ? 'below' : 'side'"
+          >
+            <font-awesome-icon :icon="['fas', previewPlacement === 'side' ? 'arrow-down' : 'arrow-right']" />
+          </button>
           <output class="builder-topbar__save-status" :class="`is-${combinedSaveStatus}`" aria-live="polite">
             <font-awesome-icon :icon="['fas', saveStatusIcon]" :spin="combinedSaveStatus === 'saving'" />
             {{ saveStatusLabel }}
@@ -657,16 +664,6 @@ function selectBuilderGroup(group: string) {
               <PdfPagination v-model:page="previewPage" :pages="previewPages" :lang="lang" />
             </div>
           </div>
-          <button
-            class="mini inline-preview__placement-toggle"
-            type="button"
-            :aria-pressed="previewPlacement === 'below'"
-            :aria-label="previewPlacement === 'side' ? t('movePreviewBelow') : t('movePreviewSide')"
-            :title="previewPlacement === 'side' ? t('movePreviewBelow') : t('movePreviewSide')"
-            @click="previewPlacement = previewPlacement === 'side' ? 'below' : 'side'"
-          >
-            <font-awesome-icon :icon="['fas', previewPlacement === 'side' ? 'arrow-down' : 'arrow-right']" />
-          </button>
         </div>
         </aside>
       </section>
@@ -771,14 +768,8 @@ body,
   position: relative;
   z-index: 20;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid #113c34;
-  border-radius: 12px;
-  background: rgba(6, 20, 31, .96);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .22);
-  backdrop-filter: blur(12px);
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 20px;
 }
 
 .builder-topbar__tabs {
@@ -815,10 +806,15 @@ body,
 .builder-topbar__tab:disabled { opacity: .4; cursor: not-allowed; border-color: transparent; background: transparent; color: #94a3b8; box-shadow: none; transform: none; }
 
 .builder-topbar__utilities {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   min-width: 0;
+  padding: 6px 12px;
+  border: 1px solid #113c34;
+  border-radius: 9px;
+  background: #06141f;
 }
 
 .builder-topbar__configuration {
@@ -829,8 +825,9 @@ body,
   color: #9be8c7;
 }
 
-.builder-topbar__configuration select { width: min(190px, 22vw); min-width: 128px; }
-.builder-topbar__save-status { display: inline-flex; align-items: center; gap: 6px; min-width: 88px; color: #9be8c7; font-size: 11px; white-space: nowrap; }
+.builder-topbar__configuration select { width: 100%; min-width: 0; }
+.builder-topbar__placement-toggle { display: grid; place-items: center; width: 32px; height: 32px; }
+.builder-topbar__save-status { display: inline-flex; grid-column: 1 / -1; justify-self: center; align-items: center; gap: 6px; color: #9be8c7; font-size: 11px; white-space: nowrap; }
 .builder-topbar__save-status.is-saving { color: #f0cd86; }
 .builder-topbar__save-status.is-error { color: #fca5a5; }
 
@@ -871,6 +868,9 @@ body,
   overflow: hidden;
 }
 
+.builder-layout__controls .builder-group-panel:has(.content-mode-toolbar),
+.builder-layout__controls .anonymization-panel { height: 100%; }
+
 .builder-group-panel > .group-panel__scroll-body,
 .builder-group-panel > .editor-panel__body,
 .builder-group-panel > .design-panel__scroll-body,
@@ -884,7 +884,8 @@ body,
   -ms-overflow-style: none;
 }
 
-.builder-group-panel > .content-panel {
+.builder-layout__controls .builder-group-panel > .content-panel {
+  display: flex;
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -921,26 +922,11 @@ body,
 .builder-layout--below::-webkit-scrollbar { display: none; }
 
 .builder-layout--below .builder-layout__controls {
-  flex: 0 0 auto;
-  height: auto;
-  overflow: visible;
-  grid-template-rows: auto;
-}
-
-.builder-layout--below .builder-layout__controls .builder-group-panel {
-  height: auto;
-  max-height: none;
-  overflow: visible;
-}
-
-.builder-layout--below .builder-group-panel > .group-panel__scroll-body,
-.builder-layout--below .builder-group-panel > .editor-panel__body,
-.builder-layout--below .builder-group-panel > .design-panel__scroll-body,
-.builder-layout--below .builder-group-panel .content-panel__scroll-body {
-  overflow: visible;
+  flex: 0 0 100%;
 }
 
 .builder-layout--below .inline-preview {
+  flex: none;
   position: relative;
   top: auto;
   flex: 0 0 auto;
@@ -1014,23 +1000,6 @@ body,
   box-shadow: none;
 }
 
-.inline-preview__placement-toggle {
-  position: absolute;
-  z-index: 2;
-  bottom: 10px;
-  left: 50%;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-50%);
-  transition: opacity .16s ease;
-}
-
-.inline-preview:hover .inline-preview__placement-toggle,
-.inline-preview:focus-within .inline-preview__placement-toggle {
-  opacity: 1;
-  pointer-events: auto;
-}
-
 .inline-preview__pagination {
   min-width: 0;
   width: min(100%, 794px);
@@ -1071,16 +1040,13 @@ body,
   gap: 8px;
 }
 
-.fullscreen-preview__actions-spacer { height: 4px; }
-.fullscreen-preview__actions .btn { display: inline-flex; align-items: center; gap: 8px; }
+.fullscreen-preview__actions select { min-height: 36px; }
+.fullscreen-preview__actions .btn { display: inline-flex; justify-content: center; align-items: center; gap: 8px; }
 
 @media (max-width: 1180px) {
   .cv-builder-app {
     padding-right: 24px;
   }
-
-  .builder-topbar { grid-template-columns: 1fr; }
-  .builder-topbar__utilities { justify-content: space-between; }
 
   .builder-layout {
     grid-template-columns: minmax(0, 1fr);

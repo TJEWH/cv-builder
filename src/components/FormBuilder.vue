@@ -375,16 +375,6 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
     <section class="body section-group editor-panel content-panel" :class="{ 'is-reordering': reorderMode && activeContentTab !== 'header' }">
       <div class="section-head editor-panel__header editor-panel__header--centered">
         <h2>{{ t('content') }}</h2>
-        <div class="content-mode-toolbar" role="group" :aria-label="t('contentTools')">
-          <div class="panel-header-action content-mode-actions content-mode-actions--left">
-            <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': todosMode }" :aria-pressed="todosMode" @click="todosMode = !todosMode"><font-awesome-icon :icon="['fas', 'check']" aria-hidden="true" />{{ t('todos') }}</button>
-            <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': configMode }" :aria-pressed="configMode" @click="toggleConfigMode"><font-awesome-icon :icon="['fas', 'sliders']" aria-hidden="true" />{{ t('config') }}</button>
-          </div>
-          <div class="panel-header-action content-mode-actions">
-            <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': versionMode }" :aria-label="t('sectionVersions')" :title="t('sectionVersions')" :aria-pressed="versionMode" @click="toggleVersionMode"><font-awesome-icon :icon="['fas', 'layer-group']" aria-hidden="true" />{{ t('versions') }}</button>
-            <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': reorderMode && activeContentTab !== 'header' }" :aria-label="t('reorderSections')" :aria-pressed="reorderMode && activeContentTab !== 'header'" :disabled="activeContentTab === 'header'" @click="toggleReorderMode"><font-awesome-icon :icon="['fas', 'grip-vertical']" aria-hidden="true" />{{ t('reorder') }}</button>
-          </div>
-        </div>
       </div>
 
       <div class="content-tabs" role="tablist" :aria-label="t('content')">
@@ -549,6 +539,16 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
           </template>
       </Draggable>
       </div>
+      <div class="content-mode-toolbar" role="group" :aria-label="t('contentTools')">
+        <div class="panel-header-action content-mode-actions content-mode-actions--left">
+          <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': todosMode }" :aria-pressed="todosMode" @click="todosMode = !todosMode"><font-awesome-icon :icon="['fas', 'check']" aria-hidden="true" />{{ t('todos') }}</button>
+          <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': configMode }" :aria-pressed="configMode" @click="toggleConfigMode"><font-awesome-icon :icon="['fas', 'sliders']" aria-hidden="true" />{{ t('config') }}</button>
+        </div>
+        <div class="panel-header-action content-mode-actions">
+          <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': versionMode }" :aria-label="t('sectionVersions')" :title="t('sectionVersions')" :aria-pressed="versionMode" @click="toggleVersionMode"><font-awesome-icon :icon="['fas', 'layer-group']" aria-hidden="true" />{{ t('versions') }}</button>
+          <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': reorderMode && activeContentTab !== 'header' }" :aria-label="t('reorderSections')" :aria-pressed="reorderMode && activeContentTab !== 'header'" :disabled="activeContentTab === 'header'" @click="toggleReorderMode"><font-awesome-icon :icon="['fas', 'grip-vertical']" aria-hidden="true" />{{ t('reorder') }}</button>
+        </div>
+      </div>
     </section>
   </form>
 </template>
@@ -565,18 +565,14 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
 .content-panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .content-panel__scroll-body { display: grid; align-content: start; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .content-reorder-toggle { display: inline-flex; align-items: center; gap: 6px; }
-.content-panel > .editor-panel__header { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px 12px; }
-.content-panel > .editor-panel__header h2 { grid-area: 1 / 2; }
-.content-mode-toolbar { display: contents; }
-.content-mode-actions { display: flex; grid-row: 1; flex-wrap: wrap; justify-content: flex-end; gap: 6px; min-width: 0; }
-.content-panel > .editor-panel__header .content-mode-actions--left { grid-column: 1; justify-self: start; justify-content: flex-start; }
+.content-panel > .editor-panel__header { display: flex; justify-content: center; padding-bottom: 10px;}
+.content-mode-toolbar { display: flex; flex: none; justify-content: center; flex-wrap: wrap; gap: 6px; margin-top: auto; padding: 10px; border-top: 1px solid #134e4a; border-radius: 0 0 6px 6px; background: #06141f; }
+.content-mode-actions { display: contents; }
 .content-reorder-toggle.is-active { color: #d1fae5; background: #17664f; border-color: #34d399; }
 .content-reorder-toggle:disabled { border-color: #18332e; background: #0b2520; color: #52736b; cursor: not-allowed; opacity: .65; }
 .content-reorder-toggle:disabled:hover { background: #0b2520; }
 .section-fields-control .svg-inline--fa { display: none; }
 @media (max-width: 760px) {
-  .content-panel > .editor-panel__header { grid-template-columns: minmax(0, 1fr); padding-bottom: 8px; }
-  .content-panel > .editor-panel__header h2 { grid-column: 1; }
   .content-mode-toolbar {
     position: fixed;
     inset: auto 0 var(--mobile-tabs-height);

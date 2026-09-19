@@ -380,12 +380,6 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
     </div>
 
     <div class="group-panel__scroll-body">
-      <div class="backup-manager__language">
-        <span>{{ t('language') }}</span>
-        <button class="backup-manager__language-toggle" type="button" :class="{ 'is-on': lang === 'en' }" :aria-label="t('language')" :aria-pressed="lang === 'en'" @click="emit('toggle-language')">
-          <span class="backup-manager__language-track"><span>DE</span><span>EN</span><span class="backup-manager__language-thumb"></span></span>
-        </button>
-      </div>
       <div class="backup-manager__actions">
         <select :value="currentId" :aria-label="t('versions')" @change="onConfigurationChange">
           <option v-if="!currentId" value="" disabled>{{ t('noSavedVersion') }}</option>
@@ -399,6 +393,13 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
         <input v-model="newName" :placeholder="t('versionNewName')" :aria-label="t('versionNewName')" />
         <button type="submit" class="btn btn--success" :disabled="!newName.trim()">{{ t('versionSaveAs') }}</button>
       </form>
+
+      <div class="backup-manager__language">
+        <span>{{ t('language') }}</span>
+        <button class="backup-manager__language-toggle" type="button" :class="{ 'is-on': lang === 'en' }" :aria-label="t('language')" :aria-pressed="lang === 'en'" @click="emit('toggle-language')">
+          <span class="backup-manager__language-track"><span>DE</span><span>EN</span><span class="backup-manager__language-thumb"></span></span>
+        </button>
+      </div>
 
       <div class="backup-manager__json-group">
         <h3>{{ t('versionContentJson') }}</h3>
@@ -424,13 +425,11 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
           <button type="button" class="btn" :disabled="isImporting" @click="chooseJsonFile('config')">{{ t('versionImportConfig') }}</button>
         </div>
       </div>
-      <span v-if="backupMsg" class="note" role="status">{{ t(backupMsg) }}</span>
     </div>
   </section>
 </template>
 
 <style scoped>
-.backup-manager { width: 100%; padding: 10px; border-radius: 10px; background: #113c34; }
 .group-panel__scroll-body { display: grid; align-content: start; gap: 10px; min-height: 0; }
 .backup-manager__actions, .backup-manager__save-as, .backup-manager__file-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .backup-manager__actions select { flex: 1 1 220px; width: auto; }
