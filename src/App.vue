@@ -28,6 +28,14 @@ const lang = computed({
 });
 const previewMode = ref(false);
 const fullPreviewView = ref('pdf');
+const mobileViewport = window.matchMedia('(max-width: 760px)');
+const isMobile = ref(mobileViewport.matches);
+const showPdfFullPreview = computed(() => isMobile.value || fullPreviewView.value === 'pdf');
+function syncMobileViewport() {
+  isMobile.value = mobileViewport.matches;
+}
+onMounted(() => mobileViewport.addEventListener('change', syncMobileViewport));
+onBeforeUnmount(() => mobileViewport.removeEventListener('change', syncMobileViewport));
 const previewPlacement = ref('side');
 const previewPages = ref<PreviewPage[]>([]);
 const previewPage = ref(1);
@@ -479,6 +487,11 @@ function openFullPreview() {
   if (isAnonymizedFullPreview.value) requestAnonymizedPdfPreview();
 }
 
+function selectBuilderGroup(group: string) {
+  activeBuilderGroup.value = group;
+  previewMode.value = false;
+}
+
 </script>
 
 <template>
@@ -494,28 +507,28 @@ function openFullPreview() {
       <CvPreview :state="anonymizedState" export-source anonymized />
     </div>
 
-    <section v-if="previewMode" class="fullscreen-preview" aria-label="CV preview">
+    <section v-if="previewMode" id="builder-group-preview" class="fullscreen-preview" :aria-label="t('liveCvPreview')">
       <button class="btn fullscreen-preview__back" type="button" @click="previewMode = false">
         <font-awesome-icon :icon="['fas', 'arrow-left']" />
         {{ t('backToBuilder') }}
       </button>
 
       <div class="fullscreen-preview__actions">
-        <button class="btn" type="button" :aria-pressed="fullPreviewView === 'html'" @click="fullPreviewView = fullPreviewView === 'pdf' ? 'html' : 'pdf'">
+        <button v-if="!isMobile" class="btn" type="button" :aria-pressed="fullPreviewView === 'html'" @click="fullPreviewView = fullPreviewView === 'pdf' ? 'html' : 'pdf'">
           <font-awesome-icon :icon="['fas', fullPreviewView === 'pdf' ? 'code' : 'file-pdf']" />
           {{ fullPreviewView === 'pdf' ? t('showHtmlPreview') : t('showPdfPreview') }}
         </button>
-        <button class="btn btn--primary" type="button" @click="handleExportPdf" :disabled="isExporting">
+        <button class="btn btn--primary" type="button" :aria-label="isExporting ? t('exportingPdf') : t('downloadPdf')" :title="t('downloadPdf')" @click="handleExportPdf" :disabled="isExporting">
           <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
           <font-awesome-icon v-else :icon="['fas', 'download']" />
           {{ isExporting ? t('exportingPdf') : t('downloadPdf') }}
         </button>
         <span class="fullscreen-preview__actions-spacer" aria-hidden="true" />
-        <button class="btn" type="button" :aria-pressed="isAnonymizedFullPreview" @click="toggleAnonymizedFullPreview">
+        <button class="btn" type="button" :aria-label="isAnonymizedFullPreview ? t('showNormalPreview') : t('showAnonymizedPreview')" :title="isAnonymizedFullPreview ? t('showNormalPreview') : t('showAnonymizedPreview')" :aria-pressed="isAnonymizedFullPreview" @click="toggleAnonymizedFullPreview">
           <font-awesome-icon :icon="['fas', 'user-secret']" />
           {{ isAnonymizedFullPreview ? t('showNormalPreview') : t('showAnonymizedPreview') }}
         </button>
-        <button class="btn btn--primary" type="button" @click="handleAnonymizedExportPdf" :disabled="isAnonymizedExporting">
+        <button class="btn btn--primary" type="button" :aria-label="isAnonymizedExporting ? t('exportingAnonymizedPdf') : t('downloadAnonymizedPdf')" :title="t('downloadAnonymizedPdf')" @click="handleAnonymizedExportPdf" :disabled="isAnonymizedExporting">
           <font-awesome-icon v-if="isAnonymizedExporting" :icon="['fas', 'spinner']" spin />
           <font-awesome-icon v-else :icon="['fas', 'user-secret']" />
           {{ isAnonymizedExporting ? t('exportingAnonymizedPdf') : t('downloadAnonymizedPdf') }}
@@ -523,13 +536,13 @@ function openFullPreview() {
       </div>
 
       <div class="fullscreen-preview__content">
-        <PdfPreview v-if="fullPreviewView === 'pdf'" v-model:page="activeFullPreviewPage" :pages="activeFullPreviewPages" :is-updating="isActiveFullPreviewRendering" :lang="lang" gesture-navigation />
+        <PdfPreview v-if="showPdfFullPreview" v-model:page="activeFullPreviewPage" :pages="activeFullPreviewPages" :is-updating="isActiveFullPreviewRendering" :lang="lang" gesture-navigation />
         <div v-else class="html-preview"><CvPreview :state="isAnonymizedFullPreview ? anonymizedState : state" :anonymized="isAnonymizedFullPreview" /></div>
       </div>
-      <PdfPagination v-if="fullPreviewView === 'pdf'" v-model:page="activeFullPreviewPage" :pages="activeFullPreviewPages" :lang="lang" fullscreen />
+      <PdfPagination v-if="showPdfFullPreview" v-model:page="activeFullPreviewPage" :pages="activeFullPreviewPages" :lang="lang" fullscreen />
     </section>
 
-    <section v-else class="builder-shell">
+    <section v-show="!previewMode" class="builder-shell">
       <header class="builder-topbar">
         <nav class="builder-topbar__tabs" role="tablist" :aria-label="t('content')">
           <button
@@ -564,7 +577,7 @@ function openFullPreview() {
         </div>
       </header>
 
-      <section class="builder-layout" :class="`builder-layout--${previewPlacement}`">
+      <section class="builder-layout" :class="`builder-layout--${isMobile ? 'side' : previewPlacement}`">
         <div class="builder-layout__controls">
           <Transition name="builder-group">
             <BackupManager
@@ -610,7 +623,7 @@ function openFullPreview() {
           </Transition>
         </div>
 
-        <aside class="inline-preview" :aria-label="t('liveCvPreview')">
+        <aside v-if="!isMobile" class="inline-preview" :aria-label="t('liveCvPreview')">
         <div class="inline-preview__actions">
           <button class="btn" type="button" @click="openFullPreview">{{ t('openPreview') }}</button>
           <button class="btn btn--primary" type="button" @click="handleExportPdf" :disabled="isExporting">
@@ -639,6 +652,37 @@ function openFullPreview() {
         </aside>
       </section>
     </section>
+
+    <nav class="mobile-bottom-tabs" role="tablist" :aria-label="t('builderNavigation')">
+      <button
+        v-for="group in builderGroups"
+        :key="group.key"
+        class="builder-topbar__tab"
+        :class="{ 'is-active': !previewMode && activeBuilderGroup === group.key }"
+        type="button"
+        role="tab"
+        :aria-selected="!previewMode && activeBuilderGroup === group.key"
+        :aria-controls="`builder-group-${group.key}`"
+        :disabled="isEmptyDocument && group.key !== 'versions'"
+        @click="selectBuilderGroup(group.key)"
+      >
+        <font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" />
+        <span>{{ group.label }}</span>
+      </button>
+      <button
+        class="builder-topbar__tab"
+        :class="{ 'is-active': previewMode }"
+        type="button"
+        role="tab"
+        :aria-selected="previewMode"
+        aria-controls="builder-group-preview"
+        :disabled="isEmptyDocument"
+        @click="openFullPreview"
+      >
+        <font-awesome-icon :icon="['fas', 'eye']" aria-hidden="true" />
+        <span>{{ t('preview') }}</span>
+      </button>
+    </nav>
   </main>
 </template>
 
@@ -683,6 +727,8 @@ body,
 .cv-builder-app.is-preview-mode {
   overflow: auto;
 }
+
+.mobile-bottom-tabs { display: none; }
 
 .pdf-render-source {
   position: fixed;
@@ -1033,33 +1079,55 @@ body,
 
 @media (max-width: 760px) {
   .cv-builder-app {
-    padding: 16px;
+    --mobile-tabs-height: calc(72px + env(safe-area-inset-bottom, 0px));
+    padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) calc(var(--mobile-tabs-height) + 12px) max(12px, env(safe-area-inset-left, 0px));
   }
 
-  .builder-topbar { padding: 8px; }
-  .builder-topbar__tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .builder-topbar__tab { min-height: 56px; font-size: 10px; }
-  .builder-topbar__utilities { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
-  .builder-topbar__configuration select { width: 100%; }
-  .builder-topbar__save-status { grid-column: 1 / -1; justify-content: center; }
+  .cv-builder-app.is-preview-mode { overflow: hidden; }
+  .builder-topbar { display: none; }
+  .builder-shell,
+  .builder-layout { grid-template-rows: minmax(0, 1fr); gap: 0; }
+  .inline-preview { display: none; }
+
+  .mobile-bottom-tabs {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+    height: var(--mobile-tabs-height);
+    padding: 8px max(8px, env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
+    border-top: 1px solid #134e4a;
+    background: #06141f;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, .2);
+  }
+  .mobile-bottom-tabs .builder-topbar__tab { min-width: 0; min-height: 0; padding: 4px 2px; gap: 5px; font-size: 10px; }
+  .mobile-bottom-tabs .builder-topbar__tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .pdf-export-error { bottom: calc(var(--mobile-tabs-height) + 12px); }
 
   .fullscreen-preview {
-    min-height: 100dvh;
-    justify-content: flex-start;
-    overflow-x: auto;
-    padding: 72px 12px 20px;
+    display: grid;
+    grid-template-rows: 44px minmax(0, 1fr) 44px;
+    gap: 8px;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+    justify-content: stretch;
+    overflow: hidden;
+    padding: 0;
   }
 
-  .fullscreen-preview__back,
-  .fullscreen-preview__actions { top: 12px; }
-  .fullscreen-preview__back { left: 12px; }
-  .fullscreen-preview__actions { right: 12px; }
-  .fullscreen-preview__back .svg-inline--fa,
-  .fullscreen-preview__actions .svg-inline--fa { margin: 0; }
-  .fullscreen-preview__back { font-size: 0; padding: 10px; }
-  .fullscreen-preview__back .svg-inline--fa { font-size: 14px; }
-  .fullscreen-preview__actions .btn { font-size: 0; padding: 10px; }
-  .fullscreen-preview__actions .btn .svg-inline--fa { font-size: 14px; }
+  .fullscreen-preview__back { display: none; }
+  .fullscreen-preview__actions { position: static; flex-direction: row; justify-content: center; }
+  .fullscreen-preview__actions-spacer { display: none; }
+  .fullscreen-preview__actions .btn { justify-content: center; min-width: 44px; min-height: 44px; font-size: 0; padding: 10px; }
+  .fullscreen-preview__actions .btn .svg-inline--fa { margin: 0; font-size: 16px; }
+  .fullscreen-preview__content { container-type: size; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; }
+  .fullscreen-preview .pdf-preview,
+  .fullscreen-preview .pdf-preview__stage { height: 100%; min-height: 0; }
+  .fullscreen-preview .pdf-preview__stage { background: transparent; }
+  .fullscreen-preview .pdf-preview__page { width: min(100cqw, calc(100cqh * 210 / 297), 794px); }
 
 }
 

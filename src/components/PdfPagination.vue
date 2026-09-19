@@ -79,9 +79,9 @@ function setPage(nextPage: number) {
 }
 
 @media (max-width: 760px) {
-  .pdf-pagination--fullscreen .pdf-pagination__button { width: 46px; height: 46px; font-size: 18px; }
-  .pdf-pagination--fullscreen .pdf-pagination__button--previous { left: 10px; }
-  .pdf-pagination--fullscreen .pdf-pagination__button--next { right: 10px; }
-  .pdf-pagination--fullscreen .pdf-pagination__page-count { bottom: 12px; }
+  .pdf-pagination--fullscreen { position: static; display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; width: min(100%, 300px); justify-self: center; }
+  .pdf-pagination--fullscreen .pdf-pagination__button { position: static; width: 44px; height: 44px; font-size: 18px; transform: none; }
+  .pdf-pagination--fullscreen .pdf-pagination__button:hover:not(:disabled) { transform: none; }
+  .pdf-pagination--fullscreen .pdf-pagination__page-count { position: static; justify-self: center; transform: none; }
 }
 </style>

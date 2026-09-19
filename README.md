@@ -81,6 +81,7 @@ App runs at `http://localhost:5173/cv-builder/`
 - Turn on Versions next to Reorder to edit each section in a different saved CV version. Each section lists only versions containing it; edits save to that version, while the preview continues to show the whole version selected in the topbar. Custom sections retain their identity when a version is duplicated, even if renamed later.
 - Use item handles to drag entries and sidebar skills directly
 - Auto-save saves all changes automatically
+- On mobile, use the bottom tabs to switch between Versions, Content, Design, Privacy and Preview. Preview fits the complete PDF page to the screen; swipe left or right with one finger, or use the page arrows.
 
 ### Customize Design
 
