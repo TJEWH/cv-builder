@@ -2,6 +2,7 @@ import { stub } from './helpers';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { applyCvDesign } from '../src/composables/useCvDesign.ts';
+import { fontStylesheetUrl } from '../src/composables/webFonts.ts';
 
 function withDocument(run: (properties: Map<string, string>, links: Map<string, HTMLLinkElement>) => void) {
   const previousDocument = globalThis.document;
@@ -27,13 +28,13 @@ function withDocument(run: (properties: Map<string, string>, links: Map<string, 
   }
 }
 
-test('loads Bunny stylesheets and updates existing links when fonts change', () => {
+test('uses bundled stylesheets for included faces and updates links when fonts change', () => {
   withDocument((properties, links) => {
     applyCvDesign({ fontBody: 'Source Sans 3', fontHead: 'Inter' });
     const bodyLink = links.get('cv-font-body');
     assert.equal(bodyLink?.rel, 'stylesheet');
     assert.equal(bodyLink?.href, 'https://fonts.bunny.net/css?family=source-sans-3:300,400,600,700&display=swap');
-    assert.equal(links.get('cv-font-head')?.href, 'https://fonts.bunny.net/css?family=inter:300,400,600,700&display=swap');
+    assert.equal(links.get('cv-font-head')?.href, fontStylesheetUrl({ name: 'Inter', source: 'bunny' }));
 
     applyCvDesign({ fontBody: 'Browallia New', fontHead: 'Century Gothic' });
     assert.equal(links.get('cv-font-body'), bodyLink);
@@ -44,7 +45,7 @@ test('loads Bunny stylesheets and updates existing links when fonts change', () 
     assert.match(properties.get('--font-head') || '', /Century Gothic/);
 
     applyCvDesign({ fontBody: 'Inter', fontHead: 'Open Sans', customFonts: [{ name: 'Inter', source: 'google' }, { name: 'Open Sans', source: 'bunny' }] });
-    assert.equal(bodyLink?.href, 'https://fonts.googleapis.com/css?family=Inter:300,400,600,700&display=swap');
+    assert.equal(bodyLink?.href, fontStylesheetUrl({ name: 'Inter', source: 'google' }));
     assert.equal(links.get('cv-font-head')?.href, 'https://fonts.bunny.net/css?family=open-sans:300,400,600,700&display=swap');
 
     applyCvDesign({ fontBody: 'Inter', fontHead: '' });

@@ -25,7 +25,7 @@ Modern resume generator built with Vue 3, TypeScript and Vite. Create profession
 ### Design
 - **Layouts**: Sidebar left/right, adjustable column ratio and starting page; content-sized height by default with adjustable bottom padding, or full-page height. The body returns to full width below a content-sized sidebar
 - **Colors**: Font color with separate graphic and date opacity
-- **Fonts**: Bunny Fonts for supported built-in families; Google Fonts for families unavailable on Bunny (including Century Gothic). Font names are never replaced with a different family. Browallia New is unavailable from both providers
+- **Fonts**: Inter, Montserrat, Poppins, Raleway, Noto Sans, Rubik, and IBM Plex Sans ship as local project assets (regular, semibold, and bold Latin/Latin Extended faces). Other built-in fonts continue to use Bunny or Google on demand. Century Gothic is commercial and is not redistributed with the project; use licensed files if it must be bundled
 - **Custom fonts**: In Design → Typography, choose Bunny or Google, enter a font family name, and import it. Imports verify the provider response and decode a font file before saving. A missing Bunny font is retried on Google; other errors are reported by type. Imported fonts become available for body text and headings, including favorite controls. The family name and actual source are saved in `design.customFonts` and retained in saved versions and JSON exports; reimporting a family updates its source
 - **Typography**: H1-H3 and bullet font sizes
 - **Heading Styles**: clean, underline, leftbar, pill
@@ -52,7 +52,7 @@ Modern resume generator built with Vue 3, TypeScript and Vite. Create profession
 - **PDF Export**: Direct-download vector PDF with visible selectable text, clickable links and vector SVG icons
 - **Vector Previews**: Inline and full-size previews reuse the same scalable SVG pages; no raster images, quality settings, size estimates, or higher-resolution replacement render
 - **Consistent Layout**: SVG previews and PDF downloads share one vector paint list, page slices, margins and sidebar positioning
-- **Vector Fonts**: Uses the selected downloadable Bunny or Google fonts (internet access required), including font weights and Unicode subsets. Unsupported fonts or missing glyphs show an actionable error instead of silently substituting a different face
+- **Vector Fonts**: Uses the selected bundled or downloadable font, including its available weights and Unicode subsets. Bundled faces work offline; unsupported fonts or missing glyphs show an actionable error instead of silently substituting a different face
 - **Page-Break Control**: Intelligent page breaks
 - **GDPR Compliant**: No cloud, all data local
 
@@ -117,7 +117,7 @@ languages. Translation lookup uses only the current language, with no cross-lang
 - **PDFKit + Fontkit**: Lazy-loaded browser-only vector PDF export; no server or print dialog required, compatible with GitHub Pages
 - **FontAwesome 7**: Icon system
 - **VueDraggable**: Handle-based section and item sorting
-- **Bunny Fonts / Google Fonts**: Dynamic font loading with source-aware custom imports
+- **Local assets / Bunny Fonts / Google Fonts**: Common built-in fonts load from `public/fonts`; custom and unbundled fonts remain source-aware dynamic imports
 - **LocalStorage**: Persistent storage and named browser configurations
 
 ---

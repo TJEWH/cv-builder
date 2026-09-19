@@ -1,10 +1,16 @@
 import type { CustomFont, CvDesign, FontSource, SelectOption } from '../types';
 import { parseVectorFontFaces } from './pdfVectorFonts';
 
-export const BODY_FONTS = ['Browallia New', 'Century Gothic', 'Inter', 'Source Sans 3', 'IBM Plex Sans', 'Work Sans', 'Nunito Sans', 'Rubik', 'Merriweather Sans', 'Hind'];
+export const BODY_FONTS = ['Inter', 'Source Sans 3', 'IBM Plex Sans', 'Noto Sans', 'Work Sans', 'Nunito Sans', 'Rubik', 'Merriweather Sans', 'Hind'];
 export const HEADING_FONTS = ['Browallia New', 'Century Gothic', 'Inter', 'Montserrat', 'Poppins', 'Raleway', 'Space Grotesk'];
+export const BUNDLED_FONT_FAMILIES = new Set(['Inter', 'Montserrat', 'Poppins', 'Raleway', 'Noto Sans', 'Rubik', 'IBM Plex Sans'].map((name) => name.toLowerCase()));
 const bunnyFamilies = new Set([...BODY_FONTS, ...HEADING_FONTS]
   .filter((name) => !['Browallia New', 'Century Gothic'].includes(name)).map((name) => name.toLowerCase()));
+const bundledStylesheetUrl = `${import.meta.env?.BASE_URL || '/'}fonts/bundled-fonts.css`;
+
+export function isBundledFont(name: string) {
+  return BUNDLED_FONT_FAMILIES.has(name.trim().toLowerCase());
+}
 
 export function selectedFont(name: string, design: CvDesign): CustomFont {
   return design.customFonts?.find((font) => font.name.toLowerCase() === name.toLowerCase())
@@ -12,6 +18,7 @@ export function selectedFont(name: string, design: CvDesign): CustomFont {
 }
 
 export function fontStylesheetUrl({ name, source }: CustomFont): string {
+  if (isBundledFont(name)) return bundledStylesheetUrl;
   const family = source === 'bunny'
     ? encodeURIComponent(name.toLowerCase().replace(/\s+/g, '-'))
     : encodeURIComponent(name).replace(/%20/g, '+');
@@ -27,7 +34,7 @@ export function fontOptions(names: string[], design: CvDesign, selected = ''): S
     fonts.set(font.name.toLowerCase(), font);
   }
   return [...fonts.values()].map(({ name, source }) => ({
-    value: name, label: `${name} (${source === 'bunny' ? 'Bunny' : 'Google'})`,
+    value: name, label: `${name} (${isBundledFont(name) ? 'Bundled' : source === 'bunny' ? 'Bunny' : 'Google'})`,
   }));
 }
 

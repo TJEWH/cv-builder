@@ -112,14 +112,14 @@ test('invalid names, timeouts and cancellations are identified without saving a 
   await assert.rejects(importWebFont('Open Sans', 'bunny', { signal: controller.signal }), isError('cancelled'));
 });
 
-test('custom source overrides apply to options and stylesheets without family substitution', () => {
+test('custom source overrides remain stored, while bundled families use local assets', () => {
   const customFonts = storeCustomFont([{ name: 'Inter', source: 'bunny' }], { name: 'Inter', source: 'google' });
   assert.deepEqual(customFonts, [{ name: 'Inter', source: 'google' }]);
   const design = { customFonts: storeCustomFont(customFonts, { name: 'Open Sans', source: 'bunny' }) };
   assert.deepEqual(fontOptions(['Inter'], design), [
-    { value: 'Inter', label: 'Inter (Google)' }, { value: 'Open Sans', label: 'Open Sans (Bunny)' },
+    { value: 'Inter', label: 'Inter (Bundled)' }, { value: 'Open Sans', label: 'Open Sans (Bunny)' },
   ]);
-  assert.match(fontStylesheetUrl(selectedFont('Inter', design)), /fonts.googleapis.com/);
+  assert.match(fontStylesheetUrl(selectedFont('Inter', design)), /bundled-fonts\.css$/);
   assert.match(fontStylesheetUrl(selectedFont('Open Sans', design)), /fonts.bunny.net/);
   assert.deepEqual(selectedFont('Century Gothic', {}), { name: 'Century Gothic', source: 'google' });
   assert.deepEqual(selectedFont('Browallia New', {}), { name: 'Browallia New', source: 'google' });
