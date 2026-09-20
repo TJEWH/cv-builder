@@ -24,6 +24,7 @@ const statusFilter = ref('');
 const reviewFilter = ref('active');
 const suitableOnly = ref(false);
 const hideExpired = ref(true);
+const hideWithApplication = ref(true);
 const sortBy = ref('deadline');
 const expandedOpportunity = ref<string | null>(null);
 const editingId = ref<string | null>(null);
@@ -42,10 +43,12 @@ let viewEpoch = 0;
 onBeforeUnmount(() => { window.clearInterval(clockTimer); viewEpoch++; });
 const reviewById = computed(() => new Map(reviews.value.map((item) => [item.opportunity_id, item.state])));
 const reviewState = (id: string): OpportunityReviewState => reviewById.value.get(id) || 'unreviewed';
+const applicationByOpportunity = computed(() => new Map(applications.value.map((item) => [item.opportunity_id, item])));
 const filteredOpportunities = computed(() => {
   const needle = query.value.toLocaleLowerCase().trim();
   return opportunities.value.filter((item) => (!suitableOnly.value || item.particularly_suitable)
     && (!hideExpired.value || !isOpportunityDeadlinePassed(item.details, now.value))
+    && (!hideWithApplication.value || !applicationByOpportunity.value.has(item.id))
     && (reviewFilter.value === 'all' || (reviewFilter.value === 'active' ? reviewState(item.id) !== 'not_interested' : reviewState(item.id) === reviewFilter.value))
     && (!needle || [item.title, item.university, item.country, ...item.topics].join(' ').toLocaleLowerCase().includes(needle)))
     .toSorted((a, b) => sortBy.value === 'title' ? a.title.localeCompare(b.title)
@@ -54,7 +57,6 @@ const filteredOpportunities = computed(() => {
 });
 const opportunityById = computed(() => new Map(opportunities.value.map((item) => [item.id, item])));
 const cvById = computed(() => new Map(cvVariants.value.map((item) => [item.id, item])));
-const applicationByOpportunity = computed(() => new Map(applications.value.map((item) => [item.opportunity_id, item])));
 const filteredApplications = computed(() => applications.value.filter((item) => (!statusFilter.value || item.status === statusFilter.value)
   && [item.context_json.title, item.context_json.institution, item.context_json.university].join(' ').toLocaleLowerCase().includes(query.value.toLocaleLowerCase().trim())));
 const editingApplication = computed(() => applications.value.find(({ id }) => id === editingId.value));
@@ -184,7 +186,7 @@ function downloadContext() {
       <template v-if="tab === 'opportunities'">
         <label>{{ text('Review state', 'Bewertung') }}<select v-model="reviewFilter"><option value="active">{{ text('Hide not interesting', 'Nicht interessante ausblenden') }}</option><option value="all">{{ text('All review states', 'Alle Bewertungen') }}</option><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
         <label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="sortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option></select></label>
-        <div class="jobs-filter-checks"><label class="jobs-check"><input v-model="hideExpired" type="checkbox" /> {{ text('Hide past deadlines', 'Abgelaufene Fristen ausblenden') }}</label><label class="jobs-check"><input v-model="suitableOnly" type="checkbox" /> {{ text('Particularly suitable', 'Besonders passend') }}</label></div>
+        <div class="jobs-filter-checks"><label class="jobs-check"><input v-model="hideExpired" type="checkbox" /> {{ text('Hide past deadlines', 'Abgelaufene Fristen ausblenden') }}</label><label class="jobs-check"><input v-model="hideWithApplication" type="checkbox" /> {{ text('Hide opportunities with applications', 'Stellen mit Bewerbungen ausblenden') }}</label><label class="jobs-check"><input v-model="suitableOnly" type="checkbox" /> {{ text('Particularly suitable', 'Besonders passend') }}</label></div>
       </template>
       <label v-else>{{ text('Status', 'Status') }}<select v-model="statusFilter"><option value="">{{ text('All statuses', 'Alle Status') }}</option><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label>
       <span class="jobs-count">{{ tab === 'opportunities' ? filteredOpportunities.length : filteredApplications.length }} {{ text('results', 'Ergebnisse') }}</span>
@@ -200,7 +202,7 @@ function downloadContext() {
             <td><div class="jobs-row-actions"><button class="btn" type="button" :aria-expanded="expandedOpportunity === item.id" :aria-controls="`opportunity-review-${item.id}`" @click="toggleOpportunity(item.id)">{{ expandedOpportunity === item.id ? text('Collapse', 'Zuklappen') : text('Review', 'Ansehen') }}</button><button class="btn btn--success" type="button" :disabled="saving" @click="startApplication(item)">{{ applicationByOpportunity.has(item.id) ? text('Open application', 'Bewerbung öffnen') : text('Create application', 'Bewerbung anlegen') }}</button></div></td>
           </tr>
           <tr v-if="expandedOpportunity === item.id" class="jobs-expanded-row"><td colspan="6"><section :id="`opportunity-review-${item.id}`" class="jobs-inline-review" :aria-label="item.title"><div class="jobs-review-toolbar"><h2>{{ text('Opportunity review', 'Stelle prüfen') }}</h2><label>{{ text('Your review state', 'Deine Bewertung') }}<select :value="reviewState(item.id)" :disabled="saving" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label><span>{{ text('Private to your account', 'Nur für dein Konto') }}</span></div><OpportunityContext :context="item.details" :lang="lang" /></section></td></tr>
-        </template><tr v-if="!filteredOpportunities.length"><td colspan="6" class="jobs-empty">{{ loading ? text('Loading opportunities…', 'Stellenangebote werden geladen…') : text('No matching opportunities. Adjust the deadline, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewertungs- oder Suchfilter.') }}</td></tr></tbody>
+        </template><tr v-if="!filteredOpportunities.length"><td colspan="6" class="jobs-empty">{{ loading ? text('Loading opportunities…', 'Stellenangebote werden geladen…') : text('No matching opportunities. Adjust the deadline, application, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewerbungs-, Bewertungs- oder Suchfilter.') }}</td></tr></tbody>
       </table>
       <table v-else>
         <thead><tr><th>{{ text('Application', 'Bewerbung') }}</th><th>{{ text('Deadline', 'Frist') }}</th><th>{{ text('Contact person', 'Kontaktperson') }}</th><th>{{ text('CV version', 'CV-Version') }}</th><th>{{ text('Status', 'Status') }}</th><th>{{ text('Actions', 'Aktionen') }}</th></tr></thead>
