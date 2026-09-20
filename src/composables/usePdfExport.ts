@@ -377,11 +377,13 @@ export function usePdfExport() {
   }
 
   const renderPreview = (element: HTMLElement, options: RenderOptions = {}) => render(element, options, renderVectorPreview);
-  const exportToPdf = async (element: HTMLElement, filename = 'cv', options: RenderOptions = {}) => {
-    const blob = await render(element, options, async (snapshot) => {
+  const renderPdfBlob = (element: HTMLElement, options: RenderOptions = {}) =>
+    render(element, options, async (snapshot) => {
       const { renderVectorPdf } = await import('./pdfVectorExport.ts');
       return renderVectorPdf(snapshot);
     });
+  const exportToPdf = async (element: HTMLElement, filename = 'cv', options: RenderOptions = {}) => {
+    const blob = await renderPdfBlob(element, options);
     options.signal?.throwIfAborted();
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -396,5 +398,5 @@ export function usePdfExport() {
       downloads.delete(url);
     }, 60_000));
   };
-  return { renderPreview, exportToPdf, revokeDownloads };
+  return { renderPreview, renderPdfBlob, exportToPdf, revokeDownloads };
 }

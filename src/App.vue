@@ -9,8 +9,8 @@ import { usePdfExport } from './composables/usePdfExport';
 import { createPreviewRenderSlot } from './composables/pdfRenderTask.ts';
 import FormBuilder from './components/FormBuilder.vue';
 import CvPreview from './components/CvPreview.vue';
-import PdfPreview from './components/PdfPreview.vue';
-import PdfPagination from './components/PdfPagination.vue';
+import InlineDocumentPreview from './components/InlineDocumentPreview.vue';
+import FullDocumentPreview from './components/FullDocumentPreview.vue';
 import BackupManager from './components/BackupManager.vue';
 import DesignPanel from './components/DesignPanel.vue';
 import AnonymizationPanel from './components/AnonymizationPanel.vue';
@@ -22,6 +22,9 @@ import { createAnonymizedState } from './composables/anonymization';
 import SupabaseAuth from './components/SupabaseAuth.vue';
 import JobWorkspace from './components/JobWorkspace.vue';
 import { useSupabaseAuth } from './composables/useSupabaseAuth';
+import LetterTemplates from './components/LetterTemplates.vue';
+import VariantHistory from './components/VariantHistory.vue';
+import { rootVariantId } from './composables/careerVariants';
 
 const state = reactive<CvState>(createEmptyDocument());
 const { user: cloudUser, client: supabaseClient } = useSupabaseAuth();
@@ -34,13 +37,11 @@ const previewMode = ref(false);
 const fullPreviewView = ref('pdf');
 const mobileViewport = window.matchMedia('(max-width: 760px)');
 const isMobile = ref(mobileViewport.matches);
-const showPdfFullPreview = computed(() => isMobile.value || fullPreviewView.value === 'pdf');
 function syncMobileViewport() {
   isMobile.value = mobileViewport.matches;
 }
 onMounted(() => mobileViewport.addEventListener('change', syncMobileViewport));
 onBeforeUnmount(() => mobileViewport.removeEventListener('change', syncMobileViewport));
-const previewPlacement = ref('side');
 const previewPages = ref<PreviewPage[]>([]);
 const previewPage = ref(1);
 const isPreviewRendering = ref(true);
@@ -51,20 +52,51 @@ const isAnonymizedPreviewRendering = ref(false);
 const anonymizedPdfRenderSource = ref<HTMLElement | null>(null);
 const fullPreviewVariant = ref('normal');
 const t = makeT(lang);
+type Workspace = 'opportunities' | 'cv-studio' | 'applications';
+const activeWorkspace = ref<Workspace>('cv-studio');
 const activeBuilderGroup = ref('content');
-const isCloudTab = computed(() => Boolean(cloudUser.value) && ['opportunities', 'applications'].includes(activeBuilderGroup.value));
-const cloudTab = computed(() => activeBuilderGroup.value === 'applications' ? 'applications' : 'opportunities');
-watch(cloudUser, (user) => {
-  if (!user && ['opportunities', 'applications'].includes(activeBuilderGroup.value)) activeBuilderGroup.value = 'versions';
+try {
+  const cached = JSON.parse(sessionStorage.getItem('CV_WORKSPACE_NAV') || '{}');
+  if (['opportunities', 'cv-studio', 'applications'].includes(cached.workspace)) activeWorkspace.value = cached.workspace;
+  if (['versions', 'content', 'design', 'privacy', 'templates'].includes(cached.cvTab)) activeBuilderGroup.value = cached.cvTab;
+} catch { /* Navigation is available without browser storage. */ }
+watch([activeWorkspace, activeBuilderGroup], () => {
+  try { sessionStorage.setItem('CV_WORKSPACE_NAV', JSON.stringify({ workspace: activeWorkspace.value, cvTab: activeBuilderGroup.value })); } catch { /* Optional preference. */ }
 });
+const isCloudTab = computed(() => activeWorkspace.value !== 'cv-studio');
+const cloudTab = computed(() => activeWorkspace.value === 'applications' ? 'applications' : 'opportunities');
+const workspaceGroups = computed(() => [
+  { key: 'opportunities' as const, label: lang.value === 'de' ? 'Stellenangebote' : 'Opportunities', icon: 'briefcase' },
+  { key: 'cv-studio' as const, label: lang.value === 'de' ? 'CV-Studio' : 'CV Studio', icon: 'layer-group' },
+  { key: 'applications' as const, label: lang.value === 'de' ? 'Bewerbungen' : 'Applications', icon: 'envelope' },
+]);
+function selectWorkspace(workspace: Workspace) {
+  if (!prepareConfigurationChange()) return;
+  activeWorkspace.value = workspace; previewMode.value = false;
+}
+function saveCareerVariant(name: string, data: CvState) {
+  const saved = backupManager.value?.saveAsDocument(name, data) ?? false;
+  if (!saved) pdfExportError.value = lang.value === 'de' ? 'Karrierevariante konnte nicht gespeichert werden.' : 'The career variant could not be saved.';
+}
+function createSubvariant(parentId: string, name: string, data: CvState): string | null {
+  return backupManager.value?.createSubvariant(parentId, name, data) ?? null;
+}
+function openStudioVariant(id: string) {
+  if (!backupManager.value?.selectConfiguration(id)) return;
+  activeWorkspace.value = 'cv-studio'; activeBuilderGroup.value = 'content'; previewMode.value = false;
+}
 const savedConfigurations = ref<SavedConfiguration[]>([]);
 const selectedConfigurationId = ref('');
 const isEmptyDocument = computed(() => selectedConfigurationId.value === EMPTY_DOCUMENT_ID);
 const selectableConfigurations = computed(() => savedConfigurations.value.filter(({ id }) => !isBuiltinDocument(id)));
+const rootConfigurations = computed(() => savedConfigurations.value.filter(item => !item.parentId));
+const selectedRootId = computed(() => rootVariantId(selectedConfigurationId.value, savedConfigurations.value));
+const subConfigurations = computed(() => savedConfigurations.value.filter(item => item.parentId === selectedRootId.value));
 watch(isEmptyDocument, (empty) => {
   if (empty) activeBuilderGroup.value = 'versions';
 }, { flush: 'sync' });
 const saveStatus = ref<SaveStatus>('saved');
+const lastSavedAt = ref<number | null>(null);
 const backupManager = ref<InstanceType<typeof BackupManager> | null>(null);
 const formBuilder = ref<InstanceType<typeof FormBuilder> | null>(null);
 const sectionSaveStatus = ref<SaveStatus>('saved');
@@ -79,14 +111,11 @@ function prepareConfigurationChange() {
   return formBuilder.value?.resetSectionVersions() !== false && saveStatus.value !== 'error';
 }
 const builderGroups = computed(() => [
-  { key: 'versions', label: t('versions'), icon: 'layer-group' },
+  { key: 'versions', label: lang.value === 'de' ? 'Varianten' : 'Variants', icon: 'layer-group' },
   { key: 'content', label: t('content'), icon: 'table-cells-large' },
   { key: 'design', label: t('design'), icon: 'palette' },
   { key: 'privacy', label: t('privacy'), icon: 'user-secret' },
-  ...(cloudUser.value ? [
-    { key: 'opportunities', label: lang.value === 'de' ? 'Stellenangebote' : 'Opportunities', icon: 'briefcase' },
-    { key: 'applications', label: lang.value === 'de' ? 'Bewerbungen' : 'Applications', icon: 'envelope' },
-  ] : []),
+  { key: 'templates', label: lang.value === 'de' ? 'Briefvorlagen' : 'Letter templates', icon: 'envelope' },
 ]);
 function groupDisabled(key: string) {
   return isEmptyDocument.value && ['content', 'design', 'privacy'].includes(key);
@@ -97,14 +126,14 @@ function readCloudVersion(id: string): CvState | null {
   if (id === selectedConfigurationId.value) return JSON.parse(JSON.stringify(state));
   return backupManager.value?.readConfigData(id) || null;
 }
-const saveStatusLabel = computed(() => t({
-  saving: 'saving',
-  saved: 'saved',
-  error: 'saveFailed',
-}[combinedSaveStatus.value] || 'saved'));
-const saveStatusIcon = computed(() => (
-  combinedSaveStatus.value === 'saving' ? 'spinner' : combinedSaveStatus.value === 'error' ? 'xmark' : 'check'
-));
+const saveStatusLabel = computed(() => {
+  const label = t({ saving: 'saving', saved: 'saved', error: 'saveFailed' }[combinedSaveStatus.value]);
+  if (combinedSaveStatus.value !== 'saved' || lastSavedAt.value === null) return label;
+  const time = new Intl.DateTimeFormat(lang.value === 'de' ? 'de-DE' : 'en-GB', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).format(lastSavedAt.value);
+  return `${label} ${time}`;
+});
 
 function persistState() {
   try {
@@ -112,7 +141,7 @@ function persistState() {
     const saved = typeof versionSaveResult === 'boolean'
       ? versionSaveResult
       : saveLocal(state);
-    saveStatus.value = saved ? 'saved' : 'error';
+    handleConfigurationSaveResult(saved);
   } catch (error) {
     console.warn('Failed to save CV state', error);
     saveStatus.value = 'error';
@@ -139,13 +168,13 @@ function selectConfiguration(event: Event) {
 
 function handleConfigurationSaveResult(saved: boolean) {
   saveStatus.value = saved ? 'saved' : 'error';
+  if (saved) lastSavedAt.value = Date.now();
 }
 
 function toggleLanguage() {
   lang.value = lang.value === 'de' ? 'en' : 'de';
 }
 
-watch(state, scheduleStateSave, { deep: true });
 useCvDesign(() => state.design);
 
 function mergeIn(data: unknown) {
@@ -193,6 +222,11 @@ let isSliderPreviewUpdateDeferred = false;
 let sliderPreviewUpdatePending = false;
 let sliderSaveUpdatePending = false;
 let textPreviewUpdatePending = false;
+
+// Mark edits immediately, including an edit followed by navigation or pagehide
+// in the same event. A queued watcher could leave the status at "Saved" and
+// make flushStateSave miss that last change.
+watch(state, scheduleStateSave, { deep: true, flush: 'sync' });
 
 function exportMarginMillimeters(design: CvDesign, key: keyof CvDesign) {
   return Math.min(30, Math.max(0, designNumber(design, key)));
@@ -387,7 +421,7 @@ function isRangeInput(element: EventTarget | null) {
 }
 
 function onPreviewSliderPointerDown(event: PointerEvent) {
-  if (isRangeInput(event.target)) isSliderPreviewUpdateDeferred = true;
+  if (!isCloudTab.value && isRangeInput(event.target)) isSliderPreviewUpdateDeferred = true;
 }
 
 function commitDeferredSliderPreview() {
@@ -415,8 +449,20 @@ function flushStateSave() {
   saveDebounced.flush();
 }
 
-onMounted(() => window.addEventListener('pagehide', flushStateSave));
-onBeforeUnmount(() => window.removeEventListener('pagehide', flushStateSave));
+onMounted(() => {
+  window.addEventListener('pagehide', flushStateSave);
+  // A slider can be released outside the app or lose focus during a drag.
+  window.addEventListener('pointerup', commitDeferredSliderPreview);
+  window.addEventListener('pointercancel', commitDeferredSliderPreview);
+  window.addEventListener('blur', commitDeferredSliderPreview);
+});
+onBeforeUnmount(() => {
+  flushStateSave();
+  window.removeEventListener('pagehide', flushStateSave);
+  window.removeEventListener('pointerup', commitDeferredSliderPreview);
+  window.removeEventListener('pointercancel', commitDeferredSliderPreview);
+  window.removeEventListener('blur', commitDeferredSliderPreview);
+});
 
 function onPreviewInputBlur(event: FocusEvent) {
   if (textPreviewUpdatePending && isTextEntryInput(event.target)) requestPdfPreview();
@@ -514,9 +560,6 @@ const isActiveFullPreviewRendering = computed(() => (
   isAnonymizedFullPreview.value ? isAnonymizedPreviewRendering.value : isPreviewRendering.value
 ));
 
-function toggleAnonymizedFullPreview() {
-  fullPreviewMode.value = isAnonymizedFullPreview.value ? 'normal' : 'anonymized';
-}
 
 function openFullPreview() {
   flushStateSave();
@@ -526,6 +569,7 @@ function openFullPreview() {
 }
 
 function selectBuilderGroup(group: string) {
+  if (group === 'opportunities' || group === 'applications') { selectWorkspace(group); return; }
   activeBuilderGroup.value = group;
   previewMode.value = false;
 }
@@ -533,7 +577,7 @@ function selectBuilderGroup(group: string) {
 </script>
 
 <template>
-  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode, 'has-content-toolbar': !previewMode && activeBuilderGroup === 'content' && !isEmptyDocument }" @focusout="onPreviewInputBlur" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
+  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode, 'is-cloud-workspace': isCloudTab, 'has-content-toolbar': !previewMode && !isCloudTab && activeBuilderGroup === 'content' && !isEmptyDocument }" @focusout="onPreviewInputBlur" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
     <div v-if="pdfExportError" class="pdf-export-error" role="alert">
       <span>{{ pdfExportError }}</span>
       <button class="mini" type="button" :aria-label="t('close')" @click="pdfExportError = ''">×</button>
@@ -545,55 +589,27 @@ function selectBuilderGroup(group: string) {
       <CvPreview :state="anonymizedState" export-source anonymized />
     </div>
 
-    <section v-if="previewMode" id="builder-group-preview" class="fullscreen-preview" :aria-label="t('liveCvPreview')">
-      <button class="btn fullscreen-preview__back" type="button" @click="previewMode = false">
-        <font-awesome-icon :icon="['fas', 'arrow-left']" />
-        {{ t('backToBuilder') }}
-      </button>
-
-      <div v-if="isMobile" class="fullscreen-preview__actions fullscreen-preview__actions--mobile">
-        <button class="btn" type="button" :aria-label="isAnonymizedFullPreview ? t('showNormalPreview') : t('showAnonymizedPreview')" :aria-pressed="isAnonymizedFullPreview" @click="toggleAnonymizedFullPreview">
-          <font-awesome-icon :icon="['fas', isAnonymizedFullPreview ? 'user-secret' : 'eye']" aria-hidden="true" />
-          <span>{{ isAnonymizedFullPreview ? t('privacyPreview') : t('normalPreview') }}</span>
-        </button>
-        <button class="btn btn--primary" type="button" :aria-label="activeFullPreviewDownloadLabel" :title="activeFullPreviewDownloadLabel" :disabled="isActiveFullPreviewExporting" @click="exportActiveFullPreview">
-          <font-awesome-icon :icon="['fas', isActiveFullPreviewExporting ? 'spinner' : 'download']" :spin="isActiveFullPreviewExporting" aria-hidden="true" />
-          <span>{{ isActiveFullPreviewExporting ? t('exportingPdf') : t('downloadPdf') }}</span>
-        </button>
-      </div>
-      <div v-else class="fullscreen-preview__actions">
-        <select v-model="fullPreviewMode" :aria-label="t('previewFormat')">
-          <option value="normal">{{ t('normalPdf') }}</option>
-          <option value="anonymized">{{ t('privacyPdf') }}</option>
-          <option value="html">{{ t('rawHtml') }}</option>
-        </select>
-        <button class="btn btn--primary" type="button" :aria-label="activeFullPreviewDownloadLabel" :title="activeFullPreviewDownloadLabel" :disabled="isActiveFullPreviewExporting" @click="exportActiveFullPreview">
-          <font-awesome-icon :icon="['fas', isActiveFullPreviewExporting ? 'spinner' : 'download']" :spin="isActiveFullPreviewExporting" aria-hidden="true" />
-          {{ isActiveFullPreviewExporting ? t('exportingPdf') : t('downloadPdf') }}
-        </button>
-      </div>
-
-      <div class="fullscreen-preview__content">
-        <PdfPreview v-if="showPdfFullPreview" v-model:page="activeFullPreviewPage" :pages="activeFullPreviewPages" :is-updating="isActiveFullPreviewRendering" :lang="lang" gesture-navigation :pinch-zoom="isMobile" :key="fullPreviewVariant" />
-        <div v-else class="html-preview"><CvPreview :state="isAnonymizedFullPreview ? anonymizedState : state" :anonymized="isAnonymizedFullPreview" /></div>
-      </div>
-      <PdfPagination v-if="showPdfFullPreview" v-model:page="activeFullPreviewPage" :pages="activeFullPreviewPages" :lang="lang" fullscreen />
-    </section>
+    <FullDocumentPreview v-model="previewMode" v-model:page="activeFullPreviewPage" v-model:mode="fullPreviewMode"
+      :pages="activeFullPreviewPages" :is-updating="isActiveFullPreviewRendering" :lang="lang"
+      :modes="[{ value: 'normal', label: t('normalPdf') }, { value: 'anonymized', label: t('privacyPdf') }, { value: 'html', label: t('rawHtml') }]"
+      :downloading="isActiveFullPreviewExporting" :download-label="activeFullPreviewDownloadLabel" :title="t('liveCvPreview')" :error="pdfExportError" @download="exportActiveFullPreview">
+      <template #html><CvPreview :state="isAnonymizedFullPreview ? anonymizedState : state" :anonymized="isAnonymizedFullPreview" /></template>
+    </FullDocumentPreview>
 
     <section v-show="!previewMode" class="builder-shell">
-      <header class="builder-topbar">
+      <header v-if="!isMobile" class="builder-topbar">
         <nav class="builder-topbar__tabs" role="tablist" :aria-label="t('content')">
           <button
-            v-for="group in builderGroups"
+            v-for="group in workspaceGroups"
             :key="group.key"
             class="builder-topbar__tab"
-            :class="{ 'is-active': activeBuilderGroup === group.key }"
+            :class="{ 'is-active': activeWorkspace === group.key }"
             type="button"
             role="tab"
-            :aria-selected="activeBuilderGroup === group.key"
+            :aria-selected="activeWorkspace === group.key"
             :aria-controls="`builder-group-${group.key}`"
-            :disabled="groupDisabled(group.key)"
-            @click="selectBuilderGroup(group.key)"
+
+            @click="selectWorkspace(group.key)"
           >
             <font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" />
             <span>{{ group.label }}</span>
@@ -602,29 +618,28 @@ function selectBuilderGroup(group: string) {
 
         <div class="builder-topbar__utilities">
           <SupabaseAuth class="builder-topbar__auth" :lang="lang === 'de' ? 'de' : 'en'" />
-          <label class="builder-topbar__configuration">
-            <font-awesome-icon :icon="['fas', 'layer-group']" aria-hidden="true" />
-            <select :value="isBuiltinDocument(selectedConfigurationId) ? '' : selectedConfigurationId" :aria-label="t('versions')" @change="selectConfiguration">
-              <option v-if="!selectedConfigurationId || isBuiltinDocument(selectedConfigurationId)" value="" disabled>{{ t('noSavedVersion') }}</option>
-              <option v-for="configuration in selectableConfigurations" :key="configuration.id" :value="configuration.id">{{ configuration.name }}</option>
-            </select>
-          </label>
-          <button
-            class="mini builder-topbar__placement-toggle"
-            type="button"
-            :aria-pressed="previewPlacement === 'below'"
-            :aria-label="previewPlacement === 'side' ? t('movePreviewBelow') : t('movePreviewSide')"
-            :title="previewPlacement === 'side' ? t('movePreviewBelow') : t('movePreviewSide')"
-            @click="previewPlacement = previewPlacement === 'side' ? 'below' : 'side'"
-          >
-            <font-awesome-icon :icon="['fas', previewPlacement === 'side' ? 'arrow-down' : 'arrow-right']" />
-          </button>
-          <output class="builder-topbar__save-status" :class="`is-${combinedSaveStatus}`" aria-live="polite">
-            <font-awesome-icon :icon="['fas', saveStatusIcon]" :spin="combinedSaveStatus === 'saving'" />
-            {{ saveStatusLabel }}
-          </output>
         </div>
       </header>
+
+
+      <div v-show="!isCloudTab" class="cv-studio-navigation">
+        <nav class="cv-studio-subtabs" aria-label="CV Studio sections">
+          <button v-for="group in builderGroups" :key="group.key" class="btn" :class="{ 'is-active': activeBuilderGroup === group.key }" :aria-pressed="activeBuilderGroup === group.key" :disabled="groupDisabled(group.key)" type="button" @click="selectBuilderGroup(group.key)">{{ group.label }}</button>
+        </nav>
+        <div class="cv-studio-version">
+          <select class="cv-studio-configuration" :value="selectedRootId" :aria-label="lang === 'de' ? 'Karrierevariante' : 'Career variant'" @change="selectConfiguration">
+            <option v-if="!selectedConfigurationId" value="" disabled>{{ t('noSavedVersion') }}</option>
+            <option v-for="configuration in rootConfigurations" :key="configuration.id" :value="configuration.id">{{ configuration.name }}</option>
+          </select>
+          <select v-if="subConfigurations.length" class="cv-studio-configuration" :value="selectedConfigurationId" :aria-label="lang === 'de' ? 'Untervariante' : 'Subvariant'" @change="selectConfiguration">
+            <option :value="selectedRootId">{{ lang === 'de' ? 'Original' : 'Original' }}</option>
+            <option v-for="configuration in subConfigurations" :key="configuration.id" :value="configuration.id">{{ configuration.name }}</option>
+          </select>
+          <button v-if="isMobile" class="btn cv-studio-open-preview" type="button" :disabled="isEmptyDocument" @click="openFullPreview">{{ t('openPreview') }}</button>
+        </div>
+        <output class="cv-save-announcement" aria-live="polite" aria-atomic="true">{{ saveStatusLabel }}</output>
+      </div>
+      <section v-if="isCloudTab && !cloudUser" class="workspace-sign-in"><h1>{{ activeWorkspace === 'opportunities' ? (lang === 'de' ? 'Stellenangebote entdecken' : 'Discover opportunities') : (lang === 'de' ? 'Bewerbungen vorbereiten' : 'Prepare applications') }}</h1><p>{{ lang === 'de' ? 'Melde dich bei Supabase an, um auf deinen Bewerbungsbereich zuzugreifen. Das CV-Studio ist auch ohne Anmeldung verfügbar.' : 'Sign in to Supabase to access your application workspace. CV Studio remains available without an account.' }}</p></section>
 
       <JobWorkspace
         v-if="cloudUser"
@@ -637,10 +652,13 @@ function selectBuilderGroup(group: string) {
         :configurations="selectableConfigurations"
         :selected-id="selectedConfigurationId"
         :read-version="readCloudVersion"
+        :create-subvariant="createSubvariant"
         @navigate="selectBuilderGroup"
+        @save-career-variant="saveCareerVariant"
+        @edit-variant="openStudioVariant"
       />
 
-      <section v-show="!isCloudTab" class="builder-layout" :class="`builder-layout--${isMobile ? 'side' : previewPlacement}`">
+      <section v-show="!isCloudTab" id="builder-group-cv-studio" class="builder-layout">
         <div class="builder-layout__controls">
           <Transition name="builder-group">
             <BackupManager
@@ -659,7 +677,7 @@ function selectBuilderGroup(group: string) {
               @save-result="handleConfigurationSaveResult"
               @version-deleted="handleVersionDeleted"
               @toggle-language="toggleLanguage"
-            />
+            ><template #history><VariantHistory v-if="selectedConfigurationId && !isBuiltinDocument(selectedConfigurationId)" :variant-id="selectedConfigurationId" :state="state" @restore="mergeIn" /></template></BackupManager>
           </Transition>
           <Transition name="builder-group">
             <FormBuilder v-show="activeBuilderGroup === 'content' && !isEmptyDocument" id="builder-group-content" ref="formBuilder" class="builder-group-panel" :state="state" :configurations="selectableConfigurations" :selected-id="selectedConfigurationId" :read-version="readSectionVersion" :save-version="saveSectionVersion" @section-save-status="sectionSaveStatus = $event" />
@@ -684,57 +702,16 @@ function selectBuilderGroup(group: string) {
               @export="handleAnonymizedExportPdf"
             />
           </Transition>
+          <LetterTemplates v-show="activeBuilderGroup === 'templates'" class="builder-group-panel studio-templates" :user-id="cloudUser?.id || 'local'" :lang="lang" />
         </div>
 
-        <aside v-if="!isMobile" class="inline-preview" :aria-label="t('liveCvPreview')">
-        <div class="inline-preview__actions">
-          <button class="btn" type="button" @click="openFullPreview">{{ t('openPreview') }}</button>
-          <button class="btn btn--primary" type="button" @click="handleExportPdf" :disabled="isExporting">
-            <font-awesome-icon v-if="isExporting" :icon="['fas', 'spinner']" spin />
-            {{ isExporting ? t('exportingPdf') : t('downloadPdf') }}
-          </button>
-        </div>
-        <div class="inline-preview__viewport">
-          <div class="inline-preview__scroll">
-            <PdfPreview v-model:page="previewPage" :pages="previewPages" :is-updating="isPreviewRendering" :lang="lang" gesture-navigation />
-            <div class="inline-preview__pagination">
-              <PdfPagination v-model:page="previewPage" :pages="previewPages" :lang="lang" />
-            </div>
-          </div>
-        </div>
-        </aside>
+        <InlineDocumentPreview v-if="!isMobile" class="studio-inline-preview" v-model:page="previewPage" :pages="previewPages" :is-updating="isPreviewRendering" :lang="lang" :downloading="isExporting" :title="t('liveCvPreview')" @open="openFullPreview" @download="handleExportPdf" />
       </section>
     </section>
 
-    <nav class="mobile-bottom-tabs" role="tablist" :aria-label="t('builderNavigation')">
-      <button
-        v-for="group in builderGroups"
-        :key="group.key"
-        class="builder-topbar__tab"
-        :class="{ 'is-active': !previewMode && activeBuilderGroup === group.key }"
-        type="button"
-        role="tab"
-        :aria-selected="!previewMode && activeBuilderGroup === group.key"
-        :aria-controls="`builder-group-${group.key}`"
-        :disabled="groupDisabled(group.key)"
-        @click="selectBuilderGroup(group.key)"
-      >
-        <font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" />
-        <span>{{ group.label }}</span>
-      </button>
-      <button
-        class="builder-topbar__tab"
-        :class="{ 'is-active': previewMode }"
-        type="button"
-        role="tab"
-        :aria-selected="previewMode"
-        aria-controls="builder-group-preview"
-        :disabled="isEmptyDocument"
-        @click="openFullPreview"
-      >
-        <font-awesome-icon :icon="['fas', 'eye']" aria-hidden="true" />
-        <span>{{ t('preview') }}</span>
-      </button>
+    <nav class="mobile-bottom-tabs" aria-label="Workspaces">
+      <button v-for="group in workspaceGroups" :key="group.key" class="builder-topbar__tab" :class="{ 'is-active': activeWorkspace === group.key }" :aria-pressed="activeWorkspace === group.key" type="button" @click="selectWorkspace(group.key)"><font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" /><span>{{ group.label }}</span></button>
+      <SupabaseAuth v-if="isMobile" class="mobile-bottom-auth" :lang="lang === 'de' ? 'de' : 'en'" bottom-bar />
     </nav>
   </main>
 </template>
@@ -772,7 +749,7 @@ body,
   height: 100vh;
   height: 100dvh;
   min-height: 0;
-  padding: 24px;
+  padding: 10px;
   overflow: hidden;
   overscroll-behavior: none;
 }
@@ -791,8 +768,8 @@ body,
 }
 
 .builder-shell {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   height: 100%;
   min-height: 0;
@@ -801,12 +778,21 @@ body,
   overflow: hidden;
 }
 
+.builder-shell > .builder-layout, .builder-shell > .jobs-workspace { flex: 1 1 auto; height: auto; }
+.builder-shell > .builder-topbar, .cv-studio-navigation { flex: 0 0 auto; }
+.builder-topbar, .cv-studio-navigation { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; }
+.cv-studio-navigation { align-items: center; }
+.cv-studio-subtabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.cv-studio-subtabs .is-active { border-color: #67c8a6; background: #185b4c; }
+.cv-studio-version { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.cv-studio-configuration { flex: 1 1 auto; width: 0; min-width: 0; }
+.cv-studio-open-preview { flex: 0 0 auto; white-space: nowrap; }
+.cv-save-announcement { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.workspace-sign-in { padding: 30px; border: 1px solid #24504e; border-radius: 12px; color: #cbe5da; background: #06141f; }
+
 .builder-topbar {
   position: relative;
   z-index: 20;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
-  gap: 20px;
 }
 
 .builder-topbar__tabs {
@@ -845,29 +831,9 @@ body,
 
 .builder-topbar__utilities {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 4px 8px;
-  min-width: 0;
-  padding: 6px 12px;
-  border: 1px solid #113c34;
-  border-radius: 9px;
-  background: #06141f;
+  justify-self: end;
 }
 
-.builder-topbar__configuration {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  color: #9be8c7;
-}
-
-.builder-topbar__configuration select { width: 100%; min-width: 0; }
-.builder-topbar__placement-toggle { display: grid; place-items: center; width: 32px; height: 32px; }
-.builder-topbar__save-status { display: inline-flex; grid-column: 1 / -1; justify-self: center; align-items: center; gap: 6px; color: #9be8c7; font-size: 11px; white-space: nowrap; }
-.builder-topbar__save-status.is-saving { color: #f0cd86; }
-.builder-topbar__save-status.is-error { color: #fca5a5; }
 .builder-topbar__auth { grid-column: 1 / -1; }
 
 .builder-layout {
@@ -909,6 +875,7 @@ body,
 
 .builder-layout__controls .builder-group-panel:has(.content-mode-toolbar),
 .builder-layout__controls .anonymization-panel { height: 100%; }
+.builder-layout__controls .studio-templates { height: 100%; overflow: hidden; padding: 0; }
 
 .builder-group-panel > .group-panel__scroll-body,
 .builder-group-panel > .editor-panel__body,
@@ -947,140 +914,10 @@ body,
 }
 .builder-group-enter-from, .builder-group-leave-to { opacity: 0; }
 
-.builder-layout--below {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+@media (min-width: 761px) and (max-height: 600px) {
+  .builder-topbar__tab { min-height: 42px; }
+  .builder-topbar__tab .svg-inline--fa { display: none; }
 }
-
-.builder-layout--below::-webkit-scrollbar { display: none; }
-
-.builder-layout--below .builder-layout__controls {
-  flex: 0 0 100%;
-}
-
-.builder-layout--below .inline-preview {
-  flex: none;
-  position: relative;
-  top: auto;
-  flex: 0 0 auto;
-  align-self: center;
-  width: min(100%, 680px);
-  height: auto;
-  overflow: visible;
-}
-
-.builder-layout--below .inline-preview__viewport,
-.builder-layout--below .inline-preview__scroll {
-  height: auto;
-  overflow: visible;
-}
-
-.inline-preview {
-  position: relative;
-  top: auto;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
-  min-height: 0;
-  height: 100%;
-  overflow: hidden;
-  background: transparent;
-}
-
-.inline-preview__actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  width: min(100%, 794px);
-  justify-self: center;
-}
-
-.inline-preview__actions .btn { width: 100%; }
-
-.inline-preview__viewport {
-  position: relative;
-  width: 100%;
-  min-width: 0;
-  min-height: 0;
-}
-
-.inline-preview__scroll {
-  display: block;
-  height: 100%;
-  min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-}
-
-
-.inline-preview .pdf-preview {
-  width: min(100%, 794px);
-  margin: 0 auto;
-}
-
-.inline-preview .pdf-preview__stage {
-  display: block;
-  min-height: 0;
-  overflow: visible;
-  border-radius: 0;
-  background: transparent;
-}
-
-.inline-preview .pdf-preview__page {
-  width: 100%;
-  height: auto;
-  max-width: 794px;
-  box-shadow: none;
-}
-
-.inline-preview__pagination {
-  min-width: 0;
-  width: min(100%, 794px);
-  margin: 10px auto 0;
-  justify-self: center;
-}
-
-.fullscreen-preview {
-  position: relative;
-  min-height: 100vh;
-  display: flex;
-  justify-content: center;
-  padding: 84px 16px 32px;
-}
-
-.fullscreen-preview__content { display: grid; width: min(100%, 860px); justify-items: center; }
-.html-preview { width: min(100%, 210mm); overflow: auto; background: #fff; }
-
-.fullscreen-preview__back,
-.fullscreen-preview__actions {
-  position: fixed;
-  z-index: 30;
-  top: 20px;
-}
-
-.fullscreen-preview__back {
-  left: 20px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.fullscreen-preview__actions {
-  right: 20px;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-}
-
-.fullscreen-preview__actions select { min-height: 36px; }
-.fullscreen-preview__actions .btn { display: inline-flex; justify-content: center; align-items: center; gap: 8px; }
 
 @media (max-width: 1180px) {
   .cv-builder-app {
@@ -1092,13 +929,11 @@ body,
     grid-template-rows: minmax(0, 1fr) minmax(260px, 42vh);
   }
 
-  .inline-preview {
-    position: relative;
-    top: auto;
-    width: min(100%, 520px);
-    height: 100%;
-    justify-self: center;
-  }
+  .studio-inline-preview { width: min(100%, 520px); justify-self: center; }
+}
+
+@media (min-width: 761px) and (max-width: 1180px) and (max-height: 600px) {
+  .builder-layout { grid-template-rows: minmax(0, 1fr) auto; }
 }
 
 @media (max-width: 760px) {
@@ -1110,23 +945,21 @@ body,
   }
 
   .cv-builder-app.has-content-toolbar { --mobile-content-toolbar-space: var(--mobile-content-toolbar-height); }
+  .cv-builder-app.is-cloud-workspace { padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) calc(var(--mobile-tabs-height) + 8px) max(8px, env(safe-area-inset-left, 0px)); }
   .cv-builder-app.is-preview-mode { overflow: hidden; }
-  .builder-topbar { display: block; }
-  .builder-topbar__tabs { display: none; }
-  .builder-topbar__utilities { display: block; padding: 6px 8px; }
-  .builder-topbar__utilities > :not(.builder-topbar__auth) { display: none; }
+  .cv-studio-navigation { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .cv-studio-version { gap: 8px; }
+  .cv-studio-open-preview { padding-inline: 10px; }
   .builder-shell { grid-template-rows: auto minmax(0, 1fr); gap: 10px; }
   .builder-layout { grid-template-rows: minmax(0, 1fr); gap: 0; }
-  .inline-preview { display: none; }
 
   .mobile-bottom-tabs {
     position: fixed;
     inset: auto 0 0;
     z-index: 40;
     display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(66px, 1fr);
-    overflow-x: auto;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    overflow: visible;
     gap: 4px;
     height: var(--mobile-tabs-height);
     padding: 8px max(8px, env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
@@ -1136,29 +969,9 @@ body,
   }
   .mobile-bottom-tabs .builder-topbar__tab { min-width: 0; min-height: 0; padding: 4px 2px; gap: 5px; font-size: 10px; border: none; }
   .mobile-bottom-tabs .builder-topbar__tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .mobile-bottom-auth { min-width: 0; height: 100%; }
   .pdf-export-error { bottom: calc(var(--mobile-tabs-height) + var(--mobile-content-toolbar-space) + 12px); }
 
-  .fullscreen-preview {
-    display: grid;
-    grid-template-rows: 52px minmax(0, 1fr) 52px;
-    gap: 8px;
-    height: 100%;
-    min-height: 0;
-    min-width: 0;
-    justify-content: stretch;
-    overflow: hidden;
-    padding: 0;
-  }
-
-  .fullscreen-preview__back { display: none; }
-  .fullscreen-preview__actions--mobile { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  .fullscreen-preview__actions--mobile .btn { justify-content: center; min-width: 0; min-height: 44px; padding: 6px; font-size: clamp(11px, 3vw, 13px); line-height: 1.2; }
-  .fullscreen-preview__actions--mobile .btn .svg-inline--fa { flex: none; margin: 0; font-size: 16px; }
-  .fullscreen-preview__content { container-type: size; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; }
-  .fullscreen-preview .pdf-preview,
-  .fullscreen-preview .pdf-preview__stage { height: 100%; min-height: 0; }
-  .fullscreen-preview .pdf-preview__stage { background: transparent; }
-  .fullscreen-preview .pdf-preview__page { width: min(100cqw, calc(100cqh * 210 / 297), 794px); }
 
 }
 

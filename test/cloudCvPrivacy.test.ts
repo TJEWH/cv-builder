@@ -89,3 +89,37 @@ test('snapshot identity must be generated independently of local CV metadata', (
   assert.notEqual(first.id, second.id);
   assert.notEqual(first.name, second.name);
 });
+
+test('known applicant identity repeated in CV prose is removed at the cloud upload boundary', () => {
+  const contact = { name: 'Taylor [Q]', email: 'taylor+cv@example.org', phone: '+44 123 456', website: 'https://taylor.example.org',
+    linkedin: 'https://linkedin.com/in/taylor', github: 'https://github.com/taylor', role: 'Software Engineer', location: 'Neustadt' };
+  const state = createTestState({ contact, about: { text: 'TAYLOR [Q] is a Software Engineer in Neustadt. Email taylor+cv@example.org.' },
+    education: [{ id: 'private-id', desc: 'Call +44 123 456. [Work](https://taylor.example.org) and https://linkedin.com/in/taylor.' }],
+    customSections: [{ id: 'custom', name: 'Taylor [Q] research', entries: [{ id: 'entry', desc: 'Code at https://github.com/taylor.' }] }],
+    sidebarSections: [{ id: 'sidebar', name: 'Links', levelType: null, items: [{ id: 'link', name: 'taylor+cv@example.org' }] }],
+    sectionNames: { education: 'Taylor [Q] education' },
+  });
+  const before = structuredClone(state);
+  const result = createCloudCvSnapshot(state, options);
+  assert.deepEqual(result.content_json.contact, SAMPLE_CONTACT);
+  assert.equal(result.content_json.about.text, '{{APPLICANT_NAME}} is a Software Engineer in Neustadt. Email {{APPLICANT_EMAIL}}.');
+  assert.equal(result.content_json.education[0].desc, 'Call {{APPLICANT_PHONE}}. [Work]({{APPLICANT_WEBSITE}}) and {{APPLICANT_LINKEDIN}}.');
+  assert.equal(result.content_json.customSections[0].name, '{{APPLICANT_NAME}} research');
+  assert.equal(result.content_json.customSections[0].entries[0].desc, 'Code at {{APPLICANT_GITHUB}}.');
+  assert.equal(result.content_json.sidebarSections[0].items[0].name, '{{APPLICANT_EMAIL}}');
+  assert.equal(result.content_json.sectionNames.education, '{{APPLICANT_NAME}} education');
+  for (const key of ['name','email','phone','website','linkedin','github'] as const) assert.equal(JSON.stringify(result).toLowerCase().includes(contact[key].toLowerCase()), false);
+  assert.deepEqual(state, before);
+});
+
+test('short names use whole-name boundaries and identity placeholders remain intact', () => {
+  const state = createTestState({ contact: { ...SAMPLE_CONTACT, name: 'Ann' }, about: { text: 'Ann presents an annual review. {{APPLICANT_NAME}}' } });
+  assert.equal(createCloudCvSnapshot(state, options).content_json.about.text, '{{APPLICANT_NAME}} presents an annual review. {{APPLICANT_NAME}}');
+});
+
+test('redacting a name that resembles a structural value preserves valid CV item state', () => {
+  const state = createTestState({ contact: { ...SAMPLE_CONTACT, name: 'Complete' }, education: [{ id: 'degree', state: 'complete', desc: 'Complete finished this course.' }] });
+  const result = createCloudCvSnapshot(state, options);
+  assert.equal(result.content_json.education[0].state, 'complete');
+  assert.equal(result.content_json.education[0].desc, '{{APPLICANT_NAME}} finished this course.');
+});

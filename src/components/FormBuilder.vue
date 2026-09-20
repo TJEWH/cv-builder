@@ -10,6 +10,7 @@ import SectionItems from './SectionItems.vue';
 import MarkdownTextarea from './MarkdownTextarea.vue';
 import ConfirmDeletionDialog from './ConfirmDeletionDialog.vue';
 import SectionVersionSelect from './SectionVersionSelect.vue';
+import CopyCvSection from './CopyCvSection.vue';
 import { useSectionVersions } from '../composables/useSectionVersions.ts';
 import { makeT } from '../i18n/dict.ts';
 import { createContentId, moveSectionInOrder, normalizeContentState } from '../composables/contentLayout.ts';
@@ -72,14 +73,6 @@ const versionSelectProps = (key: string) => ({
 const selectSectionVersion = (key: string, id: string) => {
   pendingDeletion.value = null;
   sectionVersions.select(key, id);
-};
-const toggleVersionMode = () => {
-  if (editingSection.id) finishEditSectionName(editingSection.id);
-  closeFieldConfig();
-  pendingDeletion.value = null;
-  reorderMode.value = false;
-  configMode.value = false;
-  versionMode.value = !versionMode.value;
 };
 defineExpose({ flushSectionSaves: sectionVersions.flush, resetSectionVersions: sectionVersions.reset });
 const collapsed = reactive<Record<string, boolean>>({
@@ -387,6 +380,7 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
         <h2>{{ t('content') }}</h2>
       </div>
 
+      <CopyCvSection :state="props.state" :configurations="configurations" :read-version="readVersion" />
       <div class="content-tabs" role="tablist" :aria-label="t('content')">
         <button id="content-tab-header" class="content-tab" :class="{ active: activeContentTab === 'header' }" type="button" role="tab" :aria-selected="activeContentTab === 'header'" aria-controls="content-panel-header" @click="selectContentTab('header')"><span>{{ t('header') }}</span><font-awesome-icon v-if="todosMode && isContentTabComplete('header')" class="content-tab__complete" :icon="['fas', 'check']" aria-hidden="true" /></button>
         <button id="content-tab-body" class="content-tab" :class="{ active: activeContentTab === 'body' }" type="button" role="tab" :aria-selected="activeContentTab === 'body'" aria-controls="content-panel-body" @click="selectContentTab('body')"><span>{{ t('body') }}</span><font-awesome-icon v-if="todosMode && isContentTabComplete('body')" class="content-tab__complete" :icon="['fas', 'check']" aria-hidden="true" /></button>
@@ -565,7 +559,6 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
           <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': configMode }" :aria-pressed="configMode" @click="toggleConfigMode"><font-awesome-icon :icon="['fas', 'sliders']" aria-hidden="true" />{{ t('config') }}</button>
         </div>
         <div class="panel-header-action content-mode-actions">
-          <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': versionMode }" :aria-label="t('sectionVersions')" :title="t('sectionVersions')" :aria-pressed="versionMode" @click="toggleVersionMode"><font-awesome-icon :icon="['fas', 'layer-group']" aria-hidden="true" />{{ t('versions') }}</button>
           <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': reorderMode && activeContentTab !== 'header' }" :aria-label="t('reorderSections')" :aria-pressed="reorderMode && activeContentTab !== 'header'" :disabled="activeContentTab === 'header'" @click="toggleReorderMode"><font-awesome-icon :icon="['fas', 'grip-vertical']" aria-hidden="true" />{{ t('reorder') }}</button>
         </div>
       </div>

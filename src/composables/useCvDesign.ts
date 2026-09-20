@@ -58,9 +58,9 @@ function colorWithOpacity(color: unknown, opacity = DEFAULT_DESIGN.graphicOpacit
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
-export function applyCvDesign(input: CvDesign = {}) {
+export function applyCvDesign(input: CvDesign = {}, target: HTMLElement = document.documentElement) {
   const design = resolveDesign(input);
-  const root = document.documentElement.style;
+  const root = target.style;
   root.setProperty('--h1-size', design.h1);
   root.setProperty('--h2-size', design.h2);
   root.setProperty('--h3-size', design.h3);
@@ -101,16 +101,21 @@ export function applyCvDesign(input: CvDesign = {}) {
   root.setProperty('--font-body', `${bodyFont ? `${JSON.stringify(bodyFont.name)}, ` : ''}${SYSTEM_FONT_STACK}`);
   root.setProperty('--font-head', `${headFont ? `${JSON.stringify(headFont.name)}, ` : ''}var(--font-body)`);
 
-  ensureFontLink('body', bodyFont);
-  ensureFontLink('head', headFont);
-  document.documentElement.setAttribute('data-show-timeline', String(design.showTimeline));
-  document.documentElement.setAttribute('data-hstyle', design.hstyle);
-  document.documentElement.setAttribute('data-sidebar-align', design.sidebarAlign);
-  document.documentElement.setAttribute('data-header-layout-style', design.headerLayoutStyle);
-  document.documentElement.setAttribute('data-sidebar-layout-style', design.sidebarLayoutStyle);
-  document.documentElement.setAttribute('data-contact-layout', design.contactLayout);
+  if (target === document.documentElement) {
+    ensureFontLink('body', bodyFont);
+    ensureFontLink('head', headFont);
+  } else {
+    // A mounted document must not remove fonts still used by another document.
+    for (const font of [bodyFont, headFont]) if (font) ensureFontLink(`document-${encodeURIComponent(font.source + '-' + font.name)}`, font);
+  }
+  target.setAttribute('data-show-timeline', String(design.showTimeline));
+  target.setAttribute('data-hstyle', design.hstyle);
+  target.setAttribute('data-sidebar-align', design.sidebarAlign);
+  target.setAttribute('data-header-layout-style', design.headerLayoutStyle);
+  target.setAttribute('data-sidebar-layout-style', design.sidebarLayoutStyle);
+  target.setAttribute('data-contact-layout', design.contactLayout);
 }
 
 export function useCvDesign(getDesign: () => CvDesign) {
-  watch(getDesign, applyCvDesign, { deep: true, immediate: true });
+  watch(getDesign, (design) => applyCvDesign(design), { deep: true, immediate: true });
 }

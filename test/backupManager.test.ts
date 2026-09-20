@@ -152,6 +152,7 @@ function savedVersionFixture(t: TestContext) {
   app.mount({});
   const instance = mounted as {
     saveCurrent(): boolean; saveVersion(id: string, data: CvState): boolean;
+    createSubvariant(sourceId: string, name: string, data: CvState): string | null;
     restoreActiveConfig(): CvState | null;
     $: { setupState: {
       deleteCurrent(): void; exportJson(kind: CvJsonKind): void;
@@ -162,6 +163,22 @@ function savedVersionFixture(t: TestContext) {
   t.after(() => app.unmount());
   return { storage, props, instance, setup: instance.$.setupState, deleted, global };
 }
+
+test('subvariants retain their parent through autosave and their parent cannot be deleted first', async (t) => {
+  const { storage, instance, setup, props } = savedVersionFixture(t);
+  const child = instance.createSubvariant('target', 'Robotics application', createSampleDocument());
+  assert.ok(child);
+  const sibling = instance.createSubvariant(child, 'Second application', createSampleDocument());
+  assert.ok(sibling);
+  assert.equal(instance.saveVersion(child, createEmptyDocument()), true);
+  const items = JSON.parse(storage.get('CV_CONF_INDEX')!) as SavedConfiguration[];
+  assert.equal(items.find(item => item.id === child)?.parentId, 'target');
+  assert.equal(items.find(item => item.id === sibling)?.parentId, 'target');
+  setup.deleteCurrent();
+  await nextTick();
+  assert.equal(props.selectedId, 'target');
+  assert.ok(storage.has('CV_CONF_DATA:target'));
+});
 
 test('deletion removes persisted data and the recovery copy, opens empty state, and cannot autosave the old version', async (t) => {
   const { storage, props, instance, setup, deleted } = savedVersionFixture(t);

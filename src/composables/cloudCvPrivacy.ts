@@ -4,6 +4,7 @@ import { CV_STATE_VERSION } from '../types';
 import { createCvConfigJson, createCvContentJson } from './cvJsonBackup';
 import { readCvConfig, readCvContent } from './cvStateValidation';
 import { BODY_FONTS, HEADING_FONTS } from './webFonts';
+import { redactKnownIdentityValues } from './identityRedaction';
 
 const BUILTIN_SECTIONS = ['header', 'about', 'education', 'jobs', 'languages', 'hobbies'];
 const DESIGN_CHOICES: Partial<Record<keyof CvDesign, readonly string[]>> = {
@@ -34,7 +35,11 @@ export function createCloudCvSnapshot(state: CvState, options: { id?: string; no
   if (!/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(id)) throw new Error('Invalid snapshot ID.');
   const now = options.now ?? new Date();
   // Reuse the existing privacy rules, then remove local identifiers and config-only leaks.
-  const content = createCvContentJson(state).data;
+  const privacyContent = createCvContentJson(state).data;
+  const content = redactKnownIdentityValues(privacyContent, [state.contact]);
+  // The existing database accepts fixed sample contacts or blanks. Keep that
+  // contract while removing repeated real identity from the projected prose.
+  content.contact = privacyContent.contact;
   const localConfig = createCvConfigJson(state).data;
   const excludedSections = new Set([...state.disabled, ...state.anonymization.excludedSections]);
   const sectionIds = new Map(BUILTIN_SECTIONS.filter((key) => !excludedSections.has(key)).map((key) => [key, key]));

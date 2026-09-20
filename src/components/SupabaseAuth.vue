@@ -2,14 +2,14 @@
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue';
 import { useSupabaseAuth } from '../composables/useSupabaseAuth';
 
-const props = defineProps<{ lang: 'de' | 'en' }>();
+const props = defineProps<{ lang: 'de' | 'en'; bottomBar?: boolean }>();
 const { user, ready, busy, error, configuration, signIn, signOut, clearError } = useSupabaseAuth();
 const panel = ref<HTMLDetailsElement | null>(null);
 const email = ref('');
 const password = ref('');
 const id = useId();
 const copy = computed(() => props.lang === 'de' ? {
-  login: 'Anmelden', account: 'Supabase-Konto', local: 'Lokal', checking: 'Sitzung prüfen …',
+  login: 'Anmelden', account: 'Supabase-Konto', shortAccount: 'Konto', local: 'Lokal', checking: 'Sitzung prüfen …',
   title: 'Bei Supabase anmelden', email: 'E-Mail', password: 'Passwort', working: 'Bitte warten …',
   logout: 'Abmelden', close: 'Schließen',
   help: 'Melde dich mit deinem bestehenden Konto an, um Stellenangebote und Bewerbungen zu verwalten.',
@@ -21,7 +21,7 @@ const copy = computed(() => props.lang === 'de' ? {
   signOutFailed: 'Abmeldung fehlgeschlagen. Prüfe die Verbindung und versuche es erneut.',
   sessionFailed: 'Die Sitzung konnte nicht bestätigt werden. Bitte melde dich erneut an.',
 } : {
-  login: 'Sign in', account: 'Supabase account', local: 'Local', checking: 'Checking session …',
+  login: 'Sign in', account: 'Supabase account', shortAccount: 'Account', local: 'Local', checking: 'Checking session …',
   title: 'Sign in to Supabase', email: 'Email', password: 'Password', working: 'Please wait …',
   logout: 'Sign out', close: 'Close',
   help: 'Use your existing account to manage job opportunities and applications.',
@@ -60,10 +60,11 @@ onBeforeUnmount(() => { password.value = ''; });
 </script>
 
 <template>
-  <details ref="panel" class="supabase-auth" @toggle="onToggle" @keydown.esc="close">
-    <summary :title="user?.email || copy.account">
-      <span class="supabase-auth__dot" :class="{ 'is-connected': user }" aria-hidden="true"></span>
-      <span>{{ user ? copy.account : configuration.status === 'ready' ? copy.login : copy.local }}</span>
+  <details ref="panel" class="supabase-auth" :class="{ 'supabase-auth--bottom': bottomBar }" @toggle="onToggle" @keydown.esc="close">
+    <summary :title="user?.email || copy.account" :aria-label="user ? copy.account : copy.title">
+      <font-awesome-icon v-if="bottomBar" class="supabase-auth__icon" :class="{ 'is-connected': user }" :icon="['fas', user ? 'lock-open' : 'lock']" aria-hidden="true" />
+      <span v-else class="supabase-auth__dot" :class="{ 'is-connected': user }" aria-hidden="true"></span>
+      <span>{{ user ? (bottomBar ? copy.shortAccount : copy.account) : configuration.status === 'ready' ? copy.login : copy.local }}</span>
     </summary>
     <section class="supabase-auth__panel" :aria-labelledby="`${id}-title`">
       <div class="supabase-auth__heading">
@@ -116,4 +117,10 @@ onBeforeUnmount(() => { password.value = ''; });
 @media (max-width: 760px), (max-height: 520px) {
   .supabase-auth__panel { position: fixed; top: 70px; right: max(16px, env(safe-area-inset-right, 0px)); max-height: calc(100dvh - 90px); }
 }
+.supabase-auth--bottom { height: 100%; min-width: 0; }
+.supabase-auth--bottom summary { flex-direction: column; gap: 5px; height: 100%; min-height: 0; padding: 4px 2px; border: 0; border-radius: 8px; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; }
+.supabase-auth--bottom summary:hover, .supabase-auth--bottom[open] summary { background: #0a1c26; color: #d1fae5; }
+.supabase-auth__icon { font-size: 17px; }
+.supabase-auth__icon.is-connected { color: #27f3a2; }
+.supabase-auth--bottom .supabase-auth__panel { position: fixed; top: auto; bottom: calc(var(--mobile-tabs-height, 72px) + 8px); right: max(8px, env(safe-area-inset-right, 0px)); left: max(8px, env(safe-area-inset-left, 0px)); box-sizing: border-box; width: auto; max-width: 400px; margin-left: auto; max-height: calc(100dvh - var(--mobile-tabs-height, 72px) - max(8px, env(safe-area-inset-top, 0px)) - 16px); }
 </style>

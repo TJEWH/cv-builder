@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineComponent, h } from 'vue';
+import { computed, defineComponent, h, useId } from 'vue';
 import type { PropType, VNode } from 'vue';
 import { buildOpportunityGroups, checklistKeys } from '../composables/opportunityContext';
 import type { OpportunityContextNode } from '../composables/opportunityContext';
@@ -18,12 +18,16 @@ const ContextValue = defineComponent({
   name: 'OpportunityContextValue',
   props: { node: { type: Object as PropType<OpportunityContextNode>, required: true } },
   setup(valueProps) {
-    function renderValue(node: OpportunityContextNode, withCheckbox = true): VNode {
+    const inputPrefix = useId();
+    function renderValue(node: OpportunityContextNode, withCheckbox = true, labelFor?: string, includeLabel = false): VNode {
       if (props.checklist && withCheckbox && node.checklistKey) {
         const key = node.checklistKey;
         const checked = completed.value.has(key);
+        const inputId = `${inputPrefix}-checklist-${encodeURIComponent(node.id)}`;
+        const checkboxLabel = includeLabel && node.label ? node.label : node.href && !node.children?.length
+          ? props.lang === 'de' ? 'Als erledigt markieren' : 'Mark complete' : null;
         return h('div', { class: ['opportunity-context__checklist-item', { 'is-complete': checked }] }, [
-          h('input', { type: 'checkbox', checked, disabled: props.saving,
+          h('input', { id: inputId, type: 'checkbox', checked, disabled: props.saving,
             'aria-label': [node.label, node.text].filter(Boolean).join(': ') || node.children?.map((child) => child.text || child.label).filter(Boolean).join('; '),
             onChange: (event: Event) => {
               const target = event.target as HTMLInputElement;
@@ -31,13 +35,15 @@ const ContextValue = defineComponent({
               target.checked = checked;
               emit('toggleChecklist', key, next);
             } }),
-          h('div', renderValue(node, false)),
+          h('div', [checkboxLabel ? h('label', { for: inputId, class: 'opportunity-context__checklist-label opportunity-context__nested-label' }, `${checkboxLabel}: `) : null, renderValue(node, false, inputId)]),
         ]);
       }
       const value = node.href ? h('a', { href: node.href, ...(node.href.startsWith('http') ? { target: '_blank', rel: 'noopener noreferrer' } : {}) }, node.text)
-        : h('span', { class: { 'opportunity-context__missing': node.missing } }, node.text);
-      const children = node.children?.length ? h('ul', { class: 'opportunity-context__list' }, node.children.map((child) =>
-        h('li', { key: child.id }, [child.label ? h('span', { class: 'opportunity-context__nested-label' }, `${child.label}: `) : null, renderValue(child)]))) : null;
+        : h(labelFor ? 'label' : 'span', { ...(labelFor ? { for: labelFor } : {}), class: { 'opportunity-context__checklist-label': !!labelFor, 'opportunity-context__missing': node.missing } }, node.text);
+      const children = node.children?.length ? h('ul', { class: 'opportunity-context__list' }, node.children.map((child) => {
+        const checklistChild = !!(props.checklist && !labelFor && child.checklistKey);
+        return h('li', { key: child.id }, [child.label && !checklistChild ? h(labelFor ? 'label' : 'span', { ...(labelFor ? { for: labelFor } : {}), class: ['opportunity-context__nested-label', { 'opportunity-context__checklist-label': !!labelFor }] }, `${child.label}: `) : null, renderValue(child, !labelFor, labelFor, checklistChild)]);
+      })) : null;
       if (node.kind === 'fit') {
         const score = node.score;
         return h('div', [score !== undefined ? h('div', { class: 'opportunity-context__score' }, [
@@ -89,6 +95,8 @@ const ContextValue = defineComponent({
 .opportunity-context :deep(.opportunity-context__checklist-item) { display: flex; align-items: flex-start; gap: 10px; }
 .opportunity-context :deep(.opportunity-context__checklist-item > input[type=checkbox]) { flex: 0 0 16px; width: 16px; height: 16px; padding: 0; margin: 2px 0 0; accent-color: #65d8ac; cursor: pointer; }
 .opportunity-context :deep(.opportunity-context__checklist-item > div) { flex: 1; min-width: 0; }
+.opportunity-context :deep(.opportunity-context__checklist-label) { display: inline; font: inherit; color: inherit; cursor: pointer; }
+.opportunity-context :deep(.opportunity-context__checklist-item > input:disabled + div label) { cursor: wait; }
 .opportunity-context :deep(ul:has(> li > .opportunity-context__checklist-item)) { padding-left: 0; list-style: none; }
 .opportunity-context :deep(.opportunity-context__checklist-item.is-complete > div) { color: #9bbaad; }
 .opportunity-context :deep(.opportunity-context__list) { display: grid; gap: 8px; margin: 4px 0; padding-left: 18px; }

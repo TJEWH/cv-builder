@@ -574,4 +574,445 @@ revoke all on function public.remove_job_application(uuid) from public, anon;
 grant execute on function public.set_job_application_checklist_item(uuid, text, boolean) to authenticated;
 grant execute on function public.remove_job_application(uuid) to authenticated;
 
+-- Immutable application letter drafting contexts and returned draft history.
+
+
+create table public.drafting_contexts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  application_id uuid not null,
+  cv_variant_id uuid not null,
+  context_json jsonb not null check (jsonb_typeof(context_json) = 'object' and octet_length(context_json::text) <= 10485760),
+  created_at timestamptz not null default now(),
+  unique (user_id, application_id, id),
+  foreign key (user_id, application_id) references public.applications(user_id, id) on delete cascade,
+  foreign key (user_id, cv_variant_id) references public.cv_variants(user_id, id) on delete no action deferrable initially deferred
+);
+
+create table public.motivation_letter_drafts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  application_id uuid not null,
+  context_id uuid not null,
+  body text not null check (char_length(btrim(body)) between 1 and 100000),
+  created_at timestamptz not null default now(),
+  foreign key (user_id, application_id, context_id)
+    references public.drafting_contexts(user_id, application_id, id) on delete cascade
+);
+
+comment on table public.drafting_contexts is 'Immutable owner-only drafting bundles. Opportunity and assigned privacy CV are captured by the server; applicant identity uses explicit placeholders.';
+comment on table public.motivation_letter_drafts is 'Append-only draft source text tied to its exact context. Local edited/final letters are never overwritten by generated drafts.';
+
+create index drafting_contexts_recent_idx on public.drafting_contexts(user_id, application_id, created_at desc);
+create index drafting_contexts_cv_idx on public.drafting_contexts(user_id, cv_variant_id);
+create index motivation_letter_drafts_context_idx on public.motivation_letter_drafts(user_id, application_id, context_id);
+create index motivation_letter_drafts_recent_idx on public.motivation_letter_drafts(user_id, application_id, created_at desc);
+
+alter table public.drafting_contexts enable row level security;
+alter table public.motivation_letter_drafts enable row level security;
+revoke all on public.drafting_contexts, public.motivation_letter_drafts from public, anon, authenticated;
+grant select, insert on public.drafting_contexts, public.motivation_letter_drafts to authenticated;
+grant select, insert, update, delete on public.drafting_contexts, public.motivation_letter_drafts to service_role;
+
+create policy "Read own prepared contexts" on public.drafting_contexts for select to authenticated
+  using ((select auth.uid()) = user_id and not coalesce(((select auth.jwt())->>'is_anonymous')::boolean, false));
+create policy "Insert own prepared contexts" on public.drafting_contexts for insert to authenticated
+  with check ((select auth.uid()) = user_id and not coalesce(((select auth.jwt())->>'is_anonymous')::boolean, false));
+create policy "Read own returned letter drafts" on public.motivation_letter_drafts for select to authenticated
+  using ((select auth.uid()) = user_id and not coalesce(((select auth.jwt())->>'is_anonymous')::boolean, false));
+create policy "Insert own returned letter drafts" on public.motivation_letter_drafts for insert to authenticated
+  with check ((select auth.uid()) = user_id and not coalesce(((select auth.jwt())->>'is_anonymous')::boolean, false));
+
+-- Defense in depth for inline confidentiality markers and the previous fictional
+-- sample identity. Free prose still requires the browser privacy projection.
+create function public.job_drafting_redact_samples(value jsonb)
+returns jsonb language plpgsql immutable security invoker set search_path = '' as $$
+declare result jsonb; item record; plain text;
+begin
+  case jsonb_typeof(value)
+    when 'object' then
+      result := '{}';
+      for item in select key, val from jsonb_each(value) as e(key, val) loop
+        result := result || jsonb_build_object(item.key, public.job_drafting_redact_samples(item.val));
+      end loop;
+    when 'array' then
+      select coalesce(jsonb_agg(public.job_drafting_redact_samples(e.val) order by e.ordinality), '[]'::jsonb)
+        into result from jsonb_array_elements(value) with ordinality as e(val, ordinality);
+    when 'string' then
+      plain := value #>> '{}';
+      -- Remove the whole Markdown link if either label or destination is confidential.
+      plain := regexp_replace(plain, '\[[^]]*!![^]]*\]\([^)]*\)|\[[^]]*\]\([^)]*!![^)]*\)', '{{CONFIDENTIAL}}', 'g');
+      plain := regexp_replace(plain, '!!.*?!!', '{{CONFIDENTIAL}}', 'g');
+      for item in select * from (values
+        ('https://link[.]com/in/alexmuster', '{{APPLICANT_LINKEDIN}}'),
+        ('https://git[.]com/musterlex', '{{APPLICANT_GITHUB}}'),
+        ('https://alexmuster[.]dev', '{{APPLICANT_WEBSITE}}'),
+        ('muster-ex@mp[.]le', '{{APPLICANT_EMAIL}}'),
+        ('[+]49 123 456789', '{{APPLICANT_PHONE}}'),
+        ('Alex Muster', '{{APPLICANT_NAME}}')
+      ) as replacements(pattern, placeholder) loop
+        plain := regexp_replace(plain, item.pattern, item.placeholder, 'gi');
+      end loop;
+      result := to_jsonb(plain);
+    else result := value;
+  end case;
+  return result;
+end;
+$$;
+revoke all on function public.job_drafting_redact_samples(jsonb) from public, anon;
+grant execute on function public.job_drafting_redact_samples(jsonb) to authenticated;
+
+create function public.job_drafting_capture_context()
+returns trigger language plpgsql security invoker set search_path = '' as $$
+declare
+  actor uuid := auth.uid(); app public.applications; cv public.cv_variants;
+  template jsonb := new.context_json->'template';
+  language_value text := new.context_json->>'language'; instructions_value text := new.context_json->>'instructions';
+  max_words integer; content jsonb; placeholders jsonb; theme jsonb := '{}'; item record;
+begin
+  if actor is null or actor <> new.user_id or coalesce((auth.jwt()->>'is_anonymous')::boolean, false) then
+    raise exception 'A signed-in owner is required.' using errcode = '42501';
+  end if;
+  if template is null or jsonb_typeof(template) <> 'object'
+     or template - array['id','name','revision','structure','tone'] <> '{}'::jsonb
+     or not (template ?& array['id','name','revision','structure','tone'])
+     or jsonb_typeof(template->'revision') <> 'number'
+     or coalesce(template->>'revision', '') !~ '^[1-9][0-9]{0,8}$'
+     or exists (select 1 from jsonb_each(template - 'revision') as e where jsonb_typeof(e.value) <> 'string')
+     or char_length(btrim(template->>'id')) not between 1 and 200
+     or char_length(btrim(template->>'name')) not between 1 and 200
+     or char_length(btrim(template->>'structure')) not between 1 and 20000
+     or char_length(btrim(template->>'tone')) not between 1 and 1000
+     or language_value is null or char_length(btrim(language_value)) not between 2 and 20
+     or instructions_value is null or char_length(instructions_value) > 20000
+     or jsonb_typeof(new.context_json->'language') <> 'string'
+     or jsonb_typeof(new.context_json->'instructions') <> 'string'
+     or coalesce(new.context_json->>'maxWords', '') !~ '^[0-9]{2,4}$' then
+    raise exception 'Invalid drafting template or instructions.' using errcode = '22023';
+  end if;
+  max_words := (new.context_json->>'maxWords')::integer;
+  if max_words not between 50 and 5000 then raise exception 'Word limit must be between 50 and 5000.' using errcode = '22023'; end if;
+  select * into app from public.applications where id = new.application_id and user_id = actor for share;
+  if not found then raise exception 'Application unavailable.' using errcode = '42501'; end if;
+  if app.cv_variant_id is null then raise exception 'Assign an anonymized CV before publishing drafting context.' using errcode = '22023'; end if;
+  select * into cv from public.cv_variants where id = app.cv_variant_id and user_id = actor;
+  if not found then raise exception 'Assigned CV unavailable.' using errcode = '42501'; end if;
+  placeholders := '{"name":"{{APPLICANT_NAME}}","location":"{{APPLICANT_LOCATION}}","role":"{{APPLICANT_ROLE}}","email":"{{APPLICANT_EMAIL}}","phone":"{{APPLICANT_PHONE}}","website":"{{APPLICANT_WEBSITE}}","linkedin":"{{APPLICANT_LINKEDIN}}","github":"{{APPLICANT_GITHUB}}"}'::jsonb;
+  content := public.job_drafting_redact_samples(cv.content_json) || jsonb_build_object('contact', placeholders);
+  -- Styling is selected from the assigned privacy CV; custom font metadata and arbitrary strings cannot enter context.
+  for item in select key, value from jsonb_each(coalesce(cv.config_json->'design', '{}'::jsonb)) loop
+    if item.key in ('fontBody','fontHead') and item.value #>> '{}' = any(array['','Inter','Source Sans 3','IBM Plex Sans','Noto Sans','Work Sans','Nunito Sans','Rubik','Merriweather Sans','Hind','Browallia New','Century Gothic','Montserrat','Poppins','Raleway','Space Grotesk'])
+      or item.key = 'ink' and item.value #>> '{}' ~ '^#([a-fA-F0-9]{3}|[a-fA-F0-9]{6})$'
+      or item.key in ('h1','h2','h3','pageMarginTop','pageMarginRight','pageMarginBottom','pageMarginLeft','headerPaddingBottom','headerBottomMargin','bodySidebarSpacing','sectionSpacingBody','itemSpacing')
+        and item.value #>> '{}' ~ '^([0-9]{1,3}([.][0-9]{1,3})?)(mm|px|pt|fr)$'
+      or item.key in ('contactLayout') and item.value #>> '{}' = any(array['side','below','sidebar','footer'])
+      or item.key in ('headerLayoutStyle') and item.value #>> '{}' = any(array['boxed','separator']) then
+      theme := theme || jsonb_build_object(item.key, item.value);
+    end if;
+  end loop;
+  new.cv_variant_id := cv.id;
+  new.created_at := now();
+  new.context_json := jsonb_build_object(
+    'schemaVersion', 1, 'opportunity', app.context_json, 'opportunityCapturedAt', app.context_captured_at,
+    'cv', jsonb_build_object('snapshotId', cv.id, 'revision', cv.revision, 'content', content, 'theme', theme),
+    'template', public.job_drafting_redact_samples(template), 'language', btrim(language_value),
+    'instructions', public.job_drafting_redact_samples(to_jsonb(btrim(instructions_value))),
+    'maxWords', max_words, 'identityPlaceholders', placeholders
+  );
+  return new;
+end;
+$$;
+
+create function public.job_drafting_guard_immutable()
+returns trigger language plpgsql security invoker set search_path = '' as $$
+begin
+  raise exception 'Published context and returned drafts are immutable; create a new revision.' using errcode = '23514';
+end;
+$$;
+
+create function public.job_drafting_capture_draft()
+returns trigger language plpgsql security invoker set search_path = '' as $$
+begin
+  if auth.uid() is null or new.user_id <> auth.uid() or coalesce((auth.jwt()->>'is_anonymous')::boolean, false) then
+    raise exception 'A signed-in owner is required.' using errcode = '42501';
+  end if;
+  new.body := public.job_drafting_redact_samples(to_jsonb(btrim(new.body))) #>> '{}';
+  new.created_at := now();
+  return new;
+end;
+$$;
+
+revoke all on function public.job_drafting_capture_context(), public.job_drafting_guard_immutable(), public.job_drafting_capture_draft() from public, anon, authenticated;
+create trigger drafting_contexts_capture before insert on public.drafting_contexts
+  for each row execute function public.job_drafting_capture_context();
+create trigger drafting_contexts_immutable before update on public.drafting_contexts
+  for each row execute function public.job_drafting_guard_immutable();
+create trigger motivation_letter_drafts_capture before insert on public.motivation_letter_drafts
+  for each row execute function public.job_drafting_capture_draft();
+create trigger motivation_letter_drafts_immutable before update on public.motivation_letter_drafts
+  for each row execute function public.job_drafting_guard_immutable();
+
+create function public.publish_application_drafting_context(
+  p_context_id uuid, p_application_id uuid, p_template jsonb,
+  p_language text, p_instructions text default '', p_max_words integer default 500
+) returns jsonb language plpgsql security invoker set search_path = '' as $$
+declare actor uuid := auth.uid(); existing public.drafting_contexts; result public.drafting_contexts;
+begin
+  if actor is null or coalesce((auth.jwt()->>'is_anonymous')::boolean, false) then raise exception 'Sign in before publishing context.' using errcode = '42501'; end if;
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(actor::text || p_context_id::text, 0));
+  select * into existing from public.drafting_contexts where id = p_context_id and user_id = actor;
+  if found then
+    if existing.application_id = p_application_id
+      and existing.context_json->'template' = public.job_drafting_redact_samples(p_template)
+      and existing.context_json->>'language' = btrim(p_language)
+      and existing.context_json->'instructions' = public.job_drafting_redact_samples(to_jsonb(btrim(p_instructions)))
+      and existing.context_json->>'maxWords' = p_max_words::text then return to_jsonb(existing); end if;
+    raise exception 'Context ID already exists with different input.' using errcode = '23505';
+  end if;
+  insert into public.drafting_contexts(id, user_id, application_id, context_json)
+    values (p_context_id, actor, p_application_id, jsonb_build_object('template', p_template, 'language', p_language, 'instructions', p_instructions, 'maxWords', p_max_words))
+    returning * into result;
+  return to_jsonb(result);
+end;
+$$;
+
+-- Narrow read endpoint for a connected agent using the user's authenticated JWT.
+create function public.read_application_drafting_context(p_context_id uuid)
+returns jsonb language plpgsql stable security invoker set search_path = '' as $$
+declare result public.drafting_contexts; actor uuid := auth.uid();
+begin
+  if actor is null or coalesce((auth.jwt()->>'is_anonymous')::boolean, false) then raise exception 'Sign in before reading context.' using errcode = '42501'; end if;
+  select * into result from public.drafting_contexts where id = p_context_id and user_id = actor;
+  if not found then raise exception 'Drafting context unavailable.' using errcode = '42501'; end if;
+  return to_jsonb(result);
+end;
+$$;
+
+create function public.save_application_letter_draft(p_draft_id uuid, p_application_id uuid, p_context_id uuid, p_body text)
+returns jsonb language plpgsql security invoker set search_path = '' as $$
+declare actor uuid := auth.uid(); existing public.motivation_letter_drafts; result public.motivation_letter_drafts;
+begin
+  if actor is null or coalesce((auth.jwt()->>'is_anonymous')::boolean, false) then raise exception 'Sign in before returning a draft.' using errcode = '42501'; end if;
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(actor::text || p_draft_id::text, 0));
+  select * into existing from public.motivation_letter_drafts where id = p_draft_id and user_id = actor;
+  if found then
+    if existing.application_id = p_application_id and existing.context_id = p_context_id
+      and existing.body = public.job_drafting_redact_samples(to_jsonb(btrim(p_body))) #>> '{}' then return to_jsonb(existing); end if;
+    raise exception 'Draft ID already exists with different input.' using errcode = '23505';
+  end if;
+  if not exists (select 1 from public.drafting_contexts where id = p_context_id and application_id = p_application_id and user_id = actor) then
+    raise exception 'Drafting context unavailable for this application.' using errcode = '42501';
+  end if;
+  insert into public.motivation_letter_drafts(id, user_id, application_id, context_id, body)
+    values (p_draft_id, actor, p_application_id, p_context_id, p_body) returning * into result;
+  return to_jsonb(result);
+end;
+$$;
+
+revoke all on function public.publish_application_drafting_context(uuid, uuid, jsonb, text, text, integer),
+  public.read_application_drafting_context(uuid), public.save_application_letter_draft(uuid, uuid, uuid, text) from public, anon;
+grant execute on function public.publish_application_drafting_context(uuid, uuid, jsonb, text, text, integer),
+  public.read_application_drafting_context(uuid), public.save_application_letter_draft(uuid, uuid, uuid, text) to authenticated;
+
+-- Public wording CV adjustment requests and returned edits.
+create table public.cv_adjustment_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  application_id uuid,
+  request_json jsonb not null check (jsonb_typeof(request_json) = 'object' and octet_length(request_json::text) <= 1048576),
+  created_at timestamptz not null default now(),
+  unique (user_id, id),
+  foreign key (user_id, application_id) references public.applications(user_id, id) on delete cascade
+);
+create table public.cv_adjustment_responses (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  request_id uuid not null,
+  response_json jsonb not null check (jsonb_typeof(response_json) = 'object' and octet_length(response_json::text) <= 1048576),
+  created_at timestamptz not null default now(),
+  foreign key (user_id, request_id) references public.cv_adjustment_requests(user_id, id) on delete cascade
+);
+comment on table public.cv_adjustment_requests is 'Immutable owner-only public wording snapshots. Full CVs, private tokens, local variant IDs, paths and reconstruction maps are never uploaded by the app.';
+comment on table public.cv_adjustment_responses is 'Append-only public wording edits validated against the exact request. Reconstruction and adoption as a subvariant require local review.';
+create index cv_adjustment_requests_recent_idx on public.cv_adjustment_requests(user_id, created_at desc);
+create index cv_adjustment_requests_application_idx on public.cv_adjustment_requests(user_id, application_id, created_at desc);
+create index cv_adjustment_responses_request_idx on public.cv_adjustment_responses(user_id, request_id, created_at desc);
+
+alter table public.cv_adjustment_requests enable row level security;
+alter table public.cv_adjustment_responses enable row level security;
+revoke all on public.cv_adjustment_requests, public.cv_adjustment_responses from public, anon, authenticated;
+grant select, insert on public.cv_adjustment_requests, public.cv_adjustment_responses to authenticated;
+grant select, insert, update, delete on public.cv_adjustment_requests, public.cv_adjustment_responses to service_role;
+create policy "Read own CV adjustment requests" on public.cv_adjustment_requests for select to authenticated
+  using ((select auth.uid()) = user_id and not coalesce(((select auth.jwt())->>'is_anonymous')::boolean, false));
+create policy "Insert own CV adjustment requests" on public.cv_adjustment_requests for insert to authenticated
+  with check ((select auth.uid()) = user_id and not coalesce(((select auth.jwt())->>'is_anonymous')::boolean, false));
+create policy "Read own CV adjustment responses" on public.cv_adjustment_responses for select to authenticated
+  using ((select auth.uid()) = user_id and not coalesce(((select auth.jwt())->>'is_anonymous')::boolean, false));
+create policy "Insert own CV adjustment responses" on public.cv_adjustment_responses for insert to authenticated
+  with check ((select auth.uid()) = user_id and not coalesce(((select auth.jwt())->>'is_anonymous')::boolean, false));
+
+create function public.cv_adjustment_validate_request(value jsonb, expected_id uuid)
+returns void language plpgsql immutable security invoker set search_path = '' as $$
+declare field jsonb; ids text[] := '{}';
+begin
+  if jsonb_typeof(value) is distinct from 'object' or octet_length(value::text) > 1048576
+    or value - array['schemaVersion','requestId','fields','opportunity','instructions'] <> '{}'::jsonb
+    or not (value ?& array['schemaVersion','requestId','fields','opportunity','instructions'])
+    or value->'schemaVersion' is distinct from '1'::jsonb
+    or jsonb_typeof(value->'requestId') is distinct from 'string' or expected_id is null or value->>'requestId' is distinct from expected_id::text
+    or jsonb_typeof(value->'fields') is distinct from 'array'
+    or jsonb_typeof(value->'opportunity') is distinct from 'object'
+    or jsonb_typeof(value->'instructions') is distinct from 'string'
+    or char_length(value->>'instructions') > 20000
+    or translate(value->>'instructions', E'\t\n\r', '') ~ '[[:cntrl:]]' then
+    raise exception 'Invalid CV adjustment request.' using errcode = '22023';
+  end if;
+  if jsonb_array_length(value->'fields') > 1000 then raise exception 'Too many CV adjustment fields.' using errcode = '22023'; end if;
+  for field in select jsonb_array_elements(value->'fields') loop
+    if jsonb_typeof(field) is distinct from 'object' or field - array['id','label','text'] <> '{}'::jsonb
+      or not (field ?& array['id','label','text'])
+      or jsonb_typeof(field->'id') is distinct from 'string' or field->>'id' !~ '^field-[1-9][0-9]*$' or field->>'id' = any(ids)
+      or jsonb_typeof(field->'label') is distinct from 'string' or char_length(field->>'label') > 200
+      or jsonb_typeof(field->'text') is distinct from 'string' or char_length(field->>'text') > 20000
+      or translate((field->>'label') || (field->>'text'), E'\t\n\r', '') ~ '[[:cntrl:]]' then
+      raise exception 'Invalid or duplicate CV adjustment field.' using errcode = '22023';
+    end if;
+    ids := array_append(ids, field->>'id');
+  end loop;
+end;
+$$;
+
+create function public.cv_adjustment_validate_response(value jsonb, request_value jsonb, expected_id uuid)
+returns void language plpgsql immutable security invoker set search_path = '' as $$
+declare
+  edit jsonb; original text; replacement text; ids text[] := '{}';
+  original_tokens text[]; replacement_tokens text[]; original_links text[]; replacement_links text[];
+begin
+  if jsonb_typeof(value) is distinct from 'object' or octet_length(value::text) > 1048576
+    or value - array['schemaVersion','requestId','edits'] <> '{}'::jsonb or not (value ?& array['schemaVersion','requestId','edits'])
+    or value->'schemaVersion' is distinct from '1'::jsonb
+    or jsonb_typeof(value->'requestId') is distinct from 'string' or expected_id is null or value->>'requestId' is distinct from expected_id::text
+    or jsonb_typeof(value->'edits') is distinct from 'array' then
+    raise exception 'Invalid CV adjustment response.' using errcode = '22023';
+  end if;
+  if jsonb_array_length(value->'edits') > 1000 then raise exception 'Too many CV adjustment edits.' using errcode = '22023'; end if;
+  for edit in select jsonb_array_elements(value->'edits') loop
+    if jsonb_typeof(edit) is distinct from 'object' or edit - array['fieldId','text'] <> '{}'::jsonb
+      or not (edit ?& array['fieldId','text'])
+      or jsonb_typeof(edit->'fieldId') is distinct from 'string' or edit->>'fieldId' !~ '^field-[1-9][0-9]*$' or edit->>'fieldId' = any(ids)
+      or jsonb_typeof(edit->'text') is distinct from 'string' or char_length(edit->>'text') > 20000
+      or translate(edit->>'text', E'\t\n\r', '') ~ '[[:cntrl:]]' then
+      raise exception 'Invalid or duplicate CV adjustment edit.' using errcode = '22023';
+    end if;
+    ids := array_append(ids, edit->>'fieldId');
+    select field->>'text' into original from jsonb_array_elements(request_value->'fields') as fields(field) where field->>'id' = edit->>'fieldId';
+    if not found then raise exception 'The response edits an unavailable CV field.' using errcode = '22023'; end if;
+    replacement := edit->>'text';
+    if replacement = original then continue; end if;
+    select coalesce(array_agg(parts[1] order by ordinal), '{}') into original_tokens
+      from regexp_matches(original, '(\{\{PRIVATE_[1-9][0-9]*\}\})', 'g') with ordinality as tokens(parts, ordinal);
+    select coalesce(array_agg(parts[1] order by ordinal), '{}') into replacement_tokens
+      from regexp_matches(replacement, '(\{\{PRIVATE_[1-9][0-9]*\}\})', 'g') with ordinality as tokens(parts, ordinal);
+    if original_tokens <> replacement_tokens
+      or regexp_replace(replacement, '\{\{PRIVATE_[1-9][0-9]*\}\}', '', 'g') ~ '\{\{|\}\}'
+      or position('!!' in replacement) > 0 then
+      raise exception 'Private placeholders must remain in their original field, order and count.' using errcode = '22023';
+    end if;
+    select coalesce(array_agg(coalesce(parts[1], parts[2]) order by coalesce(parts[1], parts[2])), '{}') into original_links
+      from regexp_matches(original, '\]\(([^[:space:])]+)\)|((https?://|mailto:|tel:|javascript:|data:)[^[:space:]<>)]+)', 'gi') as links(parts);
+    select coalesce(array_agg(coalesce(parts[1], parts[2]) order by coalesce(parts[1], parts[2])), '{}') into replacement_links
+      from regexp_matches(replacement, '\]\(([^[:space:])]+)\)|((https?://|mailto:|tel:|javascript:|data:)[^[:space:]<>)]+)', 'gi') as links(parts);
+    if original_links <> replacement_links or replacement ~* '!\[|</?[a-z]|\]\([^)]*\{\{' then
+      raise exception 'CV adjustments cannot add links, images or HTML.' using errcode = '22023';
+    end if;
+  end loop;
+end;
+$$;
+
+create function public.cv_adjustment_capture_request()
+returns trigger language plpgsql security invoker set search_path = '' as $$
+begin
+  if auth.uid() is null or auth.uid() <> new.user_id or coalesce((auth.jwt()->>'is_anonymous')::boolean, false) then
+    raise exception 'A signed-in owner is required.' using errcode = '42501';
+  end if;
+  perform public.cv_adjustment_validate_request(new.request_json, new.id);
+  if new.application_id is not null and not exists (select 1 from public.applications where user_id = new.user_id and id = new.application_id) then
+    raise exception 'Application unavailable.' using errcode = '42501';
+  end if;
+  new.created_at := now();
+  return new;
+end;
+$$;
+create function public.cv_adjustment_capture_response()
+returns trigger language plpgsql security invoker set search_path = '' as $$
+declare request_value jsonb;
+begin
+  if auth.uid() is null or auth.uid() <> new.user_id or coalesce((auth.jwt()->>'is_anonymous')::boolean, false) then
+    raise exception 'A signed-in owner is required.' using errcode = '42501';
+  end if;
+  select request_json into request_value from public.cv_adjustment_requests where user_id = new.user_id and id = new.request_id;
+  if not found then raise exception 'CV adjustment request unavailable.' using errcode = '42501'; end if;
+  perform public.cv_adjustment_validate_response(new.response_json, request_value, new.request_id);
+  new.created_at := now();
+  return new;
+end;
+$$;
+create function public.cv_adjustment_guard_immutable()
+returns trigger language plpgsql security invoker set search_path = '' as $$
+begin
+  raise exception 'Published CV adjustment requests and responses are immutable; create a new request or response.' using errcode = '23514';
+end;
+$$;
+revoke all on function public.cv_adjustment_validate_request(jsonb,uuid), public.cv_adjustment_validate_response(jsonb,jsonb,uuid) from public, anon;
+grant execute on function public.cv_adjustment_validate_request(jsonb,uuid), public.cv_adjustment_validate_response(jsonb,jsonb,uuid) to authenticated;
+revoke all on function public.cv_adjustment_capture_request(), public.cv_adjustment_capture_response(), public.cv_adjustment_guard_immutable() from public, anon, authenticated;
+create trigger cv_adjustment_requests_capture before insert on public.cv_adjustment_requests for each row execute function public.cv_adjustment_capture_request();
+create trigger cv_adjustment_responses_capture before insert on public.cv_adjustment_responses for each row execute function public.cv_adjustment_capture_response();
+create trigger cv_adjustment_requests_immutable before update on public.cv_adjustment_requests for each row execute function public.cv_adjustment_guard_immutable();
+create trigger cv_adjustment_responses_immutable before update on public.cv_adjustment_responses for each row execute function public.cv_adjustment_guard_immutable();
+
+create function public.publish_cv_adjustment_request(p_request_id uuid, p_application_id uuid, p_request jsonb)
+returns jsonb language plpgsql security invoker set search_path = '' as $$
+declare actor uuid := auth.uid(); existing public.cv_adjustment_requests; result public.cv_adjustment_requests;
+begin
+  if actor is null or coalesce((auth.jwt()->>'is_anonymous')::boolean, false) then raise exception 'Sign in before publishing a CV adjustment request.' using errcode = '42501'; end if;
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(actor::text || p_request_id::text, 0));
+  select * into existing from public.cv_adjustment_requests where user_id = actor and id = p_request_id;
+  if found then
+    if existing.application_id is not distinct from p_application_id and existing.request_json = p_request then return to_jsonb(existing); end if;
+    raise exception 'Request ID already exists with different input.' using errcode = '23505';
+  end if;
+  insert into public.cv_adjustment_requests(id,user_id,application_id,request_json) values(p_request_id,actor,p_application_id,p_request) returning * into result;
+  return to_jsonb(result);
+end;
+$$;
+create function public.read_cv_adjustment_request(p_request_id uuid)
+returns jsonb language plpgsql stable security invoker set search_path = '' as $$
+declare result public.cv_adjustment_requests; actor uuid := auth.uid();
+begin
+  if actor is null or coalesce((auth.jwt()->>'is_anonymous')::boolean, false) then raise exception 'Sign in before reading a CV adjustment request.' using errcode = '42501'; end if;
+  select * into result from public.cv_adjustment_requests where user_id = actor and id = p_request_id;
+  if not found then raise exception 'CV adjustment request unavailable.' using errcode = '42501'; end if;
+  return to_jsonb(result);
+end;
+$$;
+create function public.save_cv_adjustment_response(p_response_id uuid, p_request_id uuid, p_response jsonb)
+returns jsonb language plpgsql security invoker set search_path = '' as $$
+declare actor uuid := auth.uid(); existing public.cv_adjustment_responses; result public.cv_adjustment_responses;
+begin
+  if actor is null or coalesce((auth.jwt()->>'is_anonymous')::boolean, false) then raise exception 'Sign in before returning CV adjustments.' using errcode = '42501'; end if;
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(actor::text || p_response_id::text, 0));
+  select * into existing from public.cv_adjustment_responses where user_id = actor and id = p_response_id;
+  if found then
+    if existing.request_id = p_request_id and existing.response_json = p_response then return to_jsonb(existing); end if;
+    raise exception 'Response ID already exists with different input.' using errcode = '23505';
+  end if;
+  insert into public.cv_adjustment_responses(id,user_id,request_id,response_json) values(p_response_id,actor,p_request_id,p_response) returning * into result;
+  return to_jsonb(result);
+end;
+$$;
+revoke all on function public.publish_cv_adjustment_request(uuid,uuid,jsonb), public.read_cv_adjustment_request(uuid), public.save_cv_adjustment_response(uuid,uuid,jsonb) from public, anon;
+grant execute on function public.publish_cv_adjustment_request(uuid,uuid,jsonb), public.read_cv_adjustment_request(uuid), public.save_cv_adjustment_response(uuid,uuid,jsonb) to authenticated;
+
 commit;

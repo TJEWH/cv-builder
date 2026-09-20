@@ -195,6 +195,8 @@ textarea{min-height:64px}
 
 /* ==== Rendered CV ==== */
 .page{
+    font:11pt/1.35 var(--font-body);
+    color:var(--ink);
     display:block;
     width:210mm;
     min-height:297mm;
@@ -230,14 +232,14 @@ textarea{min-height:64px}
 .page-footer .contact{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:var(--contact-item-spacing,2mm);font-size:8pt;font-style:normal;text-align:left}
 .page-footer .contact > div{flex-direction:row-reverse;gap:1mm;max-width:100%;overflow-wrap:anywhere}
 .page-footer .contact a{min-width:0;overflow-wrap:anywhere}
-:root:is([data-contact-layout="sidebar"],[data-contact-layout="footer"]) .header{grid-template-columns:1fr}
+.cv-design-scope:is([data-contact-layout="sidebar"],[data-contact-layout="footer"]) .header{grid-template-columns:1fr}
 .content{display:flow-root}
 .content p{white-space:pre-line}
 #cv_main{min-width:0}
 #cv_main, #cv_main *{min-width:0}
 #cv_main h2, #cv_main h3, #cv_main h4, #cv_main p, #cv_main li, #cv_main .item-sub, #cv_main .item-meta{overflow-wrap:anywhere;word-break:break-word}
 #cv_side{float:right;width:var(--sidebar-column-width);min-width:0;margin:0 0 0 var(--body-sidebar-spacing)}
-:root[data-sidebar-align="left"] #cv_side{float:left;margin:0 var(--body-sidebar-spacing) 0 0}
+.cv-design-scope[data-sidebar-align="left"] #cv_side{float:left;margin:0 var(--body-sidebar-spacing) 0 0}
 #cv_side[data-pdf-deferred]{position:relative;min-height:0;background:transparent!important;padding:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;shape-outside:inset(var(--sidebar-deferred-start) 0 0 0)}
 #cv_side[data-pdf-deferred] .sidebar-content{position:absolute;top:var(--sidebar-deferred-start);left:0;right:0;min-height:var(--sidebar-deferred-min-height);background:#ffffff;box-shadow:none}
 h2{margin:0 0 4mm;font-size:var(--h2-size);color:var(--accent);text-transform:uppercase;letter-spacing:.6px;font-family:var(--font-head),sans-serif;text-shadow:var(--box-shadow)}
@@ -253,18 +255,18 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--ink);text-transform:u
 
 /* Boxed layout */
 #cv_side{background:#ffffff;box-shadow:none}
-:root[data-sidebar-layout-style="boxed"] #cv_side{padding:6mm 6mm var(--sidebar-bottom-padding);border-radius:10px}
-:root[data-sidebar-layout-style="boxed"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 6mm var(--sidebar-bottom-padding);border-radius:10px}
+.cv-design-scope[data-sidebar-layout-style="boxed"] #cv_side{padding:6mm 6mm var(--sidebar-bottom-padding);border-radius:10px}
+.cv-design-scope[data-sidebar-layout-style="boxed"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 6mm var(--sidebar-bottom-padding);border-radius:10px}
 
 /* Separator layout */
-:root[data-header-layout-style="separator"] .header{background:#ffffff;border-radius:0;border-bottom:var(--separator-width) solid var(--accent);box-shadow:none}
-:root[data-sidebar-layout-style="separator"] #cv_side{padding:6mm 0 var(--sidebar-bottom-padding) 6mm;background:#ffffff;border-left:var(--separator-width) solid var(--accent);border-radius:0;box-shadow:none}
-:root[data-sidebar-layout-style="separator"][data-sidebar-align="left"] #cv_side{padding:6mm 6mm var(--sidebar-bottom-padding) 0;border-right:var(--separator-width) solid var(--accent);border-left:0}
-:root[data-sidebar-layout-style="separator"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 0 var(--sidebar-bottom-padding) 6mm;background:#ffffff;border-left:var(--separator-width) solid var(--accent);border-radius:0;box-shadow:none}
-:root[data-sidebar-layout-style="separator"][data-sidebar-align="left"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 6mm var(--sidebar-bottom-padding) 0;border-right:var(--separator-width) solid var(--accent);border-left:0}
-:root[data-contact-layout="below"] .header{grid-template-columns:1fr}
-:root[data-contact-layout="below"] .contact{display:flex;align-items:center;justify-content:flex-start;text-align:left;white-space:nowrap}
-:root[data-contact-layout="below"] .contact > div{display:inline-flex;align-items:center;flex-direction:row-reverse;gap:1.5mm}
+.cv-design-scope[data-header-layout-style="separator"] .header{background:#ffffff;border-radius:0;border-bottom:var(--separator-width) solid var(--accent);box-shadow:none}
+.cv-design-scope[data-sidebar-layout-style="separator"] #cv_side{padding:6mm 0 var(--sidebar-bottom-padding) 6mm;background:#ffffff;border-left:var(--separator-width) solid var(--accent);border-radius:0;box-shadow:none}
+.cv-design-scope[data-sidebar-layout-style="separator"][data-sidebar-align="left"] #cv_side{padding:6mm 6mm var(--sidebar-bottom-padding) 0;border-right:var(--separator-width) solid var(--accent);border-left:0}
+.cv-design-scope[data-sidebar-layout-style="separator"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 0 var(--sidebar-bottom-padding) 6mm;background:#ffffff;border-left:var(--separator-width) solid var(--accent);border-radius:0;box-shadow:none}
+.cv-design-scope[data-sidebar-layout-style="separator"][data-sidebar-align="left"] #cv_side[data-pdf-deferred] .sidebar-content{padding:6mm 6mm var(--sidebar-bottom-padding) 0;border-right:var(--separator-width) solid var(--accent);border-left:0}
+.cv-design-scope[data-contact-layout="below"] .header{grid-template-columns:1fr}
+.cv-design-scope[data-contact-layout="below"] .contact{display:flex;align-items:center;justify-content:flex-start;text-align:left;white-space:nowrap}
+.cv-design-scope[data-contact-layout="below"] .contact > div{display:inline-flex;align-items:center;flex-direction:row-reverse;gap:1.5mm}
 .timeline{position:relative;padding-left:7mm}
 .item{margin:0 0 var(--section-item-spacing);display:flow-root;min-width:0}
 .tags{display:flex;flex-wrap:wrap;gap:4px 6px}
@@ -274,19 +276,19 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--ink);text-transform:u
 /* Headings Styles */
 /* A heading that establishes its own formatting context takes only the space
    beside a floated sidebar, so decorative styles cannot paint beneath it. */
-:root[data-hstyle]:not([data-hstyle="clean"]) #cv_main h2{display:flow-root}
-:root[data-hstyle="underline"] h2{border-bottom:2px solid var(--accent);padding-bottom:2mm}
-:root[data-hstyle="leftbar"] h2{border-left:4px solid var(--accent);padding-left:3mm}
-:root[data-hstyle="pill"] h2{background:var(--accent-soft);padding:2mm 3mm;border-radius:999px;text-transform:none;letter-spacing:.2px}
+.cv-design-scope[data-hstyle]:not([data-hstyle="clean"]) #cv_main h2{display:flow-root}
+.cv-design-scope[data-hstyle="underline"] h2{border-bottom:2px solid var(--accent);padding-bottom:2mm}
+.cv-design-scope[data-hstyle="leftbar"] h2{border-left:4px solid var(--accent);padding-left:3mm}
+.cv-design-scope[data-hstyle="pill"] h2{background:var(--accent-soft);padding:2mm 3mm;border-radius:999px;text-transform:none;letter-spacing:.2px}
 
 .timeline-rail{position:absolute;left:0;top:0;margin:0;overflow:visible;pointer-events:none;fill:none;stroke:var(--accent);stroke-width:3px;stroke-linecap:round;stroke-linejoin:round}
 .timeline > .item{position:relative}
 .timeline > .item .item-title{position:relative}
 .timeline > .item .item-title::before{content:"";position:absolute;z-index:1;left:-5.803mm;top:50%;width:4mm;height:4mm;border:2px solid var(--accent);border-radius:50%;background:#fff;transform:translateY(-50%);}
 .timeline > .item:last-child{margin-bottom:0}
-:root[data-show-timeline="false"] .timeline-rail{display:none}
-:root[data-show-timeline="false"] .timeline > .item .item-title::before{content:none}
-:root[data-show-timeline="false"] .timeline{padding-left:0}
+.cv-design-scope[data-show-timeline="false"] .timeline-rail{display:none}
+.cv-design-scope[data-show-timeline="false"] .timeline > .item .item-title::before{content:none}
+.cv-design-scope[data-show-timeline="false"] .timeline{padding-left:0}
 .timeline--continued{margin-top:var(--section-item-spacing)}
 /* Standalone textarea lists use the same inset as entries without a timeline. */
 .item ul, #cv_main .section-lead > .markdown-bullets{margin:1.5mm 0 0 4mm;padding:0;font-size:var(--paragraph-size)}

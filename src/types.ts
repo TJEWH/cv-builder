@@ -105,7 +105,7 @@ export type CvConfig = Pick<CvState,
   'anonymization' | 'sectionHeaderSizes' | 'bodyOrder' | 'sidebarOrder'
 > & { hiddenItems: string[] };
 export type CvJsonKind = 'content' | 'config';
-export interface SavedConfiguration { id: string; name: string; mtime?: number }
+export interface SavedConfiguration { id: string; name: string; mtime?: number; parentId?: string }
 export type KeysOfType<T, Value> = { [K in keyof T]-?: NonNullable<T[K]> extends Value ? K : never }[keyof T];
 type ItemTextKey = Exclude<KeysOfType<CvItem, string>, 'id' | 'state'>;
 interface FieldLabel { label: string; placeholder?: string }

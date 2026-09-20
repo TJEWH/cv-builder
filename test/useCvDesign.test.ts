@@ -113,3 +113,18 @@ test('timeline graphics default to visible and can be disabled and restored', ()
     assert.equal(properties.get('data-show-timeline'), 'true');
   });
 });
+
+test('concurrent documents keep independent themes and fonts when the studio theme changes', () => {
+  withDocument((root, links) => {
+    const local = new Map<string, string>();
+    const target = stub<HTMLElement>({ style: { setProperty: (key: string, value: string) => local.set(key, value) }, setAttribute: (key: string, value: string) => local.set(key, value) });
+    applyCvDesign({ ink: '#123456', fontBody: 'Inter', sidebarAlign: 'left' }, target);
+    assert.equal(root.size, 0);
+    const localFontIds = [...links.keys()];
+    applyCvDesign({ ink: '#654321', fontBody: '', fontHead: '', sidebarAlign: 'right' });
+    assert.equal(local.get('--ink'), '#123456');
+    assert.equal(local.get('data-sidebar-align'), 'left');
+    assert.equal(root.get('--ink'), '#654321');
+    assert.ok(localFontIds.every((id) => links.has(id)));
+  });
+});

@@ -10,6 +10,7 @@ import CvBodyItem from './CvBodyItem.vue';
 import { hasMarkdownText } from '../composables/markdownText.ts';
 import CvContact from './CvContact.vue';
 import { updateTimelineRails } from '../composables/timelineLayout.ts';
+import { applyCvDesign } from '../composables/useCvDesign';
 
 const props = defineProps({
   state: { type: Object as PropType<CvState>, required: true },
@@ -88,6 +89,9 @@ const hasCustomInstitution = (section: CustomSection, entry: CvItem) => (
 );
 
 const page = ref<HTMLElement | null>(null);
+const applyDocumentDesign = () => { if (page.value) applyCvDesign(props.state.design, page.value); };
+watch(() => props.state.design, applyDocumentDesign, { deep: true, flush: 'post' });
+onMounted(applyDocumentDesign);
 let timelineObserver: ResizeObserver | undefined;
 let timelineFrame = 0;
 const observedTimelineElements = new Set<Element>();
@@ -135,7 +139,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="page" class="page" :class="{ 'pdf-export-source': exportSource }" role="document">
+  <div ref="page" class="page cv-design-scope" :class="{ 'pdf-export-source': exportSource }" role="document">
     <header v-if="!isDisabled('header')" class="header">
       <div class="title"><h1 class="name">{{ state.contact.name || '-' }}</h1><p class="role">{{ state.contact.role }}</p></div>
       <CvContact v-if="contactLayout !== 'sidebar' && contactLayout !== 'footer'" :contact="state.contact" />
