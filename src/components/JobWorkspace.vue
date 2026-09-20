@@ -125,6 +125,17 @@ function openApplication(application: Application) {
   formError.value = ''; exportText.value = ''; contextError.value = ''; viewEpoch++; preparingContext.value = false;
   nextTick(() => { if (tableScroll.value) tableScroll.value.scrollLeft = 0; });
 }
+function toggleApplication(application: Application) {
+  if (saving.value) return;
+  if (editingId.value !== application.id) {
+    openApplication(application);
+    return;
+  }
+  editingId.value = null;
+  exportText.value = '';
+  preparingContext.value = false;
+  viewEpoch++;
+}
 async function startApplication(item: Opportunity) {
   const existing = applicationByOpportunity.value.get(item.id);
   const application = existing || await createApplication({ opportunityId: item.id });
@@ -195,22 +206,22 @@ function downloadContext() {
       <table v-if="tab === 'opportunities'">
         <thead><tr><th>{{ text('Opportunity', 'Stelle') }}</th><th>{{ text('Country', 'Land') }}</th><th>{{ text('Deadline', 'Frist') }}</th><th>{{ text('Topics', 'Themen') }}</th><th>{{ text('Your review', 'Deine Bewertung') }}</th><th>{{ text('Actions', 'Aktionen') }}</th></tr></thead>
         <tbody><template v-for="item in filteredOpportunities" :key="item.id">
-          <tr :class="{ 'is-expanded': expandedOpportunity === item.id }">
-            <td><strong>{{ item.title }}</strong><span class="jobs-subline">{{ item.university || '—' }}</span><span v-if="item.particularly_suitable" class="jobs-badge">{{ text('Strong fit', 'Besonders passend') }}</span></td>
+          <tr class="jobs-collapsible-row" :class="{ 'is-expanded': expandedOpportunity === item.id }" @click="toggleOpportunity(item.id)">
+            <td><button class="jobs-row-toggle" type="button" :aria-expanded="expandedOpportunity === item.id" :aria-controls="`opportunity-review-${item.id}`" @click.stop="toggleOpportunity(item.id)"><span class="jobs-row-chevron" aria-hidden="true">›</span><strong>{{ item.title }}</strong></button><span class="jobs-subline">{{ item.university || '—' }}</span><span v-if="item.particularly_suitable" class="jobs-badge">{{ text('Strong fit', 'Besonders passend') }}</span></td>
             <td>{{ item.country || '—' }}</td><td><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.details, now) }">{{ formatOpportunityDeadline(item.details, lang) }}</span></td>
             <td class="jobs-topics">{{ item.topics.join(' · ') || '—' }}</td><td><span class="jobs-badge">{{ statusLabel(reviewState(item.id)) }}</span></td>
-            <td><div class="jobs-row-actions"><button class="btn" type="button" :aria-expanded="expandedOpportunity === item.id" :aria-controls="`opportunity-review-${item.id}`" @click="toggleOpportunity(item.id)">{{ expandedOpportunity === item.id ? text('Collapse', 'Zuklappen') : text('Review', 'Ansehen') }}</button><button class="btn btn--success" type="button" :disabled="saving" @click="startApplication(item)">{{ applicationByOpportunity.has(item.id) ? text('Open application', 'Bewerbung öffnen') : text('Create application', 'Bewerbung anlegen') }}</button></div></td>
+            <td><div class="jobs-row-actions" @click.stop><button class="btn btn--success" type="button" :disabled="saving" @click="startApplication(item)">{{ applicationByOpportunity.has(item.id) ? text('Open application', 'Bewerbung öffnen') : text('Create application', 'Bewerbung anlegen') }}</button></div></td>
           </tr>
           <tr v-if="expandedOpportunity === item.id" class="jobs-expanded-row"><td colspan="6"><section :id="`opportunity-review-${item.id}`" class="jobs-inline-review" :aria-label="item.title"><div class="jobs-review-toolbar"><h2>{{ text('Opportunity review', 'Stelle prüfen') }}</h2><label>{{ text('Your review state', 'Deine Bewertung') }}<select :value="reviewState(item.id)" :disabled="saving" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label><span>{{ text('Private to your account', 'Nur für dein Konto') }}</span></div><OpportunityContext :context="item.details" :lang="lang" /></section></td></tr>
         </template><tr v-if="!filteredOpportunities.length"><td colspan="6" class="jobs-empty">{{ loading ? text('Loading opportunities…', 'Stellenangebote werden geladen…') : text('No matching opportunities. Adjust the deadline, application, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewerbungs-, Bewertungs- oder Suchfilter.') }}</td></tr></tbody>
       </table>
       <table v-else>
-        <thead><tr><th>{{ text('Application', 'Bewerbung') }}</th><th>{{ text('Deadline', 'Frist') }}</th><th>{{ text('Contact person', 'Kontaktperson') }}</th><th>{{ text('CV version', 'CV-Version') }}</th><th>{{ text('Status', 'Status') }}</th><th>{{ text('Actions', 'Aktionen') }}</th></tr></thead>
+        <thead><tr><th>{{ text('Application', 'Bewerbung') }}</th><th>{{ text('Deadline', 'Frist') }}</th><th>{{ text('Contact person', 'Kontaktperson') }}</th><th>{{ text('CV version', 'CV-Version') }}</th><th>{{ text('Status', 'Status') }}</th></tr></thead>
         <tbody><template v-for="item in filteredApplications" :key="item.id">
-          <tr :class="{ 'is-expanded': editingId === item.id }"><td><strong>{{ contextTitle(item) }}</strong><span class="jobs-subline">{{ contextInstitution(item) }}</span></td><td>{{ formatOpportunityDeadline(item.context_json, lang) }}</td>
-            <td><template v-for="(person, index) in contacts(item)" :key="index"><span class="jobs-subline">{{ person.name }}</span><a v-if="safeEmailUrl(person.email)" :href="safeEmailUrl(person.email)!">{{ person.email }}</a><span v-else>{{ person.email }}</span></template><span v-if="!contacts(item).length">{{ text('Not recorded', 'Nicht erfasst') }}</span></td>
-            <td class="jobs-cv-column">{{ (item.cv_variant_id && cvById.get(item.cv_variant_id)?.name) || text('Select a CV later', 'CV später auswählen') }}</td><td><span class="jobs-badge">{{ statusLabel(item.status) }}</span></td><td><button class="btn" type="button" :disabled="saving" :aria-expanded="editingId === item.id" :aria-controls="`application-review-${item.id}`" @click="editingId === item.id ? (editingId = null, exportText = '', viewEpoch++) : openApplication(item)">{{ editingId === item.id ? text('Collapse', 'Zuklappen') : text('Review application', 'Bewerbung ansehen') }}</button></td></tr>
-          <tr v-if="editingId === item.id" class="jobs-expanded-row"><td colspan="6"><section :id="`application-review-${item.id}`" class="jobs-inline-review">
+          <tr class="jobs-collapsible-row" :class="{ 'is-expanded': editingId === item.id }" :aria-disabled="saving" @click="toggleApplication(item)"><td><button class="jobs-row-toggle" type="button" :disabled="saving" :aria-expanded="editingId === item.id" :aria-controls="`application-review-${item.id}`" @click.stop="toggleApplication(item)"><span class="jobs-row-chevron" aria-hidden="true">›</span><strong>{{ contextTitle(item) }}</strong></button><span class="jobs-subline">{{ contextInstitution(item) }}</span></td><td>{{ formatOpportunityDeadline(item.context_json, lang) }}</td>
+            <td><template v-for="(person, index) in contacts(item)" :key="index"><span class="jobs-subline">{{ person.name }}</span><a v-if="safeEmailUrl(person.email)" :href="safeEmailUrl(person.email)!" @click.stop>{{ person.email }}</a><span v-else>{{ person.email }}</span></template><span v-if="!contacts(item).length">{{ text('Not recorded', 'Nicht erfasst') }}</span></td>
+            <td class="jobs-cv-column">{{ (item.cv_variant_id && cvById.get(item.cv_variant_id)?.name) || text('Select a CV later', 'CV später auswählen') }}</td><td><span class="jobs-badge">{{ statusLabel(item.status) }}</span></td></tr>
+          <tr v-if="editingId === item.id" class="jobs-expanded-row"><td colspan="5"><section :id="`application-review-${item.id}`" class="jobs-inline-review">
             <div class="jobs-review-toolbar"><h2>{{ text('Application workspace', 'Bewerbung bearbeiten') }}</h2><span>{{ text('Context saved', 'Kontext gespeichert') }}: {{ dateLabel(item.context_captured_at) }}</span><button class="btn" type="button" :disabled="saving || hasUnsavedChanges || preparingContext" @click="refreshResearch">{{ text('Refresh research', 'Forschung aktualisieren') }}</button></div>
             <form class="application-inline-form" @submit.prevent="saveApplication">
               <div class="application-fields">
@@ -227,7 +238,7 @@ function downloadContext() {
             <section class="jobs-evaluation"><h3>{{ text('Context for ChatGPT', 'Kontext für ChatGPT') }}</h3><p>{{ text('Prepare the saved opportunity research, requirements, documents, contacts and assigned privacy CV for a fit evaluation and a later one-page motivation draft.', 'Bereite die gespeicherte Forschung, Anforderungen, Unterlagen, Kontakte und den zugewiesenen anonymisierten CV für eine Eignungsbewertung und ein späteres einseitiges Motivationsschreiben vor.') }}</p><p v-if="hasUnsavedChanges" class="jobs-subline">{{ text('Save your changes before preparing the context.', 'Speichere deine Änderungen, bevor du den Kontext vorbereitest.') }}</p><button class="btn" type="button" :disabled="saving || preparingContext || hasUnsavedChanges" @click="prepareEvaluationContext">{{ preparingContext ? text('Preparing…', 'Wird vorbereitet…') : text('Prepare evaluation context', 'Bewertungskontext vorbereiten') }}</button><p v-if="contextError" class="jobs-error" role="alert">{{ contextError }}</p><div v-if="exportText" class="jobs-export"><label>{{ text('Evaluation brief', 'Bewertungsunterlagen') }}<textarea :value="exportText" readonly rows="8" /></label><div class="jobs-row-actions"><button class="btn" type="button" @click="copyContext">{{ text('Copy context', 'Kontext kopieren') }}</button><button class="btn" type="button" @click="downloadContext">{{ text('Download context (.md)', 'Kontext herunterladen (.md)') }}</button></div></div></section>
             <OpportunityContext :context="item.context_json" :lang="lang" />
           </section></td></tr>
-        </template><tr v-if="!filteredApplications.length"><td colspan="6" class="jobs-empty">{{ loading ? text('Loading applications…', 'Bewerbungen werden geladen…') : text('No matching applications. Create one from an opportunity.', 'Keine passenden Bewerbungen. Lege eine aus einem Stellenangebot an.') }}<button class="btn" type="button" @click="emit('navigate', 'opportunities')">{{ text('Browse opportunities', 'Stellenangebote ansehen') }}</button></td></tr></tbody>
+        </template><tr v-if="!filteredApplications.length"><td colspan="5" class="jobs-empty">{{ loading ? text('Loading applications…', 'Bewerbungen werden geladen…') : text('No matching applications. Create one from an opportunity.', 'Keine passenden Bewerbungen. Lege eine aus einem Stellenangebot an.') }}<button class="btn" type="button" @click="emit('navigate', 'opportunities')">{{ text('Browse opportunities', 'Stellenangebote ansehen') }}</button></td></tr></tbody>
       </table>
     </div>
   </section>
@@ -269,6 +280,12 @@ td a { color: #8be9bf; overflow-wrap: anywhere; }
 .jobs-error { padding: 10px 12px; color: #fecaca; background: #381f28; border-radius: 7px; font-size: 12px; }
 .jobs-notice { color: #86efac; font-size: 13px; }
 tr.is-expanded { background: #0b242b; }
+.jobs-collapsible-row { cursor: pointer; }
+.jobs-collapsible-row[aria-disabled="true"] { cursor: wait; }
+.jobs-collapsible-row:hover, .jobs-collapsible-row:focus-within { background: #103038; }
+.jobs-row-toggle { display: flex; align-items: baseline; gap: 8px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.jobs-row-chevron { display: inline-block; flex-shrink: 0; color: #6ee7b7; font-size: 18px; line-height: 1; transition: transform .15s ease; }
+.jobs-row-toggle[aria-expanded="true"] .jobs-row-chevron { transform: rotate(90deg); }
 .jobs-expanded-row > td { padding: 0; min-width: 0; max-width: none; background: #0b1e27; }
 .jobs-inline-review { padding: 22px; border-left: 3px solid #34c492; min-width: 0; }
 .jobs-review-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 0 0 22px; }
