@@ -5,6 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Application, OpportunityReview } from '../src/cloudTypes';
 import { createCloudCvSnapshot } from '../src/composables/cloudCvPrivacy';
 import { normalizeOpportunity, useJobWorkspace } from '../src/composables/useJobWorkspace';
+import { opportunityRecency } from '../src/composables/opportunityRecency';
 import { createTestState, stub } from './helpers';
 
 interface Query {
@@ -63,7 +64,7 @@ function application(id = 'application-1', cvId: string | null = 'cv-1'): Applic
 }
 
 function review(opportunityId = 'opportunity-1', state: OpportunityReview['state'] = 'interested'): OpportunityReview {
-  return { user_id: 'account-a', opportunity_id: opportunityId, state, created_at: '2026-09-19T16:00:00.000Z', updated_at: '2026-09-19T16:00:00.000Z' };
+  return { user_id: 'account-a', opportunity_id: opportunityId, state, reviewed_updated_at: null, created_at: '2026-09-19T16:00:00.000Z', updated_at: '2026-09-19T16:00:00.000Z' };
 }
 
 test('opportunity normalization preserves shared catalogue research and aliases JSON values', () => {
@@ -227,9 +228,9 @@ test('repeated one-click creates use the existing application ID returned by the
   scope.stop();
 });
 
-test('opportunity reviews upsert only the current user’s choice and survive changing the review state', async () => {
-  const { client, queries } = fakeClient((query) => ({ data: query.operation === 'upsert'
-    ? { ...review(), ...query.payload } : query.table === 'opportunity_reviews' ? [review('other-opportunity')] : [], error: null }));
+test('opportunity review RPC updates the current user’s choice without writing the shared catalogue', async () => {
+  const { client, queries } = fakeClient((query) => ({ data: query.operation === 'rpc'
+    ? { ...review(), state: query.payload?.p_state } : query.table === 'opportunity_reviews' ? [review('other-opportunity')] : [], error: null }));
   const scope = effectScope();
   const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
   await settleUntil(() => !workspace.loading.value);
@@ -237,16 +238,16 @@ test('opportunity reviews upsert only the current user’s choice and survive ch
   assert.equal((await workspace.setOpportunityReview('opportunity-1', 'unreviewed'))?.state, 'unreviewed');
   assert.equal(workspace.reviews.value.length, 2);
   assert.equal(workspace.reviews.value.find(({ opportunity_id }) => opportunity_id === 'opportunity-1')?.state, 'unreviewed');
-  const upserts = queries.filter(({ operation }) => operation === 'upsert');
-  assert.deepEqual(upserts[0].payload, { user_id: 'account-a', opportunity_id: 'opportunity-1', state: 'not_interested' });
-  assert.equal(upserts[0].onConflict, 'user_id,opportunity_id');
+  const writes = queries.filter(({ operation }) => operation === 'rpc');
+  assert.equal(writes[0].table, 'review_job_opportunity');
+  assert.deepEqual(writes[0].payload, { p_opportunity_id: 'opportunity-1', p_observed_updated_at: null, p_state: 'not_interested' });
   assert.equal(queries.some(({ table, operation }) => table === 'opportunities' && operation !== 'select'), false);
   scope.stop();
 });
 
 test('late review writes cannot restore a previous user’s choices after logout', async () => {
   const saving = deferred<Result>();
-  const { client } = fakeClient((query) => query.operation === 'upsert' ? saving.promise : { data: [], error: null });
+  const { client } = fakeClient((query) => query.operation === 'rpc' ? saving.promise : { data: [], error: null });
   const scope = effectScope();
   const account = ref<string | null>('account-a');
   const workspace = scope.run(() => useJobWorkspace(client, account))!;
@@ -257,6 +258,115 @@ test('late review writes cannot restore a previous user’s choices after logout
   assert.equal(await pending, null);
   assert.deepEqual(workspace.reviews.value, []);
   assert.equal(workspace.error.value, '');
+  scope.stop();
+});
+
+test('opening and changing review state persist the viewed source version across fresh workspaces', async () => {
+  const source = normalizeOpportunity({ id: 'opportunity-1', title: 'Researcher', created_at: '2026-09-18T12:00:00Z', updated_at: '2026-09-20T10:00:00Z' });
+  let stored = review('opportunity-1', 'not_interested');
+  const { client, queries } = fakeClient((query) => {
+    if (query.operation === 'rpc') {
+      stored = { ...stored, state: (query.payload?.p_state ?? stored.state) as OpportunityReview['state'], reviewed_updated_at: String(query.payload?.p_observed_updated_at) };
+      return { data: { ...stored }, error: null };
+    }
+    return { data: query.table === 'opportunities' ? [source.details] : query.table === 'opportunity_reviews' ? [{ ...stored }] : [], error: null };
+  });
+  const scope = effectScope();
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  assert.equal((await workspace.markOpportunityReviewed(source))?.state, 'not_interested');
+  assert.equal(workspace.reviews.value[0].reviewed_updated_at, source.updated_at);
+  assert.equal(await workspace.markOpportunityReviewed(source), null, 'reopening a reviewed version makes no redundant write');
+  assert.equal(queries.filter(({ operation }) => operation === 'rpc').length, 1);
+  await workspace.setOpportunityReview(source.id, 'interested');
+  assert.deepEqual(queries.at(-1)?.payload, { p_opportunity_id: source.id, p_observed_updated_at: source.updated_at, p_state: 'interested' });
+  scope.stop();
+  const nextScope = effectScope();
+  const reloaded = nextScope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !reloaded.loading.value);
+  assert.equal(opportunityRecency(reloaded.opportunities.value[0], new Date('2026-09-20T12:00:00Z'), reloaded.reviews.value[0].reviewed_updated_at), null);
+  assert.equal(reloaded.reviews.value[0].state, 'interested');
+  nextScope.stop();
+});
+
+test('parallel row receipts do not block state changes or overwrite a newer interest choice', async () => {
+  const opening = deferred<Result>();
+  const source = normalizeOpportunity({ id: 'opportunity-1', updated_at: '2026-09-20T10:00:00Z' });
+  const source2 = normalizeOpportunity({ id: 'opportunity-2', updated_at: source.updated_at });
+  const { client, queries } = fakeClient((query) => query.operation === 'rpc'
+    ? query.payload?.p_state === null ? opening.promise
+      : { data: { ...review('opportunity-1', 'interested'), reviewed_updated_at: source.updated_at }, error: null }
+    : { data: [], error: null });
+  const scope = effectScope();
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  const pending = workspace.markOpportunityReviewed(source);
+  assert.equal(workspace.saving.value, false);
+  const duplicate = workspace.markOpportunityReviewed(source);
+  assert.equal(await duplicate, null);
+  await workspace.setOpportunityReview(source.id, 'interested');
+  opening.resolve({ data: { ...review('opportunity-1', 'unreviewed'), reviewed_updated_at: source.updated_at }, error: null });
+  await pending;
+  assert.equal(workspace.reviews.value[0].state, 'interested');
+  assert.equal(workspace.reviews.value[0].reviewed_updated_at, source.updated_at);
+  assert.equal(queries.filter(({ operation }) => operation === 'rpc').length, 2);
+  // Unexpected cross-opportunity response is rejected, never applied to the second row.
+  assert.equal(await workspace.markOpportunityReviewed(source2), null);
+  assert.equal(workspace.reviews.value.length, 1);
+  scope.stop();
+});
+
+test('failed receipts keep highlights and old receipts cannot cross account changes', async () => {
+  const source = normalizeOpportunity({ id: 'opportunity-1', updated_at: '2026-09-20T10:00:00Z' });
+  const writing = deferred<Result>();
+  let fail = true;
+  const { client } = fakeClient((query) => query.operation === 'rpc'
+    ? fail ? { data: null, error: { message: 'Offline' } } : writing.promise
+    : { data: [], error: null });
+  const scope = effectScope();
+  const account = ref<string | null>('account-a');
+  const workspace = scope.run(() => useJobWorkspace(client, account))!;
+  await settleUntil(() => !workspace.loading.value);
+  assert.equal(await workspace.markOpportunityReviewed(source), null);
+  assert.equal(workspace.reviews.value.length, 0);
+  assert.match(workspace.error.value, /Could not mark/);
+  fail = false;
+  const pending = workspace.markOpportunityReviewed(source);
+  assert.equal(workspace.error.value, '', 'retry clears the previous failure');
+  account.value = 'account-b';
+  await settleUntil(() => !workspace.loading.value);
+  writing.resolve({ data: { ...review(), reviewed_updated_at: source.updated_at }, error: null });
+  assert.equal(await pending, null);
+  assert.deepEqual(workspace.reviews.value, []);
+  assert.equal(workspace.error.value, '');
+  scope.stop();
+});
+
+test('rapidly opening different rows saves both receipts and an older refresh cannot restore highlights', async () => {
+  const version = '2026-09-20T10:00:00Z';
+  const first = deferred<Result>();
+  const second = deferred<Result>();
+  const reading = deferred<Result>();
+  let holdReads = false;
+  const { client, queries } = fakeClient((query) => query.operation === 'rpc'
+    ? query.payload?.p_opportunity_id === 'first' ? first.promise : second.promise
+    : holdReads ? reading.promise : { data: [], error: null });
+  const scope = effectScope();
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  const pendingFirst = workspace.markOpportunityReviewed(normalizeOpportunity({ id: 'first', updated_at: version }));
+  const pendingSecond = workspace.markOpportunityReviewed(normalizeOpportunity({ id: 'second', updated_at: version }));
+  await settleUntil(() => queries.filter(({ operation }) => operation === 'rpc').length === 2);
+  holdReads = true;
+  const refresh = workspace.refresh();
+  await settleUntil(() => queries.filter(({ operation }) => operation === 'select').length === 8);
+  second.resolve({ data: { ...review('second', 'unreviewed'), reviewed_updated_at: version }, error: null });
+  first.resolve({ data: { ...review('first', 'unreviewed'), reviewed_updated_at: version }, error: null });
+  await Promise.all([pendingFirst, pendingSecond]);
+  reading.resolve({ data: [], error: null });
+  assert.equal(await refresh, false);
+  assert.deepEqual(workspace.reviews.value.map(({ opportunity_id }) => opportunity_id).sort(), ['first', 'second']);
+  assert.ok(workspace.reviews.value.every(({ reviewed_updated_at }) => reviewed_updated_at === version));
   scope.stop();
 });
 

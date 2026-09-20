@@ -7,6 +7,7 @@ import { SAMPLE_CONTACT } from '../defaults';
 import { CV_STATE_VERSION } from '../types';
 import { createCloudCvSnapshot } from './cloudCvPrivacy';
 import { isRecord, readCvConfig, readCvContent } from './cvStateValidation';
+import { hasReviewedOpportunity } from './opportunityRecency';
 
 const PAGE_SIZE = 500;
 const CV_SUMMARY_FIELDS = 'id,user_id,name,cv_version,revision,created_at';
@@ -96,6 +97,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   let loadSequence = 0;
   let loadController: AbortController | null = null;
   const controllers = new Set<AbortController>();
+  const pendingReviews = new Set<string>();
   let pendingCreate: PendingApplication | null = null;
   let pendingAssignment: PendingSnapshot | null = null;
 
@@ -105,6 +107,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
     loadSequence++;
     for (const controller of controllers) controller.abort();
     controllers.clear();
+    pendingReviews.clear();
     loadController = null;
     opportunities.value = []; applications.value = []; cvVariants.value = []; reviews.value = [];
     loading.value = false; saving.value = false; error.value = '';
@@ -272,17 +275,63 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
     }, rememberApplication, 'Could not refresh the application research. Check your connection and retry.');
   }
 
+  async function saveOpportunityReview(account: string, opportunityId: string, observedVersion: string | null, state: OpportunityReviewState | null, signal: AbortSignal): Promise<OpportunityReview> {
+    const { data, error: queryError } = await client!.rpc('review_job_opportunity', {
+      p_opportunity_id: opportunityId, p_observed_updated_at: observedVersion, p_state: state,
+    }).abortSignal(signal);
+    if (queryError) throw queryError;
+    if (!data || data.user_id !== account || data.opportunity_id !== opportunityId
+      || !OPPORTUNITY_REVIEW_STATES.includes(data.state)) throw new Error('The review could not be saved. Refresh and retry.');
+    return data as OpportunityReview;
+  }
+
+  function rememberReview(review: OpportunityReview, receiptOnly = false) {
+    const previous = reviews.value.find(({ opportunity_id }) => opportunity_id === review.opportunity_id);
+    const saved = receiptOnly && previous ? { ...previous } : { ...review };
+    // Opening a row and changing its state may finish in either order. Neither may lose a newer receipt or choice.
+    saved.reviewed_updated_at = previous?.reviewed_updated_at
+      && (!review.reviewed_updated_at || Date.parse(previous.reviewed_updated_at) > Date.parse(review.reviewed_updated_at))
+      ? previous.reviewed_updated_at : review.reviewed_updated_at;
+    reviews.value = [saved, ...reviews.value.filter(({ opportunity_id }) => opportunity_id !== review.opportunity_id)];
+  }
+
   function setOpportunityReview(opportunityId: string, state: OpportunityReviewState): Promise<OpportunityReview | null> {
+    const opportunity = opportunities.value.find(({ id }) => id === opportunityId);
+    const observedVersion = opportunity?.updated_at || opportunity?.created_at || null;
     return runMutation(async (account, _generation, signal) => {
       if (!opportunityId || !OPPORTUNITY_REVIEW_STATES.includes(state)) throw new Error('Select a valid opportunity review state.');
-      const { data, error: queryError } = await client!.from('opportunity_reviews')
-        .upsert({ user_id: account, opportunity_id: opportunityId, state }, { onConflict: 'user_id,opportunity_id' })
-        .select('*').abortSignal(signal).single();
-      if (queryError) throw queryError;
-      if (!data || data.user_id !== account || data.opportunity_id !== opportunityId) throw new Error('The review could not be saved. Refresh and retry.');
-      return data as OpportunityReview;
-    }, (review) => { reviews.value = [review, ...reviews.value.filter(({ opportunity_id }) => opportunity_id !== review.opportunity_id)]; },
+      return saveOpportunityReview(account, opportunityId, observedVersion, state, signal);
+    }, (review) => rememberReview(review),
     'Could not save the opportunity review. Check your connection and retry.');
+  }
+
+  /** A read receipt never blocks another row, changes interest, or acknowledges an unseen source update. */
+  async function markOpportunityReviewed(opportunity: Opportunity): Promise<OpportunityReview | null> {
+    const account = toValue(userId);
+    const observedVersion = opportunity.updated_at || opportunity.created_at;
+    const previous = reviews.value.find(({ opportunity_id }) => opportunity_id === opportunity.id);
+    if (!client || !account || !observedVersion || hasReviewedOpportunity(opportunity, previous?.reviewed_updated_at)) return null;
+    const generation = epoch;
+    const key = `${generation}:${opportunity.id}:${observedVersion}`;
+    if (pendingReviews.has(key)) return null;
+    pendingReviews.add(key);
+    const controller = new AbortController();
+    controllers.add(controller);
+    error.value = '';
+    try {
+      const review = await saveOpportunityReview(account, opportunity.id, observedVersion, null, controller.signal);
+      if (!current(account, generation)) return null;
+      // A refresh started before this write completed may contain the old receipt.
+      loadSequence++; loadController?.abort(); loading.value = false;
+      rememberReview(review, true);
+      return review;
+    } catch (reason) {
+      if (current(account, generation)) error.value = errorMessage(reason, 'Could not mark the opportunity as reviewed. Reopen it to retry.');
+      return null;
+    } finally {
+      pendingReviews.delete(key);
+      controllers.delete(controller);
+    }
   }
 
   /** Fetch only on explicit export/inspection. The context and CV refer to the same stored application. */
@@ -315,5 +364,5 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
 
   watch(() => toValue(userId), () => { reset(); void refresh(); }, { immediate: true, flush: 'sync' });
   onScopeDispose(reset);
-  return { opportunities, applications, cvVariants, reviews, loading, saving, error, refresh, createApplication, updateApplication, refreshApplicationContext, setOpportunityReview, getApplicationContext };
+  return { opportunities, applications, cvVariants, reviews, loading, saving, error, refresh, createApplication, updateApplication, refreshApplicationContext, setOpportunityReview, markOpportunityReviewed, getApplicationContext };
 }

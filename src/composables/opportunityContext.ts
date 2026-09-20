@@ -7,9 +7,11 @@ export interface OpportunityContextNode {
   href?: string;
   children?: OpportunityContextNode[];
   missing?: boolean;
+  kind?: 'summary' | 'main-link' | 'fit';
+  score?: number;
 }
 
-export type OpportunityContextGroupId = 'links' | 'research' | 'salary' | 'topics' | 'requirements' | 'documents' | 'metadata';
+export type OpportunityContextGroupId = 'overview' | 'links' | 'suitability' | 'advisor' | 'salary' | 'requirements' | 'documents' | 'metadata';
 export interface OpportunityContextGroup {
   id: OpportunityContextGroupId;
   label: string;
@@ -17,26 +19,29 @@ export interface OpportunityContextGroup {
 }
 
 const GROUPS: [OpportunityContextGroupId, string, string][] = [
-  ['links', 'Links & contacts', 'Links & Kontakte'],
-  ['research', 'Research context', 'Forschungskontext'],
+  ['overview', 'Research overview & fit', 'Forschungsüberblick & Passung'],
   ['salary', 'Salary & funding', 'Gehalt & Finanzierung'],
-  ['topics', 'Topics', 'Themen'],
   ['requirements', 'Requirements', 'Anforderungen'],
   ['documents', 'Application documents', 'Bewerbungsunterlagen'],
+  ['advisor', 'Advisor & lab context', 'Betreuung & Forschungsgruppe'],
+  ['links', 'Links & contacts', 'Links & Kontakte'],
+  ['suitability', 'Particularly suitable', 'Besonders passend'],
   ['metadata', 'Metadata', 'Metadaten'],
 ];
 
 const FIELD_GROUPS: Record<OpportunityContextGroupId, string[]> = {
   links: ['official_url', 'application_url', 'source_url', 'sources', 'links', 'contacts', 'contact', 'contact_email', 'email', 'website'],
-  research: ['supervisor_research_focus', 'supervisor_top_papers', 'supervisors', 'supervisor', 'supervisor_reputation',
-    'research_career_potential', 'rd_career_potential', 'hardware_software_balance', 'hardware_software_profile',
-    'personal_fit', 'particularly_suitable', 'particularly_suitable_reason', 'special_features', 'research_context',
-    'research_track', 'cv_track', 'project_description', 'project_summary', 'research_summary', 'research_focus'],
-  salary: ['salary', 'salary_text', 'funding', 'compensation', 'stipend', 'scholarship', 'benefits'],
-  topics: ['topics', 'keywords', 'research_topics', 'research_areas'],
+  overview: ['research_summary', 'project_summary', 'project_description', 'personal_fit', 'research_fit',
+    'research_career_potential', 'rd_career_potential', 'hardware_software_balance', 'hardware_software_profile', 'cv_track'],
+  suitability: ['particularly_suitable', 'particularly_suitable_reason', 'special_features'],
+  advisor: ['supervisor_research_focus', 'supervisor_top_papers', 'supervisors', 'supervisor', 'supervisor_reputation',
+    'research_context', 'research_focus',
+    'lab', 'lab_context', 'lab_research', 'research_group', 'unit'],
+  salary: ['salary', 'salary_text', 'funding', 'compensation', 'stipend', 'scholarship', 'benefits',
+    'duration_months', 'duration_details', 'duration', 'duration_years', 'contract_duration', 'contract_length', 'start_date'],
   requirements: ['requirements', 'eligibility', 'qualifications', 'required_skills', 'desired_skills', 'language_requirements'],
   documents: ['required_documents', 'application_documents', 'documents', 'submission_documents'],
-  metadata: [],
+  metadata: ['topics', 'keywords', 'research_topics', 'research_areas', 'research_track'],
 };
 
 const LABELS: Record<string, [string, string]> = {
@@ -52,6 +57,7 @@ const LABELS: Record<string, [string, string]> = {
   rd_career_potential: ['R&D career potential', 'Karrierechancen in Forschung & Entwicklung'],
   hardware_software_balance: ['Hardware / software balance', 'Hardware- / Software-Anteil'],
   hardware_software_profile: ['Hardware / software profile', 'Hardware- / Software-Profil'],
+  research_fit: ['Research fit', 'Forschungspassung'],
   personal_fit: ['Personal fit', 'Persönliche Passung'], particularly_suitable: ['Particularly suitable', 'Besonders passend'],
   particularly_suitable_reason: ['Suitability rationale', 'Begründung der Passung'], special_features: ['Distinctive features', 'Besonderheiten'],
   research_context: ['Research context', 'Forschungskontext'], research_track: ['Research track', 'Forschungsschwerpunkt'],
@@ -99,6 +105,9 @@ const LABELS: Record<string, [string, string]> = {
 const ALIASES: Record<string, string> = { university: 'institution', supervisor: 'supervisors', contact: 'contacts',
   salary_text: 'salary', application_documents: 'required_documents', documents: 'required_documents' };
 const PRIVATE_KEYS = new Set(['id', 'user_id']);
+const FIT_FIELDS = new Set(['personal_fit', 'research_fit', 'research_career_potential', 'rd_career_potential']);
+const SUMMARY_FIELDS = new Set(['research_summary', 'project_summary', 'project_description']);
+const PRIMARY_LINK_FIELDS = ['official_url', 'application_url', 'source_url'];
 const ENUM_KEYS = new Set(['role', 'availability', 'verification_level', 'historical_match_status', 'period']);
 
 function keyName(value: string) { return value.replace(/([a-z\d])([A-Z])/g, '$1_$2').toLowerCase().replace(/[ -]+/g, '_'); }
@@ -106,6 +115,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 function phrase(en: string, de: string, lang: string) { return lang === 'de' ? de : en; }
+
+function fitScore(value: unknown): number | undefined {
+  const raw = isRecord(value) ? value.score : value;
+  if (typeof raw !== 'number' && !(typeof raw === 'string' && /^\d+(?:\.\d+)?$/.test(raw.trim()))) return;
+  const score = Number(raw);
+  return Number.isFinite(score) && score >= 0 && score <= 10 ? score : undefined;
+}
 
 export function opportunityFieldLabel(key: string, lang: string): string {
   const known = LABELS[keyName(key)];
@@ -179,11 +195,65 @@ function fieldGroup(key: string): OpportunityContextGroupId {
   return 'metadata';
 }
 
+/** One destination per source, with all of its evidence and contact context retained. */
+function consolidateSourceLinks(items: OpportunityContextNode[], lang: string): OpportunityContextNode[] {
+  const sources = new Map<string, OpportunityContextNode>();
+  const genericLabels = new Set(['url', 'href', 'links', 'sources', 'source_url', 'contacts', 'email', 'contact_email']
+    .map((key) => opportunityFieldLabel(key, lang)));
+  const hasLink = (node: OpportunityContextNode): boolean => Boolean(node.href || node.children?.some(hasLink));
+  const signature = (node: OpportunityContextNode): string => JSON.stringify(node, (key, value) => key === 'id' ? undefined : value);
+  function mergeDetails(existing: OpportunityContextNode[], incoming: OpportunityContextNode[]): OpportunityContextNode[] {
+    const result = [...existing];
+    for (const node of incoming) {
+      if (result.some((candidate) => signature(candidate) === signature(node))) continue;
+      const index = result.findIndex((candidate) => candidate.label === node.label && node.label !== null
+        && candidate.children && node.children && !candidate.href && !node.href);
+      if (index >= 0) result[index] = { ...result[index], children: mergeDetails(result[index].children!, node.children!) };
+      else result.push(node);
+    }
+    return result;
+  }
+  function labelsFor(node: OpportunityContextNode, parents: string[]): string[] {
+    const label = node.label?.replace(/ \((?:additional detail|ergänzende Angaben)\)$/, '');
+    return label && !genericLabels.has(label) ? [...new Set([...parents, label])] : parents;
+  }
+  const sourceLabels = new Map<string, string[]>();
+  function register(node: OpportunityContextNode, labels: string[], details: OpportunityContextNode[]) {
+    const href = node.href!; // Already validated by safeHref; never turn raw values into links here.
+    const previous = sources.get(href);
+    const allLabels = [...new Set([...(sourceLabels.get(href) || []), ...labels])];
+    sourceLabels.set(href, allLabels);
+    const children = mergeDetails(previous?.children || [], details);
+    sources.set(href, {
+      id: previous?.id || `links.destination.${sources.size}`, label: allLabels.join(' · ') || phrase('Source', 'Quelle', lang),
+      href, text: previous?.text || node.text, ...(children.length ? { children } : {}),
+    });
+  }
+  function visit(node: OpportunityContextNode, parents: string[] = []): OpportunityContextNode | null {
+    const labels = labelsFor(node, parents);
+    if (node.href) { register(node, labels, node.children || []); return null; }
+    if (!node.children) return node;
+    const directLinks = node.children.filter((child) => child.href);
+    if (directLinks.length) {
+      const details = node.children.filter((child) => !hasLink(child));
+      directLinks.forEach((child) => register(child, labelsFor(child, labels), details));
+      const remainder = node.children.filter((child) => !child.href && hasLink(child))
+        .map((child) => visit(child, labels)).filter((child): child is OpportunityContextNode => child !== null);
+      return remainder.length ? { ...node, children: remainder } : null;
+    }
+    const children = node.children.map((child) => visit(child, labels)).filter((child): child is OpportunityContextNode => child !== null);
+    return children.length ? { ...node, children } : null;
+  }
+  const unlinked = items.map((node) => visit(node)).filter((node): node is OpportunityContextNode => node !== null);
+  return [...sources.values(), ...unlinked];
+}
+
 /** Keep arbitrary research JSON readable without presenting serialized implementation data. */
 export function buildOpportunityGroups(context: Record<string, unknown>, lang: string): OpportunityContextGroup[] {
   const groups = GROUPS.map(([id, en, de]) => ({ id, label: phrase(en, de, lang), items: [] as OpportunityContextNode[] }));
   const byGroup = new Map(groups.map((group) => [group.id, group]));
   const seen = new Map<string, string[]>();
+  const primaryLinks = new Map<string, string>();
   const visitedWrappers = new Set<object>();
   const add = (rawKey: string, value: unknown, source: string) => {
     const key = keyName(rawKey);
@@ -196,6 +266,20 @@ export function buildOpportunityGroups(context: Record<string, unknown>, lang: s
     }
     const node = buildNode(value, key, `${source}.${rawKey}`, lang, new Set(), opportunityFieldLabel(rawKey, lang));
     if (!node) return;
+    if (PRIMARY_LINK_FIELDS.includes(key) && node.href?.startsWith('http') && (source === 'root' || !primaryLinks.has(key))) {
+      primaryLinks.set(key, node.href);
+    }
+    if (SUMMARY_FIELDS.has(key)) node.kind = 'summary';
+    if (FIT_FIELDS.has(key)) {
+      node.kind = 'fit';
+      const score = fitScore(value);
+      if (score !== undefined) {
+        node.score = score;
+        node.text = `${humanText(score, 'score', lang)} / 10`;
+        // Keep the rationale while avoiding a second, unformatted copy of the score.
+        node.children = node.children?.filter((child) => child.id !== `${node.id}.score`);
+      }
+    }
     const canonicalKey = ALIASES[key] || key;
     const signature = JSON.stringify(node, (name, item) => name === 'id' ? undefined : item);
     const previous = seen.get(canonicalKey) || [];
@@ -213,9 +297,22 @@ export function buildOpportunityGroups(context: Record<string, unknown>, lang: s
     const value = candidates.find((candidate) => buildNode(candidate, key, `root.${key}`, lang, new Set(), opportunityFieldLabel(key, lang)));
     const node = buildNode(value, key, `root.${key}`, lang, new Set(), opportunityFieldLabel(key, lang));
     if (node) add(key, value, 'root');
-    else byGroup.get('research')!.items.push({ id: `root.${key}`, label: opportunityFieldLabel(key, lang), text: phrase(en, de, lang), missing: true });
+    else byGroup.get('advisor')!.items.push({ id: `root.${key}`, label: opportunityFieldLabel(key, lang), text: phrase(en, de, lang), missing: true });
   }
   Object.entries(context).forEach(([key, value]) => add(key, value, 'root'));
+  const links = byGroup.get('links')!;
+  links.items = consolidateSourceLinks(links.items, lang);
+  const primaryHref = PRIMARY_LINK_FIELDS.map((key) => primaryLinks.get(key)).find(Boolean);
+  const primaryLink = primaryHref ? links.items.find((node) => node.href === primaryHref) : undefined;
+  const overview = byGroup.get('overview')!;
+  if (primaryLink) {
+    overview.items.push({ ...primaryLink, kind: 'main-link' });
+    links.items = links.items.filter((node) => node !== primaryLink);
+  }
+  // Stable reading order, independent of the database column order or JSON wrappers.
+  const priority = (node: OpportunityContextNode) => node.kind === 'summary' ? 0 : node.kind === 'main-link' ? 1
+    : node.kind === 'fit' ? 2 + [...FIT_FIELDS].indexOf(keyName(node.id.split('.').at(-1)!)) / 10 : 3;
+  overview.items.sort((a, b) => priority(a) - priority(b));
   return groups.filter((group) => group.items.length);
 }
 

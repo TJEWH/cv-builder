@@ -8,6 +8,7 @@ import { useJobWorkspace } from '../composables/useJobWorkspace';
 import { createCloudCvSnapshot } from '../composables/cloudCvPrivacy';
 import { safeEmailUrl } from '../composables/safeUrl';
 import { isOpportunityDeadlinePassed, opportunityDeadlineSortKey, formatOpportunityDeadline } from '../composables/opportunityDeadline';
+import { opportunityRecency } from '../composables/opportunityRecency';
 import { buildApplicationEvaluationContext } from '../composables/applicationEvaluationContext';
 import OpportunityContext from './OpportunityContext.vue';
 
@@ -17,7 +18,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ navigate: [tab: 'opportunities' | 'applications'] }>();
 const { opportunities, applications, cvVariants, reviews, loading, saving, error, refresh, createApplication,
-  updateApplication, setOpportunityReview, getApplicationContext, refreshApplicationContext } = useJobWorkspace(props.client, () => props.userId);
+  updateApplication, setOpportunityReview, markOpportunityReviewed, getApplicationContext, refreshApplicationContext } = useJobWorkspace(props.client, () => props.userId);
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const query = ref('');
 const statusFilter = ref('');
@@ -41,8 +42,9 @@ const now = ref(new Date());
 const clockTimer = window.setInterval(() => { now.value = new Date(); }, 30_000);
 let viewEpoch = 0;
 onBeforeUnmount(() => { window.clearInterval(clockTimer); viewEpoch++; });
-const reviewById = computed(() => new Map(reviews.value.map((item) => [item.opportunity_id, item.state])));
-const reviewState = (id: string): OpportunityReviewState => reviewById.value.get(id) || 'unreviewed';
+const reviewById = computed(() => new Map(reviews.value.map((item) => [item.opportunity_id, item])));
+const recencyById = computed(() => new Map(opportunities.value.map((item) => [item.id, opportunityRecency(item, now.value, reviewById.value.get(item.id)?.reviewed_updated_at)])));
+const reviewState = (id: string): OpportunityReviewState => reviewById.value.get(id)?.state || 'unreviewed';
 const applicationByOpportunity = computed(() => new Map(applications.value.map((item) => [item.opportunity_id, item])));
 const filteredOpportunities = computed(() => {
   const needle = query.value.toLocaleLowerCase().trim();
@@ -109,7 +111,20 @@ watch(() => props.userId, () => { editingId.value = null; expandedOpportunity.va
 watch(form, () => { exportText.value = ''; contextError.value = ''; viewEpoch++; preparingContext.value = false; });
 function toggleOpportunity(id: string) {
   expandedOpportunity.value = expandedOpportunity.value === id ? null : id;
-  if (expandedOpportunity.value) nextTick(() => { if (tableScroll.value) tableScroll.value.scrollLeft = 0; });
+  if (expandedOpportunity.value) {
+    const opportunity = opportunityById.value.get(id);
+    if (opportunity) void markOpportunityReviewed(opportunity);
+    nextTick(() => {
+      const scroll = tableScroll.value;
+      if (!scroll || props.tab !== 'opportunities' || expandedOpportunity.value !== id) return;
+      const row = scroll.querySelector<HTMLTableRowElement>('.jobs-opportunities-table tr.is-expanded');
+      if (!row) return;
+      // Measure after the previous details collapse, keeping the row below the sticky column headings.
+      const headerHeight = scroll.querySelector('thead')?.getBoundingClientRect().height ?? 0;
+      const top = scroll.scrollTop + row.getBoundingClientRect().top - scroll.getBoundingClientRect().top - scroll.clientTop - headerHeight;
+      scroll.scrollTo({ top: Math.max(0, top), left: 0 });
+    });
+  }
 }
 async function changeReview(item: Opportunity, event: Event) {
   const target = event.target as HTMLSelectElement;
@@ -188,9 +203,8 @@ function downloadContext() {
 </script>
 
 <template>
-  <section :id="`builder-group-${tab}`" class="jobs-workspace" :aria-label="tab === 'opportunities' ? text('Opportunities', 'Stellenangebote') : text('Applications', 'Bewerbungen')">
-    <header class="jobs-heading"><div><p class="jobs-eyebrow">{{ text('YOUR NEXT CHAPTER', 'DEIN NÄCHSTES KAPITEL') }}</p><h1>{{ tab === 'opportunities' ? text('Job opportunities', 'Stellenangebote') : text('Your applications', 'Deine Bewerbungen') }}</h1><p>{{ tab === 'opportunities' ? text('Review the research, keep what interests you, and create an application in one click.', 'Prüfe die Forschung, markiere interessante Stellen und lege mit einem Klick eine Bewerbung an.') : text('Research, requirements, documents and your CV — together for each application.', 'Forschung, Anforderungen, Unterlagen und dein CV — zusammen für jede Bewerbung.') }}</p></div><button class="btn" type="button" :disabled="loading || saving" @click="refresh">{{ loading ? text('Loading…', 'Lädt…') : text('Refresh', 'Aktualisieren') }}</button></header>
-    <p class="jobs-privacy"><font-awesome-icon :icon="['fas', 'lock']" /> {{ text('Your full CV stays in this browser. Only a privacy snapshot is uploaded when you assign a CV to an application.', 'Dein vollständiger CV bleibt in diesem Browser. Nur beim Zuweisen eines CVs wird ein anonymisierter Snapshot hochgeladen.') }}</p>
+  <section :id="`builder-group-${tab}`" class="jobs-workspace" :class="{ 'jobs-workspace--opportunities': tab === 'opportunities' }" :aria-label="tab === 'opportunities' ? text('Opportunities', 'Stellenangebote') : text('Applications', 'Bewerbungen')">
+    <header class="jobs-heading"><div><h1>{{ tab === 'opportunities' ? text('Job opportunities', 'Stellenangebote') : text('Your applications', 'Deine Bewerbungen') }}</h1></div><button class="btn" type="button" :disabled="loading || saving" @click="refresh">{{ loading ? text('Loading…', 'Lädt…') : text('Refresh', 'Aktualisieren') }}</button></header>
     <p v-if="error" class="jobs-error" role="alert">{{ error }}</p><p v-if="notice" class="jobs-notice" role="status">{{ notice }}</p>
     <div class="jobs-toolbar">
       <label class="jobs-search"><span>{{ text('Search', 'Suchen') }}</span><input v-model="query" type="search" :placeholder="text('Title, institution or country…', 'Titel, Einrichtung oder Land…')" /></label>
@@ -203,16 +217,17 @@ function downloadContext() {
       <span class="jobs-count">{{ tab === 'opportunities' ? filteredOpportunities.length : filteredApplications.length }} {{ text('results', 'Ergebnisse') }}</span>
     </div>
     <div ref="tableScroll" class="jobs-table-scroll" tabindex="0" :aria-label="text('Scrollable results table', 'Scrollbare Ergebnistabelle')">
-      <table v-if="tab === 'opportunities'">
+      <table v-if="tab === 'opportunities'" class="jobs-opportunities-table">
+        <colgroup><col style="width: 27%" /><col style="width: 10%" /><col style="width: 12%" /><col style="width: 17%" /><col style="width: 15%" /><col style="width: 19%" /></colgroup>
         <thead><tr><th>{{ text('Opportunity', 'Stelle') }}</th><th>{{ text('Country', 'Land') }}</th><th>{{ text('Deadline', 'Frist') }}</th><th>{{ text('Topics', 'Themen') }}</th><th>{{ text('Your review', 'Deine Bewertung') }}</th><th>{{ text('Actions', 'Aktionen') }}</th></tr></thead>
         <tbody><template v-for="item in filteredOpportunities" :key="item.id">
-          <tr class="jobs-collapsible-row" :class="{ 'is-expanded': expandedOpportunity === item.id }" @click="toggleOpportunity(item.id)">
-            <td><button class="jobs-row-toggle" type="button" :aria-expanded="expandedOpportunity === item.id" :aria-controls="`opportunity-review-${item.id}`" @click.stop="toggleOpportunity(item.id)"><span class="jobs-row-chevron" aria-hidden="true">›</span><strong>{{ item.title }}</strong></button><span class="jobs-subline">{{ item.university || '—' }}</span><span v-if="item.particularly_suitable" class="jobs-badge">{{ text('Strong fit', 'Besonders passend') }}</span></td>
+          <tr class="jobs-collapsible-row" :class="{ 'is-expanded': expandedOpportunity === item.id, 'jobs-opportunity--new': recencyById.get(item.id) === 'new', 'jobs-opportunity--updated': recencyById.get(item.id) === 'updated' }" @click="toggleOpportunity(item.id)">
+            <td><button class="jobs-row-toggle" type="button" :aria-expanded="expandedOpportunity === item.id" :aria-controls="`opportunity-review-${item.id}`" @click.stop="toggleOpportunity(item.id)"><span class="jobs-row-chevron" aria-hidden="true">›</span><strong>{{ item.title }}</strong></button><span class="jobs-subline">{{ item.university || '—' }}</span><div v-if="recencyById.get(item.id) || item.particularly_suitable" class="jobs-opportunity-badges"><span v-if="recencyById.get(item.id)" class="jobs-badge" :class="`jobs-badge--${recencyById.get(item.id)}`" :title="recencyById.get(item.id) === 'new' ? text('Added within the last 24 hours', 'In den letzten 24 Stunden hinzugefügt') : text('Updated within the last 24 hours', 'In den letzten 24 Stunden aktualisiert')">{{ recencyById.get(item.id) === 'new' ? text('New · 24h', 'Neu · 24 Std.') : text('Updated · 24h', 'Aktualisiert · 24 Std.') }}</span><span v-if="item.particularly_suitable" class="jobs-badge">{{ text('Strong fit', 'Besonders passend') }}</span></div></td>
             <td>{{ item.country || '—' }}</td><td><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.details, now) }">{{ formatOpportunityDeadline(item.details, lang) }}</span></td>
-            <td class="jobs-topics">{{ item.topics.join(' · ') || '—' }}</td><td><span class="jobs-badge">{{ statusLabel(reviewState(item.id)) }}</span></td>
+            <td class="jobs-topics">{{ item.topics.join(' · ') || '—' }}</td><td @click.stop><select class="jobs-review-select" :aria-label="`${text('Review state for', 'Bewertung für')} ${item.title}`" :value="reviewState(item.id)" :disabled="saving" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></td>
             <td><div class="jobs-row-actions" @click.stop><button class="btn btn--success" type="button" :disabled="saving" @click="startApplication(item)">{{ applicationByOpportunity.has(item.id) ? text('Open application', 'Bewerbung öffnen') : text('Create application', 'Bewerbung anlegen') }}</button></div></td>
           </tr>
-          <tr v-if="expandedOpportunity === item.id" class="jobs-expanded-row"><td colspan="6"><section :id="`opportunity-review-${item.id}`" class="jobs-inline-review" :aria-label="item.title"><div class="jobs-review-toolbar"><h2>{{ text('Opportunity review', 'Stelle prüfen') }}</h2><label>{{ text('Your review state', 'Deine Bewertung') }}<select :value="reviewState(item.id)" :disabled="saving" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label><span>{{ text('Private to your account', 'Nur für dein Konto') }}</span></div><OpportunityContext :context="item.details" :lang="lang" /></section></td></tr>
+          <tr v-if="expandedOpportunity === item.id" class="jobs-expanded-row"><td colspan="6"><section :id="`opportunity-review-${item.id}`" class="jobs-inline-review" :aria-label="item.title"><OpportunityContext :context="item.details" :lang="lang" /></section></td></tr>
         </template><tr v-if="!filteredOpportunities.length"><td colspan="6" class="jobs-empty">{{ loading ? text('Loading opportunities…', 'Stellenangebote werden geladen…') : text('No matching opportunities. Adjust the deadline, application, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewerbungs-, Bewertungs- oder Suchfilter.') }}</td></tr></tbody>
       </table>
       <table v-else>
@@ -245,14 +260,14 @@ function downloadContext() {
 </template>
 
 <style scoped>
-.jobs-workspace { min-height: 0; overflow: auto; padding: 24px; border: 1px solid #134e4a; border-radius: 12px; color: #d1fae5; background: #06141f; scrollbar-width: thin; }
+.jobs-workspace { min-height: 0; overflow: auto; scrollbar-gutter: stable; padding: 24px; border: 1px solid #134e4a; border-radius: 12px; color: #d1fae5; background: #06141f; scrollbar-width: thin; }
+.jobs-workspace--opportunities { display: flex; flex-direction: column; overflow: hidden; scrollbar-gutter: auto; }
+.jobs-workspace--opportunities > :not(.jobs-table-scroll) { flex-shrink: 0; }
+.jobs-workspace--opportunities > .jobs-table-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-width: thin; }
 .jobs-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .jobs-heading h1 { margin: 4px 0 8px; font-size: 27px; letter-spacing: -.6px; }
 .jobs-heading p { margin: 0 0 12px; color: #9bb3ad; line-height: 1.55; }
-.jobs-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 1.8px; color: #6ee7b7 !important; }
-.jobs-privacy { padding: 12px 14px; border: 1px solid #164e46; border-radius: 8px; background: #0c2428; color: #a9cec2; font-size: 12px; line-height: 1.6; }
-.jobs-privacy .svg-inline--fa { margin-right: 6px; }
-.jobs-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 16px; margin: 24px 0 18px; }
+.jobs-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 16px; margin: 0 0 18px; }
 .jobs-workspace label { display: grid; gap: 8px; font-size: 12px; }
 .jobs-search { flex: 1; min-width: 200px; max-width: 450px; }
 .jobs-toolbar .jobs-check { display: flex; align-items: center; }
@@ -264,12 +279,18 @@ function downloadContext() {
 .jobs-workspace button:disabled { opacity: .5; cursor: not-allowed; }
 .jobs-table-scroll { overflow-x: auto; border: 1px solid #173c3e; border-radius: 9px; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.jobs-opportunities-table { table-layout: fixed; min-width: 960px; }
+.jobs-opportunities-table td { min-width: 0; max-width: none; overflow-wrap: anywhere; }
+.jobs-opportunities-table .jobs-row-actions { min-width: 0; }
+.jobs-opportunities-table .jobs-row-actions .btn { white-space: normal; }
+.jobs-opportunities-table th { position: sticky; top: 0; z-index: 1; }
 th { padding: 13px 14px; white-space: nowrap; background: #0d242c; color: #8db7ab; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
 td { padding: 16px 14px; vertical-align: top; border-top: 1px solid #17383c; line-height: 1.5; }
 td:first-child { min-width: 220px; max-width: 340px; }
 td a { color: #8be9bf; overflow-wrap: anywhere; }
 .jobs-subline { display: block; margin-top: 5px; color: #94afa6; font-size: 11px; }
 .jobs-topics { min-width: 130px; max-width: 220px; color: #a7c4b9; }
+.jobs-opportunities-table .jobs-review-select { width: 100%; min-width: 0; padding: 7px 5px; font-size: 11px; cursor: pointer; }
 .jobs-cv-column { min-width: 160px; max-width: 220px; overflow-wrap: anywhere; }
 .jobs-row-actions { display: flex; flex-wrap: wrap; gap: 7px; min-width: 145px; }
 .jobs-row-actions .btn { font-size: 11px; white-space: nowrap; }
@@ -279,6 +300,13 @@ td a { color: #8be9bf; overflow-wrap: anywhere; }
 .jobs-empty .btn { display: block; margin: 16px auto 0; }
 .jobs-error { padding: 10px 12px; color: #fecaca; background: #381f28; border-radius: 7px; font-size: 12px; }
 .jobs-notice { color: #86efac; font-size: 13px; }
+.jobs-opportunity-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.jobs-badge--new { background: #153e57; color: #b9e5ff; }
+.jobs-badge--updated { background: #49351c; color: #ffe0a0; }
+tr.jobs-opportunity--new { background: #0b202e; }
+tr.jobs-opportunity--updated { background: #24241e; }
+.jobs-opportunity--new > td:first-child { box-shadow: inset 3px 0 #77caff; }
+.jobs-opportunity--updated > td:first-child { box-shadow: inset 3px 0 #efbf69; }
 tr.is-expanded { background: #0b242b; }
 .jobs-collapsible-row { cursor: pointer; }
 .jobs-collapsible-row[aria-disabled="true"] { cursor: wait; }

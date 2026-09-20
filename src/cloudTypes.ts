@@ -9,6 +9,7 @@ export interface OpportunityReview {
   user_id: string;
   opportunity_id: string;
   state: OpportunityReviewState;
+  reviewed_updated_at: string | null;
   created_at: string;
   updated_at: string;
 }
