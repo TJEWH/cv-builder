@@ -264,6 +264,37 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
     }, rememberApplication);
   }
 
+  function setApplicationChecklistItem(id: string, key: string, completed: boolean): Promise<Application | null> {
+    return runMutation(async (account, _generation, signal) => {
+      if (!/^(requirements|documents):/.test(key) || key.length > 16000) throw new Error('Invalid checklist item.');
+      const { data, error: queryError } = await client!.rpc('set_job_application_checklist_item', {
+        p_application_id: id, p_item_key: key, p_completed: completed,
+      }).abortSignal(signal);
+      if (queryError) throw queryError;
+      if (!data || data.id !== id || data.user_id !== account || !Array.isArray(data.completed_checklist_keys)) {
+        throw new Error('The checklist could not be saved. Refresh and retry.');
+      }
+      return data as Application;
+    }, rememberApplication, 'Could not save checklist progress. Check your connection and retry.');
+  }
+
+  function removeApplication(id: string): Promise<string | null> {
+    const opportunityId = applications.value.find((application) => application.id === id)?.opportunity_id;
+    return runMutation(async (_account, _generation, signal) => {
+      if (!opportunityId) throw new Error('Refresh to load the application before removing it.');
+      const { data, error: queryError } = await client!.rpc('remove_job_application', { p_application_id: id }).abortSignal(signal);
+      if (queryError) throw queryError;
+      if (data !== id) throw new Error('Removal could not be confirmed. Refresh and retry.');
+      return id;
+    }, () => {
+      applications.value = applications.value.filter((application) => application.id !== id);
+      reviews.value = reviews.value.map((review) => review.opportunity_id === opportunityId && review.state === 'not_interested'
+        ? { ...review, state: 'unreviewed' } : review);
+      if (pendingCreate?.applicationId === id) pendingCreate = null;
+      if (pendingAssignment?.applicationId === id) pendingAssignment = null;
+    }, 'Could not remove the application. Check your connection and retry.');
+  }
+
   /** Refresh only the trusted catalogue snapshot; the server preserves application edits and CV assignment. */
   function refreshApplicationContext(id: string): Promise<Application | null> {
     return runMutation(async (account, generation, signal) => {
@@ -364,5 +395,5 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
 
   watch(() => toValue(userId), () => { reset(); void refresh(); }, { immediate: true, flush: 'sync' });
   onScopeDispose(reset);
-  return { opportunities, applications, cvVariants, reviews, loading, saving, error, refresh, createApplication, updateApplication, refreshApplicationContext, setOpportunityReview, markOpportunityReviewed, getApplicationContext };
+  return { opportunities, applications, cvVariants, reviews, loading, saving, error, refresh, createApplication, updateApplication, setApplicationChecklistItem, removeApplication, refreshApplicationContext, setOpportunityReview, markOpportunityReviewed, getApplicationContext };
 }

@@ -76,6 +76,7 @@ export interface Application {
   /** Captured opportunity research, stable until the user explicitly refreshes it. */
   context_json: Record<string, unknown>;
   context_captured_at: string;
+  completed_checklist_keys: string[];
   status: ApplicationStatus;
   notes: string | null;
   contacted_at: string | null;

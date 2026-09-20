@@ -9,6 +9,7 @@ export interface OpportunityContextNode {
   missing?: boolean;
   kind?: 'summary' | 'main-link' | 'fit';
   score?: number;
+  checklistKey?: string;
 }
 
 export type OpportunityContextGroupId = 'overview' | 'links' | 'suitability' | 'advisor' | 'salary' | 'requirements' | 'documents' | 'metadata';
@@ -195,6 +196,34 @@ function fieldGroup(key: string): OpportunityContextGroupId {
   return 'metadata';
 }
 
+function checklistValue(value: unknown, ancestors = new Set<object>()): unknown {
+  if (typeof value === 'string') return value.trim();
+  if (!value || typeof value !== 'object') return value;
+  if (ancestors.has(value)) return null;
+  const next = new Set(ancestors).add(value);
+  return Array.isArray(value) ? value.map((item) => checklistValue(item, next))
+    : Object.fromEntries(Object.entries(value).filter(([key]) => !PRIVATE_KEYS.has(key)).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+      .map(([key, item]) => [key, checklistValue(item, next)]));
+}
+
+/** Content identities survive list reordering and language changes; changed requirements start unchecked. */
+function attachChecklistKeys(node: OpportunityContextNode, value: unknown, path: string, arrayItem = false) {
+  if (Array.isArray(value)) {
+    for (const child of node.children || []) attachChecklistKeys(child, value[Number(child.id.split('.').at(-1))], path, true);
+  } else if (isRecord(value) && !arrayItem && !['name', 'title', 'label', 'document', 'requirement'].some((key) => typeof value[key] === 'string')) {
+    for (const child of node.children || []) {
+      const key = child.id.slice(node.id.length + 1);
+      attachChecklistKeys(child, value[key], `${path}.${key}`);
+    }
+  } else {
+    node.checklistKey = `${path}:${JSON.stringify(checklistValue(value))}`;
+  }
+}
+
+export function checklistKeys(nodes: OpportunityContextNode[]): string[] {
+  return [...new Set(nodes.flatMap((node) => node.checklistKey ? [node.checklistKey] : checklistKeys(node.children || [])))];
+}
+
 /** One destination per source, with all of its evidence and contact context retained. */
 function consolidateSourceLinks(items: OpportunityContextNode[], lang: string): OpportunityContextNode[] {
   const sources = new Map<string, OpportunityContextNode>();
@@ -286,7 +315,9 @@ export function buildOpportunityGroups(context: Record<string, unknown>, lang: s
     if (previous.includes(signature)) return;
     if (previous.length) node.label += phrase(' (additional detail)', ' (ergänzende Angaben)', lang);
     seen.set(canonicalKey, [...previous, signature]);
-    byGroup.get(fieldGroup(key))!.items.push(node);
+    const group = fieldGroup(key);
+    if (group === 'requirements' || group === 'documents') attachChecklistKeys(node, value, `${group}:${canonicalKey}`);
+    byGroup.get(group)!.items.push(node);
   };
   // Put the two advisor context sections first and surface absent research explicitly.
   for (const [key, en, de] of [
@@ -321,19 +352,21 @@ function escapeMarkdown(text: string): string {
     .replace(/^(\s*)([#>+\-])(?=\s)/gm, '$1\\$2');
 }
 
-function nodeMarkdown(node: OpportunityContextNode, depth = 0): string {
+function nodeMarkdown(node: OpportunityContextNode, depth = 0, completed?: Set<string>): string {
   const indentation = '  '.repeat(depth);
   const label = node.label ? `**${escapeMarkdown(node.label)}:**` : '';
   const text = node.text ? escapeMarkdown(node.text) : '';
   const value = node.href ? `[${text}](<${node.href}>)` : text;
-  const line = `${indentation}- ${[label, value].filter(Boolean).join(' ')}`;
-  return [line.replace(/\n/g, `\n${indentation}  `), ...(node.children || []).map((child) => nodeMarkdown(child, depth + 1))].join('\n');
+  const checkbox = completed && node.checklistKey ? `[${completed.has(node.checklistKey) ? 'x' : ' '}] ` : '';
+  const line = `${indentation}- ${checkbox}${[label, value].filter(Boolean).join(' ')}`;
+  return [line.replace(/\n/g, `\n${indentation}  `), ...(node.children || []).map((child) => nodeMarkdown(child, depth + 1, completed))].join('\n');
 }
 
 /** Human-readable context suitable for copy/download; contains no raw JSON or executable HTML. */
-export function opportunityContextMarkdown(context: Record<string, unknown>, lang: string): string {
+export function opportunityContextMarkdown(context: Record<string, unknown>, lang: string, completedKeys?: string[]): string {
   const title = typeof context.title === 'string' && context.title.trim() ? context.title.trim()
     : phrase('Opportunity context', 'Kontext zur Stelle', lang);
+  const completed = completedKeys ? new Set(completedKeys) : undefined;
   return [`# ${escapeMarkdown(title)}`, ...buildOpportunityGroups(context, lang).map((group) =>
-    `## ${group.label}\n\n${group.items.map((item) => nodeMarkdown(item)).join('\n')}`)].join('\n\n');
+    `## ${group.label}\n\n${group.items.map((item) => nodeMarkdown(item, 0, completed)).join('\n')}`)].join('\n\n');
 }

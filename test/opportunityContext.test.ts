@@ -1,11 +1,28 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildOpportunityGroups, opportunityContextMarkdown, opportunityFieldLabel } from '../src/composables/opportunityContext';
+import { buildOpportunityGroups, checklistKeys, opportunityContextMarkdown, opportunityFieldLabel } from '../src/composables/opportunityContext';
 import type { OpportunityContextNode } from '../src/composables/opportunityContext';
 
 function flatten(nodes: OpportunityContextNode[]): OpportunityContextNode[] {
   return nodes.flatMap((node) => [node, ...flatten(node.children || [])]);
 }
+
+test('checklist identities survive reordering, object property order and language changes but not changed content', () => {
+  const context = { requirements: ['MSc', { requirement: 'Programming', details: ['Python', 'C++'] }], required_documents: ['CV', 'Letter'] };
+  const keys = (value: Record<string, unknown>, lang = 'en') => checklistKeys(buildOpportunityGroups(value, lang).flatMap(({ items }) => items)).sort();
+  const original = keys(context);
+  assert.equal(original.length, 4);
+  assert.deepEqual(keys({ ...context, requirements: [{ details: ['Python', 'C++'], requirement: 'Programming' }, 'MSc'], required_documents: ['Letter', 'CV'] }, 'de'), original);
+  const changed = keys({ ...context, required_documents: ['CV', 'Letter, maximum one page'] });
+  assert.equal(changed.filter((key) => original.includes(key)).length, 3);
+  assert.deepEqual(keys({ requirements: [], required_documents: null }), []);
+  const nested = keys({ requirements: { mandatory: ['MSc', 'English'], preferred: ['Python'] }, application_documents: ['CV'] });
+  assert.equal(nested.length, 4);
+  assert.ok(nested.includes(original.find((key) => key.startsWith('documents:required_documents:') && key.endsWith('"CV"'))!));
+  const markdown = opportunityContextMarkdown(context, 'en', [original.find((key) => key.endsWith('"CV"'))!]);
+  assert.match(markdown, /- \[x\] CV/);
+  assert.match(markdown, /- \[ \] Letter/);
+});
 const fixture = {
   id: 'hidden-id', user_id: 'hidden-account', title: 'Robotics PhD', institution: 'Example University',
   official_url: 'https://example.org/position', application_url: 'https://example.org/apply',

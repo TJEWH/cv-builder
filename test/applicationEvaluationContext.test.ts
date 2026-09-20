@@ -7,7 +7,7 @@ import { createTestState } from './helpers';
 
 const application: Application = {
   id: 'application', user_id: 'owner', opportunity_id: 'opportunity', cv_variant_id: null, contact_email: null,
-  status: 'shortlist', notes: 'Ask about the start date.', contacted_at: null, submitted_at: null,
+  status: 'shortlist', completed_checklist_keys: [], notes: 'Ask about the start date.', contacted_at: null, submitted_at: null,
   created_at: '2026-09-20T12:00:00Z', updated_at: '2026-09-20T12:00:00Z', context_captured_at: '2026-09-20T12:00:00Z',
   context_json: { title: 'Robotics PhD', institution: 'Example University', contacts: [{ name: 'Prof. Example', email: 'prof@example.org' }],
     requirements: ['A relevant masters degree'], required_documents: ['CV', 'Motivation letter'], deadline: '2026-10-31',

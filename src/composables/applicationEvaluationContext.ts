@@ -16,7 +16,8 @@ export function buildApplicationEvaluationContext(application: Application, cv: 
     `Application: ${application.id}\nStatus: ${application.status}\nContext captured: ${application.context_captured_at}\nApplication last updated: ${application.updated_at}`,
     'The opportunity below is a saved snapshot. Verify deadlines, vacancies and research sources before relying on them.',
     ...(missing.length ? ['## Missing inputs\n' + missing.map((item) => `- ${item}`).join('\n')] : []),
-    opportunityContextMarkdown(application.context_json, lang),
+    'Requirement and document checkboxes are self-reported preparation progress, not verified evidence of eligibility.',
+    opportunityContextMarkdown(application.context_json, lang, application.completed_checklist_keys || []),
     '## Application notes\n' + (application.notes || 'No notes recorded.'),
     '## Assigned privacy CV\n' + (cv
       ? `Snapshot: ${cv.name}\nSnapshot ID: ${cv.id}\nCV schema version: ${cv.cv_version}; revision: ${cv.revision}\n\nContact information is anonymized. Hidden and confidential CV content is omitted.\n\n${JSON.stringify({ content: cv.content_json, config: cv.config_json }, null, 2)}`

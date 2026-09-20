@@ -1,18 +1,39 @@
 <script setup lang="ts">
 import { computed, defineComponent, h } from 'vue';
 import type { PropType, VNode } from 'vue';
-import { buildOpportunityGroups } from '../composables/opportunityContext';
+import { buildOpportunityGroups, checklistKeys } from '../composables/opportunityContext';
 import type { OpportunityContextNode } from '../composables/opportunityContext';
 
-const props = defineProps<{ context: Record<string, unknown>; lang: string }>();
+const props = defineProps<{ context: Record<string, unknown>; lang: string; checklist?: boolean; completedKeys?: string[]; saving?: boolean }>();
+const emit = defineEmits<{ toggleChecklist: [key: string, completed: boolean] }>();
 const groups = computed(() => buildOpportunityGroups(props.context, props.lang));
+const completed = computed(() => new Set(props.completedKeys || []));
+function progress(nodes: OpportunityContextNode[]) {
+  const keys = checklistKeys(nodes);
+  return keys.length ? `${keys.filter((key) => completed.value.has(key)).length} / ${keys.length} ${props.lang === 'de' ? 'erledigt' : 'done'}` : '';
+}
 
 // Render recursive research structures as lists. Vue escapes every supplied text node.
 const ContextValue = defineComponent({
   name: 'OpportunityContextValue',
   props: { node: { type: Object as PropType<OpportunityContextNode>, required: true } },
   setup(valueProps) {
-    function renderValue(node: OpportunityContextNode): VNode {
+    function renderValue(node: OpportunityContextNode, withCheckbox = true): VNode {
+      if (props.checklist && withCheckbox && node.checklistKey) {
+        const key = node.checklistKey;
+        const checked = completed.value.has(key);
+        return h('div', { class: ['opportunity-context__checklist-item', { 'is-complete': checked }] }, [
+          h('input', { type: 'checkbox', checked, disabled: props.saving,
+            'aria-label': [node.label, node.text].filter(Boolean).join(': ') || node.children?.map((child) => child.text || child.label).filter(Boolean).join('; '),
+            onChange: (event: Event) => {
+              const target = event.target as HTMLInputElement;
+              const next = target.checked;
+              target.checked = checked;
+              emit('toggleChecklist', key, next);
+            } }),
+          h('div', renderValue(node, false)),
+        ]);
+      }
       const value = node.href ? h('a', { href: node.href, ...(node.href.startsWith('http') ? { target: '_blank', rel: 'noopener noreferrer' } : {}) }, node.text)
         : h('span', { class: { 'opportunity-context__missing': node.missing } }, node.text);
       const children = node.children?.length ? h('ul', { class: 'opportunity-context__list' }, node.children.map((child) =>
@@ -38,7 +59,7 @@ const ContextValue = defineComponent({
 <template>
   <div class="opportunity-context">
     <details v-for="group in groups" :key="group.id" class="opportunity-context__group" :class="`opportunity-context__group--${group.id}`" :open="['overview', 'salary', 'requirements', 'documents'].includes(group.id)">
-      <summary>{{ group.label }}</summary>
+      <summary>{{ group.label }} <span v-if="checklist && ['requirements', 'documents'].includes(group.id)" class="opportunity-context__progress">{{ progress(group.items) }}</span></summary>
       <dl>
         <div v-for="item in group.items" :key="item.id" class="opportunity-context__field" :class="item.kind ? `opportunity-context__field--${item.kind}` : undefined">
           <dt>{{ item.label }}</dt>
@@ -64,6 +85,12 @@ const ContextValue = defineComponent({
 .opportunity-context__field--fit { padding: 15px; border: 1px solid #2a5046; border-radius: 8px; background: #102b30; }
 .opportunity-context__field dt { margin-bottom: 5px; color: #91b4a7; font-size: 11px; font-weight: 600; }
 .opportunity-context__field dd { margin: 0; color: #d7e8df; font-size: 12px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.opportunity-context__progress { margin-left: 12px; font-size: 11px; font-weight: 400; color: #a7c8ba; }
+.opportunity-context :deep(.opportunity-context__checklist-item) { display: flex; align-items: flex-start; gap: 10px; }
+.opportunity-context :deep(.opportunity-context__checklist-item > input[type=checkbox]) { flex: 0 0 16px; width: 16px; height: 16px; padding: 0; margin: 2px 0 0; accent-color: #65d8ac; cursor: pointer; }
+.opportunity-context :deep(.opportunity-context__checklist-item > div) { flex: 1; min-width: 0; }
+.opportunity-context :deep(ul:has(> li > .opportunity-context__checklist-item)) { padding-left: 0; list-style: none; }
+.opportunity-context :deep(.opportunity-context__checklist-item.is-complete > div) { color: #9bbaad; }
 .opportunity-context :deep(.opportunity-context__list) { display: grid; gap: 8px; margin: 4px 0; padding-left: 18px; }
 .opportunity-context :deep(.opportunity-context__list .opportunity-context__list) { margin-top: 3px; }
 .opportunity-context :deep(.opportunity-context__nested-label) { color: #abc9bb; font-weight: 500; }

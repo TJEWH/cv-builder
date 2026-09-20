@@ -57,7 +57,7 @@ async function settleUntil(predicate: () => boolean) {
 }
 function application(id = 'application-1', cvId: string | null = 'cv-1'): Application {
   return { id, user_id: 'account-a', opportunity_id: 'opportunity-1', cv_variant_id: cvId,
-    contact_email: 'employer@example.org', status: 'shortlist', notes: null, contacted_at: null, submitted_at: null,
+    contact_email: 'employer@example.org', status: 'shortlist', completed_checklist_keys: [], notes: null, contacted_at: null, submitted_at: null,
     context_json: { title: 'Researcher', requirements: ['Degree'], supervisor_research_focus: { robotics: 'Applied robotics' }, supervisor_top_papers: [{ title: 'Paper', year: 2025 }] },
     context_captured_at: '2026-09-19T16:00:00.000Z',
     created_at: '2026-09-19T16:00:00.000Z', updated_at: '2026-09-19T16:00:00.000Z' };
@@ -384,6 +384,76 @@ test('metadata can be saved before CV assignment and employer contact email is o
   assert.deepEqual(queries.find(({ operation }) => operation === 'update')?.payload,
     { status: 'contacted', notes: 'Asked about supervision', contact_email: null });
   scope.stop();
+});
+
+test('checklist mutations save only one task and retain owned application context and CV', async () => {
+  let stored = application();
+  const { client, queries } = fakeClient((query) => {
+    if (query.operation === 'rpc') {
+      const keys = new Set(stored.completed_checklist_keys);
+      if (query.payload?.p_completed) keys.add(String(query.payload.p_item_key));
+      else keys.delete(String(query.payload?.p_item_key));
+      stored = { ...stored, completed_checklist_keys: [...keys] };
+      return { data: stored, error: null };
+    }
+    return { data: query.table === 'applications' ? [stored] : [], error: null };
+  });
+  const scope = effectScope();
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  await workspace.setApplicationChecklistItem(stored.id, 'requirements:degree', true);
+  await workspace.setApplicationChecklistItem(stored.id, 'documents:cv', true);
+  await workspace.setApplicationChecklistItem(stored.id, 'requirements:degree', false);
+  assert.deepEqual(workspace.applications.value[0].completed_checklist_keys, ['documents:cv']);
+  assert.deepEqual(workspace.applications.value[0].context_json, application().context_json);
+  assert.equal(workspace.applications.value[0].cv_variant_id, 'cv-1');
+  assert.deepEqual(queries.find(({ operation }) => operation === 'rpc')?.payload,
+    { p_application_id: stored.id, p_item_key: 'requirements:degree', p_completed: true });
+  await workspace.refresh();
+  assert.deepEqual(workspace.applications.value[0].completed_checklist_keys, ['documents:cv']);
+  scope.stop();
+});
+
+test('removal returns the opportunity to the review list only after confirmed success and keeps CV snapshots', async () => {
+  let fail = true;
+  const { client, queries } = fakeClient((query) => query.operation === 'rpc'
+    ? fail ? { data: null, error: { message: 'Offline' } } : { data: query.payload?.p_application_id, error: null }
+    : { data: query.table === 'applications' ? [application(), { ...application('other'), opportunity_id: 'other-opportunity' }]
+      : query.table === 'opportunity_reviews' ? [review('opportunity-1', 'not_interested')]
+        : query.table === 'cv_variants' ? [{ id: 'cv-1', user_id: 'account-a', name: 'Snapshot' }] : [], error: null });
+  const scope = effectScope();
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  assert.equal(await workspace.removeApplication('application-1'), null);
+  assert.equal(workspace.applications.value.length, 2);
+  assert.equal(workspace.reviews.value[0].state, 'not_interested');
+  fail = false;
+  assert.equal(await workspace.removeApplication('application-1'), 'application-1');
+  assert.deepEqual(workspace.applications.value.map(({ id }) => id), ['other']);
+  assert.equal(workspace.reviews.value[0].state, 'unreviewed');
+  assert.equal(workspace.cvVariants.value.length, 1);
+  assert.deepEqual(queries.filter(({ operation }) => operation === 'rpc').map(({ table, payload }) => ({ table, payload })),
+    Array.from({ length: 2 }, () => ({ table: 'remove_job_application', payload: { p_application_id: 'application-1' } })));
+  scope.stop();
+});
+
+test('late checklist and removal results cannot affect another signed-in account', async () => {
+  for (const operation of ['checklist', 'remove']) {
+    const writing = deferred<Result>();
+    const { client, queries } = fakeClient((query) => query.operation === 'rpc' ? writing.promise
+      : { data: query.table === 'applications' ? [application()] : [], error: null });
+    const scope = effectScope();
+    const account = ref<string | null>('account-a');
+    const workspace = scope.run(() => useJobWorkspace(client, account))!;
+    await settleUntil(() => !workspace.loading.value);
+    const pending = operation === 'checklist' ? workspace.setApplicationChecklistItem('application-1', 'documents:cv', true) : workspace.removeApplication('application-1');
+    await settleUntil(() => queries.some(({ operation }) => operation === 'rpc'));
+    account.value = null;
+    writing.resolve({ data: operation === 'checklist' ? { ...application(), completed_checklist_keys: ['documents:cv'] } : 'application-1', error: null });
+    assert.equal(await pending, null);
+    assert.deepEqual(workspace.applications.value, []);
+    scope.stop();
+  }
 });
 
 test('application context loads the exact saved privacy CV from a fresh owned application only on request', async () => {

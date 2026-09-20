@@ -118,8 +118,22 @@ const client = {
         const opportunity = database.opportunities.find((row) => row.id === parameters.p_opportunity_id);
         database.applications.push({ id: parameters.p_application_id, user_id: account,
           opportunity_id: parameters.p_opportunity_id, cv_variant_id: null,
-          contact_email: null, context_json: structuredClone(opportunity), context_captured_at: new Date().toISOString(), status: 'shortlist', notes: null,
+          contact_email: null, context_json: structuredClone(opportunity), context_captured_at: new Date().toISOString(), status: 'shortlist', completed_checklist_keys: [], notes: null,
           contacted_at: null, submitted_at: null, created_at: now, updated_at: now });
+      } else if (name === 'set_job_application_checklist_item') {
+        const application = database.applications.find((row) => row.id === parameters.p_application_id && row.user_id === account);
+        if (!application) return { error: new Error('Missing fixture application') };
+        const keys = new Set(application.completed_checklist_keys as string[]);
+        if (parameters.p_completed) keys.add(String(parameters.p_item_key));
+        else keys.delete(String(parameters.p_item_key));
+        application.completed_checklist_keys = [...keys];
+        application.updated_at = new Date().toISOString();
+        return { data: structuredClone(application), error: null };
+      } else if (name === 'remove_job_application') {
+        const application = database.applications.find((row) => row.id === parameters.p_application_id && row.user_id === account);
+        database.applications = database.applications.filter((row) => row !== application);
+        const review = database.opportunity_reviews.find((row) => row.opportunity_id === application?.opportunity_id && row.user_id === account);
+        if (review?.state === 'not_interested') review.state = 'unreviewed';
       } else if (name === 'assign_job_application_cv') {
         const application = database.applications.find((row) => row.id === parameters.p_application_id);
         if (!application) return { error: new Error('Missing fixture application') };
