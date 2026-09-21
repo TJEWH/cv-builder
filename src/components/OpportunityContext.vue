@@ -109,5 +109,15 @@ const ContextValue = defineComponent({
 .opportunity-context :deep(.opportunity-context__score-fill) { display: block; height: 100%; background: #65d8ac; border-radius: inherit; }
 .opportunity-context :deep(a) { color: #9be8c7; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
 .opportunity-context :deep(a:focus-visible) { outline: 2px solid #9be8c7; outline-offset: 3px; border-radius: 2px; }
-@media (max-width: 760px) { .opportunity-context__group dl { grid-template-columns: minmax(0, 1fr); } .opportunity-context__group { padding: 15px; } }
+@media (max-width: 760px) {
+  .opportunity-context { gap: 0; }
+  .opportunity-context__group { padding: 14px 0; border: 0; border-radius: 0; background: transparent; }
+  .opportunity-context__group + .opportunity-context__group { border-top: 1px solid #24504e; }
+  .opportunity-context__group dl { grid-template-columns: minmax(0, 1fr); }
+  .opportunity-context__group summary { font-size: 16px; }
+  .opportunity-context__field dt, .opportunity-context__progress { font-size: 14px; }
+  .opportunity-context__field dd { font-size: 16px; line-height: 1.6; }
+  .opportunity-context :deep(.opportunity-context__checklist-item > input[type=checkbox]) { flex-basis: 20px; width: 20px; height: 20px; margin-top: 3px; }
+  .opportunity-context :deep(.opportunity-context__checklist-label) { font-size: inherit; }
+}
 </style>

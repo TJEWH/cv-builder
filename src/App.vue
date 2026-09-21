@@ -577,7 +577,7 @@ function selectBuilderGroup(group: string) {
 </script>
 
 <template>
-  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode, 'is-cloud-workspace': isCloudTab, 'has-content-toolbar': !previewMode && !isCloudTab && activeBuilderGroup === 'content' && !isEmptyDocument }" @focusout="onPreviewInputBlur" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
+  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode, 'is-cloud-workspace': isCloudTab, 'has-mobile-context-row': !isCloudTab || !!cloudUser }" @focusout="onPreviewInputBlur" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
     <div v-if="pdfExportError" class="pdf-export-error" role="alert">
       <span>{{ pdfExportError }}</span>
       <button class="mini" type="button" :aria-label="t('close')" @click="pdfExportError = ''">×</button>
@@ -624,7 +624,8 @@ function selectBuilderGroup(group: string) {
 
       <div v-show="!isCloudTab" class="cv-studio-navigation">
         <nav class="cv-studio-subtabs" aria-label="CV Studio sections">
-          <button v-for="group in builderGroups" :key="group.key" class="btn" :class="{ 'is-active': activeBuilderGroup === group.key }" :aria-pressed="activeBuilderGroup === group.key" :disabled="groupDisabled(group.key)" type="button" @click="selectBuilderGroup(group.key)">{{ group.label }}</button>
+          <button v-for="group in builderGroups" :key="group.key" class="btn" :class="{ 'is-active': activeBuilderGroup === group.key }" :aria-pressed="activeBuilderGroup === group.key" :disabled="groupDisabled(group.key)" type="button" @click="selectBuilderGroup(group.key)"><font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" /><span>{{ isMobile && group.key === 'templates' ? (lang === 'de' ? 'Vorlagen' : 'Templates') : group.label }}</span></button>
+          <button v-if="isMobile" class="btn cv-studio-open-preview" type="button" :aria-label="t('openPreview')" :title="t('openPreview')" :disabled="isEmptyDocument" @click="openFullPreview"><font-awesome-icon :icon="['fas', 'eye']" aria-hidden="true" /></button>
         </nav>
         <div class="cv-studio-version">
           <select class="cv-studio-configuration" :value="selectedRootId" :aria-label="lang === 'de' ? 'Karrierevariante' : 'Career variant'" @change="selectConfiguration">
@@ -635,7 +636,6 @@ function selectBuilderGroup(group: string) {
             <option :value="selectedRootId">{{ lang === 'de' ? 'Original' : 'Original' }}</option>
             <option v-for="configuration in subConfigurations" :key="configuration.id" :value="configuration.id">{{ configuration.name }}</option>
           </select>
-          <button v-if="isMobile" class="btn cv-studio-open-preview" type="button" :disabled="isEmptyDocument" @click="openFullPreview">{{ t('openPreview') }}</button>
         </div>
         <output class="cv-save-announcement" aria-live="polite" aria-atomic="true">{{ saveStatusLabel }}</output>
       </div>
@@ -782,7 +782,9 @@ body,
 .builder-shell > .builder-topbar, .cv-studio-navigation { flex: 0 0 auto; }
 .builder-topbar, .cv-studio-navigation { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; }
 .cv-studio-navigation { align-items: center; }
-.cv-studio-subtabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.cv-studio-subtabs { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.cv-studio-subtabs .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.cv-studio-subtabs .svg-inline--fa { flex: none; }
 .cv-studio-subtabs .is-active { border-color: #67c8a6; background: #185b4c; }
 .cv-studio-version { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .cv-studio-configuration { flex: 1 1 auto; width: 0; min-width: 0; }
@@ -939,17 +941,19 @@ body,
 @media (max-width: 760px) {
   .cv-builder-app {
     --mobile-tabs-height: calc(72px + env(safe-area-inset-bottom, 0px));
-    --mobile-content-toolbar-height: 60px;
-    --mobile-content-toolbar-space: 0px;
-    padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) calc(var(--mobile-tabs-height) + var(--mobile-content-toolbar-space) + 12px) max(12px, env(safe-area-inset-left, 0px));
+    --mobile-context-row-height: 52px;
+    --mobile-context-row-space: 0px;
+    padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) calc(var(--mobile-tabs-height) + var(--mobile-context-row-space) + 8px) max(8px, env(safe-area-inset-left, 0px));
   }
 
-  .cv-builder-app.has-content-toolbar { --mobile-content-toolbar-space: var(--mobile-content-toolbar-height); }
-  .cv-builder-app.is-cloud-workspace { padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) calc(var(--mobile-tabs-height) + 8px) max(8px, env(safe-area-inset-left, 0px)); }
+  .cv-builder-app.has-mobile-context-row { --mobile-context-row-space: var(--mobile-context-row-height); }
   .cv-builder-app.is-preview-mode { overflow: hidden; }
-  .cv-studio-navigation { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-  .cv-studio-version { gap: 8px; }
-  .cv-studio-open-preview { padding-inline: 10px; }
+  .cv-studio-navigation { position: fixed; inset: auto 0 var(--mobile-tabs-height); z-index: 35; display: block; height: var(--mobile-context-row-height); padding: 4px max(8px, env(safe-area-inset-right, 0px)) 4px max(8px, env(safe-area-inset-left, 0px)); border-top: 1px solid #24504e; background: #06141f; }
+  .cv-studio-subtabs { flex-wrap: nowrap; gap: 6px; height: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .cv-studio-subtabs::-webkit-scrollbar { display: none; }
+  .cv-studio-subtabs .btn { flex: 0 0 auto; min-width: 44px; padding: 6px 10px; font-size: 14px; line-height: 1.2; white-space: nowrap; }
+  .cv-studio-version { display: none; }
+  .cv-studio-open-preview { font-size: 18px !important; }
   .builder-shell { grid-template-rows: auto minmax(0, 1fr); gap: 10px; }
   .builder-layout { grid-template-rows: minmax(0, 1fr); gap: 0; }
 
@@ -970,7 +974,7 @@ body,
   .mobile-bottom-tabs .builder-topbar__tab { min-width: 0; min-height: 0; padding: 4px 2px; gap: 5px; font-size: 10px; border: none; }
   .mobile-bottom-tabs .builder-topbar__tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .mobile-bottom-auth { min-width: 0; height: 100%; }
-  .pdf-export-error { bottom: calc(var(--mobile-tabs-height) + var(--mobile-content-toolbar-space) + 12px); }
+  .pdf-export-error { bottom: calc(var(--mobile-tabs-height) + var(--mobile-context-row-space) + 12px); }
 
 
 }

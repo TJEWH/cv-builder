@@ -309,3 +309,12 @@ h3.small{margin:2mm 0;font-size:var(--h3-size);color:var(--ink);text-transform:u
 .education-details ul { margin: 1.5mm 0 0 4mm; padding: 0; font-size: var(--paragraph-size); }
 .education-courses { margin-top:2mm; }
 .education-courses ul { margin: 1mm 0 0 4mm; }
+
+@media (max-width:760px) {
+    /* Keep editable UI text readable and avoid iPhone Safari's focus zoom.
+       Document typography and user-controlled pinch zoom stay independent. */
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+    textarea, select, .p-select-label, .p-select-option {
+        font-size:16px!important;
+    }
+}

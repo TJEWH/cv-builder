@@ -20,8 +20,9 @@ const renderer = createRenderer<object, object>({
   parentNode: () => null, nextSibling: () => null,
 });
 
-function mount(t: TestContext) {
+function mount(t: TestContext, options: { restoredOpportunityId?: string } = {}) {
   const storage = new Map<string, string>();
+  if (options.restoredOpportunityId) storage.set('CV_SELECTED_OPPORTUNITY:account-one', options.restoredOpportunityId);
   let unmount = () => {};
   t.after(() => unmount());
   for (const [key, value] of Object.entries({
@@ -42,14 +43,16 @@ function mount(t: TestContext) {
   const receipts: Opportunity[] = [];
   const reviews = ref<OpportunityReview[]>([]);
   const applications = ref<Application[]>([]);
+  const opportunities = ref([opportunity]);
   let created = 0;
+  const removed: string[] = [];
   const workspace = {
-    opportunities: ref([opportunity]), applications, reviews,
+    opportunities, applications, reviews,
     loading: ref(false), saving: ref(false), error: ref(''), refresh() {},
     markOpportunityReviewed: async (item: Opportunity) => { receipts.push(item); },
     createApplication: async () => { created++; applications.value.push(application); return application; },
     updateApplication: async () => null, setApplicationChecklistItem: async () => false,
-    removeApplication: async () => false, setOpportunityReview: async () => null,
+    removeApplication: async (id: string) => { removed.push(id); applications.value = applications.value.filter((item) => item.id !== id); return true; }, setOpportunityReview: async () => null,
     getApplicationContext: async () => null, refreshApplicationContext: async () => null,
   };
   const exports: { default?: Component } = {};
@@ -63,11 +66,14 @@ function mount(t: TestContext) {
   app.mount({});
   unmount = () => app.unmount();
   const setup = (mounted as { $: { setupState: {
-    query: string; statusFilter: string; reviewFilter: string; hideWithApplication: boolean;
+    query: string; statusFilter: string; reviewFilter: string; hideWithApplication: boolean; sortBy: string;
     filteredOpportunities: Opportunity[]; selectedOpportunity?: Opportunity; showingDetail: boolean; editingApplication?: Application;
+    opportunityGroups: { key: string; title: string; items: Opportunity[] }[];
+    removingId: string | null; removalDialog: { open?: boolean; showModal(): void; close(): void };
     openOpportunity(id: string): void; closeOpportunity(): void; closeApplication(): void; startApplication(item: Opportunity): Promise<void>;
+    requestDetailRemoval(item: Application): Promise<void>; cancelRemoval(): void; confirmRemoval(item: Application): Promise<void>;
   } } }).$.setupState;
-  return { setup, props, opportunity, application, receipts, reviews, storage, created: () => created };
+  return { setup, props, opportunity, opportunities, application, receipts, reviews, storage, removed, created: () => created };
 }
 
 test('opportunity detail preserves filters and stays open after its review removes it from results', async (t) => {
@@ -113,4 +119,63 @@ test('creating and reopening an application preserves opportunity selection and 
   assert.equal(setup.selectedOpportunity, undefined);
   assert.equal(setup.editingApplication, undefined);
   assert.equal(setup.showingDetail, false);
+});
+
+test('unvisited opportunities stay above visited results with independent sorting and filters', async (t) => {
+  const { setup, opportunities, reviews, receipts } = mount(t);
+  const old = '2025-01-01T12:00:00Z';
+  const make = (id: string, title: string, institution: string, deadline: string) => normalizeOpportunity({ id, title, institution, deadline, topics: [], created_at: old, updated_at: '2026-09-21T12:00:00Z' });
+  const unreadA = make('unread-a', 'Alpha engineering', 'Zulu University', '2099-12-10');
+  const unreadZ = make('unread-z', 'Zulu engineering', 'Alpha University', '2099-12-01');
+  const readA = make('read-a', 'Alpha physics', 'Zulu University', '2099-12-11');
+  const readZ = make('read-z', 'Zulu physics', 'Alpha University', '2099-12-02');
+  opportunities.value = [readA, unreadZ, readZ, unreadA];
+  reviews.value = [readA, readZ].map((item) => ({ user_id: 'account-one', opportunity_id: item.id, state: 'unreviewed', reviewed_updated_at: old, created_at: old, updated_at: old }));
+  const groupedIds = () => setup.opportunityGroups.map(({ key, items }) => [key, items.map(({ id }) => id)]);
+  assert.deepEqual(groupedIds(), [['new', ['unread-z', 'unread-a']], ['visited', ['read-z', 'read-a']]], 'old unseen rows remain new, while later updates do not return visited rows to the new group');
+  setup.sortBy = 'title';
+  assert.deepEqual(groupedIds(), [['new', ['unread-a', 'unread-z']], ['visited', ['read-a', 'read-z']]]);
+  setup.sortBy = 'institution';
+  assert.deepEqual(groupedIds(), [['new', ['unread-z', 'unread-a']], ['visited', ['read-z', 'read-a']]]);
+  setup.query = 'engineering';
+  assert.deepEqual(groupedIds(), [['new', ['unread-z', 'unread-a']]]);
+  setup.openOpportunity(unreadA.id);
+  assert.deepEqual(groupedIds(), [['new', ['unread-z']], ['visited', ['unread-a']]], 'opening moves the result before the remote receipt is returned');
+  await nextTick();
+  assert.deepEqual(receipts.map(({ id }) => id), ['unread-a']);
+  setup.closeOpportunity();
+  assert.equal(setup.query, 'engineering');
+  assert.deepEqual(groupedIds(), [['new', ['unread-z']], ['visited', ['unread-a']]]);
+});
+
+test('restoring opportunity detail records a visit and account changes clear local visits', async (t) => {
+  const { setup, props, opportunity, receipts } = mount(t, { restoredOpportunityId: 'opportunity-one' });
+  assert.equal(setup.showingDetail, true);
+  assert.deepEqual(setup.opportunityGroups.map(({ key }) => key), ['visited']);
+  assert.deepEqual(receipts.map(({ id }) => id), [opportunity.id]);
+  props.userId = 'account-two';
+  await nextTick();
+  assert.deepEqual(setup.opportunityGroups.map(({ key }) => key), ['new']);
+  assert.equal(setup.showingDetail, false);
+});
+
+test('application detail removal requires confirmation and cancellation preserves the selected item', async (t) => {
+  const { setup, opportunity, application, removed } = mount(t);
+  let dialogOpened = false;
+  setup.removalDialog = { showModal() { dialogOpened = true; }, close() { dialogOpened = false; } };
+  await setup.startApplication(opportunity);
+  await setup.requestDetailRemoval(application);
+  assert.equal(dialogOpened, true);
+  assert.equal(setup.removingId, application.id);
+  assert.deepEqual(removed, []);
+  setup.cancelRemoval();
+  assert.equal(dialogOpened, false);
+  assert.equal(setup.removingId, null);
+  assert.equal(setup.editingApplication?.id, application.id);
+  assert.deepEqual(removed, []);
+  await setup.requestDetailRemoval(application);
+  await setup.confirmRemoval(application);
+  assert.deepEqual(removed, [application.id]);
+  assert.equal(dialogOpened, false);
+  assert.equal(setup.editingApplication, undefined);
 });

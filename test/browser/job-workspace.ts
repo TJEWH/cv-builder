@@ -243,8 +243,8 @@ const Fixture = defineComponent({
       });
       draftStatus.value = error ? String(error) : 'Synthetic draft returned. Use “Refresh cloud drafts” in the letter tab.';
     }
-    return () => h('main', { style: 'display:grid;grid-template-rows:auto minmax(0,1fr);height:100dvh;overflow:hidden;padding:16px;max-width:1440px;margin:auto' }, [
-      h('header', { style: 'display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 16px;color:#9be8c7' }, [
+    return () => h('main', { class: 'browser-workspace-fixture', style: 'display:grid;grid-template-rows:auto minmax(0,1fr);height:100dvh;overflow:hidden;padding:16px;max-width:1440px;margin:auto' }, [
+      h('header', { class: 'fixture-toolbar', style: 'display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 16px;color:#9be8c7' }, [
         h('strong', 'Browser fixture · In-memory data only'),
         ...(['opportunities', 'applications'] as const).map((value) => h('button', { class: 'btn', onClick: () => { tab.value = value; } }, value)),
         h('button', { class: 'btn', onClick: () => { lang.value = lang.value === 'en' ? 'de' : 'en'; } }, lang.value === 'en' ? 'Deutsch' : 'English'),
@@ -261,6 +261,8 @@ const Fixture = defineComponent({
         },
         onEditVariant: (id: string) => { draftStatus.value = `Open ${fixtureVariants.value.find(item => item.id === id)?.name} in CV Studio (fixture).`; },
         onNavigate: (value: 'opportunities' | 'applications') => { tab.value = value; } }),
+      h('nav', { class: 'fixture-mobile-nav', 'aria-label': 'Fixture workspaces' },
+        (['opportunities', 'applications'] as const).map((value) => h('button', { class: 'btn', 'aria-pressed': tab.value === value, onClick: () => { tab.value = value; } }, value))),
     ]);
   },
 });

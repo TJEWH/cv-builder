@@ -198,9 +198,11 @@ onBeforeUnmount(() => { disposed = true; for (const url of urls) URL.revokeObjec
 <template>
   <section class="application-workspace">
     <WorkspaceDetailHeader :title="String(application.context_json.title || text('Application', 'Bewerbung'))" :subtitle="String(application.context_json.institution || application.context_json.university || '')" :back-label="text('All applications', 'Alle Bewerbungen')" :status="application.status" @back="emit('close')">
+      <template v-if="$slots.actions" #actions><slot name="actions" /></template>
+      <template v-if="$slots['secondary-actions']" #secondary-actions><slot name="secondary-actions" /></template>
       <template #metadata><div class="application-workspace__readiness"><span>{{ record ? text('CV on this device', 'CV auf diesem Gerät') : text('Local CV missing', 'Lokaler CV fehlt') }}</span><span>{{ letterReady ? text('Letter finalized', 'Schreiben finalisiert') : text('Letter in preparation', 'Schreiben in Vorbereitung') }}</span><span>{{ documentReadiness.missing ? text(`${documentReadiness.missing} package item(s) missing`, `${documentReadiness.missing} Dokument(e) fehlen`) : text(`${documentReadiness.included} package items ready`, `${documentReadiness.included} Dokumente bereit`) }}</span></div></template>
     </WorkspaceDetailHeader>
-    <nav class="workspace-subtabs" aria-label="Application sections"><button v-for="item in tabs" :key="item" class="btn" :class="{ 'is-active': tab === item }" :aria-pressed="tab === item" type="button" @click="tab = item">{{ ({overview: text('Overview', 'Übersicht'), cv: 'CV', letter: text('Motivation letter', 'Motivationsschreiben'), documents: text('Documents & export', 'Dokumente & Export')})[item] }}</button></nav>
+    <nav class="workspace-subtabs" aria-label="Application sections"><button v-for="item in tabs" :key="item" class="btn" :class="{ 'is-active': tab === item }" :aria-pressed="tab === item" type="button" @click="tab = item">{{ ({overview: text('Overview', 'Übersicht'), cv: 'CV', letter: text('Motivation letter', 'Motivationsschreiben'), documents: text('Documents', 'Dokumente')})[item] }}<span v-if="item === 'documents'" class="workspace-subtabs__export-label">{{ text(' & export', ' & Export') }}</span></button></nav>
     <p v-if="saveError" class="workspace-error" role="alert">{{ saveError }} <button class="btn" @click="persist">{{ text('Retry save', 'Erneut speichern') }}</button></p>
     <p v-if="error" class="workspace-error" role="alert">{{ error }}</p><p v-if="notice" class="workspace-notice" role="status">{{ notice }}</p>
     <div v-show="tab === 'overview'" class="application-overview"><slot name="overview" /></div>
@@ -274,4 +276,21 @@ summary { cursor:pointer; font-size:13px; }
   .application-cv-editor { padding-right:0; }
 }
 @media(max-width:480px) { .variant-selectors { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:760px) {
+  .application-workspace { --mobile-application-tabs-height:48px; padding-bottom:var(--mobile-application-tabs-height); }
+  .workspace-subtabs { position:fixed; inset-inline:0; bottom:var(--mobile-tabs-height,76px); z-index:36; height:var(--mobile-application-tabs-height); margin:0; padding:4px 8px; flex-wrap:nowrap; align-items:stretch; overflow-x:auto; overflow-y:hidden; overscroll-behavior-x:contain; scrollbar-width:none; background:#06141f; border-top:1px solid #24504e; }
+  .workspace-subtabs::-webkit-scrollbar { display:none; }
+  .workspace-subtabs__export-label { display:none; }
+  .workspace-subtabs .btn { flex:0 0 auto; white-space:nowrap; font-size:14px; }
+  .application-overview, .application-cv-editor { padding-inline:8px; }
+  .application-overview :deep(.opportunity-context__group + .opportunity-context__group) { border-top:1px solid #24504e; }
+  .application-workspace :deep(.letter-editor-controls), .application-workspace :deep(.documents-controls) { padding-inline:8px; }
+  .application-workspace__readiness { font-size:12px; gap:4px 8px; }
+  .application-cv-picker p, .workspace-error, .workspace-notice { font-size:16px; }
+  .application-cv-picker label, .variant-copy label { font-size:14px; }
+  .application-workspace :deep(.letter-editor-controls p), .application-workspace :deep(.documents-controls p), .application-workspace :deep(.cv-adjustment-workflow p), .application-overview :deep(p) { font-size:16px; }
+  .application-workspace :deep(.letter-editor-controls label), .application-workspace :deep(.documents-controls label), .application-workspace :deep(.cv-adjustment-workflow label), .application-overview :deep(label) { font-size:14px; }
+  .application-cv-editor :deep(summary), .application-workspace :deep(.letter-editor-controls summary), .application-workspace :deep(.documents-controls summary) { font-size:16px; }
+  .application-cv-editor :deep(details), .application-workspace :deep(.letter-editor-controls details) { padding-block:12px; border-top:1px solid #24504e; }
+}
 </style>

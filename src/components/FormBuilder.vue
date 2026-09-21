@@ -586,20 +586,21 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
 .content-reorder-toggle:disabled:hover { background: #0b2520; }
 .section-fields-control .svg-inline--fa { display: none; }
 @media (max-width: 760px) {
+  .content-panel > .editor-panel__header { display: none; }
   .content-mode-toolbar {
-    position: fixed;
-    inset: auto 0 var(--mobile-tabs-height);
-    z-index: 35;
+    order: -1;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 4px;
-    height: var(--mobile-content-toolbar-height);
-    padding: 8px max(8px, env(safe-area-inset-right, 0px)) 8px max(8px, env(safe-area-inset-left, 0px));
-    border-top: 1px solid #134e4a;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin: 0;
+    padding: 0 0 8px;
+    border: 0;
+    border-bottom: 1px solid #134e4a;
+    border-radius: 0;
     background: #06141f;
   }
   .content-mode-actions { display: contents; }
-  .content-reorder-toggle { flex-direction: column; justify-content: center; gap: 4px; min-width: 0; min-height: 44px; padding: 4px 2px; font-size: 10px; }
+  .content-reorder-toggle { justify-content: center; gap: 6px; min-width: 0; min-height: 40px; padding: 6px 4px; font-size: 14px; }
   .content-reorder-toggle .svg-inline--fa { font-size: 14px; }
   .section-fields-control .svg-inline--fa { display: inline-block; }
   .section-fields-control span { display: none; }

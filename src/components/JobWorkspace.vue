@@ -33,7 +33,9 @@ const hideWithApplication = ref(true);
 const sortBy = ref('deadline');
 const applicationSortBy = ref('deadline');
 const removingId = ref<string | null>(null);
+const removalDialog = ref<HTMLDialogElement | null>(null);
 const removedOpportunityId = ref<string | null>(null);
+const visitedOpportunityVersions = ref(new Map<string, string | null>());
 const selectedOpportunityId = ref<string | null>(null);
 try { selectedOpportunityId.value = sessionStorage.getItem(`CV_SELECTED_OPPORTUNITY:${props.userId}`); } catch { /* Optional navigation state. */ }
 watch(selectedOpportunityId, (id) => { try { if (id) sessionStorage.setItem(`CV_SELECTED_OPPORTUNITY:${props.userId}`, id); else sessionStorage.removeItem(`CV_SELECTED_OPPORTUNITY:${props.userId}`); } catch { /* Optional navigation state. */ } });
@@ -53,7 +55,12 @@ const clockTimer = window.setInterval(() => { now.value = new Date(); }, 30_000)
 let viewEpoch = 0;
 onBeforeUnmount(() => { window.clearInterval(clockTimer); viewEpoch++; });
 const reviewById = computed(() => new Map(reviews.value.map((item) => [item.opportunity_id, item])));
-const recencyById = computed(() => new Map(opportunities.value.map((item) => [item.id, opportunityRecency(item, now.value, reviewById.value.get(item.id)?.reviewed_updated_at)])));
+const recencyById = computed(() => new Map(opportunities.value.map((item) => {
+  const localVisit = visitedOpportunityVersions.value.get(item.id);
+  const savedVisit = reviewById.value.get(item.id)?.reviewed_updated_at;
+  const reviewedVersion = localVisit && (!savedVisit || Date.parse(localVisit) > Date.parse(savedVisit)) ? localVisit : savedVisit;
+  return [item.id, opportunityRecency(item, now.value, reviewedVersion)];
+})));
 const reviewState = (id: string): OpportunityReviewState => reviewById.value.get(id)?.state || 'unreviewed';
 const applicationByOpportunity = computed(() => new Map(applications.value.map((item) => [item.opportunity_id, item])));
 const filteredOpportunities = computed(() => {
@@ -66,6 +73,17 @@ const filteredOpportunities = computed(() => {
     .toSorted((a, b) => sortBy.value === 'title' ? a.title.localeCompare(b.title)
       : sortBy.value === 'institution' ? (a.university || '').localeCompare(b.university || '')
         : opportunityDeadlineSortKey(a.details) - opportunityDeadlineSortKey(b.details));
+});
+const opportunityGroups = computed(() => {
+  const unvisited: Opportunity[] = [];
+  const visited: Opportunity[] = [];
+  for (const item of filteredOpportunities.value) {
+    (visitedOpportunityVersions.value.has(item.id) || reviewById.value.get(item.id)?.reviewed_updated_at ? visited : unvisited).push(item);
+  }
+  return [
+    { key: 'new', title: text('New opportunities', 'Neue Stellenangebote'), items: unvisited },
+    { key: 'visited', title: text('Previously viewed', 'Bereits angesehen'), items: visited },
+  ].filter((group) => group.items.length);
 });
 const opportunityById = computed(() => new Map(opportunities.value.map((item) => [item.id, item])));
 const filteredApplications = computed(() => applications.value.filter((item) => (!statusFilter.value || item.status === statusFilter.value)
@@ -108,8 +126,8 @@ const hasUnsavedChanges = computed(() => {
   return Boolean(item && (form.notes !== (item.notes || '')
     || form.contactedAt !== toLocalDateTime(item.contacted_at) || form.submittedAt !== toLocalDateTime(item.submitted_at)));
 });
-watch(() => props.tab, () => { notice.value = ''; removingId.value = null; removedOpportunityId.value = null; viewEpoch++; preparingContext.value = false; exportText.value = ''; });
-watch(() => props.userId, () => { editingId.value = null; selectedOpportunityId.value = null; removingId.value = null; removedOpportunityId.value = null; viewEpoch++; exportText.value = ''; });
+watch(() => props.tab, () => { notice.value = ''; cancelRemoval(); removedOpportunityId.value = null; viewEpoch++; preparingContext.value = false; exportText.value = ''; });
+watch(() => props.userId, () => { editingId.value = null; selectedOpportunityId.value = null; cancelRemoval(); removedOpportunityId.value = null; visitedOpportunityVersions.value = new Map(); viewEpoch++; exportText.value = ''; });
 watch(form, () => { exportText.value = ''; contextError.value = ''; viewEpoch++; preparingContext.value = false; });
 function focusResult(kind: 'opportunities' | 'applications', id: string) {
   nextTick(() => {
@@ -121,10 +139,20 @@ function focusResult(kind: 'opportunities' | 'applications', id: string) {
 function openOpportunity(id: string) {
   const opportunity = opportunityById.value.get(id);
   if (!opportunity) return;
+  recordOpportunityVisit(opportunity);
   selectedOpportunityId.value = id;
-  void markOpportunityReviewed(opportunity);
   nextTick(() => opportunityDetail.value?.focus({ preventScroll: true }));
 }
+function recordOpportunityVisit(opportunity: Opportunity) {
+  const version = opportunity.updated_at || opportunity.created_at;
+  if (visitedOpportunityVersions.value.has(opportunity.id) && visitedOpportunityVersions.value.get(opportunity.id) === version) return;
+  // Move an opened result immediately, including while its remote receipt is pending.
+  visitedOpportunityVersions.value.set(opportunity.id, version);
+  void markOpportunityReviewed(opportunity);
+}
+watch([selectedOpportunity, () => props.tab], ([opportunity, tab]) => {
+  if (opportunity && tab === 'opportunities') recordOpportunityVisit(opportunity);
+}, { immediate: true });
 function closeOpportunity() {
   const id = selectedOpportunityId.value;
   selectedOpportunityId.value = null;
@@ -192,12 +220,21 @@ async function changeChecklist(item: Application, key: string, completed: boolea
 }
 async function confirmRemoval(item: Application) {
   if (!await removeApplication(item.id)) return;
-  removingId.value = null;
+  cancelRemoval();
   if (editingId.value === item.id) editingId.value = null;
   try { removeApplicationCv(props.userId, item.id); } catch { /* Other local backups remain available. */ }
   invalidateEvaluation();
   removedOpportunityId.value = item.opportunity_id;
   notice.value = text('Application removed. The opportunity is available again.', 'Bewerbung entfernt. Die Stelle ist wieder verfügbar.');
+}
+async function requestDetailRemoval(item: Application) {
+  removingId.value = item.id;
+  await nextTick();
+  if (editingId.value === item.id && removingId.value === item.id && !removalDialog.value?.open) removalDialog.value?.showModal();
+}
+function cancelRemoval() {
+  removingId.value = null;
+  removalDialog.value?.close();
 }
 async function showRemovedOpportunity() {
   const id = removedOpportunityId.value;
@@ -258,41 +295,50 @@ function downloadContext() {
       <table v-if="tab === 'opportunities'" class="jobs-opportunities-table">
         <colgroup><col style="width: 27%" /><col style="width: 10%" /><col style="width: 12%" /><col style="width: 17%" /><col style="width: 15%" /><col style="width: 19%" /></colgroup>
         <thead><tr><th scope="col">{{ text('Opportunity', 'Stelle') }}</th><th scope="col">{{ text('Country', 'Land') }}</th><th scope="col">{{ text('Deadline', 'Frist') }}</th><th scope="col">{{ text('Topics', 'Themen') }}</th><th scope="col">{{ text('Your review', 'Deine Bewertung') }}</th><th scope="col">{{ text('Actions', 'Aktionen') }}</th></tr></thead>
-        <tbody><template v-for="item in filteredOpportunities" :key="item.id">
+        <tbody v-for="group in opportunityGroups" :key="group.key">
+          <tr class="jobs-group-row" :data-opportunity-group="group.key"><th scope="rowgroup" colspan="6">{{ group.title }} <span>{{ group.items.length }}</span></th></tr>
+          <template v-for="item in group.items" :key="item.id">
           <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'jobs-opportunity--new': recencyById.get(item.id) === 'new', 'jobs-opportunity--updated': recencyById.get(item.id) === 'updated' }" @click="openOpportunity(item.id)">
             <td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :aria-label="`${text('Open opportunity:', 'Stelle öffnen:')} ${item.title}`" @click.stop="openOpportunity(item.id)"><span class="jobs-row-chevron" aria-hidden="true">›</span><strong>{{ item.title }}</strong></button><span class="jobs-subline">{{ item.university || '—' }}</span><div v-if="recencyById.get(item.id) || item.particularly_suitable" class="jobs-opportunity-badges"><span v-if="recencyById.get(item.id)" class="jobs-badge" :class="`jobs-badge--${recencyById.get(item.id)}`" :title="recencyById.get(item.id) === 'new' ? text('Added within the last 24 hours', 'In den letzten 24 Stunden hinzugefügt') : text('Updated within the last 24 hours', 'In den letzten 24 Stunden aktualisiert')">{{ recencyById.get(item.id) === 'new' ? text('New · 24h', 'Neu · 24 Std.') : text('Updated · 24h', 'Aktualisiert · 24 Std.') }}</span><span v-if="item.particularly_suitable" class="jobs-badge">{{ text('Strong fit', 'Besonders passend') }}</span></div></td>
             <td :data-label="text('Country', 'Land')">{{ item.country || '—' }}</td><td :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.details, now) }">{{ formatOpportunityDeadline(item.details, lang) }}</span></td>
-            <td class="jobs-topics jobs-cell-wide" :data-label="text('Topics', 'Themen')">{{ item.topics.join(' · ') || '—' }}</td><td :data-label="text('Your review', 'Deine Bewertung')" @click.stop><select class="jobs-review-select" :aria-label="`${text('Review state for', 'Bewertung für')} ${item.title}`" :value="reviewState(item.id)" :disabled="saving" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></td>
+            <td class="jobs-topics jobs-cell-wide" :data-label="text('Topics', 'Themen')">{{ item.topics.join(' · ') || '—' }}</td><td class="jobs-cell-state" :data-label="text('Your review', 'Deine Bewertung')" @click.stop><select class="jobs-review-select" :aria-label="`${text('Review state for', 'Bewertung für')} ${item.title}`" :value="reviewState(item.id)" :disabled="saving" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></td>
             <td class="jobs-cell-actions"><div class="jobs-row-actions" @click.stop><button class="btn btn--success" type="button" :disabled="saving" @click="startApplication(item)">{{ applicationByOpportunity.has(item.id) ? text('Open application', 'Bewerbung öffnen') : text('Create application', 'Bewerbung anlegen') }}</button></div></td>
           </tr>
-        </template><tr v-if="!filteredOpportunities.length"><td colspan="6" class="jobs-empty">{{ loading ? text('Loading opportunities…', 'Stellenangebote werden geladen…') : text('No matching opportunities. Adjust the deadline, application, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewerbungs-, Bewertungs- oder Suchfilter.') }}</td></tr></tbody>
+        </template></tbody><tbody v-if="!filteredOpportunities.length"><tr><td colspan="6" class="jobs-empty">{{ loading ? text('Loading opportunities…', 'Stellenangebote werden geladen…') : text('No matching opportunities. Adjust the deadline, application, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewerbungs-, Bewertungs- oder Suchfilter.') }}</td></tr></tbody>
       </table>
       <table v-else class="jobs-applications-table">
-        <colgroup><col style="width: 29%" /><col style="width: 16%" /><col style="width: 27%" /><col style="width: 16%" /><col style="width: 12%" /></colgroup>
-        <thead><tr><th scope="col">{{ text('Application', 'Bewerbung') }}</th><th scope="col">{{ text('Deadline', 'Frist') }}</th><th scope="col">{{ text('Contact person', 'Kontaktperson') }}</th><th scope="col">{{ text('Status', 'Status') }}</th><th scope="col">{{ text('Actions', 'Aktionen') }}</th></tr></thead>
+        <colgroup><col style="width: 34%" /><col style="width: 18%" /><col style="width: 30%" /><col style="width: 18%" /></colgroup>
+        <thead><tr><th scope="col">{{ text('Application', 'Bewerbung') }}</th><th scope="col">{{ text('Deadline', 'Frist') }}</th><th scope="col">{{ text('Contact person', 'Kontaktperson') }}</th><th scope="col">{{ text('Status', 'Status') }}</th></tr></thead>
         <tbody><template v-for="item in filteredApplications" :key="item.id">
           <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'is-expanded': editingId === item.id }" :aria-disabled="saving" @click="toggleApplication(item)"><td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :disabled="saving" :aria-label="`${text('Open application:', 'Bewerbung öffnen:')} ${contextTitle(item)}`" @click.stop="toggleApplication(item)"><span class="jobs-row-chevron" aria-hidden="true">›</span><strong>{{ contextTitle(item) }}</strong></button><span class="jobs-subline">{{ contextInstitution(item) }}</span></td><td :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.context_json, now) }">{{ formatOpportunityDeadline(item.context_json, lang) }}</span></td>
             <td class="jobs-cell-wide jobs-cell-contacts" :data-label="text('Contact person', 'Kontaktperson')"><template v-for="(person, index) in contacts(item)" :key="index"><span class="jobs-subline">{{ person.name }}</span><a v-if="safeEmailUrl(person.email)" :href="safeEmailUrl(person.email)!" @click.stop>{{ person.email }}</a><span v-else>{{ person.email }}</span></template><span v-if="!contacts(item).length">{{ text('Not recorded', 'Nicht erfasst') }}</span></td>
-            <td :data-label="text('Status', 'Status')" @click.stop><select class="jobs-row-select" :aria-label="`${text('Status for', 'Status für')} ${contextTitle(item)}`" :value="item.status" :disabled="saving || hasUnsavedChanges" @change="changeApplicationStatus(item, $event)"><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></td>
-            <td class="jobs-cell-actions" @click.stop><button class="btn btn--danger" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(item)}`" @click="removingId = item.id">{{ text('Remove', 'Entfernen') }}</button></td></tr>
-          <tr v-if="removingId === item.id" class="jobs-removal-row"><td colspan="5"><div class="jobs-removal-confirm" role="alert"><p>{{ text('Remove this application? Its notes, checklist progress and saved drafts will be deleted. Your CV versions remain available.', 'Bewerbung entfernen? Notizen, Checklistenfortschritt und gespeicherte Entwürfe werden gelöscht. Deine CV-Versionen bleiben erhalten.') }}</p><div class="jobs-row-actions"><button class="btn btn--danger" type="button" :disabled="saving" @click="confirmRemoval(item)">{{ text('Remove application', 'Bewerbung entfernen') }}</button><button class="btn" type="button" :disabled="saving" @click="removingId = null">{{ text('Cancel', 'Abbrechen') }}</button></div></div></td></tr>
+            <td class="jobs-cell-state" :data-label="text('Status', 'Status')" @click.stop><select class="jobs-row-select" :aria-label="`${text('Status for', 'Status für')} ${contextTitle(item)}`" :value="item.status" :disabled="saving || hasUnsavedChanges" @change="changeApplicationStatus(item, $event)"><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></td>
+          </tr>
 
-        </template><tr v-if="!filteredApplications.length"><td colspan="5" class="jobs-empty">{{ loading ? text('Loading applications…', 'Bewerbungen werden geladen…') : text('No matching applications. Create one from an opportunity.', 'Keine passenden Bewerbungen. Lege eine aus einem Stellenangebot an.') }}<button class="btn" type="button" @click="emit('navigate', 'opportunities')">{{ text('Browse opportunities', 'Stellenangebote ansehen') }}</button></td></tr></tbody>
+        </template><tr v-if="!filteredApplications.length"><td colspan="4" class="jobs-empty">{{ loading ? text('Loading applications…', 'Bewerbungen werden geladen…') : text('No matching applications. Create one from an opportunity.', 'Keine passenden Bewerbungen. Lege eine aus einem Stellenangebot an.') }}<button class="btn" type="button" @click="emit('navigate', 'opportunities')">{{ text('Browse opportunities', 'Stellenangebote ansehen') }}</button></td></tr></tbody>
       </table>
     </div>
     <section v-if="selectedOpportunity" v-show="tab === 'opportunities'" ref="opportunityDetail" class="opportunity-detail" :aria-label="selectedOpportunity.title" tabindex="-1">
-      <WorkspaceDetailHeader :title="selectedOpportunity.title" :subtitle="selectedOpportunity.university || undefined" :back-label="text('All opportunities', 'Alle Stellenangebote')" @back="closeOpportunity">
+      <WorkspaceDetailHeader class="opportunity-detail__header" :title="selectedOpportunity.title" :subtitle="selectedOpportunity.university || undefined" :back-label="text('All opportunities', 'Alle Stellenangebote')" @back="closeOpportunity">
         <template #metadata>
-          <span v-if="selectedOpportunity.country">{{ selectedOpportunity.country }}</span>
-          <span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(selectedOpportunity.details, now) }">{{ text('Deadline', 'Frist') }}: {{ formatOpportunityDeadline(selectedOpportunity.details, lang) }}</span>
-          <span v-if="selectedOpportunity.particularly_suitable" class="jobs-badge">{{ text('Strong fit', 'Besonders passend') }}</span>
-          <label class="opportunity-detail__review">{{ text('Your review', 'Deine Bewertung') }}<select :value="reviewState(selectedOpportunity.id)" :disabled="saving" @change="changeReview(selectedOpportunity, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
-          <button class="btn btn--success" type="button" :disabled="saving" @click="startApplication(selectedOpportunity)">{{ applicationByOpportunity.has(selectedOpportunity.id) ? text('Open application', 'Bewerbung öffnen') : text('Create application', 'Bewerbung anlegen') }}</button>
+          <span v-if="selectedOpportunity.country" class="opportunity-detail__country" :title="selectedOpportunity.country">{{ selectedOpportunity.country }}</span>
+          <span class="opportunity-detail__deadline" :class="{ 'jobs-expired': isOpportunityDeadlinePassed(selectedOpportunity.details, now) }" :title="`${text('Deadline', 'Frist')}: ${formatOpportunityDeadline(selectedOpportunity.details, lang)}`" :aria-label="`${text('Deadline', 'Frist')}: ${formatOpportunityDeadline(selectedOpportunity.details, lang)}`"><span class="opportunity-detail__deadline-label">{{ text('Deadline', 'Frist') }}: </span>{{ formatOpportunityDeadline(selectedOpportunity.details, lang) }}</span>
+          <span v-if="selectedOpportunity.particularly_suitable" class="jobs-badge opportunity-detail__fit">{{ text('Strong fit', 'Besonders passend') }}</span>
+        </template>
+        <template #actions>
+          <label class="jobs-detail-state"><span class="jobs-action-label">{{ text('Your review', 'Deine Bewertung') }}</span><select :aria-label="text('Your review', 'Deine Bewertung')" :value="reviewState(selectedOpportunity.id)" :disabled="saving" @change="changeReview(selectedOpportunity, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
+          <button class="btn btn--success jobs-detail-action" type="button" :disabled="saving" @click="startApplication(selectedOpportunity)"><span class="jobs-action-desktop">{{ applicationByOpportunity.has(selectedOpportunity.id) ? text('Open application', 'Bewerbung öffnen') : text('Create application', 'Bewerbung anlegen') }}</span><span class="jobs-action-mobile">{{ applicationByOpportunity.has(selectedOpportunity.id) ? text('Open', 'Öffnen') : text('Apply', 'Bewerben') }}</span></button>
         </template>
       </WorkspaceDetailHeader>
       <div class="opportunity-detail__body"><OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity.details" :lang="lang" /></div>
     </section>
     <ApplicationWorkspace v-if="editingApplication" v-show="tab === 'applications'" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :configurations="configurations" :read-version="readVersion" :create-subvariant="createSubvariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
+      <template #actions>
+        <label class="jobs-detail-state"><span class="jobs-action-label">{{ text('Status', 'Status') }}</span><select :aria-label="`${text('Status for', 'Status für')} ${contextTitle(editingApplication)}`" :value="editingApplication.status" :disabled="saving || hasUnsavedChanges" @change="changeApplicationStatus(editingApplication, $event)"><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label>
+      </template>
+      <template #secondary-actions>
+        <button class="jobs-remove-application" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(editingApplication)}`" @click="requestDetailRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button>
+      </template>
       <template #overview>
             <div class="jobs-review-toolbar"><h2>{{ text('Application workspace', 'Bewerbung bearbeiten') }}</h2><span>{{ text('Context saved', 'Kontext gespeichert') }}: {{ dateLabel(editingApplication.context_captured_at) }}</span><button class="btn" type="button" :disabled="saving || hasUnsavedChanges || preparingContext" @click="refreshResearch">{{ text('Refresh research', 'Forschung aktualisieren') }}</button></div>
             <form class="application-inline-form" @submit.prevent="saveApplication">
@@ -308,6 +354,13 @@ function downloadContext() {
 
       </template>
     </ApplicationWorkspace>
+    <dialog ref="removalDialog" class="jobs-removal-dialog" :aria-label="text('Remove application', 'Bewerbung entfernen')" @cancel="removingId = null">
+      <div v-if="editingApplication && removingId === editingApplication.id" class="jobs-removal-confirm">
+        <p>{{ text('Remove this application? Its notes, checklist progress and saved drafts will be deleted. Your CV versions remain available.', 'Bewerbung entfernen? Notizen, Checklistenfortschritt und gespeicherte Entwürfe werden gelöscht. Deine CV-Versionen bleiben erhalten.') }}</p>
+        <p v-if="error" class="jobs-error" role="alert">{{ error }}</p>
+        <div class="jobs-row-actions"><button class="btn" type="button" autofocus :disabled="saving" @click="cancelRemoval">{{ text('Cancel', 'Abbrechen') }}</button><button class="btn btn--danger" type="button" :disabled="saving" @click="confirmRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button></div>
+      </div>
+    </dialog>
   </section>
 </template>
 
@@ -318,8 +371,11 @@ function downloadContext() {
 .jobs-workspace > .application-workspace, .jobs-workspace > .opportunity-detail { flex: 1 1 auto; min-height: 0; }
 .opportunity-detail { display: flex; flex-direction: column; min-width: 0; padding: 20px; overflow: hidden; border: 1px solid #24504e; border-radius: 12px; background: #06141f; }
 .opportunity-detail__body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-gutter: stable; padding: 20px 4px 0 0; }
-.jobs-workspace .opportunity-detail__review { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; max-width: 100%; margin-left: auto; }
-.jobs-workspace .opportunity-detail__review select { width: auto; max-width: 100%; padding: 6px 9px; }
+.jobs-workspace .jobs-detail-state { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+.jobs-workspace .jobs-detail-state select { width: auto; min-width: 0; max-width: 100%; padding: 6px 9px; }
+.jobs-action-mobile { display: none; }
+.jobs-remove-application { min-height: 32px; padding: 4px 0; border: 0; background: transparent; color: #c8a1a7; font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.jobs-remove-application:hover { color: #fecaca; }
 .jobs-workspace > .jobs-table-scroll { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-width: thin; }
 .jobs-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .jobs-heading h1 { margin: 4px 0 8px; font-size: 27px; letter-spacing: -.6px; }
@@ -342,6 +398,8 @@ table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: lef
 .jobs-opportunities-table .jobs-row-actions .btn { white-space: normal; }
 .jobs-workspace th { position: sticky; top: 0; z-index: 1; }
 th { padding: 13px 14px; white-space: nowrap; background: #0d242c; color: #8db7ab; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+.jobs-workspace .jobs-group-row th { position: static; padding: 11px 14px; border-top: 1px solid #29504b; color: #b6edda; background: #0a1c25; font-size: 12px; text-transform: none; letter-spacing: 0; }
+.jobs-group-row th span { margin-left: 6px; color: #8db7ab; font-weight: normal; }
 td { padding: 16px 14px; vertical-align: top; border-top: 1px solid #17383c; line-height: 1.5; }
 td:first-child { min-width: 220px; max-width: 340px; }
 td a { color: #8be9bf; overflow-wrap: anywhere; }
@@ -350,6 +408,9 @@ td a { color: #8be9bf; overflow-wrap: anywhere; }
 .jobs-workspace .jobs-review-select, .jobs-workspace .jobs-row-select { width: 100%; min-width: 0; padding: 7px 5px; font-size: 11px; cursor: pointer; }
 .jobs-removal-confirm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; color: #fecaca; }
 .jobs-removal-confirm p { flex: 1; min-width: 240px; margin: 0; }
+.jobs-removal-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 22px; border: 1px solid #29504b; border-radius: 12px; background: #081b25; color: #e3f7ef; overflow: auto; box-sizing: border-box; }
+.jobs-removal-dialog::backdrop { background: rgb(0 0 0 / 65%); }
+.jobs-removal-dialog .jobs-row-actions { justify-content: flex-end; width: 100%; }
 .jobs-row-actions { display: flex; flex-wrap: wrap; gap: 7px; min-width: 145px; }
 .jobs-row-actions .btn { font-size: 11px; white-space: nowrap; }
 .jobs-badge { display: inline-block; padding: 3px 7px; margin-top: 4px; border-radius: 5px; background: #123e36; color: #9be8c7; font-size: 10px; white-space: nowrap; }
@@ -392,10 +453,13 @@ tr.is-expanded { background: #0b242b; }
   table colgroup { display: none; }
   table thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   table tbody { display: grid; gap: 12px; }
+  table tbody + tbody { margin-top: 12px; }
   table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; min-width: 0; overflow: hidden; border: 1px solid #29504b; border-radius: 10px; background: #081b25; }
   .jobs-workspace td { display: block; min-width: 0; max-width: none; padding: 11px 12px; border: 0; }
   td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 5px; color: #8db7ab; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
-  .jobs-cell-heading, .jobs-cell-wide, .jobs-empty, .jobs-removal-row > td { grid-column: 1 / -1; }
+  .jobs-cell-heading, .jobs-cell-wide, .jobs-empty { grid-column: 1 / -1; }
+  .jobs-group-row { display: block; border: 0; border-radius: 0; }
+  .jobs-group-row th { display: block; }
   .jobs-cell-heading { background: #102730; border-bottom: 1px solid #29504b; }
   .jobs-row-toggle { font-size: 14px; }
   .jobs-cell-actions { display: flex; align-self: end; }
@@ -410,28 +474,49 @@ tr.is-expanded { background: #0b242b; }
   .opportunity-detail { padding: 10px; }
 }
 @media (max-width: 760px) {
-  .jobs-workspace { padding: 0; }
+  .jobs-workspace { padding: 0; font-size: 16px; }
   .jobs-heading h1 { font-size: 23px; }
   .jobs-heading p { font-size: 12px; }
-  .jobs-toolbar { margin-bottom: 12px; }
+  .jobs-toolbar { position: fixed; left: 0; right: 0; bottom: var(--mobile-tabs-height, 76px); z-index: 35; height: var(--mobile-context-row-height, 52px); box-sizing: border-box; align-items: center; margin: 0; padding: 5px 8px; border-top: 1px solid #21423e; background: #071820; }
   .jobs-toolbar > :not(.jobs-search) { display: none; }
   .jobs-search { flex-basis: 100%; max-width: none; min-width: 0; }
+  .jobs-workspace .jobs-search input { height: 40px; padding: 8px 12px; }
   .jobs-search > span { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .jobs-workspace :is(input, select, textarea) { font-size: 16px; }
+  .jobs-workspace label { font-size: 14px; }
+  table { font-size: 16px; }
+  .jobs-row-toggle { font-size: 18px; }
+  .jobs-subline { font-size: 14px; }
+  .jobs-badge { font-size: 12px; }
+  .jobs-topics { font-size: 15px; }
+  td[data-label]::before { font-size: 12px; }
+  .jobs-workspace .jobs-group-row th { font-size: 15px; padding: 11px 0; }
   table tbody { gap: 8px; }
   table tr { column-gap: 12px; border: 0; border-bottom: 1px solid #21423e; border-radius: 0; background: transparent; }
   .jobs-workspace td { padding: 8px 0; }
+  .jobs-workspace :is(.jobs-cell-state, .jobs-cell-actions) { display: none; }
   .jobs-cell-heading { background: transparent; }
   .jobs-opportunity--new > td:first-child, .jobs-opportunity--updated > td:first-child { box-shadow: none; }
   .opportunity-detail { padding: 0; border: 0; border-radius: 0; background: transparent; }
-  .opportunity-detail__body { padding: 12px 0 0; scrollbar-gutter: auto; }
-  .jobs-workspace .opportunity-detail__review { margin-left: 0; }
+  .opportunity-detail__header :deep(.workspace-detail-header__metadata) { flex-wrap: nowrap; gap: 8px; }
+  .opportunity-detail__country { flex: 0 1 auto; max-width: 28%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .opportunity-detail__deadline { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .opportunity-detail__deadline-label { display: none; }
+  .opportunity-detail__fit { flex-shrink: 0; margin: 0; padding: 0; border-radius: 0; background: transparent; font-size: 12px; }
+  .opportunity-detail__body { padding: 12px 8px 0; scrollbar-gutter: auto; }
+  .jobs-workspace .jobs-detail-state { flex: 1; }
+  .jobs-workspace .jobs-detail-state select { width: 100%; height: 40px; padding: 6px; }
+  .jobs-detail-action { flex-shrink: 0; min-height: 40px; padding: 7px 10px; }
+  .jobs-action-label, .jobs-action-desktop { display: none; }
+  .jobs-action-mobile { display: inline; }
+  .jobs-removal-dialog { padding: 18px; }
+  .jobs-removal-dialog .jobs-row-actions .btn { font-size: 16px; }
   .jobs-form-footer { flex-wrap: wrap; }
   .application-fields { grid-template-columns: 1fr; }
   .application-inline-form, .jobs-evaluation { padding: 0; border: 0; border-radius: 0; background: transparent; }
   .jobs-review-toolbar { align-items: stretch; gap: 10px; margin-bottom: 16px; }
   .jobs-review-toolbar h2 { display: none; }
   .jobs-workspace :deep(.opportunity-context) { gap: 8px; }
-  .jobs-workspace :deep(.opportunity-context__group) { padding: 10px 0; border: 0; border-radius: 0; background: transparent; }
   .jobs-workspace :deep(.opportunity-context__group[open] > summary) { margin-bottom: 12px; }
   .jobs-workspace :deep(.opportunity-context__group dl) { gap: 14px; }
   .jobs-workspace :deep(.opportunity-context__field--fit) { padding: 0; border: 0; border-radius: 0; background: transparent; }
