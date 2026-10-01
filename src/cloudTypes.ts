@@ -69,6 +69,8 @@ export interface CloudCvSnapshot {
 
 export interface Application {
   id: string;
+  /** Persistent server-assigned reference; older workspaces may not provide one yet. */
+  application_code?: string | null;
   user_id: string;
   opportunity_id: string;
   cv_variant_id: string | null;

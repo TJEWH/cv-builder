@@ -148,6 +148,7 @@ const client = {
         if (existing) return { data: existing.id, error: null };
         const opportunity = database.opportunities.find((row) => row.id === parameters.p_opportunity_id);
         database.applications.push({ id: parameters.p_application_id, user_id: account,
+          application_code: opportunity?.id === '10000000-0000-4000-8000-000000000001' ? 'APP-7K4M9Q' : null,
           opportunity_id: parameters.p_opportunity_id, cv_variant_id: null,
           contact_email: null, context_json: structuredClone(opportunity), context_captured_at: new Date().toISOString(), status: 'shortlist', completed_checklist_keys: [], notes: null,
           contacted_at: null, submitted_at: null, created_at: now, updated_at: now });

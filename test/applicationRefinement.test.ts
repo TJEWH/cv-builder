@@ -132,6 +132,22 @@ test('versioned prompts use exact scope and identifiers, preserve history and re
   assert.throws(() => buildRefinementPrompt(request.request, "bad'); select 1"), /identifier/);
 });
 
+test('short follow-up instructions resolve only the referenced application and require a current matching scope', () => {
+  const request = local({ scope: 'letter' });
+  const prompt = buildRefinementPrompt(request.request, 'test-project');
+  assert.ok(prompt.includes(`1. Read the immutable request through SQL: select private.read_refinement_request('${request.request.requestId}'::uuid);`), 'the initial run remains bound to its explicit immutable request');
+  assert.match(prompt, /For a later explicit "phd-workflow: <code or complete UUID>/);
+  assert.match(prompt, /select private\.resolve_application_reference\('<safely SQL-escaped reference>'\)/);
+  assert.match(prompt, /escape apostrophes correctly, never guess codes or derive them from titles/);
+  assert.match(prompt, /Read the returned current_request_id through private\.read_refinement_request/);
+  assert.match(prompt, /application_id equals the resolver's application_id/);
+  assert.match(prompt, /requestId equals current_request_id/);
+  assert.match(prompt, /CV = cv, motivation letter = letter, both = both/);
+  assert.match(prompt, /no current request or the scope differs, stop and ask the user to publish a new matching round in the webapp/);
+  assert.match(prompt, /Do not fabricate or mutate requests, reuse an older round, or read unrelated applications/);
+  assert.match(prompt, /freshly resolved application\/request identifiers and requested scope throughout, including the proposal payload/);
+});
+
 test('revision fingerprints match SHA-256 canonical JSON and conceal private values', () => {
   for (const value of [null, '', 'Private Taylor Green', '🌿'.repeat(100), ['a', 1], { a: 1, b: 2 }]) {
     assert.equal(refinementSignature(value), `v1:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`);

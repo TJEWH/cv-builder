@@ -170,6 +170,32 @@ test('one-click create retries reuse RPC IDs, preserve server context, and never
   scope.stop();
 });
 
+test('server application codes survive list, create, and update roundtrips without becoming client-generated writes', async (t) => {
+  let persisted = { ...application('coded-application'), application_code: 'PHD-ServerAssigned_7A' };
+  const { client, queries } = fakeClient((query) => {
+    if (query.operation === 'rpc' && query.table === 'create_job_application') return { data: persisted.id, error: null };
+    if (query.operation === 'update' && query.table === 'applications') {
+      persisted = { ...persisted, ...query.payload, context_json: { ...persisted.context_json, title: 'A renamed opportunity' } };
+      return { data: persisted, error: null };
+    }
+    return { data: query.table === 'applications' ? query.single ? persisted : [persisted] : [], error: null };
+  });
+  const scope = effectScope(); t.after(() => scope.stop());
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  assert.equal(workspace.applications.value[0].application_code, 'PHD-ServerAssigned_7A');
+  const created = await workspace.createApplication({ opportunityId: 'opportunity-1' });
+  assert.equal(created?.application_code, 'PHD-ServerAssigned_7A');
+  const updated = await workspace.updateApplication(persisted.id, { notes: 'A local tracking note.', status: 'contacted' });
+  assert.equal(updated?.application_code, 'PHD-ServerAssigned_7A');
+  assert.equal(updated?.context_json.title, 'A renamed opportunity');
+  assert.equal(workspace.applications.value[0].application_code, 'PHD-ServerAssigned_7A');
+  const writes = queries.filter(query => query.operation !== 'select');
+  assert.equal(writes.length, 2);
+  assert.ok(writes.every(query => !Object.hasOwn(query.payload || {}, 'application_code')));
+  assert.ok(writes.every(query => !JSON.stringify(query.payload).includes('PHD-ServerAssigned_7A')));
+});
+
 test('logout during a write prevents follow-up reads and stale local rows; refresh cannot race a save', async () => {
   const writing = deferred<Result>();
   const { client, queries } = fakeClient((query) => query.operation === 'rpc' ? writing.promise : { data: [], error: null });

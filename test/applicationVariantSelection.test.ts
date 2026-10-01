@@ -26,8 +26,10 @@ interface WorkspaceSetup {
   pendingTemplateId: string; missingLetterTemplate: boolean;
   cvApproved: boolean; letterApproved: boolean; feedbackScope: RefinementScope; feedback: string;
   requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; selectedProposalId: string; prompt: string;
+  shortInstruction: string; shortInstructionNotice: string; shortInstructionError: string;
   assignBase(): void; importBackup(event: Event): Promise<void>; useLetterTemplate(): Promise<void>; saveSetup(): Promise<void>;
   initialPrompt(): Promise<void>; checkProposals(): Promise<void>; openProposal(): void;
+  copyShortInstruction(): Promise<void>;
   updateLetter(text: string): void; approve(kind: 'cv' | 'letter', reopen?: boolean): Promise<void>; requestImprovement(): Promise<void>;
 }
 async function idle(setup: WorkspaceSetup) {
@@ -55,9 +57,11 @@ function mount(t: TestContext, legacy?: 'unchanged' | 'tailored', missingLetterT
   let unmount = () => {};
   t.after(() => unmount());
   const data = new Map<string, string>();
+  const clipboardWrites: string[] = [];
+  const clipboard = { writeText: async (value: string) => { clipboardWrites.push(value); } };
   const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value); }, removeItem: (key: string) => { data.delete(key); } };
   for (const [name, value] of Object.entries({ localStorage: storage, sessionStorage: storage,
-    window: { addEventListener() {}, removeEventListener() {} }, navigator: { clipboard: { writeText: async () => {} } },
+    window: { addEventListener() {}, removeEventListener() {} }, navigator: { clipboard },
   })) {
     const previous = Object.getOwnPropertyDescriptor(globalThis, name);
     Object.defineProperty(globalThis, name, { configurable: true, value });
@@ -104,7 +108,7 @@ function mount(t: TestContext, legacy?: 'unchanged' | 'tailored', missingLetterT
   const app = renderer.createApp({ render: () => h(component, { ...props, ref: (value: unknown) => { mounted = value; } }) });
   app.mount({}); unmount = () => app.unmount();
   const setup = (mounted as { $: { setupState: WorkspaceSetup } }).$.setupState;
-  return { setup, props, states, base, database, cloud };
+  return { setup, props, states, base, database, cloud, clipboard, clipboardWrites };
 }
 
 test('applications freeze selected CVs and keep manual edits independent from the template library', async (t) => {
@@ -360,4 +364,73 @@ test('superseded feedback rounds remain viewable but cannot replace documents wi
   const currentProposal = cloud.seedProposal(currentRequest.id);
   await setup.checkProposals(); setup.selectedProposalId = currentProposal.id; setup.openProposal();
   assert.equal(setup.error, '', 'the current proposal is still eligible for explicit application');
+});
+
+test('copying the short instruction follows server code and scope changes without publishing preparation or requests', async (t) => {
+  const { setup, props, database, clipboardWrites } = mount(t);
+  await idle(setup);
+  const before = JSON.stringify(database);
+  assert.equal(setup.shortInstruction, `phd-workflow: ${applicationId} — refine both.`);
+  await setup.copyShortInstruction();
+  assert.equal(clipboardWrites.at(-1), setup.shortInstruction);
+  assert.ok(setup.shortInstructionNotice);
+  assert.equal(setup.shortInstructionError, '');
+
+  props.application = { ...props.application, application_code: 'SERVER-CaseSensitive_29' };
+  setup.feedbackScope = 'cv'; await nextTick();
+  assert.equal(setup.shortInstruction, 'phd-workflow: SERVER-CaseSensitive_29 — refine CV.');
+  await setup.copyShortInstruction();
+  assert.equal(clipboardWrites.at(-1), 'phd-workflow: SERVER-CaseSensitive_29 — refine CV.');
+
+  props.application = { ...props.application, context_json: { ...props.application.context_json, title: 'A renamed PhD opportunity' } };
+  setup.feedbackScope = 'letter'; await nextTick();
+  await setup.copyShortInstruction();
+  assert.equal(clipboardWrites.at(-1), 'phd-workflow: SERVER-CaseSensitive_29 — refine motivation letter.');
+  assert.equal(JSON.stringify(database), before, 'copying must not save setup, publish snapshots, or start a refinement round');
+  assert.equal(setup.requests.length, 0);
+  assert.equal(setup.prompt, '', 'copying the short instruction is independent of generating the full protocol prompt');
+});
+
+test('clipboard failures remain local to the short instruction and can be retried without cloud mutations', async (t) => {
+  const { setup, database, clipboard, clipboardWrites } = mount(t);
+  await idle(setup);
+  const before = JSON.stringify(database);
+  setup.error = 'Existing application synchronization error.';
+  clipboard.writeText = async () => { throw new Error('Clipboard permission denied.'); };
+  await setup.copyShortInstruction();
+  assert.ok(setup.shortInstructionError);
+  assert.equal(setup.shortInstructionNotice, '');
+  assert.equal(setup.error, 'Existing application synchronization error.');
+  assert.equal(JSON.stringify(database), before);
+
+  clipboard.writeText = async (value: string) => { clipboardWrites.push(value); };
+  await setup.copyShortInstruction();
+  assert.equal(clipboardWrites.at(-1), setup.shortInstruction);
+  assert.equal(setup.shortInstructionError, '');
+  assert.ok(setup.shortInstructionNotice);
+  assert.equal(JSON.stringify(database), before);
+});
+
+test('publishing an initial round uses the same selected scope as the copied short instruction', async (t) => {
+  const { setup, clipboardWrites } = mount(t);
+  await idle(setup);
+  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
+  await setup.useLetterTemplate();
+  setup.feedbackScope = 'letter'; await nextTick();
+  await setup.copyShortInstruction();
+  assert.equal(clipboardWrites.at(-1), `phd-workflow: ${applicationId} — refine motivation letter.`);
+  assert.equal(setup.requests.length, 0, 'copy alone must not publish the selected scope');
+  await setup.initialPrompt();
+  assert.equal(setup.error, '');
+  assert.equal(setup.requests[0].request_json.scope, 'letter');
+  const firstRequestId = setup.requests[0].id;
+
+  setup.feedbackScope = 'cv'; await nextTick();
+  await setup.copyShortInstruction();
+  assert.equal(clipboardWrites.at(-1), `phd-workflow: ${applicationId} — refine CV.`);
+  assert.equal(setup.requests[0].id, firstRequestId, 'a different copy selection still must not mutate the published round');
+  await setup.initialPrompt();
+  assert.equal(setup.error, '');
+  assert.equal(setup.requests[0].request_json.scope, 'cv');
+  assert.notEqual(setup.requests[0].id, firstRequestId, 'a scope change requires its own immutable request');
 });

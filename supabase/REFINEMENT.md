@@ -34,6 +34,28 @@ Each request row additionally contains server-captured `opportunity_snapshot` an
 
 ## Existing ChatGPT Supabase MCP
 
+### Application reference codes
+
+[`changes/application_codes.sql`](changes/application_codes.sql) adds `applications.application_code` after the refinement migration. **phd-workflow** received it on **2026-10-01** as `add_persistent_application_codes`, migration version `20261001195548` (UTC); do not rerun it there. For other targets, confirm migration history before using the short-code workflow. New-database [`schema.sql`](schema.sql) includes it.
+
+The server assigns each application a persistent code such as `APP-7D60E4A912`, including existing applications during the one-time upgrade. Codes are globally unique and immutable. Both supported creation RPCs retry random code collisions without changing their existing UUID-based idempotency. Browser-supplied codes are ignored on insertion; existing applications cannot be renamed by editing their code. Backfill preserves all other application fields and timestamps. The application UUID remains the internal identity. Treat the returned code as an opaque reference; do not synthesize codes from UUIDs, titles or list order.
+
+The browser can resolve a reference through owner-scoped `public.resolve_application_reference(p_reference)`. The existing management MCP uses:
+
+```sql
+select private.resolve_application_reference('APP-7D60E4A912');
+```
+
+Both resolvers accept a complete application code or a complete application UUID, trim surrounding whitespace and normalize letter case. Partial values, title searches and wildcard lookup are not supported. They return only `application_id`, `application_code` and nullable `current_request_id`. The public resolver retains owner RLS; the private resolver is an invoker function restricted to `postgres`. A code is a reference, not a permission or secret.
+
+For a short ChatGPT prompt, resolve the provided code in the explicitly configured project, then read its `current_request_id` using `private.read_refinement_request`. Confirm the returned request belongs to the resolved application and its frozen scope matches the short instruction; preserve privacy tokens and accumulated feedback before saving a proposal. A missing `current_request_id` or different scope means the owner must publish a matching round in the app first. Copying the code or short prompt does not publish a request, approve edits, or authorize changing another application. A long prompt containing an explicit request UUID continues to use that exact immutable request rather than silently selecting a newer round.
+
+[`tests/application_codes.sql`](tests/application_codes.sql) verifies backfill validity, generated values, immutable updates, exact creation retries, actual forced code collisions across owners for both creation APIs, bounded allocation failure without orphaned CVs, owner isolation, admin-only management access, full UUID fallback and current request mapping. The transaction removes every synthetic fixture and its temporary collision trigger/sequence.
+
+The full code suite and existing workspace-security/refinement SQL suites passed after deployment, with all fixtures rolled back. All **8 existing applications** received distinct, non-null codes, and a before/after checksum confirmed every non-code field remained unchanged. Advisors reported no new finding; the existing history-table notices, leaked-password-protection warning and older unused-index notices remain.
+
+### Draft request and proposal operations
+
 The selected management MCP connection was verified to run as database role `postgres` with no app-user JWT. It uses these two private-schema, `SECURITY INVOKER` operations:
 
 ```sql

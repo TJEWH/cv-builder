@@ -67,14 +67,31 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string } = {})
   unmount = () => app.unmount();
   const setup = (mounted as { $: { setupState: {
     query: string; statusFilter: string; reviewFilter: string; hideWithApplication: boolean; sortBy: string;
-    filteredOpportunities: Opportunity[]; selectedOpportunity?: Opportunity; showingDetail: boolean; editingApplication?: Application;
+    filteredOpportunities: Opportunity[]; filteredApplications: Application[]; selectedOpportunity?: Opportunity; showingDetail: boolean; editingApplication?: Application;
     opportunityGroups: { key: string; title: string; items: Opportunity[] }[];
     removingId: string | null; removalDialog: { open?: boolean; showModal(): void; close(): void };
     openOpportunity(id: string): void; closeOpportunity(): void; closeApplication(): void; startApplication(item: Opportunity): Promise<void>;
     requestDetailRemoval(item: Application): Promise<void>; cancelRemoval(): void; confirmRemoval(item: Application): Promise<void>;
   } } }).$.setupState;
-  return { setup, props, opportunity, opportunities, application, receipts, reviews, storage, removed, created: () => created };
+  return { setup, props, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, created: () => created };
 }
+
+test('application search matches server codes and full IDs, including applications without a code', async (t) => {
+  const { setup, props, application, applications } = mount(t);
+  const coded = { ...application, id: '30000000-0000-4000-8000-000000000001', application_code: 'APP-7K4M9Q' };
+  const legacy = { ...application, id: '30000000-0000-4000-8000-000000000002', application_code: null };
+  applications.value = [coded, legacy];
+  props.tab = 'applications';
+  await nextTick();
+  setup.query = ' app-7k4m9q ';
+  assert.deepEqual(setup.filteredApplications.map(item => item.id), [coded.id]);
+  setup.query = coded.id;
+  assert.deepEqual(setup.filteredApplications.map(item => item.id), [coded.id]);
+  setup.query = legacy.id;
+  assert.deepEqual(setup.filteredApplications.map(item => item.id), [legacy.id]);
+  setup.query = 'Robotics';
+  assert.equal(setup.filteredApplications.length, 2, 'title search remains available');
+});
 
 test('opportunity detail preserves filters and stays open after its review removes it from results', async (t) => {
   const { setup, opportunity, receipts, reviews, storage } = mount(t);

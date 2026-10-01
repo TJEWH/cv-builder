@@ -11,6 +11,7 @@ import { opportunityRecency } from '../composables/opportunityRecency';
 import { buildApplicationEvaluationContext } from '../composables/applicationEvaluationContext';
 import OpportunityContext from './OpportunityContext.vue';
 import ApplicationWorkspace from './ApplicationWorkspace.vue';
+import ApplicationIdentifier from './ApplicationIdentifier.vue';
 import WorkspaceDetailHeader from './WorkspaceDetailHeader.vue';
 import { removeApplicationCv } from '../composables/applicationCv';
 
@@ -88,7 +89,7 @@ const opportunityGroups = computed(() => {
 });
 const opportunityById = computed(() => new Map(opportunities.value.map((item) => [item.id, item])));
 const filteredApplications = computed(() => applications.value.filter((item) => (!statusFilter.value || item.status === statusFilter.value)
-  && [item.context_json.title, item.context_json.institution, item.context_json.university].join(' ').toLocaleLowerCase().includes(query.value.toLocaleLowerCase().trim()))
+  && [item.application_code, item.id, item.context_json.title, item.context_json.institution, item.context_json.university].join(' ').toLocaleLowerCase().includes(query.value.toLocaleLowerCase().trim()))
   .toSorted((a, b) => applicationSortBy.value === 'title' ? contextTitle(a).localeCompare(contextTitle(b))
     : applicationSortBy.value === 'institution' ? contextInstitution(a).localeCompare(contextInstitution(b))
       : opportunityDeadlineSortKey(a.context_json) - opportunityDeadlineSortKey(b.context_json)));
@@ -283,7 +284,7 @@ function downloadContext() {
   <section :id="`builder-group-${tab}`" class="jobs-workspace" :aria-label="tab === 'opportunities' ? text('Opportunities', 'Stellenangebote') : text('Applications', 'Bewerbungen')">
     <p v-if="error" class="jobs-error" role="alert">{{ error }}</p><p v-if="notice" class="jobs-notice" role="status">{{ notice }} <button v-if="removedOpportunityId" class="btn" type="button" @click="showRemovedOpportunity">{{ text('View opportunity', 'Stelle ansehen') }}</button></p>
     <div v-show="!showingDetail" class="jobs-toolbar">
-      <label class="jobs-search"><span>{{ text('Search', 'Suchen') }}</span><input v-model="query" type="search" :placeholder="text('Title, institution or country…', 'Titel, Einrichtung oder Land…')" /></label>
+      <label class="jobs-search"><span>{{ text('Search', 'Suchen') }}</span><input v-model="query" type="search" :placeholder="tab === 'applications' ? text('Title, institution or application ID…', 'Titel, Einrichtung oder Bewerbungs-ID…') : text('Title, institution or country…', 'Titel, Einrichtung oder Land…')" /></label>
       <template v-if="tab === 'opportunities'">
         <label>{{ text('Review state', 'Bewertung') }}<select v-model="reviewFilter"><option value="active">{{ text('Hide not interesting', 'Nicht interessante ausblenden') }}</option><option value="all">{{ text('All review states', 'Alle Bewertungen') }}</option><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
         <label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="sortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option></select></label>
@@ -311,7 +312,7 @@ function downloadContext() {
         <colgroup><col style="width: 34%" /><col style="width: 18%" /><col style="width: 30%" /><col style="width: 18%" /></colgroup>
         <thead><tr><th scope="col">{{ text('Application', 'Bewerbung') }}</th><th scope="col">{{ text('Deadline', 'Frist') }}</th><th scope="col">{{ text('Contact person', 'Kontaktperson') }}</th><th scope="col">{{ text('Status', 'Status') }}</th></tr></thead>
         <tbody><template v-for="item in filteredApplications" :key="item.id">
-          <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'is-expanded': editingId === item.id }" :aria-disabled="saving" @click="toggleApplication(item)"><td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :disabled="saving" :aria-label="`${text('Open application:', 'Bewerbung öffnen:')} ${contextTitle(item)}`" @click.stop="toggleApplication(item)"><span class="jobs-row-chevron" aria-hidden="true">›</span><strong>{{ contextTitle(item) }}</strong></button><span class="jobs-subline">{{ contextInstitution(item) }}</span></td><td :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.context_json, now) }">{{ formatOpportunityDeadline(item.context_json, lang) }}</span></td>
+          <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'is-expanded': editingId === item.id }" :aria-disabled="saving" @click="toggleApplication(item)"><td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :disabled="saving" :aria-label="`${text('Open application:', 'Bewerbung öffnen:')} ${contextTitle(item)}`" @click.stop="toggleApplication(item)"><span class="jobs-row-chevron" aria-hidden="true">›</span><strong>{{ contextTitle(item) }}</strong></button><span class="jobs-subline">{{ contextInstitution(item) }}</span><ApplicationIdentifier :application="item" :lang="lang" /></td><td :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.context_json, now) }">{{ formatOpportunityDeadline(item.context_json, lang) }}</span></td>
             <td class="jobs-cell-wide jobs-cell-contacts" :data-label="text('Contact person', 'Kontaktperson')"><template v-for="(person, index) in contacts(item)" :key="index"><span class="jobs-subline">{{ person.name }}</span><a v-if="safeEmailUrl(person.email)" :href="safeEmailUrl(person.email)!" @click.stop>{{ person.email }}</a><span v-else>{{ person.email }}</span></template><span v-if="!contacts(item).length">{{ text('Not recorded', 'Nicht erfasst') }}</span></td>
             <td class="jobs-cell-state" :data-label="text('Status', 'Status')" @click.stop><select class="jobs-row-select" :aria-label="`${text('Status for', 'Status für')} ${contextTitle(item)}`" :value="item.status" :disabled="saving || hasUnsavedChanges" @change="changeApplicationStatus(item, $event)"><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></td>
           </tr>
