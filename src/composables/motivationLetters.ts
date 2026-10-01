@@ -19,12 +19,14 @@ export const DEFAULT_LETTER_TEMPLATES: LetterTemplate[] = [{
   ...DEFAULT_TEMPLATE_GUIDANCE,
   structure: 'Opening: identify the opportunity and research interest.\nEvidence: connect two relevant experiences from the CV to the requirements.\nResearch fit: explain a specific connection to the project.\nClosing: state the contribution and interest in a discussion.',
   tone: 'Specific, thoughtful and professional. Use only facts present in the context; do not invent experience.',
+  exampleText: '',
   language: 'en', maxWords: 450, updatedAt: '2026-09-20T00:00:00.000Z',
 }, {
   id: 'industry', name: 'Industry application', revision: 1,
   ...DEFAULT_TEMPLATE_GUIDANCE,
   structure: 'Opening: role and motivation.\nRelevant evidence: two examples of skills and outcomes from the CV.\nContribution: connect experience to the organization and role.\nClosing: concise invitation to discuss.',
   tone: 'Clear, concise and confident. Avoid generic claims and invented qualifications.',
+  exampleText: '',
   language: 'en', maxWords: 350, updatedAt: '2026-09-20T00:00:00.000Z',
 }];
 
@@ -48,8 +50,11 @@ export function readLetterTemplate(value: unknown): LetterTemplate {
     if (typeof value[key] !== 'string' || value[key].length > 1000) throw new Error('Template instructions must contain at most 1000 characters each.');
     guidance[key] = value[key];
   }
+  if (value.exampleText !== undefined && (typeof value.exampleText !== 'string' || value.exampleText.length > 20000)) {
+    throw new Error('The example letter must contain at most 20000 characters.');
+  }
   return { ...guidance, id: String(value.id), name: String(value.name), revision: Number(value.revision), structure: String(value.structure),
-    tone: String(value.tone), language: String(value.language), maxWords: Number(value.maxWords), updatedAt: String(value.updatedAt) };
+    tone: String(value.tone), exampleText: (value.exampleText as string | undefined) ?? '', language: String(value.language), maxWords: Number(value.maxWords), updatedAt: String(value.updatedAt) };
 }
 
 function readRecord(value: unknown, userId: string, applicationId: string): ApplicationLetter {
@@ -63,7 +68,9 @@ function readRecord(value: unknown, userId: string, applicationId: string): Appl
       createdAt: item.createdAt, ...(typeof item.cloudDraftId === 'string' ? { cloudDraftId: item.cloudDraftId } : {}),
       ...(typeof item.cloudContextId === 'string' ? { cloudContextId: item.cloudContextId } : {}) };
   });
-  return { version: 1, applicationId, userId, templateId: value.templateId, instructions: value.instructions, language: value.language,
+  const templateSnapshot = value.templateSnapshot === undefined ? undefined : readLetterTemplate(value.templateSnapshot);
+  if (templateSnapshot && templateSnapshot.id !== value.templateId) throw new Error('The saved letter template does not match its snapshot.');
+  return { version: 1, applicationId, userId, templateId: value.templateId, ...(templateSnapshot ? { templateSnapshot } : {}), instructions: value.instructions, language: value.language,
     maxWords: Number(value.maxWords), working: readContent(value.working), workingContext: readVersion(value.workingContext),
     publishedContexts: isObject(value.publishedContexts) ? Object.fromEntries(Object.entries(value.publishedContexts).map(([key, version]) => [key, readVersion(version)])) : {},
     finalRevisionId: value.finalRevisionId, revisions, updatedAt: value.updatedAt };
@@ -79,6 +86,15 @@ export function createLetterRepository(storage: StorageAdapter, userId: string) 
     const data: unknown = JSON.parse(raw);
     if (!Array.isArray(data)) throw new Error('Stored templates could not be read.');
     return data.map(readLetterTemplate);
+  }
+  function pinLegacyTemplate(record: ApplicationLetter) {
+    if (record.templateSnapshot) return record;
+    const template = listTemplates().find((item) => item.id === record.templateId);
+    if (!template) return record;
+    // This compatibility upgrade must not change wording, settings or review history.
+    const pinned = { ...record, templateSnapshot: clone(template) };
+    storage.setItem(applicationKey(record.applicationId), JSON.stringify(pinned));
+    return pinned;
   }
   return {
     listTemplates,
@@ -103,7 +119,7 @@ export function createLetterRepository(storage: StorageAdapter, userId: string) 
     exportTemplates() { return JSON.stringify({ format: 'cv-letter-templates', version: 1, templates: listTemplates() }, null, 2); },
     load(applicationId: string) {
       const raw = storage.getItem(applicationKey(applicationId));
-      return raw ? readRecord(JSON.parse(raw), userId, applicationId) : null;
+      return raw ? pinLegacyTemplate(readRecord(JSON.parse(raw), userId, applicationId)) : null;
     },
     save(record: ApplicationLetter) {
       const validated = readRecord(record, userId, record.applicationId);
@@ -116,7 +132,7 @@ export function createLetterRepository(storage: StorageAdapter, userId: string) 
       return raw;
     },
     importLetter(json: string, applicationId: string) {
-      const record = readRecord(JSON.parse(json), userId, applicationId);
+      const record = pinLegacyTemplate(readRecord(JSON.parse(json), userId, applicationId));
       storage.setItem(applicationKey(applicationId), JSON.stringify(record));
       return clone(record);
     },
@@ -140,12 +156,22 @@ export function sameLetterContextInput(left: unknown, right: unknown) { return f
 
 export function letterContextVersion(application: Pick<Application, 'context_json' | 'cv_variant_id'>, state: CvState | null, template: LetterTemplate, language: string, instructions: string, maxWords: number): LetterContextVersion {
   const { design, completedSections: _completed, keepTogetherSections: _together, sectionHeaderSizes: _sizes, ...content } = state || {};
-  return { content: fingerprint({ opportunity: application.context_json, cv: content, template, language, instructions, maxWords }), theme: fingerprint(design || {}) };
+  // An absent example and its new empty default describe the same legacy context.
+  const { exampleText, ...guidance } = template;
+  const templateContext = exampleText ? { ...guidance, exampleText } : guidance;
+  return { content: fingerprint({ opportunity: application.context_json, cv: content, template: templateContext, language, instructions, maxWords }), theme: fingerprint(design || {}) };
 }
 
 export function createApplicationLetter(userId: string, applicationId: string, template: LetterTemplate, context: LetterContextVersion, lang = template.language): ApplicationLetter {
-  return { version: 1, userId, applicationId, templateId: template.id, instructions: '', language: lang, maxWords: template.maxWords,
+  return { version: 1, userId, applicationId, templateId: template.id, templateSnapshot: readLetterTemplate(template), instructions: '', language: lang, maxWords: template.maxWords,
     working: { ...EMPTY_LETTER }, workingContext: clone(context), publishedContexts: {}, revisions: [], finalRevisionId: null, updatedAt: now() };
+}
+
+/** Explicit replacement pins a new template while preserving the application letter. */
+export function selectApplicationLetterTemplate(record: ApplicationLetter, template: LetterTemplate): ApplicationLetter {
+  const snapshot = readLetterTemplate(template);
+  return { ...clone(record), templateId: snapshot.id, templateSnapshot: snapshot, language: snapshot.language,
+    maxWords: snapshot.maxWords, finalRevisionId: null, updatedAt: now() };
 }
 
 export function contextChanges(record: ApplicationLetter, context: LetterContextVersion) {

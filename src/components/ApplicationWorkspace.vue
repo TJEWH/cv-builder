@@ -1,19 +1,27 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Application } from '../cloudTypes';
+import { supabaseConfiguration } from '../lib/supabase';
 import type { CvState, SavedConfiguration } from '../types';
-import type { ApplicationCvRecord } from '../composables/applicationCv';
-import { cloneCv, createApplicationCv, cvDifferences, isApplicationCvPublished, loadApplicationCv, saveApplicationCv } from '../composables/applicationCv';
+import type { ApplicationLetter, LetterTemplate } from '../letterTypes';
+import type { LocalRefinementRequest, RefinementApprovals, RefinementFeedback, RefinementProposalRow, RefinementRequestRow, RefinementReviewRow, RefinementScope, RefinementState } from '../refinementTypes';
+import { cloneCv, createApplicationCv, cvDifferences, isApplicationCvPublished, loadApplicationCv, saveApplicationCv, type ApplicationCvRecord } from '../composables/applicationCv';
 import { createCloudCvSnapshot } from '../composables/cloudCvPrivacy';
 import { rootVariantId } from '../composables/careerVariants';
-import CvAdjustmentWorkflow from './CvAdjustmentWorkflow.vue';
+import { addIncomingDraft, createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, editLetter, finalizeLetter, letterContextVersion, letterFromEditableText, letterToEditableText, openLetterRevision, selectApplicationLetterTemplate, unresolvedLetterPlaceholders } from '../composables/motivationLetters';
+import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, prepareRefinement, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText } from '../composables/applicationRefinement';
+import { buildOpportunityGroups, checklistKeys } from '../composables/opportunityContext';
+import FormBuilder from './FormBuilder.vue';
 import DocumentCvPreview from './DocumentCvPreview.vue';
+import MotivationLetterPreview from './MotivationLetterPreview.vue';
 import MotivationLetterEditor from './MotivationLetterEditor.vue';
 import ApplicationDocuments from './ApplicationDocuments.vue';
 import WorkspaceDetailHeader from './WorkspaceDetailHeader.vue';
+import OpportunityContext from './OpportunityContext.vue';
 
 const props = defineProps<{
+  projectId?: string; active?: boolean;
   application: Application; client: SupabaseClient | null; userId: string; lang: string;
   configurations: SavedConfiguration[]; readVersion: (id: string) => CvState | null;
   publishCv: (state: CvState) => Promise<Application | null>;
@@ -21,178 +29,310 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ close: []; 'edit-variant': [id: string] }>();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
-const navigationKey = `CV_APPLICATION_TAB:${props.userId}:${props.application.id}`;
-const tabs = ['overview', 'cv', 'letter', 'documents'] as const;
-type Tab = typeof tabs[number];
-const tab = ref<Tab>('overview');
-try { const cached = sessionStorage.getItem(navigationKey); if (tabs.includes(cached as Tab)) tab.value = cached as Tab; } catch { /* Navigation can work without storage. */ }
-watch(tab, (value) => { try { sessionStorage.setItem(navigationKey, value); } catch { /* Optional preference. */ } });
+const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
+const storageKey = 'CV_REFINEMENT:1:' + encodeURIComponent(props.userId) + ':' + props.application.id;
+const navigationKey = 'CV_APPLICATION_TAB:' + props.userId + ':' + props.application.id;
+const stages = ['preparation', 'refinement', 'review', 'tracking'] as const;
+type Stage = typeof stages[number];
+const tab = ref<Stage>('preparation');
+const pane = ref<'cv' | 'letter'>('cv');
 const record = ref<ApplicationCvRecord | null>(null);
-const privacyPreview = ref(false);
-const error = ref('');
-const saveError = ref('');
-const notice = ref('');
+const letter = ref<ApplicationLetter | null>(null);
+const templates = ref<LetterTemplate[]>([]);
 const pendingBaseId = ref('');
 const pendingSubId = ref('');
+const pendingTemplateId = ref('research');
+const approvals = ref<RefinementApprovals>({ cv: null, letter: null });
+const localRequests = ref<Record<string, LocalRefinementRequest>>({});
+const parentProposalId = ref<string | null>(null);
+const cloudState = ref<RefinementState | null>(null);
+const requests = ref<RefinementRequestRow[]>([]);
+const proposals = ref<RefinementProposalRow[]>([]);
+const reviews = ref<RefinementReviewRow[]>([]);
+const selectedProposalId = ref('');
+const feedback = ref('');
+const feedbackScope = ref<RefinementScope>('both');
+const prompt = ref('');
+const busy = ref(false);
+const refreshing = ref(false);
+const error = ref('');
+const notice = ref('');
+const saveError = ref('');
+const cloudLoaded = ref(false);
+const legacyOpen = ref(false);
 const preview = ref<InstanceType<typeof DocumentCvPreview> | null>(null);
-const letter = ref<InstanceType<typeof MotivationLetterEditor> | null>(null);
-const letterReady = ref(false);
-const letterRevision = ref('');
-const documentReadiness = ref({ included: 0, missing: 0 });
-const publishing = ref(false);
-const newVariantName = ref('');
-
+const letterPreview = ref<InstanceType<typeof MotivationLetterPreview> | null>(null);
 const backupInput = ref<HTMLInputElement | null>(null);
-const urls = new Set<string>();
-let lastSaved = '';
+const documentReadiness = ref({ included: 0, missing: 0 });
+const repository = createRefinementRepository(props.client, () => props.userId);
+const letterRepository = createLetterRepository(localStorage, props.userId);
 let disposed = false;
-try { record.value = loadApplicationCv(props.userId, props.application.id); lastSaved = JSON.stringify(record.value?.state ?? null); }
-catch (e) { saveError.value = e instanceof Error ? e.message : String(e); }
+let loadingCloud: Promise<void> | null = null;
+let pendingReview: { key: string; id: string } | null = null;
 
-function persist() {
-  if (!record.value) return;
-  try { saveApplicationCv(record.value); saveError.value = ''; }
-  catch (e) { saveError.value = text('Local save failed. Your changes are still open: ', 'Lokales Speichern fehlgeschlagen. Änderungen bleiben geöffnet: ') + String(e); }
-}
-watch(() => record.value?.state, (state) => {
-  const serialized = JSON.stringify(state ?? null);
-  if (!record.value || serialized === lastSaved) return;
-  record.value.revision++;
-  record.value.updatedAt = new Date().toISOString();
-  persist();
-  if (!saveError.value) lastSaved = serialized;
-}, { deep: true, flush: 'sync' });
-const published = computed(() => Boolean(record.value && isApplicationCvPublished(record.value, props.application.cv_variant_id)));
-const privacySnapshot = computed(() => record.value ? createCloudCvSnapshot(record.value.state) : null);
+try {
+  record.value = loadApplicationCv(props.userId, props.application.id);
+  // Library identity is provenance only. Never overwrite an existing application copy.
+  if (record.value) { record.value.detached = true; saveApplicationCv(record.value); }
+  templates.value = letterRepository.listTemplates();
+  letter.value = letterRepository.load(props.application.id);
+  pendingTemplateId.value = letter.value
+    ? templates.value.find(item => item.id === letter.value?.templateId)?.id || ''
+    : templates.value[0]?.id || '';
+  const stored = localStorage.getItem(storageKey);
+  if (stored) {
+    const value = JSON.parse(stored);
+    if (value.version !== 1) throw new Error('Unsupported refinement backup version.');
+    approvals.value = { cv: typeof value.approvals?.cv === 'string' ? value.approvals.cv : null, letter: typeof value.approvals?.letter === 'string' ? value.approvals.letter : null };
+    localRequests.value = value.requests || {};
+    parentProposalId.value = value.parentProposalId || null;
+  }
+  const previous = sessionStorage.getItem(navigationKey);
+  const mapped = ({ overview: 'preparation', cv: 'refinement', letter: 'refinement', documents: 'review' } as Record<string, Stage>)[previous || ''] || previous;
+  if (stages.includes(mapped as Stage)) tab.value = mapped as Stage;
+  if (previous === 'letter') pane.value = 'letter';
+} catch (cause) { saveError.value = String(cause); }
 const roots = computed(() => props.configurations.filter(item => !item.parentId));
 const subvariants = computed(() => props.configurations.filter(item => item.parentId === pendingBaseId.value));
-const assignedVariant = computed(() => props.configurations.find(item => item.id === record.value?.variantId));
-const missingVariant = computed(() => Boolean(record.value?.variantId && !assignedVariant.value));
-const legacyAdjustments = computed(() => Boolean(record.value && !record.value.variantId && cvDifferences(record.value.baseState, record.value.state).length));
-
-function syncSelection() {
-  if (!record.value) return;
+if (record.value) {
   pendingBaseId.value = rootVariantId(record.value.variantId || record.value.baseId, props.configurations);
-  pendingSubId.value = record.value.variantId && record.value.variantId !== pendingBaseId.value ? record.value.variantId : '';
+  pendingSubId.value = record.value.variantId !== pendingBaseId.value ? record.value.variantId || '' : '';
 }
-function syncAssignedVariant() {
-  const target = record.value;
-  if (!target) return;
-  // Preserve tailored legacy copies until the user saves them as a subvariant.
-  if (!target.variantId && !target.detached && !cvDifferences(target.baseState, target.state).length && props.configurations.some(item => item.id === target.baseId)) {
-    target.variantId = target.baseId; persist();
-  }
-  if (!target.variantId) return;
-  const variant = props.configurations.find(item => item.id === target.variantId);
-  const current = variant && props.readVersion(variant.id);
-  if (current && cvDifferences(target.state, current).length) target.state = cloneCv(current);
-}
-watch(() => props.configurations, () => {
-  try { syncAssignedVariant(); }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); }
-}, { deep: true, immediate: true });
-watch([() => record.value?.variantId, () => record.value?.baseId, () => assignedVariant.value?.parentId], syncSelection, { immediate: true });
-function selectBase() { pendingSubId.value = ''; }
-function assignVariant(id: string) {
-  const variant = props.configurations.find(item => item.id === id);
-  const state = variant && props.readVersion(id);
-  if (!variant || !state) throw new Error(text('Choose an available career variant.', 'Wähle eine verfügbare Karrierevariante.'));
-  const rootId = rootVariantId(id, props.configurations);
-  const root = props.configurations.find(item => item.id === rootId)!;
-  const rootState = props.readVersion(rootId);
-  if (!rootState) throw new Error('The original career variant is unavailable.');
-  const next = createApplicationCv(props.userId, props.application.id, rootId, root.name, rootState);
-  next.variantId = id; next.state = cloneCv(state);
-  saveApplicationCv(next);
-  lastSaved = JSON.stringify(next.state); record.value = next;
-  error.value = ''; saveError.value = ''; syncSelection();
-}
-function assignBase() {
-  try { assignVariant(pendingSubId.value || pendingBaseId.value); notice.value = text('CV selected. Edit this variant in CV Studio.', 'CV ausgewählt. Bearbeite diese Variante im CV-Studio.'); }
-  catch (e) { error.value = e instanceof Error ? e.message : String(e); }
-}
-function createTailoredVariant(state = record.value?.state, open = true) {
-  if (!record.value || !state) return null;
-  const sourceId = record.value.variantId || record.value.baseId;
-  const name = newVariantName.value.trim() || String(props.application.context_json.title || text('Application', 'Bewerbung'));
-  const id = props.createSubvariant?.(sourceId, name, cloneCv(state));
-  if (!id) throw new Error(text('The subvariant could not be saved. Choose an existing parent in CV Studio first.', 'Die Untervariante konnte nicht gespeichert werden. Wähle zuerst eine vorhandene Basis im CV-Studio.'));
-  // The parent callback updates the library synchronously, while props arrive next tick.
-  const target = { ...record.value, variantId: id, state: cloneCv(state), detached: false };
-  saveApplicationCv(target); record.value = target; syncSelection();
-  newVariantName.value = '';
-  if (open) emit('edit-variant', id);
-  return id;
-}
-function editSubvariant() {
-  try { createTailoredVariant(); }
-  catch (e) { error.value = e instanceof Error ? e.message : String(e); }
-}
-function acceptAdjustedCv(state: CvState) {
+const selectedTemplate = computed(() => letter.value?.templateSnapshot || templates.value.find(item => item.id === letter.value?.templateId) || DEFAULT_LETTER_TEMPLATES[0]!);
+const missingLetterTemplate = computed(() => !!letter.value && !letter.value.templateSnapshot);
+const setup = computed(() => ({ template: selectedTemplate.value, language: letter.value?.language || props.lang, maxWords: letter.value?.maxWords || selectedTemplate.value.maxWords }));
+const letterText = computed(() => letter.value ? letterToEditableText(letter.value.working) : '');
+const context = computed(() => letterContextVersion(props.application, record.value?.state || null, selectedTemplate.value, setup.value.language, letter.value?.instructions || '', setup.value.maxWords));
+const baselineSignature = computed(() => refinementSignature([record.value?.state, letterText.value, setup.value, letter.value?.instructions || '', props.application.context_json]));
+const cvRevision = computed(() => refinementSignature([record.value?.state, props.application.context_json]));
+const letterRevision = computed(() => refinementSignature([letterText.value, setup.value, letter.value?.instructions || '', record.value?.state.design, record.value?.state.contact, props.application.context_json]));
+const cvApproved = computed(() => !!record.value && approvals.value.cv === cvRevision.value && !saveError.value);
+const unresolved = computed(() => letter.value ? unresolvedLetterPlaceholders(letter.value.working, record.value?.state.contact || null) : []);
+const letterApproved = computed(() => !!letterText.value.trim() && approvals.value.letter === letterRevision.value && !unresolved.value.length && !saveError.value);
+const words = computed(() => letterText.value.trim().split(/\s+/).filter(Boolean).length);
+const privacySnapshot = computed(() => record.value ? createCloudCvSnapshot(record.value.state) : null);
+const published = computed(() => !!record.value && isApplicationCvPublished(record.value, props.application.cv_variant_id));
+const selectedProposal = computed(() => proposals.value.find(item => item.id === selectedProposalId.value));
+const selectedRequest = computed(() => requests.value.find(item => item.id === selectedProposal.value?.request_id));
+const proposalChanges = computed(() => (selectedProposal.value?.proposal_json.cvEdits || []).map(edit => {
+  const field = selectedRequest.value?.request_json.cv.fields.find(item => item.id === edit.fieldId);
+  return { label: field?.label || edit.fieldId, before: field?.text || '', after: edit.text };
+}));
+const requirementContext = computed(() => Object.fromEntries(Object.entries(props.application.context_json).filter(([key]) => ['requirements', 'required_documents', 'application_documents', 'documents', 'submission_documents', 'eligibility'].includes(key))));
+const uncheckedRequirements = computed(() => buildOpportunityGroups(props.application.context_json, props.lang).filter(group => ['requirements', 'documents'].includes(group.id)).flatMap(group => checklistKeys(group.items)).filter(key => !props.application.completed_checklist_keys?.includes(key)).length);
+const allowedScope = computed<RefinementScope>(() => cvApproved.value ? 'letter' : letterApproved.value ? 'cv' : 'both');
+watch(allowedScope, scope => { feedbackScope.value = scope; }, { immediate: true });
+watch(tab, value => { try { sessionStorage.setItem(navigationKey, value); } catch { /* Navigation remains available. */ } });
+
+function persist() {
   try {
-    if (!record.value || !cvDifferences(record.value.state, state).length) { notice.value = text('No changes: the selected variant is still used.', 'Keine Änderungen: Die ausgewählte Variante wird weiter verwendet.'); return; }
-    createTailoredVariant(state, false);
-    notice.value = text('Adjustments saved as a subvariant. Review and edit it in CV Studio.', 'Anpassungen als Untervariante gespeichert. Prüfe und bearbeite sie im CV-Studio.');
-  } catch (e) { error.value = e instanceof Error ? e.message : String(e); }
+    if (record.value) saveApplicationCv(record.value);
+    if (letter.value) letterRepository.save(letter.value);
+    localStorage.setItem(storageKey, JSON.stringify({ version: 1, approvals: approvals.value, requests: localRequests.value, parentProposalId: parentProposalId.value }));
+    saveError.value = '';
+  } catch (cause) { saveError.value = text('Local save failed: ', 'Lokales Speichern fehlgeschlagen: ') + String(cause); }
 }
+watch([record, letter, approvals, localRequests, parentProposalId], persist, { deep: true, flush: 'sync' });
+watch(cvRevision, () => { if (approvals.value.cv && approvals.value.cv !== cvRevision.value) approvals.value.cv = null; });
+watch(letterRevision, () => { if (approvals.value.letter && approvals.value.letter !== letterRevision.value) approvals.value.letter = null; });
+function report(cause: unknown) { error.value = cause instanceof Error ? cause.message : String(cause); }
+async function run(operation: () => Promise<void>) {
+  if (busy.value) return;
+  busy.value = true; error.value = ''; notice.value = '';
+  try { await operation(); } catch (cause) { if (!disposed) report(cause); }
+  finally { busy.value = false; }
+}
+async function refreshCloud() {
+  if (!props.client) return;
+  if (loadingCloud) return loadingCloud;
+  loadingCloud = (async () => {
+    refreshing.value = true;
+    const initialSignature = baselineSignature.value;
+    const [state, nextRequests, nextProposals, nextReviews] = await Promise.all([
+      repository.loadState(props.application.id), repository.listRequests(props.application.id), repository.listProposals(props.application.id), repository.listReviews(props.application.id),
+    ]);
+    if (disposed) return;
+    cloudState.value = state; requests.value = nextRequests; proposals.value = nextProposals; reviews.value = nextReviews;
+    // Cloud documents cannot reconstruct a private CV on a new device.
+    if (!letter.value && state) {
+      const ctx = letterContextVersion(props.application, record.value?.state || null, state.setup_json.template, state.setup_json.language, '', state.setup_json.maxWords);
+      letter.value = createApplicationLetter(props.userId, props.application.id, state.setup_json.template, ctx, state.setup_json.language);
+      letter.value.maxWords = state.setup_json.maxWords;
+    }
+    if (state && initialSignature === baselineSignature.value) approvals.value = clone(state.approvals_json);
+    cloudLoaded.value = true;
+    if (!selectedProposalId.value) selectedProposalId.value = nextProposals[0]?.id || '';
+  })();
+  try { await loadingCloud; }
+  finally { loadingCloud = null; refreshing.value = false; }
+}
+async function checkProposals() { await run(async () => { await refreshCloud(); notice.value = proposals.value.length ? text('Proposals loaded. Review one before applying it.', 'Vorschläge geladen. Vor dem Übernehmen prüfen.') : text('No proposal yet. Run the copied prompt in ChatGPT, then check again.', 'Noch kein Vorschlag. Kopierten Prompt in ChatGPT ausführen und erneut prüfen.'); }); }
+function refreshOnFocus() { if (!busy.value && props.active !== false) void refreshCloud().catch(report); }
+watch(() => props.active, active => { if (active) refreshOnFocus(); });
+watch(tab, stage => { if (stage === 'refinement') refreshOnFocus(); });
+function reloadTemplates() { try { templates.value = letterRepository.listTemplates(); } catch (cause) { report(cause); } }
+onMounted(() => { void refreshCloud().catch(report); window.addEventListener('focus', refreshOnFocus); window.addEventListener('cv-letter-templates-updated', reloadTemplates); });
+onBeforeUnmount(() => { disposed = true; window.removeEventListener('focus', refreshOnFocus); window.removeEventListener('cv-letter-templates-updated', reloadTemplates); });
+
 async function publishCurrentCv() {
-  if (!record.value || publishing.value) return null;
-  persist();
-  if (saveError.value) throw new Error(saveError.value);
-  publishing.value = true; error.value = '';
-  const target = record.value;
-  const state = cloneCv(target.state);
-  try {
-    const result = await props.publishCv(state);
-    if (disposed || record.value !== target) throw new Error('The application CV changed while publishing. Review the current copy and publish again.');
-    if (!result) throw new Error(text('Could not publish the anonymized CV.', 'Der anonymisierte CV konnte nicht veröffentlicht werden.'));
-    record.value.publishedState = state; record.value.publishedSnapshotId = result.cv_variant_id; persist();
-    notice.value = text('Anonymized CV published. Full CV remains on this device.', 'Anonymisierter CV veröffentlicht. Vollständiger CV bleibt auf diesem Gerät.');
-    return result;
-  } catch (e) { error.value = e instanceof Error ? e.message : String(e); throw e; }
-  finally { publishing.value = false; }
-}
-async function publishFromButton() { try { await publishCurrentCv(); } catch { /* Inline error remains visible. */ } }
-async function getCvPdf() {
-  if (!record.value || !preview.value) throw new Error('The full CV is unavailable on this device.');
+  if (!record.value) throw new Error(text('Select a CV template first.', 'Zuerst eine CV-Vorlage auswählen.'));
   persist(); if (saveError.value) throw new Error(saveError.value);
-  const signature = JSON.stringify(record.value.state);
-  const blob = await preview.value.getPdfBlob();
-  if (disposed || signature !== JSON.stringify(record.value?.state)) throw new Error('The CV changed during export. Build the package again.');
+  if (published.value) return;
+  const target = record.value; const state = cloneCv(target.state);
+  const result = await props.publishCv(state);
+  if (disposed || target !== record.value || cvDifferences(state, target.state).length) throw new Error('The CV changed while saving. Save preparation again.');
+  if (!result) throw new Error(text('The anonymized CV could not be saved. Retry saving preparation.', 'Der anonymisierte CV konnte nicht gespeichert werden. Vorbereitung erneut speichern.'));
+  target.publishedState = state; target.publishedSnapshotId = result.cv_variant_id; persist();
+}
+async function saveSetup() {
+  if (!record.value || !letter.value) throw new Error(text('Select both templates first.', 'Zuerst beide Vorlagen auswählen.'));
+  if (missingLetterTemplate.value) throw new Error(text('The original letter template is unavailable. Choose a template in Preparation and click “Use letter template”. Your existing letter is preserved.', 'Die ursprüngliche Briefvorlage ist nicht verfügbar. In Vorbereitung eine Vorlage auswählen und „Briefvorlage verwenden“ anklicken. Der bestehende Brief bleibt erhalten.'));
+  if (!cloudLoaded.value) await refreshCloud();
+  const signature = baselineSignature.value;
+  await publishCurrentCv();
+  const saved = await repository.saveState(props.application.id, sanitizeRefinementSetup(setup.value, record.value.state), { cv: cvApproved.value ? cvRevision.value : null, letter: letterApproved.value ? letterRevision.value : null }, cloudState.value?.revision || 0);
+  if (disposed) return;
+  cloudState.value = saved;
+  if (signature !== baselineSignature.value) throw new Error('Documents changed while saving. Save preparation again.');
+}
+async function savePreparation() { await run(async () => { await saveSetup(); notice.value = text('Preparation saved to Supabase. Your private documents stay on this device.', 'Vorbereitung in Supabase gespeichert. Private Dokumente bleiben auf diesem Gerät.'); }); }
+function assignBase() {
+  const id = pendingSubId.value || pendingBaseId.value;
+  const variant = props.configurations.find(item => item.id === id); const state = variant && props.readVersion(id);
+  if (!variant || !state) return;
+  record.value = createApplicationCv(props.userId, props.application.id, id, variant.name, state);
+  record.value.variantId = id; record.value.detached = true;
+  approvals.value = { cv: null, letter: null }; persist();
+  void run(async () => { await publishCurrentCv(); if (letter.value) await saveSetup(); notice.value = text('Independent CV snapshot saved for this application.', 'Unabhängiger CV-Snapshot für diese Bewerbung gespeichert.'); });
+}
+async function useLetterTemplate() {
+  const template = templates.value.find(item => item.id === pendingTemplateId.value);
+  if (!template) return;
+  if (letter.value) letter.value = selectApplicationLetterTemplate(letter.value, template);
+  else letter.value = createApplicationLetter(props.userId, props.application.id, template, context.value, template.language);
+  approvals.value.letter = null; persist();
+  if (record.value) await savePreparation();
+}
+function updateLetter(value: string) { if (letter.value) letter.value = editLetter(letter.value, letterFromEditableText(value)); }
+function feedbackHistory(): RefinementFeedback[] {
+  return reviews.value.filter(item => item.kind === 'feedback').map(item => ({ id: item.id, text: String(item.payload.text), scope: item.payload.scope as RefinementScope, createdAt: item.created_at }));
+}
+async function copyPrompt() {
+  try { await navigator.clipboard.writeText(prompt.value); notice.value = text('Prompt copied. Paste it into your connected ChatGPT conversation.', 'Prompt kopiert. In die verbundene ChatGPT-Unterhaltung einfügen.'); }
+  catch { notice.value = text('Select and copy the prompt below.', 'Den Prompt unten markieren und kopieren.'); }
+}
+async function createRound(scope: RefinementScope) {
+  if (!record.value || !letter.value) throw new Error('Select CV and letter templates first.');
+  if (cvApproved.value && scope !== 'letter' || letterApproved.value && scope !== 'cv') throw new Error(text('Reopen the approved document before requesting changes to it.', 'Das freigegebene Dokument vor weiteren Änderungen wieder öffnen.'));
+  await saveSetup(); await refreshCloud();
+  const signature = baselineSignature.value;
+  // A failed publish can retry the exact same immutable request and UUID.
+  let local = Object.values(localRequests.value).find(item => item.baselineSignature === signature && item.request.scope === scope && refinementSignature(item.request.feedback) === refinementSignature(feedbackHistory()) && item.request.parentProposalId === parentProposalId.value);
+  if (!local) {
+    local = prepareRefinement({ applicationId: props.application.id, state: record.value.state, variantId: record.value.variantId || record.value.baseId, setup: setup.value, letterText: letterText.value, instructions: letter.value.instructions, opportunity: props.application.context_json, scope, feedback: feedbackHistory(), parentProposalId: parentProposalId.value, baselineSignature: signature });
+    localRequests.value = { ...localRequests.value, [local.request.requestId]: local }; persist();
+  }
+  if (saveError.value) throw new Error(saveError.value);
+  const saved = await repository.publishRequest(local.request);
+  if (disposed || signature !== baselineSignature.value) throw new Error('Documents changed while publishing. Prepare a new round.');
+  if (!requests.value.some(item => item.id === saved.id)) requests.value.unshift(saved);
+  cloudState.value = await repository.loadState(props.application.id);
+  // Supabase URL is public configuration, never a credential.
+  const projectId = props.projectId || (supabaseConfiguration.status === 'ready' ? new URL(supabaseConfiguration.url).hostname.split('.')[0]! : '');
+  if (!projectId) throw new Error('The Supabase project configuration is unavailable.');
+  prompt.value = buildRefinementPrompt(saved.request_json, projectId);
+  await copyPrompt();
+}
+async function initialPrompt() { await run(async () => { await createRound(allowedScope.value); }); }
+function useProposal() {
+  if (!record.value || !letter.value || !selectedProposal.value) throw new Error('Select a proposal and restore its local CV first.');
+  const row = selectedProposal.value;
+  if (cloudState.value?.current_request_id !== row.request_id) throw new Error(text('This proposal belongs to a superseded round. Review the proposal for the current round or create a new round.', 'Dieser Vorschlag gehört zu einer überholten Runde. Den Vorschlag der aktuellen Runde prüfen oder eine neue Runde erstellen.'));
+  const local = localRequests.value[row.request_id];
+  if (!local) throw new Error(text('This device is missing the original private snapshot. Restore your documents if needed, then create a new round.', 'Der ursprüngliche private Snapshot fehlt auf diesem Gerät. Dokumente bei Bedarf wiederherstellen und eine neue Runde erstellen.'));
+  if (cvApproved.value && row.proposal_json.cvEdits.length || letterApproved.value && row.proposal_json.letterText !== local.request.letter.text) throw new Error('Reopen the approved document before applying changes.');
+  const preserveApprovedLetter = letterApproved.value;
+  const result = applyRefinementProposal(local, row.proposal_json, record.value.state, baselineSignature.value);
+  if (local.request.scope !== 'letter') record.value.state = result.state;
+  if (local.request.scope !== 'cv' && !preserveApprovedLetter) {
+    const incoming = addIncomingDraft(letter.value, letterFromEditableText(result.letterText), context.value, { cloudDraftId: row.id, cloudContextId: row.request_id });
+    const revision = incoming.revisions.find(item => item.cloudDraftId === row.id)!;
+    letter.value = openLetterRevision(incoming, revision.id);
+  }
+  parentProposalId.value = row.id; persist();
+  notice.value = text('Proposal opened as working documents. Edit or approve each document.', 'Vorschlag als Arbeitsfassung geöffnet. Jedes Dokument bearbeiten oder freigeben.');
+}
+function openProposal() { try { error.value = ''; useProposal(); } catch (cause) { report(cause); } }
+async function requestImprovement() {
+  await run(async () => {
+    if (!record.value || !feedback.value.trim()) return;
+    await saveSetup();
+    const safeFeedback = sanitizeRefinementText(feedback.value.trim(), record.value.state);
+    const key = refinementSignature([safeFeedback, feedbackScope.value, parentProposalId.value]);
+    if (pendingReview?.key !== key) pendingReview = { key, id: crypto.randomUUID() };
+    await repository.saveReview(props.application.id, selectedProposal.value?.request_id || null, 'feedback', { text: safeFeedback, scope: feedbackScope.value }, pendingReview.id);
+    reviews.value = await repository.listReviews(props.application.id);
+    feedback.value = ''; pendingReview = null;
+    await createRound(feedbackScope.value);
+  });
+}
+async function approve(kind: 'cv' | 'letter', reopen = false) {
+  await run(async () => {
+    if (!record.value || !letter.value) throw new Error('Select both templates first.');
+    if (!reopen && kind === 'letter' && (!letterText.value.trim() || unresolved.value.length)) throw new Error(text('Write a letter and resolve its placeholders first.', 'Zuerst einen Brief schreiben und Platzhalter auflösen.'));
+    await saveSetup();
+    const revision = kind === 'cv' ? cvRevision.value : letterRevision.value;
+    await repository.saveReview(props.application.id, cloudState.value?.current_request_id || null, (reopen ? 'reopen_' : 'approve_') + kind as RefinementReviewRow['kind'], { ...(reopen ? {} : { revision }), expectedRevision: cloudState.value!.revision });
+    cloudState.value = await repository.loadState(props.application.id);
+    if (disposed) return;
+    approvals.value = clone(cloudState.value!.approvals_json);
+    if (!reopen && kind === 'letter' && letterRevision.value === revision) letter.value = finalizeLetter(letter.value, context.value, record.value.state.contact);
+    persist();
+  });
+}
+function reopenLocalLetterRevision(id: string) { if (letter.value) { letter.value = openLetterRevision(letter.value, id); approvals.value.letter = null; } }
+async function getCvPdf() {
+  if (!cvApproved.value || !preview.value) throw new Error(text('Approve the CV before export.', 'Den CV vor dem Export freigeben.'));
+  const revision = cvRevision.value; const blob = await preview.value.getPdfBlob();
+  if (disposed || revision !== cvRevision.value || !cvApproved.value) throw new Error('The CV changed during export. Preview again.');
   return blob;
 }
 async function getLetterPdf() {
-  if (!letter.value) throw new Error('The motivation letter is unavailable.');
-  return letter.value.getPdfBlob();
+  if (!letterApproved.value || !letterPreview.value) throw new Error(text('Approve the letter before export.', 'Den Brief vor dem Export freigeben.'));
+  const revision = letterRevision.value; const blob = await letterPreview.value.getPdfBlob();
+  if (disposed || revision !== letterRevision.value || !letterApproved.value) throw new Error('The letter changed during export. Preview again.');
+  return blob;
 }
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+async function downloadLetter() { await run(async () => downloadBlob(await getLetterPdf(), 'motivation-letter.pdf')); }
 function downloadBackup() {
-  if (!record.value) return;
-  const url = URL.createObjectURL(new Blob([JSON.stringify({ kind: 'application-cv-backup', record: record.value }, null, 2)], { type: 'application/json' }));
-  urls.add(url); const a = document.createElement('a'); a.href = url; a.download = `application-cv-${props.application.id}.json`; a.click();
+  persist();
+  downloadBlob(new Blob([JSON.stringify({ kind: 'application-refinement-backup', version: 1, record: record.value, letter: letter.value, requests: localRequests.value, parentProposalId: parentProposalId.value }, null, 2)], { type: 'application/json' }), 'application-' + props.application.id + '.json');
 }
 async function importBackup(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0]; input.value = '';
+  const input = event.target as HTMLInputElement; const file = input.files?.[0]; input.value = '';
   if (!file) return;
-  try {
-    if (file.size > 10 * 1024 * 1024) throw new Error('This backup is too large.');
-    const target = record.value;
-    const previousState = JSON.stringify(target);
-    const data = JSON.parse(await file.text());
-    if (disposed || target !== record.value || previousState !== JSON.stringify(record.value)) throw new Error('The application changed while reading the backup. Restore it again when editing is complete.');
-    if (data.kind !== 'application-cv-backup' || !data.record) throw new Error('Choose an application CV backup.');
+  await run(async () => {
+    if (file.size > 30 * 1024 * 1024) throw new Error('Application backup is too large.');
+    const signature = baselineSignature.value; const data = JSON.parse(await file.text());
+    if (disposed || signature !== baselineSignature.value) throw new Error('Documents changed while reading the backup. Try again.');
+    if (!['application-cv-backup', 'application-refinement-backup'].includes(data.kind) || !data.record) throw new Error('Choose an application backup.');
     const raw = JSON.stringify({ ...data.record, userId: props.userId, applicationId: props.application.id });
-    const parsed = loadApplicationCv(props.userId, props.application.id, { getItem: () => raw, setItem() {}, removeItem() {} });
-    if (!parsed) throw new Error('The backup is empty.');
-    // Imported content must be reviewed before being published in this application.
-    parsed.publishedSnapshotId = null; parsed.publishedState = null;
-    // A restored backup is kept intact until explicitly adopted into the variant library.
-    delete parsed.variantId; parsed.detached = true;
-    saveApplicationCv(parsed); lastSaved = JSON.stringify(parsed.state); record.value = parsed;
-    saveError.value = ''; error.value = ''; notice.value = text('Application CV restored.', 'Bewerbungs-CV wiederhergestellt.');
-  } catch (e) { error.value = e instanceof Error ? e.message : String(e); }
+    const restored = loadApplicationCv(props.userId, props.application.id, { getItem: () => raw, setItem() {}, removeItem() {} });
+    if (!restored) throw new Error('The backup is empty.');
+    restored.detached = true; restored.publishedSnapshotId = null; restored.publishedState = null;
+    const checkedLetter = data.letter ? createLetterRepository({ getItem: () => null, setItem() {} }, props.userId).importLetter(JSON.stringify({ ...data.letter, userId: props.userId, applicationId: props.application.id }), props.application.id) : null;
+    record.value = restored;
+    if (checkedLetter) letter.value = checkedLetter;
+    // Returned proposals remain cloud history; restored work starts with a fresh request.
+    approvals.value = { cv: null, letter: null }; localRequests.value = {}; parentProposalId.value = null; persist();
+    notice.value = text('Application restored. Review and save preparation before continuing.', 'Bewerbung wiederhergestellt. Vorbereitung prüfen und speichern.');
+  });
 }
-onBeforeUnmount(() => { disposed = true; for (const url of urls) URL.revokeObjectURL(url); });
+function legacyChanged(event: { record: ApplicationLetter | null }) { if (event.record) letter.value = clone(event.record); }
 </script>
 
 <template>
@@ -200,97 +340,67 @@ onBeforeUnmount(() => { disposed = true; for (const url of urls) URL.revokeObjec
     <WorkspaceDetailHeader :title="String(application.context_json.title || text('Application', 'Bewerbung'))" :subtitle="String(application.context_json.institution || application.context_json.university || '')" :back-label="text('All applications', 'Alle Bewerbungen')" :status="application.status" @back="emit('close')">
       <template v-if="$slots.actions" #actions><slot name="actions" /></template>
       <template v-if="$slots['secondary-actions']" #secondary-actions><slot name="secondary-actions" /></template>
-      <template #metadata><div class="application-workspace__readiness"><span>{{ record ? text('CV on this device', 'CV auf diesem Gerät') : text('Local CV missing', 'Lokaler CV fehlt') }}</span><span>{{ letterReady ? text('Letter finalized', 'Schreiben finalisiert') : text('Letter in preparation', 'Schreiben in Vorbereitung') }}</span><span>{{ documentReadiness.missing ? text(`${documentReadiness.missing} package item(s) missing`, `${documentReadiness.missing} Dokument(e) fehlen`) : text(`${documentReadiness.included} package items ready`, `${documentReadiness.included} Dokumente bereit`) }}</span></div></template>
+      <template #metadata><span>{{ cvApproved ? text('CV approved', 'CV freigegeben') : text('CV in preparation', 'CV in Vorbereitung') }}</span><span>{{ letterApproved ? text('Letter approved', 'Brief freigegeben') : text('Letter in preparation', 'Brief in Vorbereitung') }}</span></template>
     </WorkspaceDetailHeader>
-    <nav class="workspace-subtabs" aria-label="Application sections"><button v-for="item in tabs" :key="item" class="btn" :class="{ 'is-active': tab === item }" :aria-pressed="tab === item" type="button" @click="tab = item">{{ ({overview: text('Overview', 'Übersicht'), cv: 'CV', letter: text('Motivation letter', 'Motivationsschreiben'), documents: text('Documents', 'Dokumente')})[item] }}<span v-if="item === 'documents'" class="workspace-subtabs__export-label">{{ text(' & export', ' & Export') }}</span></button></nav>
-    <p v-if="saveError" class="workspace-error" role="alert">{{ saveError }} <button class="btn" @click="persist">{{ text('Retry save', 'Erneut speichern') }}</button></p>
-    <p v-if="error" class="workspace-error" role="alert">{{ error }}</p><p v-if="notice" class="workspace-notice" role="status">{{ notice }}</p>
-    <div v-show="tab === 'overview'" class="application-overview"><slot name="overview" /></div>
-    <div v-show="tab === 'cv'" class="application-cv-layout">
-      <section class="application-cv-editor">
-        <div class="application-cv-picker">
-          <h2>{{ text('Selected CV', 'Ausgewählter CV') }}</h2>
-          <p>{{ text('Use a career variant as it is, or choose a subvariant for this application. All CV editing takes place in CV Studio.', 'Verwende eine Karrierevariante unverändert oder wähle eine Untervariante für diese Bewerbung. Alle CV-Änderungen erfolgen im CV-Studio.') }}</p>
-          <div class="variant-selectors">
-            <label>{{ text('Career variant', 'Karrierevariante') }}<select v-model="pendingBaseId" @change="selectBase"><option value="">{{ text('Choose a variant…', 'Variante wählen…') }}</option><option v-for="variant in roots" :key="variant.id" :value="variant.id">{{ variant.name }}</option></select></label>
-            <label v-if="pendingBaseId">{{ text('Subvariant', 'Untervariante') }}<select v-model="pendingSubId"><option value="">{{ text('Original variant', 'Originalvariante') }}</option><option v-for="variant in subvariants" :key="variant.id" :value="variant.id">{{ variant.name }}</option></select></label>
-          </div>
-          <button class="btn" type="button" :disabled="!pendingBaseId || (pendingSubId || pendingBaseId) === record?.variantId" @click="assignBase">{{ text('Use selected CV', 'Ausgewählten CV verwenden') }}</button>
-          <p v-if="!roots.length">{{ text('Create a named career variant in CV Studio first.', 'Erstelle zuerst eine benannte Karrierevariante im CV-Studio.') }}</p>
-          <template v-if="record">
-            <p><strong>{{ assignedVariant?.name || record.baseName }}</strong> · {{ published ? text('Shared CV is up to date', 'Geteilter CV ist aktuell') : text('Privacy snapshot needs publishing', 'Datenschutz-Snapshot muss veröffentlicht werden') }}</p>
-            <p v-if="legacyAdjustments">{{ text('Your previous application adjustments are preserved. Save them as a subvariant to continue editing in CV Studio.', 'Deine bisherigen Bewerbungsanpassungen bleiben erhalten. Speichere sie als Untervariante für die weitere Bearbeitung im CV-Studio.') }}</p>
-            <p v-if="missingVariant" role="status">{{ text('The linked variant is missing. The last saved CV is preserved below; select an available variant or restore your backup.', 'Die verknüpfte Variante fehlt. Der zuletzt gespeicherte CV bleibt erhalten; wähle eine vorhandene Variante oder stelle ein Backup wieder her.') }}</p>
-            <button v-if="assignedVariant" class="btn" type="button" @click="emit('edit-variant', assignedVariant.id)">{{ text('Edit in CV Studio', 'Im CV-Studio bearbeiten') }}</button>
-            <div class="variant-copy"><label>{{ text('New subvariant name', 'Name der neuen Untervariante') }}<input v-model="newVariantName" :placeholder="String(application.context_json.title || '')" /></label><button class="btn" type="button" :disabled="!createSubvariant || missingVariant" @click="editSubvariant">{{ text('Create subvariant & edit', 'Untervariante erstellen & bearbeiten') }}</button></div>
-            <p>{{ text('A subvariant belongs directly to one career variant. Copies of subvariants stay at the same level.', 'Eine Untervariante gehört direkt zu einer Karrierevariante. Kopien von Untervarianten bleiben auf derselben Ebene.') }}</p>
-            <label class="privacy-toggle"><input v-model="privacyPreview" type="checkbox" />{{ text('Privacy preview', 'Datenschutz-Vorschau') }}</label>
-            <details><summary>{{ text('Review privacy snapshot', 'Datenschutz-Snapshot prüfen') }}</summary><pre class="privacy-json">{{ JSON.stringify(privacySnapshot, null, 2) }}</pre></details>
-            <button class="btn" type="button" :disabled="publishing || !!saveError" @click="publishFromButton">{{ publishing ? text('Publishing…', 'Veröffentlicht…') : text('Publish anonymized CV', 'Anonymisierten CV veröffentlichen') }}</button>
-          </template>
+    <nav class="workspace-subtabs" :aria-label="text('Application stages', 'Bewerbungsphasen')">
+      <button v-for="(stage, index) in stages" :key="stage" type="button" :class="{ 'is-active': tab === stage }" :aria-pressed="tab === stage" @click="tab = stage"><span class="stage-number">{{ index + 1 }}</span>{{ ({ preparation: text('Preparation', 'Vorbereitung'), refinement: text('Refinement', 'Überarbeitung'), review: text('PDF review', 'PDF-Prüfung'), tracking: text('Tracking', 'Verlauf') })[stage] }}</button>
+    </nav>
+    <p v-if="error" class="message error" role="alert">{{ error }}</p><p v-if="saveError" class="message error" role="alert">{{ saveError }} <button type="button" @click="persist">{{ text('Retry save', 'Erneut speichern') }}</button></p><p v-if="notice" class="message" role="status">{{ notice }}</p>
+    <div class="workflow-body" :class="{ 'workflow-body--refinement': tab === 'refinement', 'workflow-body--review': tab === 'review' }">
+      <section v-show="tab === 'preparation'" class="preparation-stage">
+        <div class="stage-heading"><div><h2>{{ text('Prepare your application', 'Bewerbung vorbereiten') }}</h2><p>{{ text('Choose templates and attach supporting documents. Each application keeps its own copies.', 'Vorlagen auswählen und zusätzliche Dokumente anhängen. Jede Bewerbung behält eigene Kopien.') }}</p></div><button class="primary" type="button" @click="tab = 'refinement'">{{ text('Continue to refinement', 'Weiter zur Überarbeitung') }} →</button></div>
+        <div class="preparation-grid">
+          <section class="workflow-card"><h3>1. {{ text('CV template', 'CV-Vorlage') }}</h3>
+            <label>{{ text('Career variant', 'Karrierevariante') }}<select v-model="pendingBaseId" :disabled="busy" @change="pendingSubId = ''"><option value="">{{ text('Choose a variant…', 'Variante wählen…') }}</option><option v-for="variant in roots" :key="variant.id" :value="variant.id">{{ variant.name }}</option></select></label>
+            <label v-if="pendingBaseId">{{ text('Subvariant', 'Untervariante') }}<select v-model="pendingSubId" :disabled="busy"><option value="">{{ text('Original variant', 'Originalvariante') }}</option><option v-for="variant in subvariants" :key="variant.id" :value="variant.id">{{ variant.name }}</option></select></label>
+            <button type="button" :disabled="!pendingBaseId || busy" @click="assignBase">{{ text('Use CV template', 'CV-Vorlage verwenden') }}</button>
+            <p v-if="record">{{ record.baseName }} · {{ published ? text('Snapshot saved', 'Snapshot gespeichert') : text('Local copy — save to Supabase', 'Lokale Kopie — in Supabase speichern') }}</p>
+            <p v-else>{{ text('Create a named variant in CV Studio if the library is empty.', 'Bei leerer Bibliothek zuerst eine benannte Variante im CV-Studio erstellen.') }}</p>
+            <details v-if="privacySnapshot"><summary>{{ text('Anonymized snapshot', 'Anonymisierter Snapshot') }}</summary><pre>{{ JSON.stringify(privacySnapshot, null, 2) }}</pre></details>
+          </section>
+          <section class="workflow-card"><h3>2. {{ text('Letter template', 'Briefvorlage') }}</h3>
+            <label>{{ text('Template', 'Vorlage') }}<select v-model="pendingTemplateId" :disabled="busy"><option value="">{{ text('Choose a template…', 'Vorlage wählen…') }}</option><option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }} · {{ text('revision', 'Revision') }} {{ template.revision }}</option></select></label>
+            <button type="button" :disabled="busy || !pendingTemplateId" @click="useLetterTemplate">{{ text('Use letter template', 'Briefvorlage verwenden') }}</button>
+            <p v-if="missingLetterTemplate" class="message">{{ text('The original letter template is unavailable. Choose a template above to continue; your existing letter is preserved.', 'Die ursprüngliche Briefvorlage ist nicht verfügbar. Zum Fortfahren oben eine Vorlage auswählen; der bestehende Brief bleibt erhalten.') }}</p>
+            <template v-if="letter"><p v-if="!missingLetterTemplate">{{ selectedTemplate.name }} · {{ text('Frozen revision', 'Gespeicherte Revision') }} {{ selectedTemplate.revision }}</p><div class="field-row"><label>{{ text('Language', 'Sprache') }}<select v-model="letter.language" :disabled="busy"><option value="en">English</option><option value="de">Deutsch</option></select></label><label>{{ text('Target words', 'Zielwortzahl') }}<input v-model.number="letter.maxWords" type="number" min="50" max="2000" :disabled="busy" /></label></div><label>{{ text('Application writing instructions', 'Schreibhinweise für diese Bewerbung') }}<textarea v-model="letter.instructions" rows="3" maxlength="20000" :disabled="busy" /></label><details v-if="!missingLetterTemplate"><summary>{{ text('Template guidance', 'Vorlagenhinweise') }}</summary><p class="pre-wrap">{{ selectedTemplate.structure }}</p><p>{{ selectedTemplate.tone }}</p><p v-if="selectedTemplate.exampleText" class="pre-wrap">{{ selectedTemplate.exampleText }}</p></details></template>
+          </section>
         </div>
-        <CvAdjustmentWorkflow v-if="record && assignedVariant" :key="assignedVariant.id" :state="record.state" :variant-id="assignedVariant.id" :application-id="application.id" :opportunity="application.context_json" :client="client" :user-id="userId" :lang="lang" @apply="acceptAdjustedCv" />
-        <div class="local-backup-actions"><button v-if="record" class="btn" type="button" @click="downloadBackup">{{ text('Back up full application CV', 'Vollständigen Bewerbungs-CV sichern') }}</button><button class="btn" type="button" @click="backupInput?.click()">{{ text('Restore application CV', 'Bewerbungs-CV wiederherstellen') }}</button><input ref="backupInput" hidden type="file" accept=".json,application/json" @change="importBackup" /></div>
+        <div class="action-row"><button type="button" :disabled="busy || !record || !letter" @click="savePreparation">{{ busy ? text('Saving…', 'Speichern…') : text('Save preparation to Supabase', 'Vorbereitung in Supabase speichern') }}</button><button type="button" @click="downloadBackup">{{ text('Back up application', 'Bewerbung sichern') }}</button><button type="button" :disabled="busy" @click="backupInput?.click()">{{ text('Restore application', 'Bewerbung wiederherstellen') }}</button><input ref="backupInput" hidden type="file" accept=".json,application/json" @change="importBackup" /></div>
+        <details class="workflow-card"><summary>{{ text('Tender context & requirements', 'Ausschreibung & Anforderungen') }}</summary><slot name="preparation"><OpportunityContext :context="application.context_json" :lang="lang" /></slot></details>
+        <h3 class="attachments-heading">3. {{ text('Supporting documents', 'Zusätzliche Dokumente') }}</h3>
       </section>
-      <DocumentCvPreview v-if="record" ref="preview" :state="record.state" :active="tab === 'cv'" :privacy="privacyPreview" class="application-cv-preview" />
-      <aside v-else class="application-cv-empty"><p>{{ text('Assign a career variant to preview this application’s CV.', 'Weise eine Karrierevariante zu, um den Bewerbungs-CV anzusehen.') }}</p></aside>
+      <section v-show="tab === 'refinement'" class="refinement-stage">
+        <div class="refinement-controls">
+          <div class="stage-heading"><div><h2>{{ text('Refine CV & letter', 'CV & Brief überarbeiten') }}</h2><p>{{ text('One proposal, with separate approval for each document.', 'Ein Vorschlag mit separater Freigabe für jedes Dokument.') }}</p></div><button class="primary" type="button" @click="tab = 'review'">{{ text('Review PDF', 'PDF prüfen') }} →</button></div>
+          <p v-if="!record || !letter" class="message">{{ text('Select both templates in Preparation to begin. Existing proposals remain available below.', 'Zum Start beide Vorlagen in Vorbereitung auswählen. Bestehende Vorschläge bleiben unten verfügbar.') }}</p>
+          <div class="action-row"><button type="button" :disabled="busy || !record || !letter || (cvApproved && letterApproved)" @click="initialPrompt">{{ requests.length ? text('Copy prompt for current documents', 'Prompt für aktuelle Dokumente kopieren') : text('Copy initial prompt', 'Ersten Prompt kopieren') }}</button><button type="button" :disabled="busy || refreshing" @click="checkProposals">{{ refreshing ? text('Checking…', 'Prüfen…') : text('Check for proposal', 'Vorschlag abrufen') }}</button></div>
+          <p class="hint">{{ text('Paste the prompt into ChatGPT with your Supabase MCP connection, then return here. Saving context does not start ChatGPT.', 'Den Prompt in ChatGPT mit der Supabase-MCP-Verbindung einfügen und hierher zurückkehren. Das Speichern startet ChatGPT nicht.') }}</p>
+          <details v-if="prompt" open class="workflow-card"><summary>{{ text('Prompt ready to copy', 'Prompt zum Kopieren bereit') }}</summary><textarea :value="prompt" readonly rows="7" :aria-label="text('Refinement prompt', 'Überarbeitungs-Prompt')" /><button type="button" @click="copyPrompt">{{ text('Copy prompt', 'Prompt kopieren') }}</button></details>
+          <section v-if="proposals.length" class="workflow-card proposal-card"><h3>{{ text('Proposal history', 'Vorschlagsverlauf') }}</h3><label>{{ text('Proposal', 'Vorschlag') }}<select v-model="selectedProposalId"><option v-for="(proposal, index) in proposals" :key="proposal.id" :value="proposal.id">{{ proposals.length - index }} · {{ new Date(proposal.created_at).toLocaleString() }}</option></select></label>
+            <template v-if="selectedProposal"><p class="pre-wrap">{{ selectedProposal.proposal_json.summary }}</p><details><summary>{{ text('CV changes', 'CV-Änderungen') }} ({{ proposalChanges.length }})</summary><p v-if="!proposalChanges.length">{{ text('CV wording unchanged.', 'CV-Wortlaut unverändert.') }}</p><article v-for="(change, index) in proposalChanges" :key="index" class="cv-change"><strong>{{ change.label }}</strong><del>{{ change.before }}</del><ins>{{ change.after }}</ins></article></details><details><summary>{{ text('Proposed letter', 'Vorgeschlagener Brief') }}</summary><p class="pre-wrap">{{ selectedProposal.proposal_json.letterText }}</p></details><button type="button" :disabled="busy || !record || !letter || parentProposalId === selectedProposal.id" @click="openProposal">{{ parentProposalId === selectedProposal.id ? text('Opened as working documents', 'Als Arbeitsfassung geöffnet') : text('Use proposal for editing', 'Vorschlag zum Bearbeiten verwenden') }}</button></template>
+          </section>
+          <section v-if="record && letter" class="workflow-card"><h3>{{ text('Request improvements', 'Verbesserungen anfordern') }}</h3><p class="hint">{{ text('Feedback uses your current working documents. Open a proposal for editing first if you want to refine that proposal.', 'Feedback bezieht sich auf die aktuellen Arbeitsfassungen. Einen Vorschlag zuerst zum Bearbeiten öffnen, um ihn weiter zu überarbeiten.') }}</p><label>{{ text('Improve', 'Überarbeiten') }}<select v-model="feedbackScope" :disabled="busy || (cvApproved && letterApproved)"><option v-if="!cvApproved && !letterApproved" value="both">{{ text('CV and letter', 'CV und Brief') }}</option><option v-if="!cvApproved" value="cv">CV</option><option v-if="!letterApproved" value="letter">{{ text('Letter', 'Brief') }}</option></select></label><label>{{ text('Required improvements', 'Gewünschte Verbesserungen') }}<textarea v-model="feedback" rows="3" maxlength="20000" :disabled="busy || (cvApproved && letterApproved)" /></label><button type="button" :disabled="busy || !feedback.trim() || (cvApproved && letterApproved)" @click="requestImprovement">{{ text('Save feedback & copy improvement prompt', 'Feedback speichern & Verbesserungsprompt kopieren') }}</button><details v-if="feedbackHistory().length"><summary>{{ text('Accumulated feedback', 'Gesammeltes Feedback') }} ({{ feedbackHistory().length }})</summary><p v-for="item in feedbackHistory()" :key="item.id" class="pre-wrap">{{ item.scope }} · {{ item.text }}</p></details></section>
+          <div class="document-switch"><button type="button" :aria-pressed="pane === 'cv'" @click="pane = 'cv'">CV · {{ cvApproved ? '✓' : text('Edit / approve', 'Bearbeiten / freigeben') }}</button><button type="button" :aria-pressed="pane === 'letter'" @click="pane = 'letter'">{{ text('Letter', 'Brief') }} · {{ letterApproved ? '✓' : text('Edit / approve', 'Bearbeiten / freigeben') }}</button></div>
+          <section v-if="record" v-show="pane === 'cv'" class="working-document"><div class="action-row"><button class="primary" type="button" :disabled="busy || !letter || !!saveError" @click="approve('cv', cvApproved)">{{ cvApproved ? text('Reopen CV', 'CV wieder öffnen') : text('Approve CV', 'CV freigeben') }}</button><span>{{ text('Application copy — template stays unchanged', 'Bewerbungskopie — Vorlage bleibt unverändert') }}</span></div><fieldset :disabled="cvApproved || busy"><FormBuilder :state="record.state" :read-version="() => null" :save-version="() => false" /></fieldset></section>
+          <section v-if="letter" v-show="pane === 'letter'" class="working-document"><label>{{ text('Complete letter text', 'Vollständiger Brieftext') }}<textarea :value="letterText" rows="18" :disabled="letterApproved || busy" @input="updateLetter(($event.target as HTMLTextAreaElement).value)" /></label><p :class="{ warning: words > setup.maxWords }">{{ words }} / {{ setup.maxWords }} {{ text('target words (complete letter)', 'Zielwörter (vollständiger Brief)') }}</p><p v-if="words > setup.maxWords" class="warning">{{ text('Over the target. Review the tender limit; approval and export remain available.', 'Über der Zielwortzahl. Vorgabe prüfen; Freigabe und Export bleiben möglich.') }}</p><p v-if="unresolved.length" class="warning">{{ text('Resolve placeholders:', 'Platzhalter auflösen:') }} {{ unresolved.join(', ') }}</p><button class="primary" type="button" :disabled="busy || !record || !letterText.trim() || !!saveError || unresolved.length > 0" @click="approve('letter', letterApproved)">{{ letterApproved ? text('Reopen letter', 'Brief wieder öffnen') : text('Approve letter', 'Brief freigeben') }}</button><details v-if="letter.revisions.length"><summary>{{ text('Letter revision history', 'Brief-Revisionsverlauf') }}</summary><div v-for="revision in [...letter.revisions].reverse()" :key="revision.id" class="action-row"><span>{{ revision.kind }} · {{ new Date(revision.createdAt).toLocaleString() }}</span><button type="button" :disabled="busy || letterApproved" @click="reopenLocalLetterRevision(revision.id)">{{ text('Open revision', 'Revision öffnen') }}</button></div></details></section>
+          <details v-if="requests.length"><summary>{{ text('Published rounds', 'Veröffentlichte Runden') }} ({{ requests.length }})</summary><p v-for="request in requests" :key="request.id">{{ new Date(request.created_at).toLocaleString() }} · {{ request.request_json.scope }} · {{ request.request_json.feedback.length }} {{ text('feedback entries', 'Feedbackeinträge') }}</p></details>
+        </div>
+        <div class="refinement-preview"><DocumentCvPreview v-if="record" v-show="pane === 'cv'" ref="preview" :state="record.state" :active="tab === 'refinement' && pane === 'cv'" /><MotivationLetterPreview v-if="letter" v-show="pane === 'letter'" ref="letterPreview" :cv-state="record?.state || null" :content="letter.working" :lang="letter.language" :active="tab === 'refinement' && pane === 'letter'" :download-disabled="!letterApproved" :downloading="busy" @download="downloadLetter" /></div>
+      </section>
+      <section v-show="tab === 'review'" class="review-heading"><div class="stage-heading"><div><h2>{{ text('Review the complete application', 'Vollständige Bewerbung prüfen') }}</h2><p>{{ text('Preview exactly what you will download and submit.', 'Genau die Unterlagen prüfen, die heruntergeladen und eingereicht werden.') }}</p></div><button type="button" @click="tab = 'tracking'">{{ text('Track submission', 'Einreichung verfolgen') }} →</button></div><p v-if="!cvApproved || !letterApproved" class="warning">{{ text('Approve both documents in Refinement before exporting the application.', 'Vor dem Bewerbungsexport beide Dokumente in Überarbeitung freigeben.') }}</p><p v-if="words > setup.maxWords" class="warning">{{ words }} / {{ setup.maxWords }} {{ text('target words — review the tender limit.', 'Zielwörter — Vorgabe prüfen.') }}</p><p v-if="uncheckedRequirements" class="warning">{{ uncheckedRequirements }} {{ text('requirements/checklist items still unchecked. Verify completeness before submission.', 'Anforderungen/Checklistenpunkte noch offen. Vor der Einreichung Vollständigkeit prüfen.') }}</p><details><summary>{{ text('Document requirements', 'Dokumentanforderungen') }}</summary><OpportunityContext :context="requirementContext" :lang="lang" /></details></section>
+      <section v-show="tab === 'tracking'" class="tracking-stage"><h2>{{ text('Application tracking', 'Bewerbungsverlauf') }}</h2><p>{{ text('Submit through the institution’s portal or email, then update your status and dates here.', 'Über das Portal oder per E-Mail einreichen und anschließend Status und Daten hier aktualisieren.') }}</p><slot name="tracking"><slot name="overview" /></slot><details @toggle="legacyOpen = ($event.target as HTMLDetailsElement).open"><summary>{{ text('Legacy letter drafts and backups', 'Frühere Briefentwürfe und Backups') }}</summary><MotivationLetterEditor v-if="legacyOpen" :application="application" :cv-state="record?.state || null" :client="client" :user-id="userId" :lang="lang" @change="legacyChanged" /></details></section>
+      <ApplicationDocuments v-show="tab !== 'refinement'" :mode="tab === 'preparation' ? 'prepare' : tab === 'tracking' ? 'tracking' : 'review'" :application-id="application.id" :user-id="userId" :lang="lang" :cv-state="record?.state || null" :cv-ready="cvApproved" :export-ready="cvApproved && letterApproved" :get-cv-pdf="getCvPdf" :get-letter-pdf="getLetterPdf" :letter-ready="letterApproved" :letter-revision="letterRevision" @readiness="documentReadiness = $event" />
     </div>
-    <MotivationLetterEditor :active="tab === 'letter'" v-show="tab === 'letter'" ref="letter" :application="application" :cv-state="record?.state ?? null" :client="client" :user-id="userId" :lang="lang" :publish-cv="publishCurrentCv" @change="letterReady = $event.ready; letterRevision = JSON.stringify($event.record)" />
-    <ApplicationDocuments v-show="tab === 'documents'" :application-id="application.id" :user-id="userId" :lang="lang" :cv-state="record?.state ?? null" :get-cv-pdf="getCvPdf" :get-letter-pdf="getLetterPdf" :letter-ready="letterReady" :letter-revision="letterRevision" @readiness="documentReadiness = $event" />
   </section>
 </template>
 
 <style scoped>
-.application-workspace { display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; padding:0; background:transparent; color:#d1fae5; }
-.application-workspace__readiness { display:flex; flex-wrap:wrap; gap:8px 18px; font-size:12px; color:#a6c1b9; }
-.application-workspace :deep(.workspace-detail-header) { background:transparent; }
-.workspace-subtabs { flex-shrink:0; display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
-.workspace-subtabs .is-active { background:#185b4c; border-color:#67c8a6; color:#effff6; }
-.application-overview { flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain; }
-.application-overview :deep(.opportunity-context__group) { padding:12px 0; border:0; border-radius:0; background:transparent; }
-.application-overview :deep(.opportunity-context__field--fit) { padding:0; border:0; border-radius:0; background:transparent; }
-.application-cv-layout { display:grid; flex:1 1 auto; min-height:0; grid-template-columns:minmax(0,1fr) 360px; gap:20px; overflow:hidden; }
-.application-cv-editor { min-width:0; min-height:0; overflow:auto; overscroll-behavior:contain; padding-right:4px; }
-.application-cv-preview { min-width:0; min-height:0; }
-.application-cv-empty { color:#a6c1b9; }
-.application-cv-picker { display:grid; gap:12px; margin-bottom:24px; }
-.application-cv-picker h2 { font-size:18px; color:inherit; margin:0; }
-.application-cv-picker p { font-size:13px; margin:0; line-height:1.6; color:#adc8be; }
-.application-cv-picker label, .variant-copy label { display:grid; gap:6px; font-size:13px; }
-.application-cv-picker > .btn { justify-self:start; }
-.variant-selectors { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
-.variant-copy label { flex:1; min-width:150px; }
-.application-cv-picker .privacy-toggle { display:flex; align-items:center; gap:8px; }
-.privacy-toggle input { width:auto; }
-.workspace-error { color:#fecaca; font-size:13px; }
-.workspace-notice { color:#b5e3cb; font-size:13px; }
-.privacy-json { max-height:320px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font-size:11px; }
-summary { cursor:pointer; font-size:13px; }
-.local-backup-actions, .variant-copy { display:flex; flex-wrap:wrap; align-items:end; gap:8px; margin-top:12px; }
-@media(max-width:1180px) { .application-cv-layout { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(0,1fr) minmax(240px,42%); } }
-@media(max-width:760px), (max-width:1180px) and (max-height:600px) {
-  .application-cv-layout { grid-template-rows:minmax(0,1fr) auto; gap:10px; }
-  .application-workspace__readiness { gap:6px 12px; }
-  .workspace-subtabs { gap:6px; margin:8px 0; }
-  .workspace-subtabs .btn { padding:8px; font-size:12px; }
-  .application-cv-editor { padding-right:0; }
-}
-@media(max-width:480px) { .variant-selectors { grid-template-columns:minmax(0,1fr); } }
-@media(max-width:760px) {
-  .application-workspace { --mobile-application-tabs-height:48px; padding-bottom:var(--mobile-application-tabs-height); }
-  .workspace-subtabs { position:fixed; inset-inline:0; bottom:var(--mobile-tabs-height,76px); z-index:36; height:var(--mobile-application-tabs-height); margin:0; padding:4px 8px; flex-wrap:nowrap; align-items:stretch; overflow-x:auto; overflow-y:hidden; overscroll-behavior-x:contain; scrollbar-width:none; background:#06141f; border-top:1px solid #24504e; }
-  .workspace-subtabs::-webkit-scrollbar { display:none; }
-  .workspace-subtabs__export-label { display:none; }
-  .workspace-subtabs .btn { flex:0 0 auto; white-space:nowrap; font-size:14px; }
-  .application-overview, .application-cv-editor { padding-inline:8px; }
-  .application-overview :deep(.opportunity-context__group + .opportunity-context__group) { border-top:1px solid #24504e; }
-  .application-workspace :deep(.letter-editor-controls), .application-workspace :deep(.documents-controls) { padding-inline:8px; }
-  .application-workspace__readiness { font-size:12px; gap:4px 8px; }
-  .application-cv-picker p, .workspace-error, .workspace-notice { font-size:16px; }
-  .application-cv-picker label, .variant-copy label { font-size:14px; }
-  .application-workspace :deep(.letter-editor-controls p), .application-workspace :deep(.documents-controls p), .application-workspace :deep(.cv-adjustment-workflow p), .application-overview :deep(p) { font-size:16px; }
-  .application-workspace :deep(.letter-editor-controls label), .application-workspace :deep(.documents-controls label), .application-workspace :deep(.cv-adjustment-workflow label), .application-overview :deep(label) { font-size:14px; }
-  .application-cv-editor :deep(summary), .application-workspace :deep(.letter-editor-controls summary), .application-workspace :deep(.documents-controls summary) { font-size:16px; }
-  .application-cv-editor :deep(details), .application-workspace :deep(.letter-editor-controls details) { padding-block:12px; border-top:1px solid #24504e; }
-}
+.application-workspace{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden;color:#d1fae5;font-family:var(--font-ui,system-ui)}
+.workspace-subtabs{display:flex;gap:6px;flex:0 0 auto;padding:12px 0;border-bottom:1px solid #24504e;margin-bottom:14px}
+.workspace-subtabs button{display:flex;align-items:center;gap:8px;flex:1;text-align:left}.workspace-subtabs .is-active{background:#185b4c;border-color:#67c8a6}.stage-number{opacity:.7;font-size:12px}
+.workflow-body{flex:1;min-height:0;min-width:0;overflow:auto;padding-right:6px}.workflow-body--refinement,.workflow-body--review{display:flex;flex-direction:column;overflow:hidden}
+.preparation-stage,.tracking-stage{display:grid;gap:20px}.stage-heading{display:flex;justify-content:space-between;align-items:start;gap:18px;margin-bottom:18px}.stage-heading h2,.tracking-stage h2{font-size:21px;margin:0 0 8px}.stage-heading p,p.hint{font-size:13px;color:#a6c1b9;line-height:1.6}.stage-heading button{flex-shrink:0}
+h3{font-size:16px;margin:0 0 14px}p{line-height:1.6;font-size:13px}button,input,select,textarea{font:inherit;color:inherit;border:1px solid #28534e;background:#0b1b25;border-radius:7px;padding:9px 11px;box-sizing:border-box}button{cursor:pointer;font-size:13px}button:disabled{opacity:.45;cursor:default}button:hover:enabled{background:#185b4c}.primary{background:#185b4c;border-color:#67c8a6}label{display:grid;gap:7px;font-size:12px;font-weight:600;margin-bottom:12px}input,select,textarea{width:100%;min-width:0;font-size:14px;font-weight:400}textarea{resize:vertical;line-height:1.6}select{max-width:100%}summary{cursor:pointer;font-size:13px;font-weight:600}details[open]>summary{margin-bottom:14px}pre{font-size:11px;overflow:auto;max-height:300px;white-space:pre-wrap;overflow-wrap:anywhere}.pre-wrap{white-space:pre-wrap;overflow-wrap:anywhere}.preparation-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.workflow-card{border:1px solid #28534e;border-radius:10px;padding:18px;margin-bottom:16px;background:#091923}.workflow-card p{margin:10px 0}.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.action-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0}.action-row span{font-size:12px;color:#a6c1b9}.message{padding:10px 14px;background:#10382c;border-radius:7px;font-size:13px;margin:0 0 12px}.message.error{background:#3a1720;color:#fecaca}.warning{color:#efcc87;background:#302b1a;padding:9px 12px;border-radius:6px;font-size:13px}.attachments-heading{margin:0}.refinement-stage{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,42%);gap:24px;flex:1;min-height:0;overflow:hidden}.refinement-controls{overflow:auto;min-height:0;padding-right:8px}.refinement-preview{min-width:0;min-height:0;overflow:hidden}.document-switch{display:flex;gap:8px;margin:22px 0 14px}.document-switch button[aria-pressed=true]{border-color:#67c8a6;background:#185b4c}.working-document{margin-bottom:24px}.working-document fieldset{border:0;padding:0;min-width:0}.working-document :deep(.builder){height:auto;overflow:visible}.cv-change{display:grid;gap:7px;margin:16px 0;font-size:13px;white-space:pre-wrap}.cv-change del{background:#3a1720;padding:9px;text-decoration:none;color:#fecaca}.cv-change ins{background:#10382c;padding:9px;text-decoration:none;color:#a7f3d0}.review-heading{flex:0 0 auto}.review-heading .stage-heading{margin-bottom:10px}.review-heading details{max-height:25vh;overflow:auto;margin-bottom:10px}.tracking-stage :deep(.letter-workspace){height:650px}.preparation-stage :deep(.opportunity-context){overflow:visible}
+@media(max-width:900px){.preparation-grid{grid-template-columns:1fr;gap:0}.refinement-stage{grid-template-columns:minmax(0,1fr) minmax(270px,38%);gap:12px}.stage-heading{flex-direction:column}}
+@media(max-width:760px){.application-workspace{--mobile-application-tabs-height:48px;padding-bottom:var(--mobile-application-tabs-height)}.workspace-subtabs{position:fixed;inset-inline:0;bottom:var(--mobile-tabs-height,76px);z-index:36;height:48px;margin:0;padding:4px 8px;overflow-x:auto;flex-wrap:nowrap;background:#06141f;border-top:1px solid #24504e}.workspace-subtabs button{font-size:12px;white-space:nowrap;padding:7px;gap:4px}.stage-number{display:none}.workflow-body{padding:8px}.refinement-stage{display:flex;flex-direction:column;gap:10px}.refinement-controls{flex:1}.refinement-preview{flex:0 0 auto}.refinement-preview :deep(.inline-document-preview){min-height:0}.stage-heading{gap:10px}.stage-heading h2{font-size:20px}.workflow-card{padding:14px}.workflow-body input,.workflow-body textarea,.workflow-body select{font-size:16px}.workflow-body p{font-size:15px}.workflow-body--review{overflow:auto}.workflow-body--review :deep(.application-documents){min-height:430px;flex:1 0 auto}.review-heading details{max-height:180px}.tracking-stage{gap:12px}}
 </style>

@@ -18,6 +18,7 @@ const props = defineProps<{
   client: SupabaseClient | null; userId: string; tab: 'opportunities' | 'applications'; lang: string;
   configurations: SavedConfiguration[]; selectedId: string; readVersion: (id: string) => CvState | null;
   createSubvariant?: (parentId: string, name: string, state: CvState) => string | null;
+  projectId?: string;
 }>();
 const emit = defineEmits<{ navigate: [tab: 'opportunities' | 'applications']; 'save-career-variant': [name: string, state: CvState]; 'edit-variant': [id: string] }>();
 const { opportunities, applications, reviews, loading, saving, error, createApplication,
@@ -332,15 +333,18 @@ function downloadContext() {
       </WorkspaceDetailHeader>
       <div class="opportunity-detail__body"><OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity.details" :lang="lang" /></div>
     </section>
-    <ApplicationWorkspace v-if="editingApplication" v-show="tab === 'applications'" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :configurations="configurations" :read-version="readVersion" :create-subvariant="createSubvariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
+    <ApplicationWorkspace v-if="editingApplication" v-show="tab === 'applications'" :active="tab === 'applications'" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-subvariant="createSubvariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
       <template #actions>
         <label class="jobs-detail-state"><span class="jobs-action-label">{{ text('Status', 'Status') }}</span><select :aria-label="`${text('Status for', 'Status für')} ${contextTitle(editingApplication)}`" :value="editingApplication.status" :disabled="saving || hasUnsavedChanges" @change="changeApplicationStatus(editingApplication, $event)"><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label>
       </template>
       <template #secondary-actions>
         <button class="jobs-remove-application" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(editingApplication)}`" @click="requestDetailRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button>
       </template>
-      <template #overview>
+      <template #preparation>
             <div class="jobs-review-toolbar"><h2>{{ text('Application workspace', 'Bewerbung bearbeiten') }}</h2><span>{{ text('Context saved', 'Kontext gespeichert') }}: {{ dateLabel(editingApplication.context_captured_at) }}</span><button class="btn" type="button" :disabled="saving || hasUnsavedChanges || preparingContext" @click="refreshResearch">{{ text('Refresh research', 'Forschung aktualisieren') }}</button></div>
+            <OpportunityContext :context="editingApplication.context_json" :lang="lang" checklist :completed-keys="editingApplication.completed_checklist_keys || []" :saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" />
+      </template>
+      <template #tracking>
             <form class="application-inline-form" @submit.prevent="saveApplication">
               <div class="application-fields">
                 <label>{{ text('First contacted', 'Erster Kontakt') }}<input v-model="form.contactedAt" type="datetime-local" :disabled="saving" /></label>
@@ -350,7 +354,6 @@ function downloadContext() {
               <p v-if="formError" class="jobs-error" role="alert">{{ formError }}</p><div class="jobs-form-footer"><span>{{ hasUnsavedChanges ? text('Unsaved changes', 'Ungespeicherte Änderungen') : text('All changes saved', 'Alle Änderungen gespeichert') }}</span><button class="btn btn--success" type="submit" :disabled="saving || !hasUnsavedChanges">{{ saving ? text('Saving…', 'Speichert…') : text('Save changes', 'Änderungen speichern') }}</button></div>
             </form>
             <section class="jobs-evaluation"><h3>{{ text('Context for ChatGPT', 'Kontext für ChatGPT') }}</h3><p>{{ text('Prepare the saved opportunity research, requirements, documents, contacts and assigned privacy CV for a fit evaluation and a later one-page motivation draft.', 'Bereite die gespeicherte Forschung, Anforderungen, Unterlagen, Kontakte und den zugewiesenen anonymisierten CV für eine Eignungsbewertung und ein späteres einseitiges Motivationsschreiben vor.') }}</p><p v-if="hasUnsavedChanges" class="jobs-subline">{{ text('Save your changes before preparing the context.', 'Speichere deine Änderungen, bevor du den Kontext vorbereitest.') }}</p><button class="btn" type="button" :disabled="saving || preparingContext || hasUnsavedChanges" @click="prepareEvaluationContext">{{ preparingContext ? text('Preparing…', 'Wird vorbereitet…') : text('Prepare evaluation context', 'Bewertungskontext vorbereiten') }}</button><p v-if="contextError" class="jobs-error" role="alert">{{ contextError }}</p><div v-if="exportText" class="jobs-export"><label>{{ text('Evaluation brief', 'Bewertungsunterlagen') }}<textarea :value="exportText" readonly rows="8" /></label><div class="jobs-row-actions"><button class="btn" type="button" @click="copyContext">{{ text('Copy context', 'Kontext kopieren') }}</button><button class="btn" type="button" @click="downloadContext">{{ text('Download context (.md)', 'Kontext herunterladen (.md)') }}</button></div></div></section>
-            <OpportunityContext :context="editingApplication.context_json" :lang="lang" checklist :completed-keys="editingApplication.completed_checklist_keys || []" :saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" />
 
       </template>
     </ApplicationWorkspace>

@@ -1,8 +1,14 @@
-# CV adjustments with ChatGPT
+# Legacy CV adjustments with ChatGPT
 
-Applications use a saved career variant or one of its subvariants. **Application → CV → Tailor with ChatGPT** shares a snapshot of editable public wording. Returned edits are reviewed and reconstructed on the same device. Accepted changes create a subvariant in CV Studio; an empty or unchanged response keeps the selected variant. Creating from a subvariant creates a sibling under the same career variant, never another nesting level.
+The main application workflow is now [joint CV/letter refinement](REFINEMENT.md), organized as **Preparation → Refinement → PDF review → Tracking**. Selecting a variant creates an independent application CV, and the selected letter-template revision is frozen. Library changes do not alter application copies. Proposals are reviewed and reconstructed locally, and manual application edits do not create library subvariants automatically.
 
-## Prepare, return and review
+This document preserves the separate **legacy CV-adjustment API** and its public-field/token contract. Older clients and stored requests/responses remain supported. The former standalone component accepts changed responses as a subvariant; that behavior does not apply to the new application refinement workspace.
+
+## Current application workflow
+
+Select CV and letter templates and attach supporting files in Preparation. Copy the initial refinement prompt into ChatGPT with the existing project Supabase MCP. ChatGPT reads one exact prepared request and saves a joint proposal through private management functions. Return to the app to check the summary and wording, explicitly open the proposal, edit minor issues or save feedback for another round. Each round carries current anonymized wording and all earlier replies. Approve CV and letter separately; later rounds leave approved documents unchanged until reopened. Optional letter examples guide style only, and word-limit warnings remain advisory. Review/export the combined PDF, submit manually and update Tracking. Supporting files remain local throughout.
+
+## Retained standalone workflow for legacy clients
 
 1. Select the application and its CV variant. Add adjustment instructions and choose **Prepare privacy snapshot**.
 2. Review the generated request. Only visible, non-excluded text fields are included. Names and contact values, inline `!!private text!!` fragments and identifying links are masked or omitted. Unmarked prose can still identify you, so review the public text before sharing it.
@@ -81,14 +87,16 @@ Content-Type: application/json
 
 The app retrieves the owner's responses by request ID. Database validation rejects unknown or duplicate fields, malformed payloads, token movement/removal, and added links or HTML. Local reconstruction repeats validation before applying anything.
 
-An existing developer Supabase connection is a different authorization context: it can perform an explicitly requested read of a selected public snapshot, but it normally does not possess the app user's JWT and cannot call the owner-authenticated write RPC. For that connection, ask ChatGPT to read the exact request ID and return JSON for local paste/import. Do not impersonate an app user or broaden database grants to enable writes.
+An existing developer Supabase connection normally lacks the app user's JWT and cannot call these **legacy owner-authenticated RPCs**. For a legacy adjustment request, it can read the exact selected snapshot and return JSON for local paste/import. Do not impersonate an app user or broaden these legacy grants.
+
+The main refinement flow has a separate supported MCP write path: `private.read_refinement_request(request_id)` and `private.save_refinement_proposal(request_id, proposal_id, proposal)`, restricted to the management `postgres` role. These new invoker helpers derive ownership from the immutable request and append a validated joint proposal; browser users can read their own proposals but cannot write them. The existing MCP connection retains its project-wide administrative capabilities. See [the refinement contract](REFINEMENT.md); the old CV-adjustment tables and triggers remain unchanged.
 
 ## What remains local
 
 The full baseline CV, local variant ID, field paths and private token mappings stay in browser storage. They are never part of the published request. Styles, structure, identity and untouched fields come from that local baseline when the app reconstructs the edited CV.
 
-If the source CV has changed since the snapshot, the app rejects the response and asks for a new snapshot. A response cannot edit a different request, relocate a private placeholder, or change the CV structure. Imported responses do not silently replace a career variant.
+If a legacy source CV has changed since its request, local reconstruction rejects the response and requires a new snapshot. The unified workflow checks the entire application baseline and includes manual corrections in later rounds. A response cannot edit a different request, relocate a private placeholder or change the CV structure. No incoming response silently replaces a career variant or application document.
 
-Cloud snapshots cannot restore private information after browser storage is cleared or on another device. Keep full CV backups. Legacy tailored application copies and restored backups remain intact until explicitly assigned to a variant or saved as a subvariant.
+Cloud snapshots cannot restore private information after browser storage is cleared or on another device. Keep application document backups and separate supporting-file/package backups. Legacy tailored application copies and restored backups remain independent; selecting a new template is explicit.
 
 [`tests/cv_adjustments.sql`](tests/cv_adjustments.sql) verifies validation, immutable history, retries, ownership, direct-write enforcement and deletion cascades using synthetic fixtures inside a transaction that rolls back.

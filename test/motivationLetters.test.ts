@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { addIncomingDraft, contextChanges, createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, DEFAULT_TEMPLATE_GUIDANCE,
   editLetter, finalizedLetterRevision, finalizeLetter, letterContextVersion, letterFromEditableText, letterToEditableText, openLetterRevision, parseIncomingLetter, readLetterTemplate, resolveLetterContent,
-  sameLetterContextInput, saveWorkingRevision, unresolvedLetterPlaceholders } from '../src/composables/motivationLetters';
+  sameLetterContextInput, saveWorkingRevision, selectApplicationLetterTemplate, unresolvedLetterPlaceholders } from '../src/composables/motivationLetters';
 import { createTestState } from './helpers';
 
 const template = DEFAULT_LETTER_TEMPLATES[0];
@@ -133,6 +133,72 @@ test('templates have monotonic revisions and importing copies never changes an a
   assert.ok(copies.every((copy) => !DEFAULT_LETTER_TEMPLATES.some((item) => item.id === copy.id)));
   assert.equal(repository.listTemplates().find((item) => item.id === template.id)?.revision, 2);
   assert.equal(repository.listTemplates().length, 4);
+});
+
+test('application template snapshots survive library changes and explicit replacement preserves letter history', () => {
+  const repository = createLetterRepository(memory(), 'owner');
+  const source = { ...template, exampleText: 'An example of concise research motivation.' };
+  const initial = finalizeLetter(editLetter(createApplicationLetter('owner', 'app', source, version), content), version, contact);
+  repository.save(initial);
+  source.exampleText = 'Changed after assignment';
+  repository.saveTemplate({ ...source, structure: 'A new structure', maxWords: 400 });
+  const loaded = repository.load('app')!;
+  assert.equal(loaded.templateSnapshot?.revision, 1);
+  assert.equal(loaded.templateSnapshot?.exampleText, 'An example of concise research motivation.');
+  assert.equal(loaded.templateSnapshot?.structure, template.structure);
+  const replacement = repository.listTemplates().find((item) => item.id === template.id)!;
+  const selected = selectApplicationLetterTemplate(loaded, replacement);
+  assert.equal(selected.templateSnapshot?.revision, 2);
+  assert.equal(selected.maxWords, 400);
+  assert.equal(selected.finalRevisionId, null);
+  assert.deepEqual(selected.working, loaded.working);
+  assert.deepEqual(selected.revisions, loaded.revisions);
+  assert.deepEqual(selected.workingContext, loaded.workingContext);
+  replacement.structure = 'Later mutation';
+  assert.equal(selected.templateSnapshot?.structure, 'A new structure');
+});
+
+test('legacy letters pin the matching current template once without changing text, settings or review history', () => {
+  const storage = memory();
+  const repository = createLetterRepository(storage, 'owner');
+  const legacy = finalizeLetter(editLetter(createApplicationLetter('owner', 'app', template, version), content), version, contact);
+  delete legacy.templateSnapshot;
+  legacy.maxWords = 400;
+  const current = repository.saveTemplate({ ...template, tone: 'Current tone', exampleText: 'Example wording.' });
+  repository.save(legacy);
+  const loaded = repository.load('app')!;
+  assert.deepEqual(loaded.templateSnapshot, current);
+  const { templateSnapshot: _snapshot, ...rest } = loaded;
+  assert.deepEqual(rest, legacy);
+  repository.saveTemplate({ ...current, tone: 'A later tone' });
+  assert.deepEqual(repository.load('app')?.templateSnapshot, current);
+  assert.equal(JSON.parse(repository.exportLetter('app')).templateSnapshot.tone, 'Current tone');
+
+  const unknown = { ...legacy, applicationId: 'missing-template', templateId: 'removed-template' };
+  repository.save(unknown);
+  assert.deepEqual(repository.load(unknown.applicationId), unknown, 'a missing template must not be silently replaced');
+});
+
+test('example letter bounds, template backups and application backups preserve frozen reference wording', () => {
+  assert.equal(readLetterTemplate(template).exampleText, '');
+  assert.equal(readLetterTemplate({ ...template, exampleText: 'a'.repeat(20000) }).exampleText?.length, 20000);
+  for (const exampleText of [42, 'a'.repeat(20001)]) assert.throws(() => readLetterTemplate({ ...template, exampleText }), /example letter/);
+  const repository = createLetterRepository(memory(), 'owner');
+  const saved = repository.saveTemplate({ ...template, exampleText: 'Reference introduction and closing.' });
+  const imported = repository.importTemplates(repository.exportTemplates()).find((item) => item.name === saved.name)!;
+  assert.equal(imported.exampleText, saved.exampleText);
+  const letter = createApplicationLetter('owner', 'app', saved, version);
+  repository.save(letter);
+  assert.deepEqual(repository.importLetter(repository.exportLetter('app'), 'app').templateSnapshot, saved);
+  assert.throws(() => repository.save({ ...letter, templateSnapshot: { ...saved, id: 'wrong-template' } }), /does not match/);
+});
+
+test('empty optional examples preserve legacy context fingerprints and nonempty examples change context', () => {
+  const { exampleText: _example, ...legacyTemplate } = template;
+  const application = { context_json: {}, cv_variant_id: null };
+  const before = letterContextVersion(application, null, legacyTemplate, 'en', '', 450);
+  assert.deepEqual(letterContextVersion(application, null, { ...legacyTemplate, exampleText: '' }, 'en', '', 450), before);
+  assert.notEqual(letterContextVersion(application, null, { ...legacyTemplate, exampleText: 'New style example' }, 'en', '', 450).content, before.content);
 });
 
 test('legacy template libraries receive editable defaults and retain explicit guidance in backups', () => {

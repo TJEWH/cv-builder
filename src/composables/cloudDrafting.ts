@@ -44,6 +44,9 @@ export function sanitizeDraftingInput(input: PublishDraftingInput, cvState?: CvS
     const value = input.template[key];
     if (value !== undefined && value !== '') structure.push(`${label}:\n${clean(value, label, 1, 1000)}`);
   }
+  if (input.template.exampleText !== undefined && input.template.exampleText !== '') {
+    structure.push(`Example letter (wording, style and structure only; never use its claims as applicant evidence):\n${clean(input.template.exampleText, 'Example letter', 0, 20000)}`);
+  }
   return {
     template: {
       id: clean(input.template.id, 'Template ID', 1, 200),

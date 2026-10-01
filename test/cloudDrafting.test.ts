@@ -86,6 +86,20 @@ test('all template guidance reaches the existing cloud structure after privacy r
   assert.throws(() => sanitizeDraftingInput({ ...input, template: { ...input.template, subjectInstructions: 'a'.repeat(1001) } }), /Subject instructions/);
 });
 
+test('template examples share only anonymized style guidance through the legacy structure field', () => {
+  const state = createTestState({ contact: { ...createTestState().contact, name: 'Private Person', email: 'private@example.org' } });
+  const exampleText = 'Private Person wrote to private@example.org about !!Secret work!!. [!!Private letter!!](https://secret.example).';
+  const safe = sanitizeDraftingInput({ ...input, template: { ...input.template, exampleText } }, state);
+  assert.ok(safe.template.structure.includes('wording, style and structure only; never use its claims as applicant evidence'));
+  assert.ok(safe.template.structure.includes('{{APPLICANT_NAME}} wrote to {{APPLICANT_EMAIL}} about {{CONFIDENTIAL}}. {{CONFIDENTIAL}}.'));
+  for (const secret of ['Private Person', 'private@example.org', 'Secret work', 'secret.example']) assert.ok(!JSON.stringify(safe).includes(secret));
+  assert.deepEqual(Object.keys(safe.template).sort(), ['id', 'name', 'revision', 'structure', 'tone']);
+  assert.deepEqual(sanitizeDraftingInput(safe), safe, 'repeated sanitization must not append the example twice');
+  assert.equal(exampleText.includes('Private Person'), true, 'local source wording stays unchanged');
+  assert.throws(() => sanitizeDraftingInput({ ...input, template: { ...input.template, exampleText: 'a'.repeat(20001) } }), /Example letter/);
+  assert.throws(() => sanitizeDraftingInput({ ...input, template: { ...input.template, exampleText: 'a'.repeat(20000) } }), /Template structure/);
+});
+
 test('roles and cities remain factual CV evidence while contact identity fields become placeholders', () => {
   const state = createTestState({ experience: { jobs: [{ id: 'job', title: 'Software Engineer', place: 'Neustadt', company: 'Public employer' }] } });
   const result = prepareDraftingContext({ ...input, application, cvState: state,

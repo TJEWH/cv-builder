@@ -18,6 +18,8 @@ export interface LetterTemplate extends LetterTemplateGuidance {
   revision: number;
   structure: string;
   tone: string;
+  /** Optional reference wording/style, never evidence of the applicant's experience. */
+  exampleText?: string;
   language: string;
   maxWords: number;
   updatedAt: string;
@@ -40,6 +42,8 @@ export interface ApplicationLetter {
   applicationId: string;
   userId: string;
   templateId: string;
+  /** Frozen on selection; older local backups are pinned when loaded. */
+  templateSnapshot?: LetterTemplate;
   instructions: string;
   language: string;
   maxWords: number;

@@ -7,6 +7,8 @@ export interface DraftingTemplateSnapshot extends LetterTemplateGuidance {
   revision: number;
   structure: string;
   tone: string;
+  /** Sanitized into structure for the legacy drafting RPC. */
+  exampleText?: string;
 }
 
 export interface PublishDraftingInput {

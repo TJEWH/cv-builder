@@ -22,6 +22,8 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import JobWorkspace from '../../src/components/JobWorkspace.vue';
 import { createSampleDocument } from '../../src/composables/builtinConfigurations';
 import { DRAFTING_IDENTITY_PLACEHOLDERS } from '../../src/composables/cloudDrafting';
+import { createLetterRepository, DEFAULT_LETTER_TEMPLATES } from '../../src/composables/motivationLetters';
+import { createRefinementFixture, REFINEMENT_TABLES } from '../refinementFixture';
 import '../../src/assets/cv.css';
 
 if (!import.meta.env.DEV) throw new Error('The browser fixture is available only on the development server.');
@@ -46,7 +48,7 @@ const database: Record<string, Row[]> = {
       supervisor_research_focus: { supervisor: 'Prof. Alex Example', summary: 'Learning safe human–robot collaboration from demonstrations.', keywords: ['Robot learning', 'Safety'], evidence: [{ label: 'Lab research', url: 'https://example.org/lab' }] },
       supervisor_top_papers: [{ title: 'Example paper on learning from human feedback', year: 2025, why_relevant: 'Connects interactive learning with safe robotics.', url: 'https://example.org/paper' }],
       requirements: ['MSc in robotics or computer science', 'Python and C++ experience'],
-      required_documents: ['CV', 'Motivation letter', 'Academic transcripts'],
+      required_documents: ['CV', 'Motivation letter (maximum 400 words)', 'Transcript of records'],
       official_url: 'https://example.org/opportunities/robotics', verification_level: 'official listing',
       source_url: 'https://example.org/opportunities/robotics',
       sources: [
@@ -70,8 +72,10 @@ const database: Record<string, Row[]> = {
   drafting_contexts: [],
   motivation_letter_drafts: [],
 };
+const refinement = createRefinementFixture(database, account);
 
 function from(table: string) {
+  if (REFINEMENT_TABLES.includes(table as typeof REFINEMENT_TABLES[number])) return refinement.from(table);
   const filters: [string, unknown][] = [];
   let first = 0;
   let last = Infinity;
@@ -115,11 +119,13 @@ function from(table: string) {
 }
 
 const client = {
+  supabaseUrl: 'https://fixture.supabase.co',
   from,
   rpc(name: string, parameters: Row) {
     let signal: AbortSignal | undefined;
     const execute = () => {
       if (signal?.aborted) return { data: null, error: new Error('Aborted') };
+      if (['save_refinement_state', 'publish_refinement_request', 'save_refinement_review'].includes(name)) return refinement.rpc(name, parameters);
       const snapshot = {
         id: parameters.p_cv_variant_id, user_id: account, name: parameters.p_cv_name,
         content_json: parameters.p_content_json, config_json: parameters.p_config_json,
@@ -157,6 +163,7 @@ const client = {
       } else if (name === 'remove_job_application') {
         const application = database.applications.find((row) => row.id === parameters.p_application_id && row.user_id === account);
         database.applications = database.applications.filter((row) => row !== application);
+        for (const table of [...REFINEMENT_TABLES, 'drafting_contexts', 'motivation_letter_drafts']) database[table] = database[table].filter(row => row.application_id !== application?.id);
         const review = database.opportunity_reviews.find((row) => row.opportunity_id === application?.opportunity_id && row.user_id === account);
         if (review?.state === 'not_interested') review.state = 'unreviewed';
       } else if (name === 'assign_job_application_cv') {
@@ -226,9 +233,23 @@ const Fixture = defineComponent({
     const tab = ref<'opportunities' | 'applications'>('opportunities');
     const lang = ref('en');
     const draftStatus = ref('');
+    const workspaceKey = ref(0);
     const cv = createSampleDocument();
     const fixtureVariants = ref<SavedConfiguration[]>([{ id: 'sample-cv', name: 'Sample research CV', mtime: 1 }]);
     const fixtureStates = new Map<string, CvState>([['sample-cv', cv]]);
+    async function select400WordScenario() {
+      const template = { ...DEFAULT_LETTER_TEMPLATES[0], maxWords: 400 };
+      createLetterRepository(localStorage, account).saveTemplate(template);
+      await client.rpc('create_job_application', { p_application_id: crypto.randomUUID(), p_opportunity_id: database.opportunities[0].id });
+      tab.value = 'applications'; workspaceKey.value++;
+      draftStatus.value = '400-word PhD scenario ready. Open the application, select both templates and attach a transcript.';
+    }
+    function returnRefinementProposal(overLimit = false) {
+      try {
+        const returned = refinement.seedProposal(undefined, { overLimit });
+        draftStatus.value = `Synthetic proposal returned (${returned.proposal_json.cvEdits.length} CV changes). Use “Check for proposal”, then select the latest proposal.`;
+      } catch (cause) { draftStatus.value = cause instanceof Error ? cause.message : String(cause); }
+    }
     async function simulateChatGptDraft() {
       const context = database.drafting_contexts.at(-1);
       if (!context) { draftStatus.value = 'Publish an application context first.'; return; }
@@ -249,9 +270,12 @@ const Fixture = defineComponent({
         ...(['opportunities', 'applications'] as const).map((value) => h('button', { class: 'btn', onClick: () => { tab.value = value; } }, value)),
         h('button', { class: 'btn', onClick: () => { lang.value = lang.value === 'en' ? 'de' : 'en'; } }, lang.value === 'en' ? 'Deutsch' : 'English'),
         h('button', { class: 'btn', onClick: simulateChatGptDraft }, 'Simulate returned ChatGPT draft'),
+        h('button', { class: 'btn', onClick: select400WordScenario }, '400-word PhD scenario'),
+        h('button', { class: 'btn', onClick: () => returnRefinementProposal() }, 'Return refinement proposal'),
+        h('button', { class: 'btn', onClick: () => returnRefinementProposal(true) }, 'Return over-limit proposal'),
         draftStatus.value ? h('span', { role: 'status', style: 'font-size:12px' }, draftStatus.value) : null,
       ]),
-      h(JobWorkspace, { client, userId: account, tab: tab.value, lang: lang.value,
+      h(JobWorkspace, { key: workspaceKey.value, client, userId: account, tab: tab.value, lang: lang.value, projectId: 'fixture',
         configurations: fixtureVariants.value, selectedId: 'sample-cv',
         readVersion: (id: string) => fixtureStates.has(id) ? structuredClone(fixtureStates.get(id)!) : null,
         createSubvariant: (sourceId: string, name: string, state: CvState) => {

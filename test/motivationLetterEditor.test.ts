@@ -8,9 +8,10 @@ import { createRenderer, h, nextTick, reactive } from 'vue';
 import type { Component } from 'vue';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Application } from '../src/cloudTypes';
-import type { ApplicationLetter } from '../src/letterTypes';
+import type { ApplicationLetter, LetterContextVersion, LetterTemplate } from '../src/letterTypes';
 import type { PublishDraftingInput } from '../src/draftingTypes';
 import { prepareDraftingContext } from '../src/composables/cloudDrafting';
+import { createLetterRepository } from '../src/composables/motivationLetters';
 import { createSampleDocument } from '../src/composables/builtinConfigurations';
 import { stub } from './helpers';
 
@@ -68,6 +69,7 @@ test('replacing the application with its same-ID published CV preserves the in-f
   const setup = (mounted as { $: { setupState: {
     record: ApplicationLetter; busy: boolean; error: string; publishedContextId: string; editorText: string;
     updateText(value: string): void; publishContext(): Promise<void>;
+    selectedTemplate: LetterTemplate; context: LetterContextVersion; reloadTemplates(): void; selectTemplate(id: string): void;
   } } }).$.setupState;
   setup.record.working = { subject: 'Research application', salutation: 'Dear committee,', body: 'Keep my manually edited letter.', closing: 'Kind regards,\n{{APPLICANT_NAME}}' };
   await nextTick();
@@ -91,4 +93,17 @@ test('replacing the application with its same-ID published CV preserves the in-f
   assert.equal(setup.editorText, editedText);
   assert.ok(setup.publishedContextId);
   assert.ok(setup.record.publishedContexts[setup.publishedContextId]);
+
+  const frozen = JSON.parse(JSON.stringify(setup.selectedTemplate)) as LetterTemplate;
+  const frozenContext = { ...setup.context };
+  createLetterRepository(globalThis.localStorage, 'owner').saveTemplate({ ...frozen, tone: 'Changed library tone', exampleText: 'New example wording.' });
+  setup.reloadTemplates();
+  await nextTick();
+  assert.deepEqual(setup.selectedTemplate, frozen, 'library updates cannot replace the application template snapshot');
+  assert.deepEqual(setup.context, frozenContext, 'library updates cannot invalidate a prepared application context');
+  setup.selectTemplate(frozen.id);
+  await nextTick();
+  assert.equal(setup.selectedTemplate.tone, 'Changed library tone', 'explicit selection takes the current library revision');
+  assert.notEqual(setup.context.content, frozenContext.content);
+  assert.equal(setup.editorText, editedText, 'template replacement preserves all existing wording');
 });

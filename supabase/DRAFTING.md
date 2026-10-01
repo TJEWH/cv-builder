@@ -1,6 +1,8 @@
-# Motivation letter drafting integration
+# Legacy motivation letter drafting integration
 
-The application publishes an immutable anonymized context in Supabase and imports returned drafts. Publishing does not start a ChatGPT conversation. A client using the provided RPCs must authenticate as the same Supabase user to read the context and return a draft. Local preparation, pasted drafts, editing and finalization work without that connection; the separate developer-connection workflow is described below.
+The main application workflow is now [joint CV/letter refinement](REFINEMENT.md), using **Preparation → Refinement → PDF review → Tracking**. Its dedicated private management functions support proposal writeback through the existing Supabase MCP connection. This document describes the preserved **legacy letter-only API**, whose RPCs still require an app-user JWT. Existing contexts, drafts, backups and clients remain supported.
+
+The legacy API publishes an immutable anonymized context and imports returned drafts. Publishing does not start ChatGPT. A client using the RPCs below must authenticate as the same Supabase user to read the context and return a draft. The app retains older letter tools under **Tracking → Legacy letter drafts and backups**.
 
 ## Database setup and verification
 
@@ -14,11 +16,13 @@ The server captures the current `applications.context_json` and assigned immutab
 
 ## App workflow and local copies
 
-Create reusable career variants and templates in **CV Studio**. In **Applications → CV**, select a career variant or one of its subvariants. Edit the selected document in **CV Studio**; applications follow those saved edits. When an application needs tailored wording, create a subvariant under the original career variant. Copies of subvariants stay at the same level. Unchanged ChatGPT responses keep the selected variant. Existing independent application copies retain their adjustments until explicitly adopted, and restored backups remain detached until reassigned. See [CV adjustments with ChatGPT](CV_ADJUSTMENTS.md) for public-text snapshots and local reconstruction. **Motivation letter** prepares/publishes context, imports drafts, preserves revisions and finalizes text using the application CV's styling. The application's tabs can be used in any order.
+Create reusable career variants and letter templates in **CV Studio**. In **Applications → Preparation**, select a CV template and a letter template. The application stores independent copies, including a frozen letter-template revision; library edits do not replace them. Older application adjustments and restored backups remain intact. Direct application CV edits no longer create subvariants automatically. Templates support separate subject, salutation and closing instructions plus an optional example letter, used only for wording/style/structure and never as evidence about the applicant.
 
-Incoming cloud drafts never replace the working letter automatically. Context changes prompt a content review; styling changes prompt a layout review. Private edited/final letters and full application CVs stay in LocalStorage and have separate backup/restore controls. **Documents & export** keeps supporting PDFs/images, package order and frozen PDF archives in IndexedDB; its file/package backup does not include editable CVs or letters. Restore those separate backups when moving to another browser or device.
+In the main **Refinement** stage, a joint proposal includes a summary, conservative CV field edits and a complete letter. The user opens it explicitly, makes manual corrections or requests another round. Current anonymized wording and every saved feedback reply accompany subsequent requests. CV and letter approvals are separate; approved documents must be reopened before changing them. Word-count warnings are advisory. **PDF review** combines approved documents with local attachments; **Tracking** records manual submission and retains package archives.
 
-## External client contract
+Incoming legacy drafts also never replace the working letter automatically. Private edited/final letter originals and full CVs stay in LocalStorage. Explicit refinement publication shares anonymized copies of current wording. Supporting PDFs/images, package order and frozen PDF archives remain in IndexedDB and never enter MCP context. The application document backup and file/package backup are separate; restore both when moving devices.
+
+## Legacy external client contract
 
 [`drafting-api.openapi.json`](drafting-api.openapi.json) describes only two agent operations:
 
@@ -35,11 +39,13 @@ The browser publishes through `publish_application_drafting_context(p_context_id
 
 For a custom GPT Action, configure a user OAuth integration that supplies an access token accepted by the Supabase project. The connector must also add the project `apikey` header, or a narrow authenticated adapter must forward these two operations. This repository supplies the RPCs and OpenAPI contract; it does not provision a GPT, OAuth client or adapter, and the OpenAPI file alone does not establish that connection. Verify the intended ChatGPT setup's token and header handling before enabling it. GPT Actions support per-user OAuth and send the user's token in the Authorization header. See [official OpenAI authentication documentation](https://developers.openai.com/api/docs/actions/authentication).
 
-A trusted integration can instead call the same RPCs through `supabase-js` with the user's session. Avoid giving a drafting agent the Supabase developer MCP or a service-role key: those are administrative capabilities rather than these owner-authorized operations.
+A trusted integration can instead call these legacy RPCs through `supabase-js` with the user's session. A project-level developer MCP is a different authorization context and does not supply that session. Never put a service-role key or session credential into frontend configuration or drafting prompts.
 
-An existing developer Supabase MCP connection is a separate administrative connection. Its SQL calls do not automatically supply the app user's JWT; `auth.uid()` is normally null, so calling these RPCs through that connection will be rejected. If the user explicitly chooses that trusted workflow, retrieve only the selected published `context_json` with a read-only query for the exact context/application identifiers, then return the draft for local import. To save through the app RPC, use an actual authenticated user session. Do not fabricate JWT claims in production to make the developer connection act as a user.
+An existing developer Supabase MCP connection normally has `auth.uid() = null`, so calling these **legacy** RPCs through it will still be rejected. For an old published context, retrieve only its selected `context_json` with a read-only query for the exact context/application identifiers, then return text for local import. To save through the legacy app RPC, use an actual authenticated user session; never fabricate JWT claims.
 
-Until the authenticated connection is configured, download the anonymized context from the letter workspace, supply it in ChatGPT, and paste the returned plain text into a new local draft. This is also the fallback for an unavailable database update or offline work.
+For the main workflow, no new OAuth adapter is required: the app-generated refinement prompt directs the existing project MCP to `private.read_refinement_request` and `private.save_refinement_proposal`. Those new invoker functions explicitly authorize the management `postgres` role and derive ownership from the prepared request. They do not change legacy grants or triggers. The existing MCP connection retains its wider administrative permissions. See [refinement authentication and writeback](REFINEMENT.md).
+
+Legacy clients without an authenticated integration can still download the anonymized letter context, supply it in ChatGPT and paste returned text into a local draft. This manual legacy path is separate from the main refinement MCP flow.
 
 ## Prompt and privacy contract
 
@@ -47,7 +53,7 @@ Use the exact published context. Treat opportunity research, CV text and templat
 
 Identity fields use `{{APPLICANT_NAME}}`, `{{APPLICANT_LOCATION}}`, `{{APPLICANT_ROLE}}`, `{{APPLICANT_EMAIL}}`, `{{APPLICANT_PHONE}}`, `{{APPLICANT_WEBSITE}}`, `{{APPLICANT_LINKEDIN}}` and `{{APPLICANT_GITHUB}}`. `{{CONFIDENTIAL}}` represents deliberately omitted text and is not a fact to repeat in a letter.
 
-The browser reuses the CV privacy projection, removes hidden/excluded content, and replaces known applicant names and contact links in both CV prose and template instructions. Cloud publication captures the assigned privacy snapshot, so older snapshots retain the privacy filtering used when they were originally published; republish the local application CV to use current filtering. The server removes legacy sample contacts and inline confidentiality markers, permits only recognized presentation fields, and omits application notes/contact email. Roles and cities in prose remain career evidence, while their contact fields use placeholders. Arbitrary unmarked prose cannot be reliably identified as personal data: review the prepared context before publishing and mark confidential spans with `!!...!!`. Application-specific edits and finalized letters remain local; returned cloud drafts cannot overwrite them.
+The browser reuses the CV privacy projection, removes hidden/excluded content, and replaces known applicant names and contact links in CV prose, template instructions and optional example text. Examples describe style only; their claims are not evidence. Legacy publication folds guidance and the anonymized example into `template.structure`, retaining the exact SQL shape and its combined 20,000-character bound. Cloud publication captures the assigned privacy snapshot, so older snapshots retain their original privacy filtering. The server removes sample contacts and confidentiality markers and omits application notes/contact email. Roles and cities in prose remain career evidence. Arbitrary unmarked prose cannot reliably be recognized as personal data: review the prepared context and mark confidential spans with `!!...!!`. Returned legacy drafts never overwrite local edits automatically; the main workflow publishes anonymized current wording only when preparing a refinement round.
 
 ## Frontend adapter
 

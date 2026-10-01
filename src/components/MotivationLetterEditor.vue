@@ -5,7 +5,7 @@ import type { Application } from '../cloudTypes';
 import type { CvState } from '../types';
 import type { ApplicationLetter, LetterReadiness, LetterTemplate } from '../letterTypes';
 import { addIncomingDraft, contextChanges, createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, editLetter,
-  finalizedLetterRevision, finalizeLetter, letterContextVersion, letterFromEditableText, letterToEditableText, openLetterRevision, parseIncomingLetter, sameLetterContextInput, saveWorkingRevision, unresolvedLetterPlaceholders } from '../composables/motivationLetters';
+  finalizedLetterRevision, finalizeLetter, letterContextVersion, letterFromEditableText, letterToEditableText, openLetterRevision, parseIncomingLetter, sameLetterContextInput, saveWorkingRevision, selectApplicationLetterTemplate, unresolvedLetterPlaceholders } from '../composables/motivationLetters';
 import { createDraftingRepository, prepareDraftingContext, sanitizeDraftingInput } from '../composables/cloudDrafting';
 import MotivationLetterPreview from './MotivationLetterPreview.vue';
 
@@ -33,7 +33,7 @@ const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 let epoch = 0;
 const repository = () => createLetterRepository(localStorage, props.userId);
 const cloudRepository = computed(() => createDraftingRepository(props.client, () => props.userId));
-const selectedTemplate = computed(() => templates.value.find((item) => item.id === record.value?.templateId) || templates.value[0] || DEFAULT_LETTER_TEMPLATES[0]);
+const selectedTemplate = computed(() => record.value?.templateSnapshot || templates.value.find((item) => item.id === record.value?.templateId) || templates.value[0] || DEFAULT_LETTER_TEMPLATES[0]);
 const context = computed(() => letterContextVersion(props.application, props.cvState, selectedTemplate.value,
   record.value?.language || props.lang, record.value?.instructions || '', record.value?.maxWords || selectedTemplate.value.maxWords));
 const changes = computed(() => record.value ? contextChanges(record.value, context.value) : { content: false, theme: false });
@@ -78,11 +78,11 @@ function updateText(value: string) {
   // Keep the caret and in-progress whitespace stable while typing.
   editorText.value = value;
 }
-function selectTemplate() {
+function selectTemplate(id: string) {
   if (!record.value) return;
-  record.value.maxWords = selectedTemplate.value.maxWords;
-  record.value.language = selectedTemplate.value.language;
-  record.value.finalRevisionId = null;
+  const template = templates.value.find((item) => item.id === id);
+  if (!template) return;
+  record.value = selectApplicationLetterTemplate(record.value, template);
   preparedContext.value = '';
 }
 function reviewContext() {
@@ -231,7 +231,7 @@ defineExpose({ getPdfBlob, getRenderElement: () => preview.value?.getRenderEleme
       <details class="letter-context" open>
         <summary>{{ text('Drafting context', 'Kontext für den Entwurf') }}</summary>
         <div class="letter-context-grid">
-          <label>{{ text('Letter template', 'Briefvorlage') }}<select v-model="record.templateId" @change="selectTemplate"><option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }} · r{{ template.revision }}</option></select></label>
+          <label>{{ text('Letter template', 'Briefvorlage') }}<select :value="record.templateId" @change="selectTemplate(($event.target as HTMLSelectElement).value)"><option v-if="!templates.some((item) => item.id === record!.templateId)" :value="record.templateId">{{ selectedTemplate.name }}</option><option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }} · r{{ template.revision }}</option></select><span class="letter-help">{{ text('Saved template:', 'Gespeicherte Vorlage:') }} {{ selectedTemplate.name }} · r{{ selectedTemplate.revision }}</span></label>
           <label>{{ text('Language', 'Sprache') }}<select v-model="record.language"><option value="en">English</option><option value="de">Deutsch</option></select></label>
           <label>{{ text('Target words', 'Zielwortzahl') }}<input v-model.number="record.maxWords" type="number" min="50" max="2000" /></label>
         </div>
