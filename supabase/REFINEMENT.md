@@ -13,7 +13,7 @@ All three browser RPCs are `SECURITY INVOKER`, require a signed-in non-anonymous
 | RPC | Arguments | Behavior |
 | --- | --- | --- |
 | `public.save_refinement_state` | `p_application_id`, `p_setup`, `p_approvals`, `p_expected_revision` | Save frozen template/settings with optimistic concurrency. Initial expected revision is `0`; subsequent saves require the current revision. Existing approval hashes may be preserved or cleared, but new approvals require a recorded review. |
-| `public.publish_refinement_request` | `p_request` | Freeze a request, capture authoritative application research and assigned privacy CV, and advance the current request atomically. Repeat the exact UUID and payload to recover an uncertain response. |
+| `public.publish_refinement_request` | `p_request` | On first insertion, freeze a request, capture authoritative application research and assigned privacy CV, and advance the current request atomically. Repeating the exact UUID and payload returns the original receipt without changing the current request. |
 | `public.save_refinement_review` | `p_application_id`, nullable `p_request_id`, `p_kind`, `p_payload`, `p_id` | Append feedback or atomically record an approval/reopening and update state. Identical retries return the stored row. |
 
 Read `application_refinement_state`, `application_refinement_requests`, `application_refinement_proposals` and `application_refinement_reviews` through the signed-in client. Order request/review history by `created_at, id` and always load **all** feedback before publishing another request. Proposal refresh only adds history; it never changes working documents automatically.
@@ -31,6 +31,32 @@ The respective review kinds are `feedback`, `approve_cv`/`approve_letter`, and `
 `request_json` preserves the exact version-1 `RefinementRequest` in `src/refinementTypes.ts`: IDs, editable privacy CV fields, frozen letter setup/current text, requested scope, parent proposal and accumulated feedback. Build feedback entries using the stored review ID, text, scope and `created_at`; every saved feedback row must appear exactly once in creation order. Missing, altered or reordered history is rejected. If complete history exceeds the bounded request size, publication fails explicitly rather than truncating context.
 
 Each request row additionally contains server-captured `opportunity_snapshot` and `cv_snapshot`. These exclude application notes and files. The CV has identity placeholders and only existing privacy-filtered content; current editable fields in `request_json.cv.fields` include later manual wording corrections. Client-supplied opportunity text is already anonymized and must be treated as source material. The browser anonymizes every shared text boundary; the database additionally rejects inline confidentiality markers, sample identities and unknown structural fields. Arbitrary prose cannot be proven anonymous by SQL checks alone.
+
+### Snapshot metadata and local availability
+
+The existing request/state APIs support snapshot inspection and reuse without an additional database endpoint. The available metadata has distinct meanings:
+
+| Source | Durable server metadata | Not supplied by this source |
+| --- | --- | --- |
+| Request row | Immutable request UUID, application/owner UUIDs and server `created_at`; frozen scope, inputs, parent proposal and ordered feedback | A sequential document version, original device or private reconstruction baseline |
+| `cv_snapshot` | Assigned cloud CV `snapshotId`, cloud row `revision` and anonymized content captured on publication | Original CV Studio variant/base ID, original name or base revision, application CV working revision |
+| `request_json.letter` | Frozen template ID, name, revision, `updatedAt`, guidance/settings and anonymized working text | Working letter revision ID, working timestamp, private text or final revision ID |
+| `opportunity_snapshot` | The application's authoritative saved `context_json` at publication | A separate frozen `context_captured_at`; source-record dates inside the JSON are not the application's capture time |
+| Refinement state | Current request UUID, approval hashes, state revision and `updated_at` | A document revision counter, guaranteed local file availability or proof that this device can reconstruct the request |
+
+Original CV provenance (`baseId`, `variantId`, `baseName`, `baseRevision`), application CV working revision, full baselines, privacy-token bindings and local baseline signatures live in browser application records/backups. Letter working/history/final revision IDs also remain local. A cloud CV snapshot revision must not be labeled as the source template revision. Unknown original version or device availability should be displayed as unavailable rather than inferred from cloud timestamps or IDs.
+
+The snapshot overview uses local `baseName`/`baseRevision` for CV source provenance, the local working-letter `updatedAt` and fingerprint for letter state, and the saved request's anonymized wording and `created_at` for the published copy. New local request records may freeze these source details in optional `LocalRefinementRequest.source`; this stays alongside local reconstruction data and is never inserted into `request_json`. Legacy requests and other devices may lack it. Freshness is verified only when the matching local baseline is available; missing local evidence is an unknown state, not proof that the snapshot is current or stale.
+
+Use `current_request_id` to identify the active request, then its own `created_at` for the publication time. The most recent request by date is not necessarily current: saving changed letter setup clears the current pointer, and older immutable requests remain available. State revision/time may advance for settings, publication or approval actions; they do not identify the version of either working document.
+
+### Reusing requests and retained feedback
+
+An identical retry of `publish_refinement_request` returns the saved row before running capture/activation triggers. It does not recapture changed research/CV data, add later feedback, or reactivate an older request. Reusing a published snapshot for another prompt therefore requires that its UUID is still the server's current request and its frozen scope/inputs/history match the intended work. Applying a resulting proposal additionally requires the matching local baseline and reconstruction data. To make historical content current again, publish a new UUID through the existing API; do not overwrite history or set the pointer directly. After an uncertain publication result, first retry the same UUID and exact payload and reload current state before deciding whether a new round is needed.
+
+The client fixes historical-request reactivation by reusing only the current published request and allocating a new UUID for a historical baseline. It continues to use the existing publication, state and request-reading APIs; no backend metadata, SQL or authentication changes are required. When the local letter record is genuinely absent, it may be initialized from the current request's anonymized letter text and frozen template/settings. This restores shared wording, not missing private identity data or prior local history. Never replace an existing local letter—even an empty one—and never silently treat a corrupt/unreadable local record as absent.
+
+Feedback is anonymized before its review row is saved. A subsequent request must retain every saved reply's exact ID, text and scope in `created_at, id` order; its timestamp must represent the same instant. The server rejects missing, altered or additional entries. Rechecking old feedback against current privacy information must not silently change or discard it: if anonymization would now alter an immutable saved reply, stop publication and report that incompatibility. An already saved request's idempotent retry still requires its original JSON payload, including the original timestamp representation. Version 1 rejects additional request keys, so new durable source-version metadata cannot be added to the upload payload without a separate contract/database change.
 
 ## Existing ChatGPT Supabase MCP
 

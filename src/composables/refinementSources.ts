@@ -1,0 +1,49 @@
+import type { LetterContent, LetterTemplate } from '../letterTypes';
+import type { LocalRefinementRequest, RefinementSetup } from '../refinementTypes';
+import { refinementSignature } from './applicationRefinement';
+import { letterToEditableText } from './motivationLetters';
+
+export type RefinementSettingSource = 'application' | 'template';
+export interface RefinementSettingOverrides { language?: string | null; maxWords?: number | null }
+export interface ResolvedRefinementSettings {
+  setup: RefinementSetup;
+  provenance: { language: RefinementSettingSource; maxWords: RefinementSettingSource };
+}
+
+/** Application overrides take precedence; the interface language is never a document default. */
+export function resolveRefinementSettings(template: LetterTemplate, overrides?: RefinementSettingOverrides | null): ResolvedRefinementSettings {
+  const applicationLanguage = typeof overrides?.language === 'string' && overrides.language.trim().length > 0;
+  const applicationWords = overrides?.maxWords !== undefined && overrides.maxWords !== null;
+  return {
+    setup: {
+      template,
+      language: applicationLanguage ? overrides!.language! : template.language,
+      // Keep invalid-but-present values visible so publication validates them instead of silently changing the user's choice.
+      maxWords: applicationWords ? overrides!.maxWords! : template.maxWords,
+    },
+    provenance: { language: applicationLanguage ? 'application' : 'template', maxWords: applicationWords ? 'application' : 'template' },
+  };
+}
+
+/** Local serialization only. Send its text through prepareRefinement before displaying a shared preview or publishing. */
+export function serializeRefinementDraft(working?: LetterContent | null): { text: string; empty: boolean } {
+  const empty = !working || [working.subject, working.salutation, working.body, working.closing].every(part => part.trim().length === 0);
+  return { text: empty ? '' : letterToEditableText(working!), empty };
+}
+
+/** A fresh preview receives new IDs; only those IDs are irrelevant to immutable-request reuse. */
+export function refinementInputsSignature(local: LocalRefinementRequest): string {
+  const { requestId: _requestId, cv, ...request } = local.request;
+  const { requestId: _cvRequestId, ...cvRequest } = cv;
+  return refinementSignature({
+    request: { ...request, cv: cvRequest },
+    baselineSignature: local.baselineSignature,
+    baselineState: local.cv.baselineState,
+    sourceVariantId: local.cv.sourceVariantId,
+  });
+}
+
+/** A cloud row without the original local privacy baseline cannot prove that the current private documents still match. */
+export function sameRefinementInputs(left: LocalRefinementRequest | null | undefined, right: LocalRefinementRequest | null | undefined): boolean {
+  return !!left && !!right && refinementInputsSignature(left) === refinementInputsSignature(right);
+}

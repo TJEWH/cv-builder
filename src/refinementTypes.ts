@@ -33,4 +33,11 @@ export interface RefinementReviewRow {
 /** Full baseline and reconstruction bindings never cross the upload boundary. */
 export interface LocalRefinementRequest {
   request: RefinementRequest; cv: LocalCvAdjustmentRequest; baselineSignature: string;
+  /** Optional local provenance for the frozen source; never part of request_json. */
+  source?: {
+    cv: { name: string; variantId: string; baseRevision: number; hasApplicationEdits: boolean };
+    letter: { updatedAt: string; version: string };
+    contextCapturedAt: string;
+  };
+  publishedAt?: string;
 }

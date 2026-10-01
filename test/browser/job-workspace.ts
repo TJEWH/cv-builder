@@ -272,6 +272,7 @@ const Fixture = defineComponent({
         h('button', { class: 'btn', onClick: () => { lang.value = lang.value === 'en' ? 'de' : 'en'; } }, lang.value === 'en' ? 'Deutsch' : 'English'),
         h('button', { class: 'btn', onClick: simulateChatGptDraft }, 'Simulate returned ChatGPT draft'),
         h('button', { class: 'btn', onClick: select400WordScenario }, '400-word PhD scenario'),
+        h('button', { class: 'btn', onClick: () => { workspaceKey.value++; draftStatus.value = 'Workspace reopened with existing browser documents and cloud data.'; } }, 'Reopen workspace'),
         h('button', { class: 'btn', onClick: () => returnRefinementProposal() }, 'Return refinement proposal'),
         h('button', { class: 'btn', onClick: () => returnRefinementProposal(true) }, 'Return over-limit proposal'),
         draftStatus.value ? h('span', { role: 'status', style: 'font-size:12px' }, draftStatus.value) : null,
