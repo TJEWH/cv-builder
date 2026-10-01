@@ -3,8 +3,9 @@ import { computed } from 'vue';
 import type { Application } from '../cloudTypes';
 import type { ApplicationLetter } from '../letterTypes';
 import type { ApplicationCvRecord } from '../composables/applicationCv';
-import type { LocalRefinementRequest, RefinementRequestRow } from '../refinementTypes';
+import type { LocalRefinementRequest, PrivacyContextType, RefinementRequestRow } from '../refinementTypes';
 import type { ResolvedRefinementSettings } from '../composables/refinementSources';
+import RefinementPrivacyPreview from './RefinementPrivacyPreview.vue';
 import { serializeRefinementDraft } from '../composables/refinementSources';
 
 const props = defineProps<{
@@ -13,6 +14,7 @@ const props = defineProps<{
   published: RefinementRequestRow | null; publishedLocal: LocalRefinementRequest | null;
   isCurrentRequest: boolean; status: 'unpublished' | 'current' | 'outdated' | 'unverifiable';
 }>();
+const emit = defineEmits<{ approveContext: [sourceKey: string, type: PrivacyContextType, description: string]; removeContext: [sourceKey: string] }>();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const draft = computed(() => serializeRefinementDraft(props.letter?.working));
 const sourceWords = computed(() => (props.prepared?.request.letter.text ?? draft.value.text).trim().split(/\s+/).filter(Boolean).length);
@@ -43,11 +45,7 @@ const statusLabel = computed(() => ({
       <summary>{{ text('Origins & privacy-filtered content', 'Herkunft & datenschutzgefilterte Inhalte') }}</summary>
       <p v-if="hasTemplate">{{ text('Language:', 'Sprache:') }} {{ origin(settings.provenance.language) }}. {{ text('Word limit:', 'Wortgrenze:') }} {{ origin(settings.provenance.maxWords) }}.</p>
       <p>{{ text('The CV comes from the frozen application copy. The letter uses the complete current working draft. Both are included as context; the selected scope controls which may change.', 'Der CV stammt aus der gespeicherten Bewerbungskopie. Der Brief verwendet die vollständige aktuelle Arbeitsfassung. Beide dienen als Kontext; der gewählte Umfang bestimmt, was geändert werden darf.') }}</p>
-      <template v-if="prepared">
-        <details><summary>{{ text('CV wording to share', 'Zu teilender CV-Wortlaut') }}</summary><article v-for="field in prepared.request.cv.fields" :key="field.id"><strong>{{ field.label }}</strong><pre>{{ field.text }}</pre></article></details>
-        <details><summary>{{ text('Complete letter to share', 'Vollständiger zu teilender Brief') }}</summary><pre>{{ prepared.request.letter.text || text('Empty — request an initial draft.', 'Leer — ersten Entwurf anfordern.') }}</pre></details>
-        <details><summary>{{ text('Saved context & writing instructions', 'Gespeicherter Kontext & Schreibhinweise') }}</summary><pre>{{ JSON.stringify(prepared.request.cv.opportunity, null, 2) }}</pre><pre v-if="prepared.request.cv.instructions">{{ prepared.request.cv.instructions }}</pre><p>{{ prepared.request.feedback.length }} {{ text('saved feedback entries included', 'gespeicherte Feedbackeinträge enthalten') }}</p></details>
-      </template>
+      <RefinementPrivacyPreview v-if="prepared" :request="prepared.request" :local-cv="prepared.cv" :lang="lang" @approve="(key, type, description) => emit('approveContext', key, type, description)" @remove="key => emit('removeContext', key)" />
     </details>
     <p v-if="sourceError" class="source-overview__error" role="alert">{{ sourceError }}</p>
     <div class="source-overview__publication">
@@ -59,8 +57,7 @@ const statusLabel = computed(() => ({
           <p v-if="publishedLocal?.source">CV: {{ publishedLocal.source.cv.name }} · {{ text('source revision', 'Quellrevision') }} {{ publishedLocal.source.cv.baseRevision }}<br />{{ text('Letter source saved', 'Briefquelle gespeichert') }} {{ date(publishedLocal.source.letter.updatedAt) }}</p>
           <p v-else>{{ text('Original local document versions are unavailable. The published content below remains unchanged.', 'Ursprüngliche lokale Dokumentversionen sind nicht verfügbar. Der veröffentlichte Inhalt unten bleibt unverändert.') }}</p>
           <p>{{ published.request_json.letter.template.name }} · {{ text('revision', 'Revision') }} {{ published.request_json.letter.template.revision }} · {{ language(published.request_json.letter.language) }} · {{ published.request_json.letter.maxWords }} {{ text('words', 'Wörter') }}</p>
-          <details><summary>{{ text('Published CV wording', 'Veröffentlichter CV-Wortlaut') }}</summary><article v-for="field in published.request_json.cv.fields" :key="field.id"><strong>{{ field.label }}</strong><pre>{{ field.text }}</pre></article></details>
-          <details><summary>{{ text('Published letter source', 'Veröffentlichte Briefquelle') }}</summary><pre>{{ published.request_json.letter.text || text('No letter was supplied; an initial draft was requested.', 'Kein Brief übermittelt; ein erster Entwurf wurde angefordert.') }}</pre></details>
+          <RefinementPrivacyPreview :request="published.request_json" :lang="lang" />
         </details>
       </template>
     </div>

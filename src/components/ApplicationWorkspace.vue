@@ -5,7 +5,7 @@ import type { Application } from '../cloudTypes';
 import { supabaseConfiguration } from '../lib/supabase';
 import type { CvState, SavedConfiguration } from '../types';
 import type { ApplicationLetter, LetterTemplate } from '../letterTypes';
-import type { AnnotationStatus, AnnotationReference, LocalRefinementRequest, RefinementApprovals, RefinementFeedback, RefinementProposalRow, RefinementRequestRow, RefinementReviewRow, RefinementScope, RefinementState } from '../refinementTypes';
+import type { ApprovedPrivacyContexts, PrivacyContextType, AnnotationStatus, AnnotationReference, LocalRefinementRequest, RefinementApprovals, RefinementFeedback, RefinementProposalRow, RefinementRequestRow, RefinementReviewRow, RefinementScope, RefinementState } from '../refinementTypes';
 import { cloneCv, createApplicationCv, cvDifferences, isApplicationCvPublished, loadApplicationCv, saveApplicationCv, type ApplicationCvRecord } from '../composables/applicationCv';
 import { createCloudCvSnapshot } from '../composables/cloudCvPrivacy';
 import { rootVariantId, subvariantParent } from '../composables/careerVariants';
@@ -22,6 +22,8 @@ import OpportunityContext from './OpportunityContext.vue';
 import ApplicationIdentifier from './ApplicationIdentifier.vue';
 import { buildShortRefinementInstruction } from '../composables/applicationReference';
 import { resolveRefinementSettings, serializeRefinementDraft, sameRefinementInputs } from '../composables/refinementSources';
+import PrivacyTextPreview from './PrivacyTextPreview.vue';
+import { privacyContextTargets, preparePrivacyLegend } from '../composables/refinementPrivacy';
 import RefinementSourceOverview from './RefinementSourceOverview.vue';
 import RefinementChangeReview from './RefinementChangeReview.vue';
 import RefinementAnnotations from './RefinementAnnotations.vue';
@@ -51,6 +53,7 @@ const pendingBaseId = ref('');
 const pendingSubId = ref('');
 const pendingTemplateId = ref('research');
 const approvals = ref<RefinementApprovals>({ cv: null, letter: null });
+const privacyContexts = ref<ApprovedPrivacyContexts>({});
 const localRequests = ref<Record<string, LocalRefinementRequest>>({});
 const parentProposalId = ref<string | null>(null);
 const cloudState = ref<RefinementState | null>(null);
@@ -108,6 +111,7 @@ try {
     if (value.version !== 1) throw new Error('Unsupported refinement backup version.');
     approvals.value = { cv: typeof value.approvals?.cv === 'string' ? value.approvals.cv : null, letter: typeof value.approvals?.letter === 'string' ? value.approvals.letter : null };
     localRequests.value = value.requests || {};
+    privacyContexts.value = value.privacyContexts || {};
     importedProposals.value = value.importedProposals || [];
     importedReviews.value = value.importedReviews || [];
     parentProposalId.value = value.parentProposalId || null;
@@ -155,13 +159,31 @@ const publishedLocal = computed(() => publishedSource.value ? localRequests.valu
 const sourcePreparation = computed(() => {
   if (!record.value || !letter.value || missingLetterTemplate.value) return { local: null, error: '' };
   try {
-    const local = prepareRefinement({ applicationId: props.application.id, state: record.value.state, variantId: record.value.variantId || record.value.baseId, setup: setup.value, letterText: letterText.value, letterContent: letter.value.working, instructions: letter.value.instructions, opportunity: props.application.context_json, scope: feedbackScope.value, feedback: feedbackHistory(), parentProposalId: parentProposalId.value, baselineSignature: baselineSignature.value });
+    const local = prepareRefinement({ applicationId: props.application.id, state: record.value.state, variantId: record.value.variantId || record.value.baseId, setup: setup.value, letterText: letterText.value, letterContent: letter.value.working, instructions: letter.value.instructions, opportunity: props.application.context_json, scope: feedbackScope.value, feedback: feedbackHistory(), parentProposalId: parentProposalId.value, baselineSignature: baselineSignature.value, privacyContexts: privacyContexts.value });
     local.source = { cv: { name: record.value.baseName, variantId: record.value.variantId || record.value.baseId, baseRevision: record.value.baseRevision, hasApplicationEdits: cvDifferences(record.value.baseState, record.value.state).length > 0 }, letter: { updatedAt: letter.value.updatedAt, version: refinementSignature(letterText.value) }, contextCapturedAt: props.application.context_captured_at };
     return { local, error: '' };
   } catch (cause) { return { local: null, error: cause instanceof Error ? cause.message : String(cause) }; }
 });
 const preparedSource = computed(() => sourcePreparation.value.local);
 const sourceError = computed(() => sourcePreparation.value.error);
+function previewOutgoingText(value: string) {
+  try { return record.value ? sanitizeRefinementText(value.trim(), record.value.state) : ''; }
+  catch { return text('Privacy preview unavailable. Remove unsupported control characters before sharing.', 'Datenschutzvorschau nicht verfügbar. Nicht unterstützte Steuerzeichen vor dem Teilen entfernen.'); }
+}
+const outgoingFeedback = computed(() => previewOutgoingText(feedback.value));
+function approvePrivacyContext(sourceKey: string, type: PrivacyContextType, description: string) {
+  error.value = '';
+  try {
+    const local = preparedSource.value;
+    if (!local || !record.value || !privacyContextTargets(local.cv, refinementSignature).some(target => target.sourceKey === sourceKey)) throw new Error('The masked source changed. Review its privacy preview again.');
+    const next = { ...privacyContexts.value, [sourceKey]: { type, description: description.trim() } };
+    preparePrivacyLegend(local.cv, next, refinementSignature, value => sanitizeRefinementText(value, record.value!.state));
+    privacyContexts.value = next;
+  } catch (cause) { report(cause); }
+}
+function removePrivacyContext(sourceKey: string) {
+  const next = { ...privacyContexts.value }; delete next[sourceKey]; privacyContexts.value = next;
+}
 const publicationStatus = computed<'unpublished' | 'current' | 'outdated' | 'unverifiable'>(() => {
   if (!publishedSource.value) return 'unpublished';
   if (!currentPublishedRequest.value) return 'outdated';
@@ -271,7 +293,7 @@ function persist() {
     const stagedStore = { getItem: (key: string) => localStorage.getItem(key), setItem: (key: string, value: string) => { writes.set(key, value); }, removeItem() {} };
     if (record.value) saveApplicationCv(record.value, stagedStore);
     if (letter.value) createLetterRepository(stagedStore, props.userId).save(letter.value);
-    writes.set(storageKey, JSON.stringify({ version: 1, approvals: approvals.value, requests: localRequests.value, parentProposalId: parentProposalId.value, scope: feedbackScope.value, importedProposals: importedProposals.value, importedReviews: importedReviews.value }));
+    writes.set(storageKey, JSON.stringify({ version: 1, privacyContexts: privacyContexts.value, approvals: approvals.value, requests: localRequests.value, parentProposalId: parentProposalId.value, scope: feedbackScope.value, importedProposals: importedProposals.value, importedReviews: importedReviews.value }));
     for (const [key, value] of writes) {
       const saved = localStorage.getItem(key);
       if (saved === value) continue;
@@ -285,7 +307,7 @@ function persist() {
     saveError.value = text('Local save failed: ', 'Lokales Speichern fehlgeschlagen: ') + String(cause);
   }
 }
-watch([record, letter, approvals, localRequests, parentProposalId], persist, { deep: true, flush: 'sync' });
+watch([record, letter, approvals, localRequests, parentProposalId, privacyContexts], persist, { deep: true, flush: 'sync' });
 watch(feedbackScope, () => { scopeWasChosen = true; persist(); }, { flush: 'sync' });
 watch(cvRevision, () => { if (approvals.value.cv && approvals.value.cv !== cvRevision.value) approvals.value.cv = null; });
 watch(letterRevision, () => { if (approvals.value.letter && approvals.value.letter !== letterRevision.value) approvals.value.letter = null; });
@@ -635,7 +657,7 @@ function downloadBlob(blob: Blob, filename: string) {
 async function downloadLetter() { await run(async () => downloadBlob(await getLetterPdf(), 'motivation-letter.pdf')); }
 function downloadBackup() {
   persist();
-  downloadBlob(new Blob([JSON.stringify({ kind: 'application-refinement-backup', version: 1, record: record.value, letter: letter.value, requests: localRequests.value, parentProposalId: parentProposalId.value, importedProposals: importedProposals.value, importedReviews: importedReviews.value }, null, 2)], { type: 'application/json' }), 'application-' + props.application.id + '.json');
+  downloadBlob(new Blob([JSON.stringify({ kind: 'application-refinement-backup', version: 1, privacyContexts: privacyContexts.value, record: record.value, letter: letter.value, requests: localRequests.value, parentProposalId: parentProposalId.value, importedProposals: importedProposals.value, importedReviews: importedReviews.value }, null, 2)], { type: 'application/json' }), 'application-' + props.application.id + '.json');
 }
 async function importBackup(event: Event) {
   const input = event.target as HTMLInputElement; const file = input.files?.[0]; input.value = '';
@@ -676,6 +698,7 @@ async function importBackup(event: Event) {
       record.value = restored;
       if (checkedLetter) letter.value = checkedLetter;
       approvals.value = { cv: null, letter: null }; localRequests.value = restoredRequests;
+      privacyContexts.value = data.record.applicationId === props.application.id ? data.privacyContexts || {} : {};
       importedProposals.value = restoredProposals; importedReviews.value = [];
       parentProposalId.value = null; reviewActive.value = false;
     } finally { committingSelection = false; }
@@ -708,7 +731,7 @@ function legacyChanged(event: { record: ApplicationLetter | null }) { if (event.
             <button type="button" :disabled="!pendingBaseId || busy" @click="assignBase">{{ text('Use CV template', 'CV-Vorlage verwenden') }}</button>
             <p v-if="record">{{ record.baseName }} · {{ published ? text('Snapshot saved', 'Snapshot gespeichert') : text('Local copy — save to Supabase', 'Lokale Kopie — in Supabase speichern') }}</p>
             <p v-else>{{ text('Create a named variant in CV Studio if the library is empty.', 'Bei leerer Bibliothek zuerst eine benannte Variante im CV-Studio erstellen.') }}</p>
-            <details v-if="privacySnapshot"><summary>{{ text('Anonymized snapshot', 'Anonymisierter Snapshot') }}</summary><pre>{{ JSON.stringify(privacySnapshot, null, 2) }}</pre></details>
+            <details v-if="privacySnapshot"><summary>{{ text('Privacy-filtered snapshot', 'Datenschutzgefilterter Snapshot') }}</summary><pre>{{ JSON.stringify(privacySnapshot, null, 2) }}</pre></details>
           </section>
           <section class="workflow-card"><h3>2. {{ text('Letter template', 'Briefvorlage') }}</h3>
             <label>{{ text('Template', 'Vorlage') }}<select v-model="pendingTemplateId" :disabled="busy"><option value="">{{ text('Choose a template…', 'Vorlage wählen…') }}</option><option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }} · {{ text('revision', 'Revision') }} {{ template.revision }}</option></select></label>
@@ -726,7 +749,8 @@ function legacyChanged(event: { record: ApplicationLetter | null }) { if (event.
           <div class="stage-heading"><div><h2>{{ text('Refine CV & letter', 'CV & Brief überarbeiten') }}</h2><p>{{ text('One proposal, with separate approval for each document.', 'Ein Vorschlag mit separater Freigabe für jedes Dokument.') }}</p></div><button class="primary" type="button" @click="tab = 'review'">{{ text('Review PDF', 'PDF prüfen') }} →</button></div>
           <p v-if="!record || !letter" class="message">{{ text('Select both templates in Preparation to begin. Existing proposals remain available below.', 'Zum Start beide Vorlagen in Vorbereitung auswählen. Bestehende Vorschläge bleiben unten verfügbar.') }}</p>
           <label>{{ text('Refinement scope', 'Umfang der Überarbeitung') }}<select v-model="feedbackScope" :disabled="busy || (cvApproved && letterApproved)"><option v-if="!cvApproved && !letterApproved" value="both">{{ text('CV and motivation letter', 'CV und Motivationsschreiben') }}</option><option v-if="!cvApproved" value="cv">CV</option><option v-if="!letterApproved" value="letter">{{ text('Motivation letter', 'Motivationsschreiben') }}</option></select></label>
-          <RefinementSourceOverview :application="application" :record="record" :letter="letter" :lang="lang" :settings="effectiveSettings" :prepared="preparedSource" :source-error="sourceError" :published="publishedSource" :published-local="publishedLocal" :is-current-request="!!currentPublishedRequest" :status="publicationStatus" />
+          <RefinementSourceOverview :application="application" :record="record" :letter="letter" :lang="lang" :settings="effectiveSettings" :prepared="preparedSource" :source-error="sourceError" :published="publishedSource" :published-local="publishedLocal" :is-current-request="!!currentPublishedRequest" :status="publicationStatus" @approve-context="approvePrivacyContext" @remove-context="removePrivacyContext" />
+          <button v-if="sourceError && Object.keys(privacyContexts).length" type="button" @click="privacyContexts = {}">{{ text('Clear approved context descriptions', 'Freigegebene Kontextbeschreibungen entfernen') }}</button>
           <div class="action-row"><button class="primary" type="button" :disabled="busy || reviewActive || !preparedSource || !!saveError || (cvApproved && letterApproved)" @click="initialPrompt">{{ publicationStatus === 'current' ? text('Copy published prompt', 'Veröffentlichten Prompt kopieren') : text('Publish sources & copy prompt', 'Quellen veröffentlichen & Prompt kopieren') }}</button><button type="button" :disabled="busy || refreshing" @click="checkProposals">{{ refreshing ? text('Checking…', 'Prüfen…') : text('Check for proposal', 'Vorschlag abrufen') }}</button></div>
           <p class="hint">{{ text('Paste the prompt into ChatGPT with your Supabase MCP connection, then return here. Saving context does not start ChatGPT.', 'Den Prompt in ChatGPT mit der Supabase-MCP-Verbindung einfügen und hierher zurückkehren. Das Speichern startet ChatGPT nicht.') }}</p>
           <div class="workflow-card short-instruction"><button type="button" :disabled="cvApproved && letterApproved" @click="copyShortInstruction">{{ text('Copy short ChatGPT instruction', 'Kurze ChatGPT-Anweisung kopieren') }}</button><p class="hint">{{ text('Use this with your configured phd-workflow conversation after publishing the current round. Copying this reference does not save documents or start refinement.', 'Nach dem Veröffentlichen der aktuellen Runde in der eingerichteten phd-workflow-Unterhaltung verwenden. Das Kopieren dieser Referenz speichert keine Dokumente und startet keine Überarbeitung.') }}</p><p role="status" aria-live="polite" aria-atomic="true">{{ shortInstructionNotice || shortInstructionError }}</p><input :value="shortInstruction" readonly :aria-label="text('Short ChatGPT instruction', 'Kurze ChatGPT-Anweisung')" @focus="($event.target as HTMLInputElement).select()" /></div>
@@ -737,7 +761,7 @@ function legacyChanged(event: { record: ApplicationLetter | null }) { if (event.
               <p class="hint">{{ text('Proposal preview', 'Vorschau des Vorschlags') }} · {{ new Date(selectedProposal.created_at).toLocaleString() }}<br />{{ text('Based on request', 'Basiert auf Anfrage') }} {{ selectedProposal.request_id }}<br />{{ text('The published source stays unchanged when you view this proposal.', 'Die veröffentlichte Quelle bleibt beim Ansehen dieses Vorschlags unverändert.') }}</p>
               <p class="pre-wrap">{{ selectedProposal.proposal_json.summary }}</p>
               <RefinementChangeReview :changes="proposalChanges" :selected="selectedChangeIds" :comments="proposalComments" :legacy="selectedProposal.proposal_json.schemaVersion === 1" :lang="lang" :disabled="busy || proposalAlreadyApplied" :locked="cvApproved" @toggle="toggleProposedChange" />
-              <RefinementAnnotations :items="proposalAnnotations" :lang="lang" :disabled="busy || !record" :save="saveAnnotation" :include="includeAnnotationFeedback" />
+              <RefinementAnnotations :items="proposalAnnotations" :lang="lang" :disabled="busy || !record" :save="saveAnnotation" :include="includeAnnotationFeedback" :privacy-preview="previewOutgoingText" />
               <details><summary>{{ text('Proposed letter', 'Vorgeschlagener Brief') }}</summary><p class="pre-wrap">{{ selectedProposal.proposal_json.letterText }}</p></details>
               <label v-if="selectedRequest?.request_json.scope !== 'cv'" class="selection-checkbox"><input type="checkbox" :checked="includeProposedLetter" :disabled="busy || letterApproved || proposalAlreadyApplied" @change="toggleProposedLetter(($event.target as HTMLInputElement).checked)" />{{ text('Include proposed letter', 'Vorgeschlagenen Brief einbeziehen') }}</label>
               <p v-if="temporaryReview.error || reviewAcceptanceError" class="message error" role="alert">{{ temporaryReview.error || reviewAcceptanceError }}</p>
@@ -746,7 +770,7 @@ function legacyChanged(event: { record: ApplicationLetter | null }) { if (event.
               <div class="action-row"><button type="button" :disabled="busy" @click="openProposal">{{ text('Preview selected changes', 'Ausgewählte Änderungen ansehen') }}</button><button class="primary" type="button" :disabled="busy || !reviewActive || !!temporaryReview.error || !!reviewAcceptanceError || proposalAlreadyApplied" @click="acceptSelectedChanges">{{ text('Accept selection', 'Auswahl übernehmen') }}</button><button v-if="reviewActive" type="button" :disabled="busy" @click="discardReview">{{ text('Close temporary preview', 'Temporäre Vorschau schließen') }}</button></div>
             </template>
           </section>
-          <section v-if="record && letter" class="workflow-card"><h3>{{ text('Request improvements', 'Verbesserungen anfordern') }}</h3><p class="hint">{{ text('Feedback uses your saved working documents. Accept the selected proposal changes first to include them in the next round.', 'Feedback bezieht sich auf die gespeicherten Arbeitsfassungen. Ausgewählte Vorschlagsänderungen zuerst übernehmen, um sie in der nächsten Runde zu verwenden.') }}</p><label>{{ text('Required improvements', 'Gewünschte Verbesserungen') }}<textarea v-model="feedback" rows="3" maxlength="20000" :disabled="busy || (cvApproved && letterApproved)" /></label><button type="button" :disabled="busy || reviewActive || !feedback.trim() || (cvApproved && letterApproved)" @click="requestImprovement">{{ text('Save feedback & copy improvement prompt', 'Feedback speichern & Verbesserungsprompt kopieren') }}</button><details v-if="feedbackHistory().length"><summary>{{ text('Accumulated feedback', 'Gesammeltes Feedback') }} ({{ feedbackHistory().length }})</summary><p v-for="item in feedbackHistory()" :key="item.id" class="pre-wrap">{{ item.scope }} · {{ item.text }}</p></details></section>
+          <section v-if="record && letter" class="workflow-card"><h3>{{ text('Request improvements', 'Verbesserungen anfordern') }}</h3><p class="hint">{{ text('Feedback uses your saved working documents. Accept the selected proposal changes first to include them in the next round.', 'Feedback bezieht sich auf die gespeicherten Arbeitsfassungen. Ausgewählte Vorschlagsänderungen zuerst übernehmen, um sie in der nächsten Runde zu verwenden.') }}</p><label>{{ text('Required improvements', 'Gewünschte Verbesserungen') }}<textarea v-model="feedback" rows="3" maxlength="20000" :disabled="busy || (cvApproved && letterApproved)" /></label><details v-if="feedback.trim()"><summary>{{ text('Outgoing feedback privacy preview', 'Datenschutzvorschau des ausgehenden Feedbacks') }}</summary><p class="hint">{{ text('Visible text will be shared. Highlighted placeholders are pseudonymized; their private originals are not shared.', 'Sichtbarer Text wird geteilt. Hervorgehobene Platzhalter sind pseudonymisiert; ihre privaten Originale werden nicht geteilt.') }}</p><PrivacyTextPreview :value="outgoingFeedback" :lang="lang" /></details><button type="button" :disabled="busy || reviewActive || !feedback.trim() || (cvApproved && letterApproved)" @click="requestImprovement">{{ text('Save feedback & copy improvement prompt', 'Feedback speichern & Verbesserungsprompt kopieren') }}</button><details v-if="feedbackHistory().length"><summary>{{ text('Accumulated feedback', 'Gesammeltes Feedback') }} ({{ feedbackHistory().length }})</summary><p v-for="item in feedbackHistory()" :key="item.id" class="pre-wrap">{{ item.scope }} · {{ item.text }}</p></details></section>
           <div class="document-switch"><button type="button" :aria-pressed="pane === 'cv'" @click="pane = 'cv'">CV · {{ cvApproved ? '✓' : text('Edit / approve', 'Bearbeiten / freigeben') }}</button><button type="button" :aria-pressed="pane === 'letter'" @click="pane = 'letter'">{{ text('Letter', 'Brief') }} · {{ letterApproved ? '✓' : text('Edit / approve', 'Bearbeiten / freigeben') }}</button></div>
           <section v-if="record" v-show="pane === 'cv'" class="working-document"><div class="action-row"><button class="primary" type="button" :disabled="busy || reviewActive || !letter || !!saveError" @click="approve('cv', cvApproved)">{{ cvApproved ? text('Reopen CV', 'CV wieder öffnen') : text('Approve CV', 'CV freigeben') }}</button><span>{{ text('Application copy — template stays unchanged', 'Bewerbungskopie — Vorlage bleibt unverändert') }}</span></div><fieldset :disabled="cvApproved || busy || reviewActive"><FormBuilder :state="record.state" :read-version="() => null" :save-version="() => false" /></fieldset></section>
           <section v-if="letter" v-show="pane === 'letter'" class="working-document"><label>{{ text('Complete letter text', 'Vollständiger Brieftext') }}<textarea :value="letterText" rows="18" :disabled="letterApproved || busy || reviewActive" @input="updateLetter(($event.target as HTMLTextAreaElement).value)" /></label><p :class="{ warning: words > setup.maxWords }">{{ words }} / {{ setup.maxWords }} {{ text('target words (complete letter)', 'Zielwörter (vollständiger Brief)') }}</p><p v-if="words > setup.maxWords" class="warning">{{ text('Over the target. Review the tender limit; approval and export remain available.', 'Über der Zielwortzahl. Vorgabe prüfen; Freigabe und Export bleiben möglich.') }}</p><p v-if="unresolved.length" class="warning">{{ text('Resolve placeholders:', 'Platzhalter auflösen:') }} {{ unresolved.join(', ') }}</p><button class="primary" type="button" :disabled="busy || reviewActive || !record || !letterText.trim() || !!saveError || (unresolved.length > 0 && !letter.finalRevisionId)" @click="approve('letter', letterApproved || !!letter.finalRevisionId)">{{ letterApproved || letter.finalRevisionId ? text('Reopen letter', 'Brief wieder öffnen') : text('Approve letter', 'Brief freigeben') }}</button><details v-if="letter.revisions.length"><summary>{{ text('Letter revision history', 'Brief-Revisionsverlauf') }}</summary><div v-for="revision in [...letter.revisions].reverse()" :key="revision.id" class="action-row"><span>{{ revision.kind }} · {{ new Date(revision.createdAt).toLocaleString() }}</span><button type="button" :disabled="busy || letterApproved" @click="reopenLocalLetterRevision(revision.id)">{{ text('Open revision', 'Revision öffnen') }}</button></div></details></section>

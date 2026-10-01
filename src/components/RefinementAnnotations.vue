@@ -2,12 +2,15 @@
 import { reactive, watch } from 'vue';
 import type { AnnotationStatus } from '../refinementTypes';
 import type { AnnotationView } from '../composables/refinementAnnotations';
+import { annotationFeedback } from '../composables/refinementAnnotations';
+import PrivacyTextPreview from './PrivacyTextPreview.vue';
 
 type Item = AnnotationView & { target: string; referenceChanged: boolean; included: boolean };
 const props = defineProps<{
   items: Item[]; lang: string; disabled: boolean;
   save: (id: string, status: AnnotationStatus, response: string, previousReviewId: string | null) => Promise<boolean>;
   include: (id: string) => Promise<void>;
+  privacyPreview: (value: string) => string;
 }>();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const drafts = reactive<Record<string, { status: AnnotationStatus; response: string; reviewId: string | null; savedStatus: AnnotationStatus; savedResponse: string }>>({});
@@ -40,9 +43,11 @@ const typeLabel = (type: string) => type === 'question' ? text('Question', 'Frag
         <details><summary>{{ text('Original text reference', 'Ursprünglicher Textbezug') }}</summary><blockquote>{{ item.annotation.location.quote }}</blockquote></details>
       </template>
       <label>{{ text('Your response (optional)', 'Deine Antwort (optional)') }}<textarea v-model="drafts[key(item)]!.response" rows="3" maxlength="12000" :disabled="disabled" /></label>
+      <details v-if="drafts[key(item)]!.response.trim()"><summary>{{ text('Outgoing response privacy preview', 'Datenschutzvorschau der ausgehenden Antwort') }}</summary><PrivacyTextPreview :value="privacyPreview(drafts[key(item)]!.response)" :lang="lang" /></details>
       <label>{{ text('Annotation status', 'Status der Anmerkung') }}<select v-model="drafts[key(item)]!.status" :disabled="disabled"><option value="open">{{ text('Open', 'Offen') }}</option><option value="resolved">{{ text('Resolved', 'Erledigt') }}</option><option value="dismissed">{{ text('Dismissed', 'Verworfen') }}</option></select></label>
       <p v-if="drafts[key(item)]!.reviewId !== item.reviewId" role="alert">{{ text('This annotation changed elsewhere. Your unsaved response is retained; reload the saved annotation before editing again.', 'Diese Anmerkung wurde andernorts geändert. Deine ungespeicherte Antwort bleibt erhalten; vor weiteren Änderungen den gespeicherten Stand laden.') }} <button type="button" :disabled="disabled" @click="reset(item)">{{ text('Load saved annotation', 'Gespeicherte Anmerkung laden') }}</button></p>
       <div class="actions"><button type="button" :disabled="disabled || !dirty(item) || drafts[key(item)]!.reviewId !== item.reviewId" @click="save(item)">{{ text('Save annotation', 'Anmerkung speichern') }}</button><button type="button" :disabled="disabled || dirty(item) || item.included || (item.status !== 'open' && !item.response)" @click="include(item.annotation.id)">{{ item.included ? text('Included in feedback', 'Im Feedback enthalten') : text('Include as feedback', 'Als Feedback einbeziehen') }}</button></div>
+      <details v-if="!dirty(item) && !item.included"><summary>{{ text('Feedback to include — privacy preview', 'Einzubeziehendes Feedback — Datenschutzvorschau') }}</summary><PrivacyTextPreview :value="privacyPreview(annotationFeedback(item))" :lang="lang" /></details>
     </article>
   </section>
 </template>

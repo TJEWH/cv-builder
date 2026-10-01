@@ -123,7 +123,7 @@ onBeforeUnmount(() => { disposed = true; for (const url of urls) URL.revokeObjec
 <template>
   <section class="cv-adjustment-workflow">
     <h2>{{ text('Tailor with ChatGPT', 'Mit ChatGPT anpassen') }}</h2>
-    <p>{{ text('Share an anonymized snapshot, then review the returned wording. Your private details and layout are restored locally. Accepted changes become a subvariant; an unchanged response keeps the selected variant.', 'Teile einen anonymisierten Snapshot und prüfe die zurückgegebenen Formulierungen. Private Angaben und Layout werden lokal wiederhergestellt. Akzeptierte Änderungen werden zu einer Untervariante; ohne Änderungen bleibt die ausgewählte Variante bestehen.') }}</p>
+    <p>{{ text('Share a privacy-filtered snapshot, then review the returned wording. Your private details and layout are restored locally. Accepted changes become a subvariant; an unchanged response keeps the selected variant.', 'Teile einen datenschutzgefilterten Snapshot und prüfe die zurückgegebenen Formulierungen. Private Angaben und Layout werden lokal wiederhergestellt. Akzeptierte Änderungen werden zu einer Untervariante; ohne Änderungen bleibt die ausgewählte Variante bestehen.') }}</p>
     <label>{{ text('Adjustment instructions', 'Hinweise zur Anpassung') }}<textarea v-model="instructions" rows="3" maxlength="4000" :placeholder="text('Emphasize experience relevant to this opportunity…', 'Relevante Erfahrung für diese Stelle hervorheben…')" /></label>
     <button type="button" class="btn" :disabled="busy" @click="prepare">{{ text('Prepare privacy snapshot', 'Datenschutz-Snapshot vorbereiten') }}</button>
     <p v-if="error" role="alert" class="adjustment-error">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>

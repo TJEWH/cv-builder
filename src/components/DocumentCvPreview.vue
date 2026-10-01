@@ -17,7 +17,7 @@ const mode = ref('normal');
 const activePrivacy = computed(() => expanded.value ? mode.value === 'anonymized' : props.privacy);
 const modes = computed(() => [
   { value: 'normal', label: props.state.lang === 'de' ? 'Normales PDF' : 'Normal PDF' },
-  { value: 'anonymized', label: props.state.lang === 'de' ? 'Anonymisiertes PDF' : 'Privacy PDF' },
+  { value: 'anonymized', label: props.state.lang === 'de' ? 'Datenschutz-PDF' : 'Privacy PDF' },
   { value: 'html', label: props.state.lang === 'de' ? 'HTML-Ansicht' : 'Raw HTML' },
 ]);
 const options = computed(() => {

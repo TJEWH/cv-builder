@@ -192,3 +192,22 @@ The backend validates proposal ownership, application/request membership, the an
 Letter references conservatively identify the originally proposed document version (normalizing only the existing letter parser/serializer). Any changed rendered version displays **Referenced text has changed**, while the original quote remains available separately. The app never searches for another occurrence and silently moves the annotation. Document-wide notes have no text anchor.
 
 All operations retain owner-authenticated invoker RPCs and existing RLS. Private proposal writes remain restricted to the `postgres` management connection. Helper validation functions have explicit revokes/grants. Run [`tests/refinement_annotations.sql`](tests/refinement_annotations.sql) as `postgres`; synthetic fixtures roll back. It checks strict payloads, Unicode offsets/bounds, exact retries, stale updates, unchanged state, referenced feedback preservation, legacy summaries, historical notes, cross-user isolation and anonymous denial.
+
+
+## Privacy preview and approved context (Ticket 6)
+
+`privacyLegend` is an optional extension to either request schema version. Omit it when no descriptions have been approved. Each entry contains exactly `fieldId`, `token`, `type`, and `description`, for example:
+
+```json
+{"fieldId":"field-4","token":"{{PRIVATE_1}}","type":"organization","description":"Engineering company specializing in sensor technology"}
+```
+
+Allowed types are `person`, `organization`, `location`, `link`, `contact`, `confidential`, and `other`. Descriptions are nonempty plain text, at most 500 UTF-16 units. A token must occur in the referenced field and appear at most once in the legend. Unknown keys (including originals or mappings), controls, privacy markers, placeholders, and HTML delimiters are rejected. The server validates this public contract; only the local application has originals available for privacy filtering. No reverse mapping or local approval fingerprint is uploaded.
+
+Users enter descriptions and click **Approve & include**. Approval is saved in the existing local application store and backups, bound to the exact variant, field path, private source and token occurrence. Numbering changes cannot assign context to a different original. Changed sources need renewed approval. Removing a description affects the next request; immutable published history remains unchanged. Descriptions supply context only and never replace tokens, originals, or reconstruction mappings. Reconstruction does not depend on a description.
+
+The preview distinguishes **Visible**, **Pseudonymized**, and **Not shared**. Visible employers, locations and links are not described as masked. CV fields, the complete letter, instructions, opportunity context, template guidance/examples, and saved feedback can be inspected. Unsaved feedback and annotation responses also have outgoing privacy previews. Known identities, marked secrets, and unmarked repetitions of marked CV secrets are filtered in outgoing free text. No automatic context enrichment is performed.
+
+Structured operations move complete bullets with their tokens; omission only removes them from the derived candidate. Frozen local originals and mappings remain intact. Legacy wording edits additionally cannot transfer a token across content lines; use structured operations for complete bullet moves.
+
+**Applied to phd-workflow:** `refinement_privacy_legend`, version `20261001224820` UTC (2026-10-02 local time), from [`changes/refinement_privacy_legend.sql`](changes/refinement_privacy_legend.sql). Apply this additive upgrade after annotations on other targets. The consolidated schema includes it. Tables, RLS, existing API signatures and prior rows are unchanged. All six SQL regression suites passed within the migration transaction; synthetic fixtures were rolled back before commit. [`tests/refinement_privacy_legend.sql`](tests/refinement_privacy_legend.sql) also passed after deployment. It covers publication/readback, exact retries, optional/legacy requests, invalid legends, Unicode bounds, token attachment and grants.

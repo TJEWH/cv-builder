@@ -12,6 +12,8 @@ import type { CvState, SavedConfiguration } from '../src/types';
 import { createSampleDocument } from '../src/composables/builtinConfigurations';
 import { cloneCv, createApplicationCv, loadApplicationCv, saveApplicationCv } from '../src/composables/applicationCv';
 import type { ApplicationCvRecord } from '../src/composables/applicationCv';
+import { privacyContextTargets } from '../src/composables/refinementPrivacy';
+import { refinementSignature } from '../src/composables/applicationRefinement';
 import { createCloudCvSnapshot } from '../src/composables/cloudCvPrivacy';
 import { createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES } from '../src/composables/motivationLetters';
 import { createRefinementFixture } from './refinementFixture';
@@ -27,7 +29,9 @@ interface WorkspaceSetup {
   cvApproved: boolean; letterApproved: boolean; feedbackScope: RefinementScope; feedback: string;
   requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; selectedProposalId: string; prompt: string;
   shortInstruction: string; shortInstructionNotice: string; shortInstructionError: string;
-  preparedSource: LocalRefinementRequest | null; sourceError: string;
+  preparedSource: LocalRefinementRequest | null; sourceError: string; outgoingFeedback: string;
+  privacyContexts: import('../src/refinementTypes').ApprovedPrivacyContexts;
+  approvePrivacyContext(key: string, type: import('../src/refinementTypes').PrivacyContextType, description: string): void; removePrivacyContext(key: string): void;
   effectiveSettings: { setup: RefinementSetup; provenance: unknown };
   currentPublishedRequest: RefinementRequestRow | null; publishedSource: RefinementRequestRow | null;
   publicationStatus: 'unpublished' | 'current' | 'outdated' | 'unverifiable';
@@ -989,4 +993,35 @@ test('missing private mappings produce no misleading proposed fallback and dismi
   assert.deepEqual(setup.previewCvState, setup.record!.state);
   assert.equal(JSON.stringify({ record: setup.record, letter: setup.letter }), original);
   assert.equal(database.application_refinement_reviews.length, 0);
+});
+
+
+test('privacy context approval persists locally, publishes only approved descriptions, and can be revoked', async t => {
+  const mounted = mount(t); let setup = mounted.setup;
+  const legend = () => setup.preparedSource!.request.privacyLegend;
+  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
+  setup.pendingTemplateId = 'research'; await setup.useLetterTemplate(); await idle(setup);
+  setup.record!.state.about.text = 'Research with !!Private sensor company!!.';
+  await nextTick();
+  const baseline = cloneCv(setup.record!.state);
+  const target = privacyContextTargets(setup.preparedSource!.cv, refinementSignature).find(target => target.label === 'Profile')!;
+  setup.approvePrivacyContext(target.sourceKey, 'organization', 'Private sensor company');
+  assert.match(setup.error, /protected text/); assert.equal(legend(), undefined);
+  setup.approvePrivacyContext(target.sourceKey, 'organization', 'Engineering company specializing in sensor technology');
+  assert.equal(setup.error, '');
+  assert.equal(legend()?.length, 1);
+  assert.deepEqual(setup.record!.state, baseline);
+  setup = mounted.reopen(); await idle(setup);
+  assert.equal(legend()?.[0].description, 'Engineering company specializing in sensor technology');
+  await setup.initialPrompt(); await idle(setup); assert.equal(setup.error, '');
+  assert.equal(setup.publishedSource!.request_json.privacyLegend?.length, 1);
+  const cloud = JSON.stringify(mounted.database);
+  for (const secret of ['Private sensor company', target.sourceKey, 'baselineState', 'bindings']) assert.equal(cloud.includes(secret), false, secret);
+  setup.feedback = 'Mention Private sensor company and !!private instruction!!.';
+  assert.equal(setup.outgoingFeedback, 'Mention {{CONFIDENTIAL}} and {{CONFIDENTIAL}}.');
+  setup.removePrivacyContext(target.sourceKey);
+  assert.equal(legend(), undefined);
+  assert.equal(setup.publicationStatus, 'outdated');
+  assert.equal(setup.publishedSource!.request_json.privacyLegend?.length, 1, 'revocation does not rewrite published history');
+  assert.deepEqual(setup.record!.state, baseline);
 });

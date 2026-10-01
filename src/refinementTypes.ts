@@ -12,6 +12,11 @@ export type RefinementAnnotation = {
 export interface RefinementFeedback { id: string; text: string; scope: RefinementScope; createdAt: string; annotation?: AnnotationReference }
 export interface RefinementSetup { template: LetterTemplate; language: string; maxWords: number }
 export interface RefinementApprovals { cv: string | null; letter: string | null }
+export type PrivacyContextType = 'person' | 'organization' | 'location' | 'link' | 'contact' | 'confidential' | 'other';
+/** Public context only; never include the original value, local path or reverse mapping. */
+export interface PrivacyLegendEntry { fieldId: string; token: string; type: PrivacyContextType; description: string }
+/** Locally approved context keyed by an exact private source fingerprint, never by token numbering. */
+export type ApprovedPrivacyContexts = Record<string, Pick<PrivacyLegendEntry, 'type' | 'description'>>;
 export interface RefinementState {
   application_id: string; user_id: string; setup_json: RefinementSetup;
   approvals_json: RefinementApprovals; current_request_id: string | null; revision: number; updated_at: string;
@@ -20,6 +25,7 @@ interface RefinementRequestBase {
   requestId: string; applicationId: string;
   cv: CvAdjustmentRequest; letter: RefinementSetup & { text: string };
   scope: RefinementScope; feedback: RefinementFeedback[]; parentProposalId: string | null;
+  privacyLegend?: PrivacyLegendEntry[];
 }
 export interface RefinementRequestV1 extends RefinementRequestBase { schemaVersion: 1 }
 export interface RefinementRequestV2 extends RefinementRequestBase { schemaVersion: 2; cvStructure: CvStructure }
