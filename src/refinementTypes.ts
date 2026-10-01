@@ -1,5 +1,5 @@
 import type { CvAdjustmentRequest, LocalCvAdjustmentRequest, CvAdjustmentResponse } from './cvAdjustmentTypes';
-import type { LetterTemplate } from './letterTypes';
+import type { LetterContent, LetterTemplate } from './letterTypes';
 import type { CvStructure, CvOperation, CvComment, CvStructureBindings } from './cvStructuredTypes';
 
 export type RefinementScope = 'both' | 'cv' | 'letter';
@@ -51,6 +51,12 @@ export interface RefinementReviewRow {
 export interface LocalRefinementRequest {
   request: RefinementRequest; cv: LocalCvAdjustmentRequest; baselineSignature: string;
   structureBindings?: CvStructureBindings;
+  /** Exact local letter source, including private wording; never upload or infer from request.letter. */
+  letterBaseline?: { text: string; setup: RefinementSetup; content?: LetterContent };
+  /** Integrity of the frozen local originals, independently of the current application version. */
+  sourceSignatures?: { cv: string; letter: string };
+  /** Local idempotency receipts for explicit acceptance; never part of request_json. */
+  acceptances?: { key: string; proposalId: string; variantId: string | null; acceptedAt: string; reviewId: string }[];
   /** Optional local provenance for the frozen source; never part of request_json. */
   source?: {
     cv: { name: string; variantId: string; baseRevision: number; hasApplicationEdits: boolean };

@@ -50,6 +50,7 @@ defineExpose({ getPdfBlob, download, open });
       <template #header><slot /><p v-if="error" class="document-preview__error" role="alert">{{ error }}</p></template>
     </InlineDocumentPreview>
     <FullDocumentPreview v-model="expanded" v-model:mode="mode" v-model:page="page" :pages="pages" :is-updating="busy" :lang="state.lang" :modes="modes" :downloading="downloading" :download-disabled="downloadDisabled" :error="error" :title="state.lang === 'de' ? 'Bewerbungs-CV' : 'Application CV'" @download="download">
+      <template v-if="$slots.default" #header><slot /></template>
       <template #html><CvPreview :state="state" /></template>
     </FullDocumentPreview>
     <div ref="source" class="document-preview__source" aria-hidden="true"><CvPreview :state="state" export-source /></div>

@@ -1,11 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CvState } from '../types';
+import type { LetterContent } from '../letterTypes';
 import type { RefinementApprovals, RefinementFeedback, RefinementProposal, RefinementProposalRow, RefinementRequest, RefinementRequestRow, RefinementReviewRow, RefinementScope, RefinementSetup, RefinementState, LocalRefinementRequest } from '../refinementTypes';
 import { validAnnotationReference, validateAnnotationReview, validateRefinementAnnotations } from './refinementAnnotations';
 import { SAMPLE_CONTACT } from '../defaults';
-import { parseCvAdjustmentResponse, prepareCvAdjustment, reconstructCvAdjustment } from './cvAdjustments';
+import { parseCvAdjustmentResponse, prepareCvAdjustment, reconstructCvAdjustment, validateLocalCvAdjustment } from './cvAdjustments';
 import { redactKnownIdentityText } from './identityRedaction';
-import { readLetterTemplate } from './motivationLetters';
+import { letterToEditableText, readLetterTemplate } from './motivationLetters';
 import { prepareCvStructure, validateCvStructure, validateCvOperations, applyCvOperations } from './cvStructuredRefinement';
 export { describeCvOperation } from './cvStructuredRefinement';
 
@@ -80,6 +81,15 @@ export function sanitizeRefinementSetup(value: RefinementSetup, state: CvState):
   return readSetup(setup);
 }
 
+function readLetterSourceContent(value: unknown, expectedText: string): LetterContent {
+  if (!exact(value, ['subject', 'salutation', 'body', 'closing']) || !Object.values(value).every(part => text(part, 100000))) throw new Error('The original local letter content is invalid. Prepare a new request.');
+  const content = value as unknown as LetterContent;
+  // Match the existing draft serializer, including its intentional normalization of an empty draft.
+  const serialized = Object.values(content).every(part => !part.trim()) ? '' : letterToEditableText(content);
+  if (serialized !== expectedText) throw new Error('The original local letter content does not match its source text. Prepare a new request.');
+  return clone(content);
+}
+
 function readRequest(value: unknown): RefinementRequest {
   const version = record(value) ? value.schemaVersion : null;
   if (!exact(value, ['schemaVersion', 'requestId', 'applicationId', 'cv', 'letter', 'scope', 'feedback', 'parentProposalId', ...(version === 2 ? ['cvStructure'] : [])])
@@ -109,21 +119,25 @@ function readRequest(value: unknown): RefinementRequest {
 
 export function prepareRefinement(input: {
   schemaVersion?: 1 | 2;
-  applicationId: string; state: CvState; variantId: string; setup: RefinementSetup; letterText: string;
+  applicationId: string; state: CvState; variantId: string; setup: RefinementSetup; letterText: string; letterContent?: LetterContent;
   opportunity: Record<string, unknown>; instructions?: string; scope: RefinementScope; feedback: RefinementFeedback[];
   parentProposalId: string | null; baselineSignature: string;
 }): LocalRefinementRequest {
   if (input.schemaVersion !== undefined && input.schemaVersion !== 1 && input.schemaVersion !== 2) throw new Error('Unsupported refinement protocol version.');
-  if (!input.baselineSignature) throw new Error('The application baseline is missing.');
+  if (!SIGNATURE.test(input.baselineSignature)) throw new Error('The application baseline is missing or invalid.');
   const cv = prepareCvAdjustment({ state: input.state, variantId: input.variantId, opportunity: input.opportunity, instructions: input.instructions });
   const structure = input.schemaVersion === 1 ? null : prepareCvStructure(cv);
+  const letterBaseline = { text: input.letterText, setup: clone(readSetup(input.setup)),
+    ...(input.letterContent !== undefined ? { content: readLetterSourceContent(input.letterContent, input.letterText) } : {}) };
   const request: RefinementRequest = {
     ...(structure ? { schemaVersion: 2 as const, cvStructure: structure.structure } : { schemaVersion: 1 as const }), requestId: cv.publicRequest.requestId, applicationId: input.applicationId, cv: clone(cv.publicRequest),
     letter: { ...sanitizeRefinementSetup(input.setup, input.state), text: sanitizeRefinementText(input.letterText, input.state) },
     scope: input.scope, parentProposalId: input.parentProposalId,
     feedback: input.feedback.map((item) => ({ ...clone(item), text: sanitizeRefinementText(item.text, input.state) })),
   };
-  return { request: readRequest(request), cv, baselineSignature: input.baselineSignature, ...(structure ? { structureBindings: structure.bindings } : {}) };
+  return { request: readRequest(request), cv, baselineSignature: input.baselineSignature, letterBaseline,
+    sourceSignatures: { cv: refinementSignature([cv.sourceVariantId, cv.baselineState]), letter: refinementSignature(letterBaseline) },
+    ...(structure ? { structureBindings: structure.bindings } : {}) };
 }
 
 function links(value: string): string[] {
@@ -167,18 +181,46 @@ export function parseRefinementProposal(value: unknown, request: RefinementReque
   return clone(proposal);
 }
 
-/** Apply only after explicit review and a fresh check against the entire application baseline. */
-export function applyRefinementProposal(local: LocalRefinementRequest, proposal: RefinementProposal, currentState: CvState, currentSignature: string, selectedIds?: readonly string[]): { state: CvState; letterText: string } {
-  if (local.baselineSignature !== currentSignature) throw new Error('The application changed after this request. Prepare a new request before applying the proposal.');
+/** Build the complete review candidate from its frozen originals, without reading or writing working documents. */
+export function reconstructRefinementProposal(local: LocalRefinementRequest, proposal: RefinementProposal, selectedIds?: readonly string[], expectedApplicationId?: string): { state: CvState; letterText: string } {
+  if (!record(local) || !record(local.request) || !record(local.cv)) throw new Error('The original local refinement source is unavailable. Restore it or prepare a new request.');
+  if (!SIGNATURE.test(local.baselineSignature)) throw new Error('The original application source version is missing or invalid. Prepare a new request.');
+  if (expectedApplicationId !== undefined && local.request.applicationId !== expectedApplicationId) throw new Error('This proposal belongs to another application.');
   const validated = parseRefinementProposal(proposal, local.request);
   if (canonical(local.cv.publicRequest) !== canonical(local.request.cv)) throw new Error('The local privacy snapshot is inconsistent. Prepare a new request.');
+  validateLocalCvAdjustment(local.cv);
+  if (local.sourceSignatures && (!exact(local.sourceSignatures, ['cv', 'letter'])
+    || local.sourceSignatures.cv !== refinementSignature([local.cv.sourceVariantId, local.cv.baselineState]))) {
+    throw new Error('The original local CV source version is inconsistent. Restore the exact snapshot or prepare a new request.');
+  }
+  if (local.request.scope !== 'cv' && !local.letterBaseline) throw new Error('The original local letter source is unavailable. Restore it or prepare a new request.');
+  if (local.letterBaseline) {
+    if (!exact(local.letterBaseline, ['text', 'setup', ...(Object.hasOwn(local.letterBaseline, 'content') ? ['content'] : [])]) || !text(local.letterBaseline.text, 100000)) throw new Error('The original local letter source is invalid. Prepare a new request.');
+    if (Object.hasOwn(local.letterBaseline, 'content')) readLetterSourceContent(local.letterBaseline.content, local.letterBaseline.text);
+    const publicLetter = { ...sanitizeRefinementSetup(local.letterBaseline.setup, local.cv.baselineState), text: sanitizeRefinementText(local.letterBaseline.text, local.cv.baselineState) };
+    if (canonical(publicLetter) !== canonical(local.request.letter)
+      || (local.sourceSignatures && local.sourceSignatures.letter !== refinementSignature(local.letterBaseline))) {
+      throw new Error('The original local letter source version is inconsistent. Restore the exact snapshot or prepare a new request.');
+    }
+  }
+  const letterText = local.request.scope === 'cv' ? local.letterBaseline?.text ?? validated.letterText : validated.letterText;
   if (validated.schemaVersion === 2 && local.request.schemaVersion === 2) {
-    return { state: applyCvOperations(local.cv, local.request.cvStructure, validated.cvOperations, currentState, selectedIds), letterText: validated.letterText };
+    const rebuilt = prepareCvStructure(local.cv);
+    if (!local.structureBindings || canonical(local.structureBindings) !== canonical(rebuilt.bindings)) throw new Error('The local structural reconstruction mappings are missing or inconsistent. Restore them or prepare a new request.');
+    return { state: applyCvOperations(local.cv, local.request.cvStructure, validated.cvOperations, local.cv.baselineState, selectedIds), letterText };
   }
   if (validated.schemaVersion !== 1) throw new Error('The structured proposal requires its original version 2 request.');
   if (selectedIds && (new Set(selectedIds).size !== selectedIds.length || selectedIds.some(id => !validated.cvEdits.some(edit => edit.fieldId === id)))) throw new Error('Select only available legacy CV field IDs, without duplicates.');
-  const result = reconstructCvAdjustment(local.cv, { schemaVersion: 1, requestId: validated.requestId, edits: validated.cvEdits.filter(edit => selectedIds === undefined || selectedIds.includes(edit.fieldId)) }, currentState);
-  return { state: result.state, letterText: validated.letterText };
+  const result = reconstructCvAdjustment(local.cv, { schemaVersion: 1, requestId: validated.requestId, edits: validated.cvEdits.filter(edit => selectedIds === undefined || selectedIds.includes(edit.fieldId)) }, local.cv.baselineState);
+  return { state: result.state, letterText };
+}
+
+/** Acceptance uses the same complete candidate as preview, but only while its local source is still current. */
+export function applyRefinementProposal(local: LocalRefinementRequest, proposal: RefinementProposal, currentState: CvState, currentSignature: string, selectedIds?: readonly string[], expectedApplicationId?: string): { state: CvState; letterText: string } {
+  if (local.baselineSignature !== currentSignature) throw new Error('The application changed after this request. This proposal is outdated; prepare a new request before accepting it.');
+  const candidate = reconstructRefinementProposal(local, proposal, selectedIds, expectedApplicationId);
+  if (canonical(currentState) !== canonical(local.cv.baselineState)) throw new Error('The CV changed after this snapshot. This proposal is outdated; prepare a new request before accepting it.');
+  return candidate;
 }
 
 export function buildRefinementPrompt(value: RefinementRequest, projectId: string): string {

@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto';
 import test from 'node:test';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LocalRefinementRequest, RefinementFeedback, RefinementProposalV1, RefinementProposalV2, RefinementRequest, RefinementSetup } from '../src/refinementTypes';
-import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, parseRefinementProposal, prepareRefinement, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText } from '../src/composables/applicationRefinement';
-import { DEFAULT_LETTER_TEMPLATES } from '../src/composables/motivationLetters';
+import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText } from '../src/composables/applicationRefinement';
+import { DEFAULT_LETTER_TEMPLATES, letterToEditableText } from '../src/composables/motivationLetters';
 import { createTestState, stub } from './helpers';
 
 const APP = 'c73b875d-e9bf-4655-adb1-1c2e63d1f4b4';
@@ -46,6 +46,11 @@ test('preparation freezes templates and current CV without leaking private names
   assert.match(request.request.letter.text, /\{\{APPLICANT_NAME\}\}/);
   assert.match(request.request.letter.template.exampleText!, /\{\{CONFIDENTIAL\}\}/);
   assert.equal(request.request.cv.requestId, request.request.requestId);
+  assert.equal(request.letterBaseline?.text, 'Taylor Green is interested. !!Private rationale!!');
+  assert.deepEqual(request.letterBaseline?.setup, before.template);
+  assert.equal(request.sourceSignatures?.cv, refinementSignature([request.cv.sourceVariantId, request.cv.baselineState]));
+  assert.equal(request.sourceSignatures?.letter, refinementSignature(request.letterBaseline));
+  for (const key of ['letterBaseline', 'sourceSignatures', 'structureBindings']) assert.equal(wire.includes(key), false, key);
 });
 
 test('feedback iterations retain every earlier instruction and current manual corrections', () => {
@@ -58,6 +63,34 @@ test('feedback iterations retain every earlier instruction and current manual co
   assert.equal(request.request.letter.text, 'Keep this manual correction. {{APPLICANT_NAME}}.');
   assert.equal(request.request.feedback[79].text, 'Correction 79: avoid generic claims about {{APPLICANT_NAME}}.');
   assert.equal(feedback[0].text.includes('Taylor Green'), true, 'sanitization cannot rewrite local feedback');
+});
+
+test('exact structured letter originals retain field boundaries locally and must match the published source serialization', () => {
+  const content = { subject: 'Research application', salutation: 'Dear committee,', body: 'Taylor Green studies robotics.\n\n!!Private evidence!!', closing: 'Kind regards,\nTaylor Green' };
+  const before = structuredClone(content);
+  const request = local({ letterText: letterToEditableText(content), letterContent: content });
+  assert.deepEqual(request.letterBaseline?.content, content);
+  assert.equal(request.sourceSignatures!.letter, refinementSignature(request.letterBaseline));
+  assert.equal(JSON.stringify(request.request).includes('Private evidence'), false);
+  assert.equal(JSON.stringify(request.request).includes('letterBaseline'), false);
+  content.closing = 'Later manual closing';
+  assert.deepEqual(request.letterBaseline?.content, before, 'the exact original is frozen independently of the working letter');
+  assert.equal(reconstructRefinementProposal(request, proposal(request), [], APP).letterText, proposal(request).letterText);
+  assert.throws(() => local({ letterText: 'A different complete letter', letterContent: content }), /content does not match/);
+  const corrupt = structuredClone(request); corrupt.letterBaseline!.content!.body = 'Changed source body';
+  corrupt.sourceSignatures!.letter = refinementSignature(corrupt.letterBaseline);
+  assert.throws(() => reconstructRefinementProposal(corrupt, proposal(request), [], APP), /content does not match/);
+  const older = local({ letterText: 'A complete text-only source' });
+  assert.equal(older.letterBaseline?.content, undefined);
+  assert.equal(reconstructRefinementProposal(older, proposal(older), [], APP).letterText, proposal(older).letterText);
+});
+
+test('blank structured letter originals use the same empty-draft normalization as preparation', () => {
+  for (const content of [ { subject: '', salutation: '', body: '', closing: '' }, { subject: '  ', salutation: '\n', body: '\t ', closing: '\r\n' } ]) {
+    const request = local({ letterText: '', letterContent: content });
+    assert.deepEqual(request.letterBaseline?.content, content);
+    assert.equal(reconstructRefinementProposal(request, proposal(request), [], APP).letterText, proposal(request).letterText);
+  }
 });
 
 test('existing application instructions remain anonymized in initial and improvement requests', () => {
@@ -282,6 +315,70 @@ test('structured proposals validate fully before selected operations produce an 
   assert.throws(() => applyRefinementProposal(request, incoming, state(), request.baselineSignature, ['change-99']), /selected|unknown|available/i);
   assert.throws(() => applyRefinementProposal(request, incoming, state(), request.baselineSignature, ['change-1', 'change-1']), /duplicate|unique/i);
   assert.throws(() => applyRefinementProposal(request, incoming, state(), refinementSignature('changed')), /application changed/);
+});
+
+test('outdated proposals preview only their exact frozen originals and never apply to changed working documents', () => {
+  const request = local({ schemaVersion: 2, letterText: 'Taylor Green: exact original letter.' });
+  const incoming = structuredProposal(request);
+  const current = state(); current.about.text = 'A manual edit after publication.';
+  const before = structuredClone({ request, incoming, current });
+  const preview = reconstructRefinementProposal(request, incoming, ['change-1'], APP);
+  assert.equal(preview.state.about.text, request.cv.baselineState.about.text);
+  assert.deepEqual(preview, applyRefinementProposal(request, incoming, request.cv.baselineState, request.baselineSignature, ['change-1'], APP), 'acceptance must produce exactly the reviewed candidate');
+  assert.throws(() => applyRefinementProposal(request, incoming, current, request.baselineSignature, ['change-1'], APP), /CV changed.*outdated/);
+  assert.throws(() => applyRefinementProposal(request, incoming, request.cv.baselineState, refinementSignature('manual letter change'), ['change-1'], APP), /application changed.*outdated/);
+  assert.deepEqual({ request, incoming, current }, before);
+});
+
+test('local reconstruction checks application, request and protocol references before returning any candidate', () => {
+  const request = local({ schemaVersion: 2 }); const incoming = structuredProposal(request);
+  assert.throws(() => reconstructRefinementProposal(request, incoming, [], crypto.randomUUID()), /another application/);
+  assert.throws(() => reconstructRefinementProposal(request, { ...incoming, requestId: crypto.randomUUID() }, [], APP), /another refinement request/);
+  assert.throws(() => reconstructRefinementProposal(request, { schemaVersion: 1, requestId: incoming.requestId, cvEdits: [], summary: incoming.summary, letterText: incoming.letterText }, [], APP), /protocol version/);
+  const mismatched = structuredClone(request); mismatched.cv.publicRequest.requestId = crypto.randomUUID();
+  assert.throws(() => reconstructRefinementProposal(mismatched, incoming, [], APP), /privacy snapshot.*inconsistent/);
+});
+
+test('missing or corrupt local originals and mappings block reconstruction and acceptance even with no CV changes selected', () => {
+  const request = local({ schemaVersion: 2 }); const incoming = structuredProposal(request);
+  const mutations: ((copy: LocalRefinementRequest) => void)[] = [
+    copy => { delete (copy.cv as Partial<typeof copy.cv>).baselineState; },
+    copy => { delete (copy.cv as Partial<typeof copy.cv>).bindings; },
+    copy => { copy.cv.bindings = []; },
+    copy => { copy.cv.bindings[0].path = ['contact', 'name']; },
+    copy => { const binding = copy.cv.bindings.find(item => Object.keys(item.tokens).length)!; delete binding.tokens[Object.keys(binding.tokens)[0]]; },
+    copy => { delete copy.structureBindings; },
+    copy => { copy.structureBindings!.sections[0].sourceId = 'wrong source'; },
+    copy => { delete copy.letterBaseline; },
+    copy => { copy.letterBaseline!.text = 'Lost original wording.'; },
+    copy => { copy.sourceSignatures!.cv = refinementSignature('different source'); },
+    copy => { copy.sourceSignatures!.letter = refinementSignature('different letter'); },
+    copy => { copy.cv.sourceVariantId = 'different variant'; },
+  ];
+  for (const mutate of mutations) {
+    const corrupt = structuredClone(request); mutate(corrupt);
+    assert.throws(() => reconstructRefinementProposal(corrupt, incoming, [], APP), /source|snapshot|mappings/);
+    assert.throws(() => applyRefinementProposal(corrupt, incoming, state(), request.baselineSignature, [], APP), /source|snapshot|mappings/);
+  }
+  assert.deepEqual(request.cv.baselineState, state());
+});
+
+test('invalid unselected operations still fail the complete candidate without applying earlier valid operations', () => {
+  const request = local({ schemaVersion: 2 }); const incoming = structuredProposal(request);
+  incoming.cvOperations.push({ id: 'change-2', type: 'omit_bullet', targetId: 'bullet-999', explanation: 'Invalid source target.' });
+  const before = structuredClone(request);
+  assert.throws(() => reconstructRefinementProposal(request, incoming, ['change-1'], APP), /unavailable/);
+  assert.deepEqual(request, before);
+});
+
+test('CV-only candidates preserve the exact local letter while old requests without a letter original cannot reconstruct letters', () => {
+  const cv = local({ schemaVersion: 2, scope: 'cv', letterText: 'Taylor Green: !!private letter original!!' });
+  const cvProposal = { ...structuredProposal(cv), letterText: cv.request.letter.text };
+  assert.equal(reconstructRefinementProposal(cv, cvProposal, [], APP).letterText, cv.letterBaseline!.text);
+  const olderCv = structuredClone(cv); delete olderCv.letterBaseline; delete olderCv.sourceSignatures;
+  assert.deepEqual(reconstructRefinementProposal(olderCv, cvProposal, [], APP).state, state());
+  const olderLetter = local({ scope: 'letter' }); delete olderLetter.letterBaseline; delete olderLetter.sourceSignatures;
+  assert.throws(() => reconstructRefinementProposal(olderLetter, proposal(olderLetter), [], APP), /original local letter source is unavailable/);
 });
 
 test('structured protocol rejects invalid targets, unsupported operations, missing explanations and scope violations', () => {

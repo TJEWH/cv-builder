@@ -35,6 +35,9 @@ interface WorkspaceSetup {
   initialPrompt(): Promise<void>; checkProposals(): Promise<void>; openProposal(): void;
   acceptSelectedChanges(): Promise<void>; toggleProposedChange(id: string, included: boolean): void; toggleProposedLetter(included: boolean): void; discardReview(): void;
   selectedChangeIds: string[]; includeProposedLetter: boolean; reviewActive: boolean; previewCvState: CvState | null;
+  tab: 'preparation' | 'refinement' | 'review' | 'tracking'; reviewComparison: 'original' | 'proposed'; proposalSourceOutdated: boolean;
+  previewLetterCvState: CvState | null; previewLetterLanguage: string; localRequests: Record<string, LocalRefinementRequest>;
+  reviewPreviewLabel(document: 'cv' | 'letter'): string;
   previewLetterContent: ApplicationLetter['working'] | undefined; temporaryReview: { result: { state: CvState; letterText: string } | null; error: string }; reviewAcceptanceError: string;
   proposalChanges: { id: string; type: string; status: 'proposed' | 'accepted' | 'rejected'; before: string; after: string; target: string }[];
   proposalAnnotations: (import('../src/composables/refinementAnnotations').AnnotationView & { referenceChanged: boolean; included: boolean })[];
@@ -243,7 +246,7 @@ test('refinement preserves manual fixes and accumulates letter-only feedback whi
   const firstProposal = cloud.seedProposal(setup.requests[0].id);
   await setup.checkProposals(); setup.selectedProposalId = firstProposal.id; setup.openProposal(); await setup.acceptSelectedChanges();
   assert.equal(setup.error, '');
-  assert.equal(states.size, 1);
+  assert.equal(states.size, 2, 'accepting the reviewed CV creates its local subvariant');
   assert.ok(setup.letterText.includes('Human-Centred Robotics'));
   setup.record!.state.about.text += '\nManual CV correction retained.';
   setup.updateLetter(setup.letterText + '\n\nManual letter correction retained.');
@@ -634,7 +637,7 @@ test('reopening preserves a deliberately empty local working letter instead of r
   assert.equal(JSON.stringify(fixture.database), before);
 });
 
-test('a missing local letter is restored from the complete published source without creating a request', async (t) => {
+test('a missing working letter stays absent while its proposal previews from the exact local snapshot', async (t) => {
   const fixture = mount(t);
   let setup = fixture.setup;
   await idle(setup);
@@ -645,12 +648,17 @@ test('a missing local letter is restored from the complete published source with
   assert.equal(setup.error, '');
   const sourceText = setup.requests[0].request_json.letter.text;
   assert.notEqual(sourceText, setup.letterText, 'the saved source has identity placeholders');
+  fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'A temporary proposed letter.' });
   const before = JSON.stringify(fixture.database);
   fixture.storage.removeItem(`cv.letters.v1:${account}:application:${applicationId}`);
   setup = fixture.reopen();
   await idle(setup);
   assert.equal(setup.error, '');
-  assert.equal(setup.letterText, sourceText, 'restoration uses the full saved letter, not an empty template');
+  assert.equal(setup.letter, null, 'fetching history never promotes a public source to a local working draft');
+  assert.equal(fixture.storage.getItem(`cv.letters.v1:${account}:application:${applicationId}`), null);
+  setup.tab = 'refinement'; await idle(setup);
+  assert.equal(setup.previewLetterContent?.body, 'A temporary proposed letter.');
+  assert.match(setup.reviewAcceptanceError, /restore.*local source documents/);
   assert.equal(setup.requests.length, 1);
   assert.equal(JSON.stringify(fixture.database), before);
 });
@@ -898,4 +906,87 @@ test('stale annotation updates and failed saves preserve documents and do not cl
   assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'Unsaved response.', null), true);
   assert.equal(database.application_refinement_reviews.length, 2);
   assert.equal(JSON.stringify({ record: setup.record, letter: setup.letter }), before);
+});
+
+test('Original and Proposed use the exact published baseline after local edits and preserve working documents', async (t) => {
+  const { setup, cloud, storage } = mount(t);
+  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup); await setup.useLetterTemplate();
+  setup.letter!.working = { subject: 'Research interest', salutation: 'To the research committee:', body: 'The original private working letter.', closing: 'With sincere interest,\nPrivate applicant' };
+  await setup.initialPrompt();
+  const baselineCv = cloneCv(setup.record!.state), baselineLetter = JSON.parse(JSON.stringify(setup.letter!.working));
+  setup.record!.state.about.text = 'A new manual CV correction.';
+  setup.record!.state.contact.role = 'A newer local role';
+  setup.updateLetter('A newer manual letter correction.');
+  const working = JSON.stringify({ record: setup.record, letter: setup.letter });
+  const stored = storage.getItem('CV_REFINEMENT:1:' + account + ':' + applicationId);
+  const proposal = cloud.seedProposal(setup.requests[0].id, { letterText: 'Proposed letter from the original source.' });
+  await setup.checkProposals();
+  assert.equal(setup.selectedProposalId, proposal.id);
+  assert.equal(setup.reviewComparison, 'proposed');
+  assert.equal(setup.proposalSourceOutdated, true);
+  assert.equal(setup.previewLetterContent?.body, 'Proposed letter from the original source.');
+  assert.equal(setup.previewLetterCvState?.contact.role, baselineCv.contact.role);
+  assert.match(setup.reviewAcceptanceError, /changed after this request/);
+  const candidate = cloneCv(setup.previewCvState!);
+  setup.reviewComparison = 'original'; await nextTick();
+  assert.deepEqual(setup.previewCvState, baselineCv);
+  assert.deepEqual(setup.previewLetterContent, baselineLetter);
+  assert.equal(setup.reviewPreviewLabel('cv'), 'Original source snapshot');
+  setup.reviewComparison = 'proposed'; await nextTick();
+  assert.deepEqual(setup.previewCvState, candidate);
+  assert.equal(setup.reviewPreviewLabel('letter'), 'Proposed refinement — not yet accepted');
+  assert.equal(JSON.stringify({ record: setup.record, letter: setup.letter }), working);
+  assert.equal(storage.getItem('CV_REFINEMENT:1:' + account + ':' + applicationId), stored);
+});
+
+for (const scope of ['cv', 'letter'] as const) test(`${scope}-only proposals leave the other document preview on its working source`, async (t) => {
+  const { setup, cloud } = mount(t);
+  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup); await setup.useLetterTemplate();
+  setup.updateLetter('Existing letter.'); setup.feedbackScope = scope; await setup.initialPrompt();
+  const baselineCv = cloneCv(setup.record!.state);
+  setup.record!.state.contact.role = 'Manual role after publication';
+  setup.updateLetter('Manual letter after publication.');
+  cloud.seedProposal(setup.requests[0].id, { letterText: 'Proposed letter.' }); await setup.checkProposals();
+  assert.equal(setup.reviewActive, true);
+  if (scope === 'cv') {
+    assert.deepEqual(setup.previewLetterContent, setup.letter!.working);
+    assert.deepEqual(setup.previewLetterCvState, setup.record!.state);
+    assert.notDeepEqual(setup.previewCvState?.bodyOrder, baselineCv.bodyOrder);
+    setup.reviewComparison = 'original';
+    assert.deepEqual(setup.previewLetterContent, setup.letter!.working);
+    assert.deepEqual(setup.previewLetterCvState, setup.record!.state);
+    assert.deepEqual(setup.previewCvState, baselineCv);
+  } else {
+    assert.deepEqual(setup.previewCvState, setup.record!.state);
+    assert.equal(setup.previewLetterContent?.body, 'Proposed letter.');
+    assert.equal(setup.previewLetterCvState?.contact.role, baselineCv.contact.role);
+    setup.reviewComparison = 'original';
+    assert.deepEqual(setup.previewCvState, setup.record!.state);
+    assert.equal(setup.previewLetterContent?.body, 'Existing letter.');
+  }
+});
+
+test('missing private mappings produce no misleading proposed fallback and dismissal stays closed across tabs', async (t) => {
+  const { setup, cloud, database } = mount(t);
+  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup); await setup.useLetterTemplate();
+  setup.updateLetter('Existing letter.'); await setup.initialPrompt();
+  const request = setup.requests[0]; cloud.seedProposal(request.id);
+  setup.localRequests[request.id].cv.bindings = [];
+  const original = JSON.stringify({ record: setup.record, letter: setup.letter });
+  await setup.checkProposals();
+  assert.equal(setup.reviewActive, true);
+  assert.match(setup.temporaryReview.error, /mapping|binding/i);
+  assert.equal(setup.previewCvState, null);
+  assert.equal(setup.previewLetterContent, undefined);
+  assert.ok(setup.reviewAcceptanceError);
+  setup.reviewComparison = 'original';
+  assert.equal(setup.previewCvState, null, 'invalid reconstruction is not disguised as an original/proposed comparison');
+  setup.discardReview();
+  assert.deepEqual(setup.previewCvState, setup.record!.state);
+  assert.deepEqual(setup.previewLetterContent, setup.letter!.working);
+  setup.tab = 'review'; await nextTick(); setup.tab = 'refinement'; await idle(setup);
+  assert.equal(setup.reviewActive, false);
+  assert.deepEqual(setup.previewCvState, setup.record!.state);
+  assert.equal(JSON.stringify({ record: setup.record, letter: setup.letter }), original);
+  assert.equal(database.application_refinement_reviews.length, 0);
 });

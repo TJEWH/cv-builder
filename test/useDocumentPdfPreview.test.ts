@@ -67,11 +67,30 @@ test('document previews cancel stale renders and stop work when their tab is hid
   assert.equal((fixture.preview.pages.value as PreviewPage[])[0].svg, 'current');
   assert.equal(fixture.preview.busy.value, false);
   fixture.version.value++;
+  assert.deepEqual(fixture.preview.pages.value, [], 'switching sources immediately removes previously rendered pages from every surface');
   await nextTick(); await settle();
   fixture.active.value = false;
   await nextTick();
   assert.equal(renders[2].signal.aborted, true);
   assert.equal(fixture.preview.busy.value, false);
+});
+
+test('a failed replacement preview cannot display the previous document as the new source', async (t) => {
+  let fail = false;
+  const fixture = mountPreview({ renderPreview: async () => {
+    if (fail) throw new Error('The proposed document cannot be rendered.');
+    return { pages: [samplePage('original')] };
+  } });
+  t.after(fixture.unmount);
+  fixture.active.value = true;
+  await settle();
+  assert.equal(fixture.preview.pages.value[0]?.svg, 'original');
+  fail = true;
+  fixture.version.value++;
+  assert.deepEqual(fixture.preview.pages.value, []);
+  await settle();
+  assert.deepEqual(fixture.preview.pages.value, []);
+  assert.match(fixture.preview.error.value, /proposed document cannot be rendered/);
 });
 
 test('hidden document sources still export for a package and dispose pending exports on unmount', async () => {
@@ -96,4 +115,38 @@ test('hidden document sources still export for a package and dispose pending exp
   assert.equal(pending[0].signal.aborted, false, 'completed exports release their controller');
   assert.equal(pending[1].signal.aborted, true);
   assert.equal(fixture.revoked(), 1);
+});
+
+test('opening then closing a proposal while an export awaits its DOM source permanently cancels that export', async t => {
+  let finishSource!: (element: HTMLElement) => void;
+  let renders = 0;
+  const fixture = mountPreview({
+    renderPreview: async () => ({ pages: [] }),
+    renderPdfBlob: async () => { renders++; return new Blob(['unaccepted proposal']); },
+  });
+  t.after(fixture.unmount);
+  const exported = fixture.preview.getPdfBlob(() => new Promise(resolve => { finishSource = resolve; }));
+  fixture.version.value = 2;
+  fixture.version.value = 1;
+  finishSource({} as HTMLElement);
+  await assert.rejects(exported, { name: 'AbortError' });
+  assert.equal(renders, 0, 'the canceled export never renders the temporary proposal DOM');
+});
+
+for (const change of ['source', 'activation'] as const) test(`${change} changes cancel an in-flight PDF even when the renderer completes after cancellation`, async t => {
+  let finishRender!: (blob: Blob) => void;
+  let signal!: AbortSignal;
+  const fixture = mountPreview({
+    renderPreview: async () => ({ pages: [] }),
+    renderPdfBlob: (_element, options) => new Promise(resolve => { signal = options.signal!; finishRender = resolve; }),
+  });
+  t.after(fixture.unmount);
+  const exported = fixture.preview.getPdfBlob();
+  await Promise.resolve();
+  assert.equal(signal.aborted, false);
+  if (change === 'source') { fixture.version.value = 2; fixture.version.value = 1; }
+  else { fixture.active.value = true; fixture.active.value = false; }
+  assert.equal(signal.aborted, true, 'the source watcher invalidates exports synchronously');
+  finishRender(new Blob(['stale PDF']));
+  await assert.rejects(exported, { name: 'AbortError' });
 });

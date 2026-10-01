@@ -115,9 +115,10 @@ test('malicious new URLs, images and HTML or private tokens in link destinations
 
 test('persisted local bindings cannot redirect edits into identity or alter secret reconstruction', () => {
   const state = fixture(); const request = prepareCvAdjustment({ state, variantId: 'base' }); const profile = field(request, 'Profile');
+  const before = structuredClone(state);
   request.bindings.forEach((binding) => { binding.path = ['contact', 'name']; for (const key of Object.keys(binding.tokens)) binding.tokens[key] = 'tampered'; });
-  const result = reconstructCvAdjustment(request, response(request, [{ fieldId: profile.id, text: `Public ${profile.text}` }]), state);
-  assert.equal(result.state.contact.name, state.contact.name); assert.equal(result.state.about.text, `Public ${state.about.text}`);
+  assert.throws(() => reconstructCvAdjustment(request, response(request, [{ fieldId: profile.id, text: `Public ${profile.text}` }]), state), /reconstruction mappings.*inconsistent/);
+  assert.deepEqual(state, before);
   request.publicRequest.fields[0].text = 'tampered';
   assert.throws(() => reconstructCvAdjustment(request, response(request), state), /inconsistent/);
 });

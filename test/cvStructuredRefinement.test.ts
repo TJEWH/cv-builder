@@ -120,14 +120,30 @@ test('reordering preserves line prefixes, trailing spaces, line endings and fina
   }
 });
 
-test('selected omissions and shortenings preserve exact private fragments and ignore tampered saved reconstruction paths', () => {
+test('shortenings preserve exact private fragments and tampered reconstruction paths block all application', () => {
   const { state, local, structure } = fixture(); const engineer = entry(structure, 'Engineer A');
   const privateRange = structure.ranges.find(item => item.bulletId === engineer.bulletIds[1])!;
   const shortened = privateRange.text.replace('Led ', '');
-  local.bindings.forEach(binding => { binding.path = ['contact', 'name']; Object.keys(binding.tokens).forEach(key => { binding.tokens[key] = 'tampered'; }); });
   const result = applyCvOperations(local, structure, [operation(1, { type: 'shorten_text', targetId: privateRange.id, text: shortened })], state);
   assert.equal(result.experience.jobs[0].bullets, '- Built highly reliable robots.  \r\n- !!private lab!! experiments.\r\n- Shared public results.\r\n');
   assert.equal(result.contact.name, 'Ada Example');
+  local.bindings.forEach(binding => { binding.path = ['contact', 'name']; Object.keys(binding.tokens).forEach(key => { binding.tokens[key] = 'tampered'; }); });
+  assert.throws(() => applyCvOperations(local, structure, [operation(1, { type: 'shorten_text', targetId: privateRange.id, text: shortened })], state), /reconstruction mappings.*inconsistent/);
+  assert.throws(() => applyCvOperations(local, structure, [], state, []), /reconstruction mappings.*inconsistent/);
+});
+
+test('omitting a private bullet only changes the candidate and retains originals and token maps in the local source', () => {
+  const { state, local, structure } = fixture(); const job = entry(structure, 'Engineer A');
+  const before = structuredClone({ state, local, structure });
+  const result = applyCvOperations(local, structure, [operation(1, { type: 'omit_bullet', targetId: job.bulletIds[1] })], state);
+  assert.equal(result.experience.jobs[0].bullets?.includes('private lab'), false);
+  assert.deepEqual({ state, local, structure }, before);
+  assert.ok(local.baselineState.experience.jobs[0].bullets?.includes('!!private lab!!'));
+  assert.ok(local.bindings.some(binding => Object.values(binding.tokens).includes('!!private lab!!')));
+  const missing = structuredClone(local);
+  const binding = missing.bindings.find(item => Object.values(item.tokens).includes('!!private lab!!'))!;
+  delete binding.tokens[Object.keys(binding.tokens).find(key => binding.tokens[key] === '!!private lab!!')!];
+  assert.throws(() => applyCvOperations(missing, structure, [operation(1, { type: 'omit_bullet', targetId: job.bulletIds[1] })], state), /reconstruction mappings/);
 });
 
 test('operation selection is independent and rejects unknown or duplicate selection identifiers', () => {

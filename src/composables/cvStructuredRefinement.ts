@@ -1,7 +1,7 @@
 import type { CvAdjustmentField, LocalCvAdjustmentRequest } from '../cvAdjustmentTypes';
 import type { CvComment, CvOperation, CvStructure, CvStructureBindings } from '../cvStructuredTypes';
 import type { CvItem, CvState } from '../types';
-import { prepareCvAdjustment, reconstructCvAdjustment } from './cvAdjustments';
+import { reconstructCvAdjustment, validateLocalCvAdjustment } from './cvAdjustments';
 import { readCvState } from './cvStateValidation';
 
 const TOKEN = /\{\{PRIVATE_[1-9][0-9]*\}\}/g;
@@ -63,10 +63,9 @@ function parseFlatBullets(value: string): ParsedBullets | null {
   return { lines: result, separators, trailing };
 }
 
-/** Re-project first, so persisted paths and privacy-token maps can never define structural edit capabilities. */
+/** Verify private maps and derive capabilities only from the exact local source. */
 export function prepareCvStructure(localCv: LocalCvAdjustmentRequest): { structure: CvStructure; bindings: CvStructureBindings } {
-  const rebuilt = prepareCvAdjustment({ state: localCv.baselineState, variantId: localCv.sourceVariantId });
-  if (!same(rebuilt.publicRequest.fields, localCv.publicRequest.fields)) throw new Error('The local privacy snapshot is inconsistent. Prepare a new request.');
+  const rebuilt = validateLocalCvAdjustment(localCv);
   const state = rebuilt.baselineState;
   const fields = new Map(rebuilt.publicRequest.fields.map(field => [field.id, field]));
   const fieldsByPath = new Map(rebuilt.bindings.map(binding => [pathKey(binding.path), fields.get(binding.fieldId)!]));
@@ -277,7 +276,7 @@ export function applyCvOperations(localCv: LocalCvAdjustmentRequest, structure: 
   const checked = validateCvOperations(operations, [], structure, localCv.publicRequest.fields).operations;
   if (selectedIds && (new Set(selectedIds).size !== selectedIds.length || selectedIds.some(id => !checked.some(operation => operation.id === id)))) throw new Error('Selected CV operations contain unknown or duplicate identifiers.');
   const selected = selectedIds ? checked.filter(operation => selectedIds.includes(operation.id)) : checked;
-  const privacy = prepareCvAdjustment({ state: localCv.baselineState, variantId: localCv.sourceVariantId });
+  const privacy = validateLocalCvAdjustment(localCv);
   const tokensByField = new Map(privacy.bindings.map(binding => [binding.fieldId, binding.tokens]));
   const restore = (text: string, fieldId: string) => text.replace(TOKEN, token => {
     const value = tokensByField.get(fieldId)?.[token];

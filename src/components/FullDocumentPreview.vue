@@ -57,9 +57,12 @@ onBeforeUnmount(() => mobileViewport.removeEventListener('change', syncViewport)
           </div>
         </div>
         <p v-if="error" class="document-full-preview__error" role="alert">{{ error }}</p>
-        <div class="document-full-preview__content">
-          <PdfPreview v-if="showPdf" :key="mode" :pages="pages" :page="page" :is-updating="isUpdating" :lang="lang" gesture-navigation :pinch-zoom="mobile" @update:page="emit('update:page', $event)" />
-          <div v-else class="document-full-preview__html"><slot name="html" /></div>
+        <div class="document-full-preview__content" :class="{ 'document-full-preview__content--with-header': !!$slots.header }">
+          <div v-if="$slots.header" class="document-full-preview__header"><slot name="header" /></div>
+          <div class="document-full-preview__viewport">
+            <PdfPreview v-if="showPdf" :key="mode" :pages="pages" :page="page" :is-updating="isUpdating" :lang="lang" gesture-navigation :pinch-zoom="mobile" @update:page="emit('update:page', $event)" />
+            <div v-else class="document-full-preview__html"><slot name="html" /></div>
+          </div>
         </div>
         <PdfPagination v-if="showPdf" class="document-full-preview__pagination" :pages="pages" :page="page" :lang="lang" fullscreen @update:page="emit('update:page', $event)" />
       </template>
@@ -72,6 +75,9 @@ onBeforeUnmount(() => mobileViewport.removeEventListener('change', syncViewport)
 .document-full-preview[open]{display:flex;justify-content:center}
 .document-full-preview::backdrop{background:#050d14}
 .document-full-preview__content{width:min(100%,860px);min-width:0;margin:auto;align-self:flex-start;display:grid;justify-items:center}
+.document-full-preview__content--with-header{grid-template-rows:auto minmax(0,1fr);gap:12px}
+.document-full-preview__header{width:100%;min-width:0;padding:10px 12px;box-sizing:border-box;border:1px solid #28534e;border-radius:8px;background:#091923}
+.document-full-preview__viewport{width:100%;min-width:0;display:grid;justify-items:center}
 .document-full-preview__html{width:min(100%,210mm);overflow:auto;background:#fff}
 .document-full-preview__back,.document-full-preview__actions{position:fixed;top:20px;z-index:30}
 .document-full-preview__back{left:20px;display:inline-flex;align-items:center;gap:8px}
@@ -88,7 +94,8 @@ onBeforeUnmount(() => mobileViewport.removeEventListener('change', syncViewport)
   .document-full-preview__actions{position:static;display:flex;flex:1;flex-direction:row;gap:8px;min-width:0}
   .document-full-preview__actions .btn{flex:1;min-width:0;min-height:44px;padding:6px;font-size:clamp(11px,3vw,13px);line-height:1.2}
   .document-full-preview__actions .svg-inline--fa{flex:none;margin:0;font-size:16px}
-  .document-full-preview__content{container-type:size;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;margin:0}
+  .document-full-preview__content{width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;margin:0}
+  .document-full-preview__viewport{container-type:size;min-height:0;height:100%;overflow:hidden}
   .document-full-preview :deep(.pdf-preview),.document-full-preview :deep(.pdf-preview__stage){height:100%;min-height:0}
   .document-full-preview :deep(.pdf-preview__stage){background:transparent}
   .document-full-preview :deep(.pdf-preview__page){width:min(100cqw,calc(100cqh * 210 / 297),794px)}

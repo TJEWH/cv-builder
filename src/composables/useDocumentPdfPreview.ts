@@ -39,12 +39,20 @@ export function useDocumentPdfPreview(input: {
   watch([input.signature, input.active], () => {
     slot.cancel();
     clearTimeout(timer);
+    // Exports may be awaiting the same DOM source. A temporary proposal switch,
+    // even one immediately reverted, invalidates every export already in flight.
+    for (const controller of exports) controller.abort();
+    exports.clear();
+    // A new proposal/comparison must never retain pages from the previous source,
+    // including while rendering is debounced or after the new render fails.
+    pages.value = [];
+    error.value = '';
     busy.value = false;
     if (input.active()) {
       busy.value = true;
       timer = setTimeout(() => void refresh(), 150);
     }
-  }, { deep: true, immediate: true, flush: 'post' });
+  }, { deep: true, immediate: true, flush: 'sync' });
 
   async function getPdfBlob(source = input.source): Promise<Blob> {
     const controller = new AbortController();
@@ -52,7 +60,9 @@ export function useDocumentPdfPreview(input: {
     try {
       const element = await source();
       controller.signal.throwIfAborted();
-      return await renderPdfBlob(element, { ...input.options(), signal: controller.signal });
+      const blob = await renderPdfBlob(element, { ...input.options(), signal: controller.signal });
+      controller.signal.throwIfAborted();
+      return blob;
     } finally { exports.delete(controller); }
   }
   async function download(filename: string) {

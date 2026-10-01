@@ -35,15 +35,24 @@ export function serializeRefinementDraft(working?: LetterContent | null): { text
 export function refinementInputsSignature(local: LocalRefinementRequest): string {
   const { requestId: _requestId, cv, ...request } = local.request;
   const { requestId: _cvRequestId, ...cvRequest } = cv;
+  const { requestId: _localCvRequestId, ...localCvRequest } = local.cv.publicRequest;
   return refinementSignature({
     request: { ...request, cv: cvRequest },
     baselineSignature: local.baselineSignature,
     baselineState: local.cv.baselineState,
     sourceVariantId: local.cv.sourceVariantId,
+    localCvRequest,
+    bindings: local.cv.bindings,
+    structureBindings: local.structureBindings,
+    letterBaseline: local.letterBaseline,
+    sourceSignatures: local.sourceSignatures,
   });
 }
 
 /** A cloud row without the original local privacy baseline cannot prove that the current private documents still match. */
 export function sameRefinementInputs(left: LocalRefinementRequest | null | undefined, right: LocalRefinementRequest | null | undefined): boolean {
-  return !!left && !!right && refinementInputsSignature(left) === refinementInputsSignature(right);
+  const consistentReferences = (local: LocalRefinementRequest) => local.request.requestId === local.request.cv.requestId
+    && local.request.requestId === local.cv.publicRequest.requestId;
+  return !!left && !!right && consistentReferences(left) && consistentReferences(right)
+    && refinementInputsSignature(left) === refinementInputsSignature(right);
 }

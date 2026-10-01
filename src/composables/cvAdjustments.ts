@@ -150,16 +150,26 @@ export function parseCvAdjustmentResponse(value: unknown): CvAdjustmentResponse 
 function links(text: string): string[] {
   return [...text.matchAll(/\]\(([^\s)]+)\)|(?:https?:\/\/|mailto:|tel:|javascript:|data:)[^\s<>)]+/gi)].map((match) => match[1] ?? match[0]).sort();
 }
+/** Check saved private mappings against their exact original; missing maps cannot be silently regenerated. */
+export function validateLocalCvAdjustment(local: LocalCvAdjustmentRequest): LocalCvAdjustmentRequest {
+  if (!record(local) || !record(local.baselineState)) throw new Error('The original local CV source snapshot is unavailable. Restore it or prepare a new request.');
+  readCvState(local.baselineState);
+  const request = validateRequest(local.publicRequest);
+  if (!Array.isArray(local.bindings)) throw new Error('The local private reconstruction mappings are unavailable. Restore them or prepare a new request.');
+  // Derive the allowed paths independently, then require the stored maps to agree.
+  const rebuilt = prepareCvAdjustment({ state: local.baselineState, variantId: local.sourceVariantId });
+  if (canonical(rebuilt.publicRequest.fields) !== canonical(request.fields)) throw new Error('The local privacy snapshot is inconsistent. Prepare it again.');
+  if (canonical(local.bindings) !== canonical(rebuilt.bindings)) throw new Error('The local private reconstruction mappings are missing or inconsistent. Restore them or prepare a new request.');
+  return rebuilt;
+}
 /** Reject stale baselines and structural/identity edits before changing a fresh local clone. */
 export function reconstructCvAdjustment(local: LocalCvAdjustmentRequest, response: unknown, currentState: CvState) {
-  readCvState(currentState); readCvState(local.baselineState);
+  readCvState(currentState);
+  const rebuilt = validateLocalCvAdjustment(local);
   const request = validateRequest(local.publicRequest);
   const returned = parseCvAdjustmentResponse(response);
   if (returned.requestId !== request.requestId) throw new Error('This response belongs to another CV adjustment request.');
   if (canonical(currentState) !== canonical(local.baselineState)) throw new Error('The CV changed after this snapshot. Prepare a new request before applying adjustments.');
-  // Rebuild bindings from the baseline, never trust persisted paths or secret maps.
-  const rebuilt = prepareCvAdjustment({ state: local.baselineState, variantId: local.sourceVariantId });
-  if (canonical(rebuilt.publicRequest.fields) !== canonical(request.fields)) throw new Error('The local privacy snapshot is inconsistent. Prepare it again.');
   const result = clone(currentState);
   let changedFieldCount = 0;
   for (const edit of returned.edits) {
@@ -174,7 +184,11 @@ export function reconstructCvAdjustment(local: LocalCvAdjustmentRequest, respons
     }
     if (JSON.stringify(links(edit.text)) !== JSON.stringify(links(field.text))
       || /!\[|<\/?[a-z]|\]\([^)]*\{\{/i.test(edit.text)) throw new Error('CV adjustments cannot add links, images or HTML.');
-    const restored = edit.text.replace(TOKEN, (token) => binding.tokens[token]!);
+    const restored = edit.text.replace(TOKEN, (token) => {
+      const original = binding.tokens[token];
+      if (original === undefined) throw new Error('A private reconstruction token is unavailable.');
+      return original;
+    });
     let object: unknown = result;
     for (const key of binding.path.slice(0, -1)) object = Reflect.get(object as object, key);
     const key = binding.path.at(-1)!;

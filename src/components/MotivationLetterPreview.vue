@@ -55,7 +55,9 @@ defineExpose({ getPdfBlob, getRenderElement: () => page.value, open: () => { exp
     <InlineDocumentPreview :pages="pages" v-model:page="previewPage" :is-updating="busy" :lang="previewLang" :title="title" :download-disabled="downloadDisabled" :downloading="downloading" @open="expanded = true" @download="emit('download')">
       <template #header><slot /><p v-if="error" class="letter-preview__error" role="alert">{{ error }}</p></template>
     </InlineDocumentPreview>
-    <FullDocumentPreview v-model="expanded" v-model:page="previewPage" :pages="pages" :is-updating="busy" :lang="previewLang" :title="title" :error="downloadError || error" :download-disabled="downloadDisabled" :downloading="downloading" @download="emit('download')" />
+    <FullDocumentPreview v-model="expanded" v-model:page="previewPage" :pages="pages" :is-updating="busy" :lang="previewLang" :title="title" :error="downloadError || error" :download-disabled="downloadDisabled" :downloading="downloading" @download="emit('download')">
+      <template v-if="$slots.default" #header><slot /></template>
+    </FullDocumentPreview>
     <div class="letter-preview__source" aria-hidden="true">
       <article ref="page" class="motivation-letter cv-design-scope" :style="pageStyle">
         <header v-if="cvState && !cvState.disabled.includes('header')" class="letter-header">

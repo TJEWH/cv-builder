@@ -93,11 +93,30 @@ test('changes to every source, effective setting, selected scope, feedback or li
     ['local document baseline', next => { next.baselineSignature = refinementSignature('new local letter'); }],
     ['private reconstruction baseline', next => { next.cv.baselineState.about.text = 'Public research with !!different private partner!!.'; }],
     ['selected CV template', next => { next.cv.sourceVariantId = 'another-local-template'; }],
+    ['local public projection', next => { next.cv.publicRequest.fields[0].text = 'Inconsistent local projection'; }],
+    ['missing privacy mappings', next => { next.cv.bindings = []; }],
+    ['private token original', next => { const binding = next.cv.bindings.find(item => Object.keys(item.tokens).length)!; binding.tokens[Object.keys(binding.tokens)[0]] = 'Lost original'; }],
+    ['missing structural mappings', next => { delete next.structureBindings; }],
+    ['missing original letter', next => { delete next.letterBaseline; }],
+    ['original private letter', next => { next.letterBaseline!.text = 'Different private original'; }],
+    ['missing source integrity', next => { delete next.sourceSignatures; }],
+    ['mismatched public CV reference', next => { next.request.cv.requestId = crypto.randomUUID(); }],
+    ['mismatched local CV reference', next => { next.cv.publicRequest.requestId = crypto.randomUUID(); }],
   ];
   for (const [name, change] of changes) {
     const next = structuredClone(first); change(next);
     assert.equal(sameRefinementInputs(first, next), false, name);
   }
+});
+
+test('reconstruction fields distinguish incomplete pending caches while publication and acceptance receipts do not change source identity', () => {
+  const current = prepare(); const oldPending = structuredClone(current);
+  delete oldPending.letterBaseline; delete oldPending.sourceSignatures;
+  assert.equal(sameRefinementInputs(oldPending, current), false, 'a fresh preparation must not reuse an incomplete old local request');
+  const published = structuredClone(current);
+  published.publishedAt = '2026-10-02T10:00:00Z';
+  published.acceptances = [{ key: refinementSignature('accepted selection'), proposalId: crypto.randomUUID(), variantId: 'saved-subvariant', acceptedAt: published.publishedAt, reviewId: crypto.randomUUID() }];
+  assert.equal(sameRefinementInputs(current, published), true);
 });
 
 test('ordered feedback remains part of freshness and no feedback entry is silently ignored', () => {
