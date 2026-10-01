@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { LocalRefinementRequest, RefinementFeedback, RefinementProposal, RefinementRequest, RefinementSetup } from '../src/refinementTypes';
+import type { LocalRefinementRequest, RefinementFeedback, RefinementProposalV1, RefinementProposalV2, RefinementRequest, RefinementSetup } from '../src/refinementTypes';
 import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, parseRefinementProposal, prepareRefinement, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText } from '../src/composables/applicationRefinement';
 import { DEFAULT_LETTER_TEMPLATES } from '../src/composables/motivationLetters';
 import { createTestState, stub } from './helpers';
@@ -20,11 +20,11 @@ function setup(): RefinementSetup {
   return { template: { ...DEFAULT_LETTER_TEMPLATES[0], exampleText: 'Taylor Green writes !!private example!!. Contact taylor@example.com.' }, language: 'en', maxWords: 400 };
 }
 function local(options: Partial<Parameters<typeof prepareRefinement>[0]> = {}): LocalRefinementRequest {
-  return prepareRefinement({ applicationId: APP, state: state(), variantId: 'private variant name', setup: setup(), letterText: '',
+  return prepareRefinement({ schemaVersion: 1, applicationId: APP, state: state(), variantId: 'private variant name', setup: setup(), letterText: '',
     opportunity: { title: 'PhD in robotics', requirements: 'CV, motivation letter of 400 words, transcript' },
     scope: 'both', feedback: [], parentProposalId: null, baselineSignature: refinementSignature({ cv: state(), letter: '' }), ...options });
 }
-function proposal(request: LocalRefinementRequest, edits: RefinementProposal['cvEdits'] = []): RefinementProposal {
+function proposal(request: LocalRefinementRequest, edits: RefinementProposalV1['cvEdits'] = []): RefinementProposalV1 {
   return { schemaVersion: 1, requestId: request.request.requestId, summary: 'Emphasized relevant measurement work and drafted the letter.', cvEdits: edits,
     letterText: '# PhD application\n\nDear selection committee,\n\nMy research interests connect to your robotics project.\n\nSincerely,\n{{APPLICANT_NAME}}' };
 }
@@ -242,5 +242,104 @@ test('missing schema and authentication produce actionable errors while leaving 
   const missing = fakeClient(() => ({ data: null, error: { code: 'PGRST202' } }));
   await assert.rejects(createRefinementRepository(missing.client, () => 'owner').publishRequest(request.request), /pending migration.*local documents are preserved/);
   await assert.rejects(createRefinementRepository(null, () => null).listRequests(APP), /Sign in/);
+  assert.deepEqual(request, before);
+});
+
+function structuredProposal(request: LocalRefinementRequest): RefinementProposalV2 {
+  assert.equal(request.request.schemaVersion, 2);
+  if (request.request.schemaVersion !== 2) throw new Error('Expected protocol v2.');
+  const area = request.request.cvStructure.areas.find(item => item.sectionIds.length > 1);
+  assert.ok(area, 'test CV needs multiple existing sections');
+  return { schemaVersion: 2, requestId: request.request.requestId, summary: 'Prioritize the existing research evidence.',
+    cvOperations: [{ id: 'change-1', type: 'reorder_sections', targetId: area.id, order: [...area.sectionIds].reverse(), explanation: 'Bring relevant existing sections forward.' }],
+    cvComments: [], letterText: 'Dear committee,\n\nMy documented research interests match the project.\n\nKind regards,\n{{APPLICANT_NAME}}' };
+}
+
+test('new requests default to v2 with public topology and local-only reconstruction bindings', () => {
+  const request = local({ schemaVersion: undefined });
+  assert.equal(request.request.schemaVersion, 2);
+  if (request.request.schemaVersion !== 2) throw new Error('Expected v2.');
+  assert.equal(request.request.cv.schemaVersion, 1, 'existing field protocol remains version 1');
+  assert.equal(request.request.cvStructure.schemaVersion, 1);
+  assert.ok(request.structureBindings);
+  const publicJson = JSON.stringify(request.request);
+  for (const secret of ['local-job', 'local-education', 'private collaboration', 'Taylor Green', 'baselineState', 'entriesPath', 'bindings']) assert.equal(publicJson.includes(secret), false, secret);
+  assert.equal(local().request.schemaVersion, 1, 'explicit legacy requests remain legacy');
+  assert.throws(() => local({ schemaVersion: 3 as 2 }), /Unsupported.*version/);
+});
+
+test('structured proposals validate fully before selected operations produce an isolated preview', () => {
+  const request = local({ schemaVersion: 2 }); const incoming = structuredProposal(request);
+  const before = structuredClone({ request, source: state(), incoming });
+  assert.deepEqual(parseRefinementProposal(incoming, request.request), incoming);
+  const rejected = applyRefinementProposal(request, incoming, state(), request.baselineSignature, []);
+  assert.deepEqual(rejected.state, state());
+  const accepted = applyRefinementProposal(request, incoming, state(), request.baselineSignature, ['change-1']);
+  assert.notDeepEqual(accepted.state.bodyOrder, state().bodyOrder);
+  assert.equal(accepted.state.about.text, state().about.text);
+  assert.equal(accepted.letterText, incoming.letterText);
+  assert.deepEqual({ request, source: state(), incoming }, before, 'preview must never mutate its source or proposal');
+  assert.throws(() => applyRefinementProposal(request, incoming, state(), request.baselineSignature, ['change-99']), /selected|unknown|available/i);
+  assert.throws(() => applyRefinementProposal(request, incoming, state(), request.baselineSignature, ['change-1', 'change-1']), /duplicate|unique/i);
+  assert.throws(() => applyRefinementProposal(request, incoming, state(), refinementSignature('changed')), /application changed/);
+});
+
+test('structured protocol rejects invalid targets, unsupported operations, missing explanations and scope violations', () => {
+  const request = local({ schemaVersion: 2 }); const incoming = structuredProposal(request);
+  for (const operation of [
+    { ...incoming.cvOperations[0], type: 'rewrite_cv' },
+    { ...incoming.cvOperations[0], targetId: 'section-999' },
+    { ...incoming.cvOperations[0], explanation: '' },
+    { ...incoming.cvOperations[0], unexpected: true },
+  ]) assert.throws(() => parseRefinementProposal({ ...incoming, cvOperations: [operation] }, request.request));
+  const letterOnly = local({ schemaVersion: 2, scope: 'letter' });
+  assert.throws(() => parseRefinementProposal({ ...incoming, requestId: letterOnly.request.requestId }, letterOnly.request), /only change the letter/);
+  const cvOnly = local({ schemaVersion: 2, scope: 'cv', letterText: 'Keep my letter verbatim.' });
+  assert.throws(() => parseRefinementProposal({ ...incoming, requestId: cvOnly.request.requestId }, cvOnly.request), /letter must remain unchanged/);
+  const withComment = { ...incoming, cvComments: [{ id: 'comment-1', fieldId: profile(request).id, explanation: 'This wording requires the applicant to confirm its evidence.' }] };
+  assert.deepEqual(parseRefinementProposal(withComment, request.request), withComment);
+  assert.throws(() => parseRefinementProposal({ ...withComment, cvComments: [{ ...withComment.cvComments[0], fieldId: 'field-999' }] }, request.request));
+});
+
+test('legacy wording proposals remain readable and selectively applicable without automatic structural promotion', async () => {
+  const legacy = local(); const field = profile(legacy);
+  const incoming = proposal(legacy, [{ fieldId: field.id, text: field.text.replace('researches', 'studies') }]);
+  const row = { id: crypto.randomUUID(), application_id: APP, user_id: 'owner', request_id: legacy.request.requestId, proposal_json: incoming, created_at: CREATED };
+  const client = fakeClient(() => ({ data: [row], error: null }));
+  const [loaded] = await createRefinementRepository(client.client, () => 'owner').listProposals(APP);
+  assert.equal(loaded.proposal_json.schemaVersion, 1);
+  assert.deepEqual(applyRefinementProposal(legacy, loaded.proposal_json, state(), legacy.baselineSignature, []).state, state());
+  assert.match(applyRefinementProposal(legacy, loaded.proposal_json, state(), legacy.baselineSignature, [field.id]).state.about.text, /studies/);
+  assert.throws(() => applyRefinementProposal(legacy, incoming, state(), legacy.baselineSignature, ['field-999']), /available legacy/);
+  const modern = local({ schemaVersion: 2 });
+  assert.throws(() => parseRefinementProposal({ ...incoming, requestId: modern.request.requestId }, modern.request), /protocol version/);
+  assert.throws(() => parseRefinementProposal({ ...structuredProposal(modern), requestId: legacy.request.requestId }, legacy.request), /protocol version/);
+  assert.match(buildRefinementPrompt(legacy.request, 'test-project'), /Legacy wording-only protocol/);
+});
+
+test('v2 prompt limits operations to existing references and requires extractive shortening, explanations and verified saving', () => {
+  const request = local({ schemaVersion: 2 });
+  const prompt = buildRefinementPrompt(request.request, 'test-project');
+  for (const phrase of ['protocol v2', 'request_json.cvStructure', 'extractive', 'without adding or paraphrasing', 'unique change-N', 'cvComments', 'omit_bullet', 'existing fieldId', 'nonempty explanation', 'complete letter consistent', 'persisted receipt', 'SAME proposal UUID']) assert.ok(prompt.includes(phrase), phrase);
+  assert.ok(prompt.includes('"cvOperations":[]'));
+  assert.equal(prompt.includes('"cvEdits":'), false);
+});
+
+test('CV decision logs validate their exact shape, preserve receipt data and reject overlapping or missing identifiers', async () => {
+  const request = local({ schemaVersion: 2 });
+  const { client, queries } = fakeClient(({ params }) => ({ data: { id: params?.p_id, application_id: APP, user_id: 'owner', request_id: params?.p_request_id, kind: params?.p_kind, payload: params?.p_payload, created_at: CREATED }, error: null }));
+  const repo = createRefinementRepository(client, () => 'owner');
+  const decisions = { proposalId: crypto.randomUUID(), accepted: ['change-1'], rejected: ['change-2'], revision: refinementSignature('accepted working CV') };
+  const row = await repo.saveReview(APP, request.request.requestId, 'cv_decisions', decisions);
+  assert.deepEqual(row.payload, decisions);
+  assert.equal(queries[0].params?.p_kind, 'cv_decisions');
+  for (const bad of [ { ...decisions, rejected: ['change-1'] }, { ...decisions, accepted: ['unknown'] }, { ...decisions, revision: 'plain text' }, { ...decisions, extra: true } ]) await assert.rejects(repo.saveReview(APP, request.request.requestId, 'cv_decisions', bad), /CV review decisions/);
+  await assert.rejects(repo.saveReview(APP, null, 'cv_decisions', decisions), /request ID/);
+});
+
+test('v2 publication reports a required backend migration without downgrading or changing the local request', async () => {
+  const request = local({ schemaVersion: 2 }); const before = structuredClone(request);
+  const missing = fakeClient(() => ({ data: null, error: { code: '22023', message: 'Invalid refinement request schemaVersion.' } }));
+  await assert.rejects(createRefinementRepository(missing.client, () => 'owner').publishRequest(request.request), /protocol v2.*migration.*local documents are preserved/);
   assert.deepEqual(request, before);
 });

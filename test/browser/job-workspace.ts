@@ -248,7 +248,7 @@ const Fixture = defineComponent({
     function returnRefinementProposal(overLimit = false) {
       try {
         const returned = refinement.seedProposal(undefined, { overLimit });
-        draftStatus.value = `Synthetic proposal returned (${returned.proposal_json.cvEdits.length} CV changes). Use “Check for proposal”, then select the latest proposal.`;
+        draftStatus.value = `Synthetic proposal returned (${(returned.proposal_json.schemaVersion === 2 ? returned.proposal_json.cvOperations : returned.proposal_json.cvEdits).length} CV changes). Use “Check for proposal”, then select the latest proposal.`;
       } catch (cause) { draftStatus.value = cause instanceof Error ? cause.message : String(cause); }
     }
     async function simulateChatGptDraft() {

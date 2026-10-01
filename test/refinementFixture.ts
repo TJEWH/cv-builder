@@ -1,6 +1,7 @@
 /** Synthetic refinement backend shared by component tests and the dev-only browser fixture. */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { RefinementRequest, RefinementProposal } from '../src/refinementTypes';
+import type { CvOperation } from '../src/cvStructuredTypes';
 import { parseRefinementProposal, refinementSignature } from '../src/composables/applicationRefinement';
 import { IDENTITY_PLACEHOLDERS } from '../src/composables/identityRedaction';
 
@@ -85,7 +86,17 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
         if (!state) throw new Error('Save refinement settings first.');
         if (args.p_request_id && !database.application_refinement_requests.some(row => row.id === args.p_request_id && row.application_id === app.id)) throw new Error('Review request unavailable.');
         const kind = String(args.p_kind); const payload = args.p_payload as Row;
-        if (kind !== 'feedback') {
+        if (kind === 'cv_decisions') {
+          const proposal = database.application_refinement_proposals.find(row => row.id === payload.proposalId && row.application_id === app.id && row.request_id === args.p_request_id);
+          if (!proposal || args.p_request_id !== state.current_request_id) throw new Error('CV decisions must refer to the current proposal.');
+          const content = proposal.proposal_json as RefinementProposal;
+          const available = content.schemaVersion === 2 ? content.cvOperations.map(operation => operation.id) : content.cvEdits.map(edit => edit.fieldId);
+          const accepted = payload.accepted as string[]; const rejected = payload.rejected as string[];
+          if (!Array.isArray(accepted) || !Array.isArray(rejected) || typeof payload.revision !== 'string' || !/^v1:[a-f0-9]{64}$/.test(payload.revision)
+            || new Set([...accepted, ...rejected]).size !== accepted.length + rejected.length
+            || !same([...accepted, ...rejected].sort(), [...available].sort())) throw new Error('CV decisions must partition the proposal changes.');
+          if (accepted.length && (state.approvals_json as Row).cv) throw new Error('Reopen the approved CV before accepting changes.');
+        } else if (kind !== 'feedback') {
           if (Number(payload.expectedRevision) !== state.revision) throw new Error('Refinement review is stale.');
           if (args.p_request_id !== null && args.p_request_id !== state.current_request_id) throw new Error('This request is stale; review the current documents.');
           const target = kind.endsWith('_cv') ? 'cv' : 'letter';
@@ -105,12 +116,49 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
     const request = row.request_json as RefinementRequest;
     const field = request.cv.fields.find(field => field.label === 'Profile');
     const draft = '# Application for PhD in Human-Centred Robotics\n\nDear selection committee,\n\nI am applying to your doctoral programme because its focus on safe human–robot collaboration matches my research interests. I would welcome the opportunity to connect my documented technical experience to practical experiments and reproducible research.\n\nThe project’s combination of learning algorithms and physical experiments particularly interests me. I am motivated to investigate how robots can learn from demonstrations and contribute to careful evaluation of collaborative systems.\n\nThank you for considering my application. I would welcome a discussion about the project and my experience.\n\nKind regards,\n{{APPLICANT_NAME}}';
-    const proposal: RefinementProposal = {
-      schemaVersion: 1, requestId: request.requestId,
+    const common = {
+      requestId: request.requestId,
       summary: `Synthetic ${request.scope} proposal. ${request.scope === 'letter' ? 'The approved CV remains unchanged.' : 'Minor profile wording adjustment and a complete motivation letter.'} ${request.feedback.length} feedback entries considered.`,
-      cvEdits: request.scope === 'letter' || !field ? [] : [{ fieldId: field.id, text: `${field.text}\nI am interested in research on safe human–robot collaboration.` }],
       letterText: request.scope === 'cv' ? request.letter.text : options.letterText || (request.feedback.length && request.letter.text ? `${request.letter.text}\n\nThis revision reflects the requested improvements.` : draft),
     };
+    const proposal: RefinementProposal = request.schemaVersion === 1 ? {
+      ...common, schemaVersion: 1, cvEdits: request.scope === 'letter' || !field ? [] : [{ fieldId: field.id, text: `${field.text}\nI am interested in research on safe human–robot collaboration.` }],
+    } : { ...common, schemaVersion: 2, cvOperations: [], cvComments: [] };
+    if (request.schemaVersion === 2 && proposal.schemaVersion === 2 && request.scope !== 'letter') {
+      proposal.summary = `Synthetic structured CV proposal and complete motivation letter. ${request.feedback.length} feedback entries considered.`;
+      const addOperation = (operation: CvOperation) => {
+        try {
+          parseRefinementProposal({ ...proposal, cvOperations: [...proposal.cvOperations, operation] }, request);
+          proposal.cvOperations.push(operation);
+          return true;
+        } catch { return false; } // A fixture candidate can be ineligible for a particular CV.
+      };
+      const nextId = () => `change-${proposal.cvOperations.length + 1}`;
+      const area = request.cvStructure.areas.find(item => item.sectionIds.length > 1);
+      if (area) addOperation({ id: nextId(), type: 'reorder_sections', targetId: area.id, order: [...area.sectionIds].reverse(), explanation: 'Bring the relevant research sections forward for review.' });
+      const section = request.cvStructure.sections.find(item => item.entryIds.length > 1);
+      if (section) addOperation({ id: nextId(), type: 'reorder_entries', targetId: section.id, order: [...section.entryIds].reverse(), explanation: 'Prioritize the existing experience entries relevant to this opportunity.' });
+      const entry = request.cvStructure.entries.find(item => item.bulletIds.length > 1);
+      if (entry) {
+        addOperation({ id: nextId(), type: 'reorder_bullets', targetId: entry.id, order: [...entry.bulletIds].reverse(), explanation: 'Put the most relevant existing achievements first.' });
+        addOperation({ id: nextId(), type: 'omit_bullet', targetId: entry.bulletIds.at(-1)!, explanation: 'Omit a less relevant achievement to keep this application concise.' });
+      }
+      const omitted = new Set(proposal.cvOperations.filter(operation => operation.type === 'omit_bullet').map(operation => operation.targetId));
+      const ranges = [...request.cvStructure.ranges].sort((a, b) => Number(a.bulletId !== null) - Number(b.bulletId !== null));
+      for (const range of ranges) {
+        if (range.bulletId && omitted.has(range.bulletId) || /\{\{|\}\}|https?:|mailto:|\]\(/i.test(range.text)) continue;
+        const firstSentence = range.text.match(/^.*?[.!?](?=\s+\S)/s)?.[0];
+        const tokens = range.text.match(/\S+/g) || [];
+        const shorter = firstSentence || tokens.slice(0, Math.max(1, Math.floor(tokens.length * 0.65))).join(' ');
+        if (shorter.length >= range.text.length) continue;
+        if (addOperation({ id: nextId(), type: 'shorten_text', targetId: range.id, text: shorter, explanation: 'Retain the key documented point while removing less relevant detail.' })) break;
+      }
+      const unsupported = request.cvStructure.unsupported[0];
+      if (unsupported) {
+        const comment = { id: 'comment-1', fieldId: unsupported.fieldId, explanation: `Manual review only: ${unsupported.reason}`.slice(0, 1000) };
+        try { parseRefinementProposal({ ...proposal, cvComments: [comment] }, request); proposal.cvComments = [comment]; } catch { /* Keep unsupported fixture comments within the protocol contract. */ }
+      }
+    }
     if (options.overLimit && request.scope !== 'cv') proposal.letterText += '\n\n' + 'research '.repeat(request.letter.maxWords + 1);
     const validated = parseRefinementProposal(proposal, request);
     const saved = { id: crypto.randomUUID(), application_id: row.application_id, user_id: row.user_id, request_id: row.id, proposal_json: validated, created_at: now() };

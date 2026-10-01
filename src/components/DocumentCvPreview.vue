@@ -8,7 +8,7 @@ import CvPreview from './CvPreview.vue';
 import InlineDocumentPreview from './InlineDocumentPreview.vue';
 import FullDocumentPreview from './FullDocumentPreview.vue';
 
-const props = withDefaults(defineProps<{ state: CvState; active?: boolean; privacy?: boolean }>(), { active: true, privacy: false });
+const props = withDefaults(defineProps<{ state: CvState; active?: boolean; privacy?: boolean; downloadDisabled?: boolean }>(), { active: true, privacy: false, downloadDisabled: false });
 const source = ref<HTMLElement | null>(null);
 const privacySource = ref<HTMLElement | null>(null);
 const privacyState = computed(() => createAnonymizedState(props.state));
@@ -39,17 +39,17 @@ const { pages, page, busy, downloading, error, getPdfBlob: renderPdfBlob, downlo
 watch(activePrivacy, () => { pages.value = []; page.value = 1; });
 watch(() => props.active, (active) => { if (!active) expanded.value = false; });
 function open() { mode.value = props.privacy ? 'anonymized' : 'normal'; expanded.value = true; }
-async function getPdfBlob() { return renderPdfBlob(() => element(false)); }
-async function download() { await downloadPdf(activePrivacy.value ? 'anonymized-application-cv' : 'application-cv'); }
+async function getPdfBlob() { if (props.downloadDisabled) throw new Error('Accept or discard the temporary review before exporting.'); return renderPdfBlob(() => element(false)); }
+async function download() { if (!props.downloadDisabled) await downloadPdf(activePrivacy.value ? 'anonymized-application-cv' : 'application-cv'); }
 defineExpose({ getPdfBlob, download, open });
 </script>
 
 <template>
   <div class="document-preview">
-    <InlineDocumentPreview :pages="pages" v-model:page="page" :is-updating="busy" :lang="state.lang" :downloading="downloading" :title="state.lang === 'de' ? 'Bewerbungs-CV' : 'Application CV'" @open="open" @download="download">
+    <InlineDocumentPreview :pages="pages" v-model:page="page" :is-updating="busy" :lang="state.lang" :downloading="downloading" :download-disabled="downloadDisabled" :title="state.lang === 'de' ? 'Bewerbungs-CV' : 'Application CV'" @open="open" @download="download">
       <template #header><slot /><p v-if="error" class="document-preview__error" role="alert">{{ error }}</p></template>
     </InlineDocumentPreview>
-    <FullDocumentPreview v-model="expanded" v-model:mode="mode" v-model:page="page" :pages="pages" :is-updating="busy" :lang="state.lang" :modes="modes" :downloading="downloading" :error="error" :title="state.lang === 'de' ? 'Bewerbungs-CV' : 'Application CV'" @download="download">
+    <FullDocumentPreview v-model="expanded" v-model:mode="mode" v-model:page="page" :pages="pages" :is-updating="busy" :lang="state.lang" :modes="modes" :downloading="downloading" :download-disabled="downloadDisabled" :error="error" :title="state.lang === 'de' ? 'Bewerbungs-CV' : 'Application CV'" @download="download">
       <template #html><CvPreview :state="state" /></template>
     </FullDocumentPreview>
     <div ref="source" class="document-preview__source" aria-hidden="true"><CvPreview :state="state" export-source /></div>

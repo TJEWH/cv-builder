@@ -33,6 +33,10 @@ interface WorkspaceSetup {
   publicationStatus: 'unpublished' | 'current' | 'outdated' | 'unverifiable';
   assignBase(): void; importBackup(event: Event): Promise<void>; useLetterTemplate(): Promise<void>; saveSetup(): Promise<void>;
   initialPrompt(): Promise<void>; checkProposals(): Promise<void>; openProposal(): void;
+  acceptSelectedChanges(): Promise<void>; toggleProposedChange(id: string, included: boolean): void; toggleProposedLetter(included: boolean): void; discardReview(): void;
+  selectedChangeIds: string[]; includeProposedLetter: boolean; reviewActive: boolean; previewCvState: CvState | null;
+  previewLetterContent: ApplicationLetter['working'] | undefined; temporaryReview: { result: { state: CvState; letterText: string } | null; error: string }; reviewAcceptanceError: string;
+  proposalChanges: { id: string; type: string; status: 'proposed' | 'accepted' | 'rejected'; before: string; after: string; target: string }[];
   copyShortInstruction(): Promise<void>;
   updateLetter(text: string): void; approve(kind: 'cv' | 'letter', reopen?: boolean): Promise<void>; requestImprovement(): Promise<void>;
 }
@@ -234,7 +238,7 @@ test('refinement preserves manual fixes and accumulates letter-only feedback whi
   assert.equal(setup.requests.length, 1);
   assert.equal(setup.requests[0].request_json.letter.maxWords, 400);
   const firstProposal = cloud.seedProposal(setup.requests[0].id);
-  await setup.checkProposals(); setup.selectedProposalId = firstProposal.id; setup.openProposal();
+  await setup.checkProposals(); setup.selectedProposalId = firstProposal.id; setup.openProposal(); await setup.acceptSelectedChanges();
   assert.equal(setup.error, '');
   assert.equal(states.size, 1);
   assert.ok(setup.letterText.includes('Human-Centred Robotics'));
@@ -254,8 +258,8 @@ test('refinement preserves manual fixes and accumulates letter-only feedback whi
   assert.ok(second.request_json.letter.text.includes('Manual letter correction retained.'));
   assert.ok(second.request_json.cv.fields.some(field => field.text.includes('Manual CV correction retained.')));
   const secondProposal = cloud.seedProposal(second.id);
-  assert.deepEqual(secondProposal.proposal_json.cvEdits, []);
-  await setup.checkProposals(); setup.selectedProposalId = secondProposal.id; setup.openProposal();
+  assert.deepEqual(secondProposal.proposal_json.schemaVersion === 2 ? secondProposal.proposal_json.cvOperations : secondProposal.proposal_json.cvEdits, []);
+  await setup.checkProposals(); setup.selectedProposalId = secondProposal.id; setup.openProposal(); await setup.acceptSelectedChanges();
   assert.equal(setup.error, '');
   assert.equal(setup.cvApproved, true, 'letter-only revisions preserve CV approval');
   setup.feedback = 'Keep the closing concise as well.';
@@ -263,7 +267,7 @@ test('refinement preserves manual fixes and accumulates letter-only feedback whi
   assert.equal(setup.error, '');
   assert.equal(setup.requests[0].request_json.feedback.length, 2);
   const thirdProposal = cloud.seedProposal(setup.requests[0].id, { overLimit: true });
-  await setup.checkProposals(); setup.selectedProposalId = thirdProposal.id; setup.openProposal();
+  await setup.checkProposals(); setup.selectedProposalId = thirdProposal.id; setup.openProposal(); await setup.acceptSelectedChanges();
   await setup.approve('letter');
   assert.equal(setup.error, '', 'word count is advisory and does not block approval');
   assert.equal(setup.cvApproved, true);
@@ -291,7 +295,7 @@ test('an unchanged returned letter preserves private wording and its approval wh
   assert.equal(setup.letterApproved, true);
   const approved = JSON.stringify(setup.letter);
   const proposed = cloud.seedProposal(request.id, { letterText: request.request_json.letter.text });
-  await setup.checkProposals(); setup.selectedProposalId = proposed.id; setup.openProposal();
+  await setup.checkProposals(); setup.selectedProposalId = proposed.id; setup.openProposal(); await setup.acceptSelectedChanges();
   await nextTick();
   assert.equal(setup.error, '');
   assert.equal(setup.letterText, originalText, 'an unchanged public letter must not replace its private local wording');
@@ -329,6 +333,7 @@ test('requesting improvements never applies an unopened proposal over newer manu
   await setup.initialPrompt();
   const proposed = cloud.seedProposal(setup.requests[0].id);
   await setup.checkProposals(); setup.selectedProposalId = proposed.id;
+  setup.discardReview();
   setup.updateLetter('Newer manual correction must be the starting point.');
   setup.record!.state.about.text += '\nNewer CV correction.';
   setup.feedback = 'Keep my updated wording and make the closing more precise.';
@@ -354,6 +359,7 @@ test('superseded feedback rounds remain viewable but cannot replace documents wi
   const baselineLetter = JSON.stringify(setup.letter);
 
   // Feedback alone supersedes the request: the CV and letter baseline remains identical.
+  setup.discardReview();
   setup.feedback = 'Do not use the generic opening from the previous proposal.';
   await setup.requestImprovement();
   assert.equal(setup.error, '');
@@ -364,13 +370,16 @@ test('superseded feedback rounds remain viewable but cannot replace documents wi
   assert.equal(currentRequest.request_json.letter.text, firstRequest.request_json.letter.text);
   setup.selectedProposalId = olderProposal.id;
   setup.openProposal();
+  assert.equal(setup.error, '', 'historical proposal previews remain available');
+  assert.match(setup.reviewAcceptanceError, /superseded round/);
+  await setup.acceptSelectedChanges();
   assert.match(setup.error, /superseded round/);
   assert.equal(JSON.stringify(setup.record!.state), baselineCv);
   assert.equal(JSON.stringify(setup.letter), baselineLetter);
   assert.ok(setup.proposals.some(item => item.id === olderProposal.id), 'the older proposal remains in review history');
 
   const currentProposal = cloud.seedProposal(currentRequest.id);
-  await setup.checkProposals(); setup.selectedProposalId = currentProposal.id; setup.openProposal();
+  await setup.checkProposals(); setup.selectedProposalId = currentProposal.id; setup.openProposal(); await setup.acceptSelectedChanges();
   assert.equal(setup.error, '', 'the current proposal is still eligible for explicit application');
 });
 
@@ -594,7 +603,7 @@ test('proposal selection and explicit application keep the published source sepa
   assert.equal(JSON.stringify({ cv: setup.record, letter: setup.letter }), documents, 'selecting a proposal is read-only');
   assert.equal(setup.currentPublishedRequest?.id, request.id);
   assert.equal(setup.publishedSource?.request_json.letter.text, 'My published source letter.');
-  setup.openProposal();
+  setup.openProposal(); await setup.acceptSelectedChanges();
   assert.equal(setup.error, '');
   assert.equal(setup.letterText, 'Second returned draft.');
   assert.equal(setup.preparedSource?.request.letter.text, 'Second returned draft.');
@@ -720,4 +729,100 @@ test('a cold reopen retains a letter-only published scope and reuses its current
   assert.equal(setup.requests.length, 1);
   assert.equal(setup.requests[0].id, requestId);
   assert.equal(JSON.stringify(fixture.database), before);
+});
+
+
+test('loaded structured changes immediately preview without accepting, and each toggle updates only temporary state', async (t) => {
+  const { setup, cloud, database, base, storage } = mount(t);
+  await idle(setup);
+  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
+  await setup.useLetterTemplate(); setup.updateLetter('Existing local letter.'); await setup.initialPrompt();
+  const before = JSON.stringify({ record: setup.record, letter: setup.letter });
+  const savedBefore = storage.getItem('CV_REFINEMENT:1:' + account + ':' + applicationId);
+  const proposal = cloud.seedProposal(setup.requests[0].id, { letterText: 'Proposed letter immediately visible.' });
+  assert.equal(proposal.proposal_json.schemaVersion, 2);
+  await setup.checkProposals();
+  assert.equal(setup.reviewActive, true, 'loading immediately enables the proposal preview');
+  assert.notDeepEqual(setup.previewCvState?.bodyOrder, base.bodyOrder);
+  assert.equal(setup.previewLetterContent?.body, 'Proposed letter immediately visible.');
+  assert.equal(JSON.stringify({ record: setup.record, letter: setup.letter }), before);
+  assert.ok(setup.proposalChanges.every(change => change.status === 'proposed'));
+  assert.equal(database.application_refinement_reviews.filter(row => row.kind === 'cv_decisions').length, 0);
+  const reorder = setup.proposalChanges.find(change => change.type === 'reorder_sections')!;
+  assert.ok(reorder);
+  setup.toggleProposedChange(reorder.id, false);
+  assert.deepEqual(setup.previewCvState?.bodyOrder, base.bodyOrder, 'deselecting immediately restores the original section order in preview');
+  assert.equal(JSON.stringify({ record: setup.record, letter: setup.letter }), before);
+  assert.equal(storage.getItem('CV_REFINEMENT:1:' + account + ':' + applicationId), savedBefore);
+  assert.ok(setup.proposalChanges.every(change => change.status === 'proposed'), 'exclusion from preview is not rejection');
+  const accepted = [...setup.selectedChangeIds];
+  const result = cloneCv(setup.previewCvState!);
+  await setup.acceptSelectedChanges();
+  assert.equal(setup.error, '');
+  assert.deepEqual(setup.record?.state, result);
+  assert.equal(setup.letterText, 'Proposed letter immediately visible.');
+  assert.equal(setup.reviewActive, false);
+  assert.equal(setup.cvApproved, false);
+  const decision = database.application_refinement_reviews.find(row => row.kind === 'cv_decisions')!;
+  assert.deepEqual((decision.payload as { accepted: string[] }).accepted, accepted);
+  assert.deepEqual((decision.payload as { rejected: string[] }).rejected, [reorder.id]);
+  assert.equal(setup.proposalChanges.find(change => change.id === reorder.id)?.status, 'rejected');
+  assert.ok(setup.proposalChanges.filter(change => accepted.includes(change.id)).every(change => change.status === 'accepted'));
+});
+
+test('closing or reopening a temporary review never accepts it and newer manual corrections block application', async (t) => {
+  const fixture = mount(t);
+  let setup = fixture.setup;
+  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup); await setup.useLetterTemplate();
+  setup.updateLetter('Retained manual letter.'); await setup.initialPrompt(); fixture.cloud.seedProposal(setup.requests[0].id);
+  await setup.checkProposals();
+  const original = JSON.stringify({ record: setup.record, letter: setup.letter });
+  setup.discardReview();
+  assert.equal(setup.reviewActive, false);
+  assert.deepEqual(setup.previewCvState, setup.record?.state);
+  setup = fixture.reopen(); await idle(setup);
+  assert.equal(setup.reviewActive, true, 'reopening automatically previews the loaded proposal');
+  assert.deepEqual(JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter })), JSON.parse(original));
+  assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'cv_decisions').length, 0);
+  setup.discardReview(); setup.record!.state.about.text = 'New manual correction supersedes the request.'; await nextTick(); setup.openProposal();
+  assert.ok(setup.temporaryReview.result, 'an old proposal remains viewable against its frozen source');
+  assert.match(setup.reviewAcceptanceError, /changed after this request/);
+  await setup.acceptSelectedChanges();
+  assert.match(setup.error, /changed after this request/);
+  assert.equal(setup.record!.state.about.text, 'New manual correction supersedes the request.');
+  assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'cv_decisions').length, 0);
+});
+
+test('failed decision recording leaves selected changes proposed and working copies unchanged for retry', async (t) => {
+  const { setup, cloud, database, props } = mount(t);
+  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup); await setup.useLetterTemplate();
+  await setup.initialPrompt(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
+  const before = JSON.stringify({ record: setup.record, letter: setup.letter });
+  const client = props.client as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<unknown> };
+  const rpc = client.rpc.bind(client);
+  client.rpc = async (name, args) => name === 'save_refinement_review' && args.p_kind === 'cv_decisions' ? { data: null, error: new Error('Temporary connection failure') } : rpc(name, args);
+  await setup.acceptSelectedChanges();
+  assert.match(setup.error, /Temporary connection failure/);
+  assert.equal(JSON.stringify({ record: setup.record, letter: setup.letter }), before);
+  assert.equal(setup.reviewActive, true);
+  assert.ok(setup.proposalChanges.every(change => change.status === 'proposed'));
+  client.rpc = rpc;
+  await setup.acceptSelectedChanges();
+  assert.equal(setup.error, '');
+  assert.equal(database.application_refinement_reviews.filter(row => row.kind === 'cv_decisions').length, 1);
+});
+
+
+test('invalid returned structural targets are rejected before preview rendering or document mutation', async (t) => {
+  const { setup, cloud, database } = mount(t);
+  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup); await setup.useLetterTemplate();
+  await setup.initialPrompt(); const row = cloud.seedProposal(setup.requests[0].id);
+  const stored = database.application_refinement_proposals.find(item => item.id === row.id)!;
+  (stored.proposal_json as { cvOperations: { targetId: string }[] }).cvOperations[0].targetId = 'unknown-area';
+  const before = JSON.stringify({ cv: setup.record, letter: setup.letter });
+  await setup.checkProposals();
+  assert.match(setup.error, /permutation|target/);
+  assert.equal(setup.proposals.length, 0);
+  assert.equal(setup.reviewActive, false);
+  assert.equal(JSON.stringify({ cv: setup.record, letter: setup.letter }), before);
 });

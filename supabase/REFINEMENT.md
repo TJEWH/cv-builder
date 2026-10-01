@@ -14,7 +14,7 @@ All three browser RPCs are `SECURITY INVOKER`, require a signed-in non-anonymous
 | --- | --- | --- |
 | `public.save_refinement_state` | `p_application_id`, `p_setup`, `p_approvals`, `p_expected_revision` | Save frozen template/settings with optimistic concurrency. Initial expected revision is `0`; subsequent saves require the current revision. Existing approval hashes may be preserved or cleared, but new approvals require a recorded review. |
 | `public.publish_refinement_request` | `p_request` | On first insertion, freeze a request, capture authoritative application research and assigned privacy CV, and advance the current request atomically. Repeating the exact UUID and payload returns the original receipt without changing the current request. |
-| `public.save_refinement_review` | `p_application_id`, nullable `p_request_id`, `p_kind`, `p_payload`, `p_id` | Append feedback or atomically record an approval/reopening and update state. Identical retries return the stored row. |
+| `public.save_refinement_review` | `p_application_id`, nullable `p_request_id`, `p_kind`, `p_payload`, `p_id` | Append feedback or CV decisions, or atomically record an approval/reopening and update state. Identical retries return the stored row. |
 
 Read `application_refinement_state`, `application_refinement_requests`, `application_refinement_proposals` and `application_refinement_reviews` through the signed-in client. Order request/review history by `created_at, id` and always load **all** feedback before publishing another request. Proposal refresh only adds history; it never changes working documents automatically.
 
@@ -28,7 +28,7 @@ Review payloads:
 
 The respective review kinds are `feedback`, `approve_cv`/`approve_letter`, and `reopen_cv`/`reopen_letter`. Approval hashes identify exact local document revisions without storing raw private content. After approval or reopening, reload state for its new revision. Manual changes clear the affected approval through state save. A letter setup change also clears letter approval and current request. Approved documents must be explicitly reopened before requesting edits to them.
 
-`request_json` preserves the exact version-1 `RefinementRequest` in `src/refinementTypes.ts`: IDs, editable privacy CV fields, frozen letter setup/current text, requested scope, parent proposal and accumulated feedback. Build feedback entries using the stored review ID, text, scope and `created_at`; every saved feedback row must appear exactly once in creation order. Missing, altered or reordered history is rejected. If complete history exceeds the bounded request size, publication fails explicitly rather than truncating context.
+`request_json` preserves the exact versioned `RefinementRequest` in `src/refinementTypes.ts`: IDs, editable privacy CV fields, frozen letter setup/current text, requested scope, parent proposal and accumulated feedback. Build feedback entries using the stored review ID, text, scope and `created_at`; every saved feedback row must appear exactly once in creation order. Missing, altered or reordered history is rejected. If complete history exceeds the bounded request size, publication fails explicitly rather than truncating context.
 
 Each request row additionally contains server-captured `opportunity_snapshot` and `cv_snapshot`. These exclude application notes and files. The CV has identity placeholders and only existing privacy-filtered content; current editable fields in `request_json.cv.fields` include later manual wording corrections. Client-supplied opportunity text is already anonymized and must be treated as source material. The browser anonymizes every shared text boundary; the database additionally rejects inline confidentiality markers, sample identities and unknown structural fields. Arbitrary prose cannot be proven anonymous by SQL checks alone.
 
@@ -56,7 +56,7 @@ An identical retry of `publish_refinement_request` returns the saved row before 
 
 The client fixes historical-request reactivation by reusing only the current published request and allocating a new UUID for a historical baseline. It continues to use the existing publication, state and request-reading APIs; no backend metadata, SQL or authentication changes are required. When the local letter record is genuinely absent, it may be initialized from the current request's anonymized letter text and frozen template/settings. This restores shared wording, not missing private identity data or prior local history. Never replace an existing local letter—even an empty one—and never silently treat a corrupt/unreadable local record as absent.
 
-Feedback is anonymized before its review row is saved. A subsequent request must retain every saved reply's exact ID, text and scope in `created_at, id` order; its timestamp must represent the same instant. The server rejects missing, altered or additional entries. Rechecking old feedback against current privacy information must not silently change or discard it: if anonymization would now alter an immutable saved reply, stop publication and report that incompatibility. An already saved request's idempotent retry still requires its original JSON payload, including the original timestamp representation. Version 1 rejects additional request keys, so new durable source-version metadata cannot be added to the upload payload without a separate contract/database change.
+Feedback is anonymized before its review row is saved. A subsequent request must retain every saved reply's exact ID, text and scope in `created_at, id` order; its timestamp must represent the same instant. The server rejects missing, altered or additional entries. Rechecking old feedback against current privacy information must not silently change or discard it: if anonymization would now alter an immutable saved reply, stop publication and report that incompatibility. An already saved request's idempotent retry still requires its original JSON payload, including the original timestamp representation. Both request versions reject additional keys (version 2 adds only `cvStructure`), so durable source-version metadata cannot be added to the upload payload without a separate contract/database change.
 
 ## Existing ChatGPT Supabase MCP
 
@@ -112,6 +112,42 @@ CV field IDs, token order/count, links and structure must stay valid under the e
 Historical proposals can arrive after another round was published and remain readable for comparison. Before applying any proposal, the browser must verify its request is still current and its full local baseline signature matches. A stale proposal never replaces manual work. Editing the baseline requires a new request.
 
 Generated initial and improvement prompts share a versioned contract: source content is untrusted data; use evidenced qualifications, preserve privacy tokens and manual corrections, obey accumulated feedback and frozen scope, save through the dedicated helper, and verify the receipt. Publishing does not launch ChatGPT: the user copies the prompt into the connected conversation and returns to check results.
+
+## Structured CV refinement, version 2
+
+**Applied to phd-workflow on 2026-10-01:** [`changes/structured_cv_refinement.sql`](changes/structured_cv_refinement.sql), migration `structured_cv_refinement` / `20261001205721` UTC. Other targets must apply this additive upgrade before the version-2 frontend publishes requests. It replaces the existing request/proposal/review validation functions and extends the allowed review kinds; tables, RLS, management-role checks, immutable history and existing RPC signatures remain unchanged. [`schema.sql`](schema.sql) includes the same upgrade. Do not apply it twice. Existing version-1 requests and proposals remain readable with their original JSON; a proposal must use the same version as its request.
+
+A version-2 request retains the existing identifiers, nested version-1 `cv` fields, letter, scope and accumulated feedback, and adds `cvStructure`. That structure carries only public opaque references: body/sidebar areas; sections and their area; entries and their section; bullets and their editable field; exact shortenable ranges; and unsupported fields with an explanation. All parent lists are complete, unique permutations of their children. An entry's bullets come from one editable field. A range matches either one entire bullet or one entire non-bullet field; duplicate ranges and unsupported/supported overlap are rejected. Paths, private binding data and full application CVs remain local.
+
+The matching proposal shape is:
+
+```json
+{
+  "schemaVersion": 2,
+  "requestId": "<request UUID>",
+  "summary": "Prioritize relevant evidence and remove redundant wording.",
+  "cvOperations": [
+    {"id":"change-1","type":"reorder_sections","targetId":"body","order":["section-2","section-1"],"explanation":"Prioritize relevant evidence."},
+    {"id":"change-2","type":"shorten_text","targetId":"range-1","text":"Research evidence.","explanation":"Remove redundant words."}
+  ],
+  "cvComments": [{"id":"comment-1","fieldId":"field-4","explanation":"Review this unsupported block manually."}],
+  "letterText": "Complete motivation letter."
+}
+```
+
+Allowed operations are `reorder_sections`, `reorder_entries`, `reorder_bullets`, `omit_bullet` and `shorten_text`. Reordering requires every original child exactly once within its original parent; it cannot move sections between body and sidebar. A proposal may reorder and omit bullets: its order still contains the original complete list, and the local reconstruction removes selected omissions afterward. Duplicate targets of the same operation type, unknown references, extra properties and omission plus shortening of the same bullet are rejected. Comments refer to an authorized field and do not mutate content. Letter-only requests require empty `cvOperations`; read-only comments remain allowed. CV-only requests preserve the complete letter exactly.
+
+Shortening is deliberately extractive. The replacement must be nonempty, strictly shorter by Unicode character count, and a case-sensitive subsequence of original whitespace-separated tokens in their original order. It may remove words, not invent or paraphrase them. Punctuation belongs to its token. Existing privacy-token order/count, link, HTML and image safeguards also apply. The backend bounds each graph list and operations/comments list to 1,000, field/range text to 20,000 UTF-16 units, labels to 200 and explanations/reasons to 1,000, matching JavaScript string bounds. The strictly-shorter comparison separately counts Unicode code points. Source content and explanations are untrusted data.
+
+Loading a refinement immediately shows its proposed CV and letter in temporary previews. Checkbox changes update that temporary state immediately; working documents, published sources and approvals stay unchanged until explicit acceptance. The browser reconstructs the application copy against its exact saved baseline and records decisions only when the user accepts the selection. Older proposals can be previewed against their original local baseline, but stale proposals cannot replace newer working documents. Temporary previews cannot be exported as finalized documents. `save_refinement_review` supports `p_kind='cv_decisions'` with this exact payload:
+
+```json
+{"proposalId":"<proposal UUID>","accepted":["change-1"],"rejected":["change-2"],"revision":"v1:<64 lowercase SHA-256 hex characters>"}
+```
+
+The two lists must partition all proposal operation IDs exactly once; version-1 proposals instead use their `cvEdits` field IDs. The linked proposal must belong to this owner, application and non-null current request. An approved CV must be reopened before accepting any change; recording all changes as rejected is allowed. Decisions append audit history and do not mutate cloud state or approve the document. Their revision is an opaque signature of the committed local CV. Because the private CV lives locally, SQL cannot prove that local revision from cloud text; the browser must verify the baseline and perform the local commit. Exact review-ID retries return the original receipt. Publishing a newer round makes old proposals viewable, but prevents new decisions against their stale request.
+
+Run [`tests/structured_cv_refinement.sql`](tests/structured_cv_refinement.sql) as `postgres`, then rerun the existing refinement and workspace-security suites. The new transaction covers every operation, malformed topology, unsupported targets, duplicate/conflicting operations, extractive shortening, privacy/link preservation, scope/version matching, exact retries, decision partitions, approved/stale/cross-owner refusal and legacy decisions. Every fixture rolls back. Before deployment, the upgrade and the existing `application_refinement.sql`, `workspace_security.sql` and new structured suite passed together in one rolled-back transaction. The structured suite passed again after deployment, including Unicode bounds and URL whitespace checks. Security advisors showed no new findings; previously documented notices remain unchanged. Frontend deployment is separate from this database upgrade.
 
 ## Verification and rollout
 

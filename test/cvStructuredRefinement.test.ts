@@ -1,0 +1,278 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import type { CvOperation, CvStructure } from '../src/cvStructuredTypes';
+import { applyCvOperations, describeCvOperation, prepareCvStructure, validateCvOperations, validateCvStructure } from '../src/composables/cvStructuredRefinement';
+import { prepareCvAdjustment } from '../src/composables/cvAdjustments';
+import { createTestState } from './helpers';
+
+function fixture() {
+  const state = createTestState({
+    contact: { name: 'Ada Example', role: 'Research engineer', email: 'ada@example.test', location: 'Berlin', phone: '+49 1234', website: '', linkedin: '', github: '' },
+    about: { text: 'I develop highly reliable robot sensing systems.' },
+    education: [{ id: 'local-degree', title: 'Physics', institution: 'Public university', start: '2019', end: '2023', desc: 'Studied experimental measurement and practical analysis.' }],
+    experience: { jobs: [
+      { id: 'local-job-a', title: 'Engineer A', company: 'Public laboratory', bullets: '- Built highly reliable robots.  \r\n- Led !!private lab!! experiments.\r\n- Shared public results.\r\n' },
+      { id: 'local-hidden-job', title: 'Hidden job', bullets: 'Never disclose this work.', hidden: true },
+      { id: 'local-job-b', title: 'Engineer B', bullets: 'Tested many robust sensors.\nPublished reproducible results.' },
+      { id: 'local-excluded-job', title: 'Excluded job', bullets: 'Never disclose this either.' },
+      { id: 'local-job-c', title: 'Engineer C', desc: 'Led careful instrument calibration.' },
+    ] },
+    customSections: [
+      { id: 'local-hidden-section', name: 'Private section', entryMode: 'textarea', text: 'Private research agenda.', entries: [] },
+      { id: 'local-prose', name: 'Research', entryMode: 'textarea', text: 'I create careful practical experiments.', entries: [] },
+      { id: 'local-complex', name: 'Complex notes', entryMode: 'textarea', text: '## Heading\n- Nested material\n  - Subordinate item', entries: [] },
+    ],
+    languages: [{ id: 'local-language-en', name: 'English' }, { id: 'local-hidden-language', name: 'Hidden language', hidden: true }, { id: 'local-language-de', name: 'German' }],
+    sidebarSections: [
+      { id: 'local-hidden-skills', name: 'Private skills', levelType: null, items: [{ id: 'private-skill', name: 'Private technology' }] },
+      { id: 'local-skills', name: 'Skills', levelType: null, items: [{ id: 'local-python', name: 'Python' }, { id: 'local-rust', name: 'Rust' }] },
+    ],
+    hobbies: [{ id: 'local-hobby', name: 'Hiking' }],
+    anonymization: { excludedSections: ['local-hidden-section', 'local-hidden-skills'], excludedItems: ['local-excluded-job'] },
+    bodyOrder: ['jobs', 'local-hidden-section', 'about', 'education', 'local-prose', 'local-complex'],
+    sidebarOrder: ['languages', 'local-hidden-skills', 'local-skills', 'hobbies'],
+  });
+  const local = prepareCvAdjustment({ state, variantId: 'local-private-template' });
+  const prepared = prepareCvStructure(local);
+  return { state, local, ...prepared };
+}
+function operation(index: number, operation: Omit<CvOperation, 'id' | 'explanation'> & { order?: string[]; text?: string }): CvOperation {
+  return { id: `change-${index}`, explanation: 'Prioritize the most relevant evidence.', ...operation } as CvOperation;
+}
+function entry(structure: CvStructure, label: string) {
+  const result = structure.entries.find(item => item.label === label); assert.ok(result, label); return result;
+}
+function section(structure: CvStructure, label: string) {
+  const result = structure.sections.find(item => item.label === label); assert.ok(result, label); return result;
+}
+
+test('structure is deterministic, follows existing areas and exposes no local paths, identities or hidden content', () => {
+  const { local, structure, bindings } = fixture();
+  const again = prepareCvStructure(prepareCvAdjustment({ state: local.baselineState, variantId: local.sourceVariantId }));
+  assert.deepEqual(again.structure, structure); assert.deepEqual(again.bindings, bindings);
+  assert.deepEqual(structure.areas[0].sectionIds.map(id => structure.sections.find(item => item.id === id)!.label), ['Experience', 'Profile', 'Education', 'Research', 'Complex notes']);
+  assert.deepEqual(structure.areas[1].sectionIds.map(id => structure.sections.find(item => item.id === id)!.label), ['Languages', 'Skills', 'Interests']);
+  const wire = JSON.stringify(structure);
+  for (const privateText of ['local-', 'Ada Example', 'ada@example', 'private lab', 'Hidden job', 'Excluded job', 'Hidden language', 'Private research', 'Private technology', 'entriesPath', 'baselineState', 'bindings']) assert.equal(wire.includes(privateText), false, privateText);
+  assert.match(wire, /PRIVATE_1/);
+  assert.ok(bindings.sections.some(item => item.sourceId === 'local-prose'), 'private source references remain in local bindings only');
+  const protectedField = local.publicRequest.fields.find(item => item.label === 'Experience 1: company')!;
+  assert.ok(structure.unsupported.some(item => item.fieldId === protectedField.id));
+  assert.ok(structure.ranges.every(range => !['title', 'company', 'institution', 'name', 'start', 'end'].includes(String(bindings.ranges.find(item => item.id === range.id)!.path.at(-1)))));
+});
+
+test('bounded labels preserve whole Unicode characters without generating invalid JSON surrogates', () => {
+  for (const prefixLength of [198, 199]) {
+    const title = `${'A'.repeat(prefixLength)}😀 trailing title`;
+    const expected = 'A'.repeat(prefixLength) + (prefixLength === 198 ? '😀' : '');
+    const state = createTestState({
+      about: { text: 'Useful public profile content.' }, sectionNames: { about: title },
+      experience: { jobs: [{ id: 'job', title, bullets: 'Useful public evidence.' }] },
+      customSections: [{ id: 'custom', name: title, entryMode: 'textarea', text: 'Useful custom content.', entries: [] }],
+      bodyOrder: ['about', 'jobs', 'custom'],
+    });
+    const local = prepareCvAdjustment({ state, variantId: 'template' }); const { structure } = prepareCvStructure(local);
+    assert.equal(structure.entries[0].label, expected);
+    assert.equal(structure.sections[0].label, expected);
+    assert.equal(structure.sections[2].label, expected);
+    assert.equal(structure.ranges[0].label, expected);
+    for (const node of [...structure.sections, ...structure.entries, ...structure.ranges]) {
+      assert.ok(node.label.length <= 200);
+      assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(node.label), false);
+    }
+    assert.equal(local.baselineState.experience.jobs[0].title, title, 'display truncation does not alter source wording');
+  }
+});
+
+test('all operation types compose deterministically while hidden entries and sections keep their exact slots', () => {
+  const { state, local, structure } = fixture(); const engineer = entry(structure, 'Engineer A'); const jobs = section(structure, 'Experience');
+  const firstRange = structure.ranges.find(item => item.bulletId === engineer.bulletIds[0])!;
+  const profile = structure.ranges.find(item => item.label === 'Profile')!;
+  const operations: CvOperation[] = [
+    operation(1, { type: 'reorder_sections', targetId: 'body', order: [...structure.areas[0].sectionIds].reverse() }),
+    operation(2, { type: 'reorder_entries', targetId: jobs.id, order: [...jobs.entryIds].reverse() }),
+    operation(3, { type: 'reorder_bullets', targetId: engineer.id, order: [...engineer.bulletIds].reverse() }),
+    operation(4, { type: 'omit_bullet', targetId: engineer.bulletIds[1] }),
+    operation(5, { type: 'shorten_text', targetId: firstRange.id, text: 'Built robots.' }),
+    operation(6, { type: 'shorten_text', targetId: profile.id, text: 'I develop robot sensing systems.' }),
+    operation(7, { type: 'reorder_sections', targetId: 'sidebar', order: [...structure.areas[1].sectionIds].reverse() }),
+  ];
+  const before = structuredClone(state);
+  const result = applyCvOperations(local, structure, operations, state);
+  assert.deepEqual(result, applyCvOperations(local, structure, [...operations].reverse(), state), 'operation order cannot change the composed result');
+  assert.deepEqual(result.bodyOrder, ['local-complex', 'local-hidden-section', 'local-prose', 'education', 'about', 'jobs']);
+  assert.deepEqual(result.sidebarOrder, ['hobbies', 'local-hidden-skills', 'local-skills', 'languages']);
+  assert.deepEqual(result.experience.jobs.map(item => item.id), ['local-job-c', 'local-hidden-job', 'local-job-b', 'local-excluded-job', 'local-job-a']);
+  assert.deepEqual(result.experience.jobs[1], state.experience.jobs[1]);
+  assert.deepEqual(result.experience.jobs[3], state.experience.jobs[3]);
+  assert.equal(result.experience.jobs[4].bullets, '- Shared public results.\r\n- Built robots.  \r\n');
+  assert.equal(result.about.text, 'I develop robot sensing systems.');
+  assert.deepEqual(result.contact, state.contact); assert.deepEqual(result.design, state.design); assert.deepEqual(state, before);
+});
+
+test('reordering preserves line prefixes, trailing spaces, line endings and final-newline presence byte for byte', () => {
+  for (const bullets of ['- Alpha evidence.  \r\n-  Beta evidence.\t\r\n- Gamma evidence.\r\n', 'Alpha evidence.  \nBeta evidence.\t\nGamma evidence.']) {
+    const state = createTestState({ experience: { jobs: [{ id: 'job', title: 'Job', bullets }] } });
+    const local = prepareCvAdjustment({ state, variantId: 'template' }); const { structure } = prepareCvStructure(local);
+    const job = entry(structure, 'Job');
+    const result = applyCvOperations(local, structure, [operation(1, { type: 'reorder_bullets', targetId: job.id, order: [...job.bulletIds].reverse() })], state);
+    assert.equal(result.experience.jobs[0].bullets, bullets.startsWith('-') ? '- Gamma evidence.\r\n-  Beta evidence.\t\r\n- Alpha evidence.  \r\n' : 'Gamma evidence.\nBeta evidence.\t\nAlpha evidence.  ');
+  }
+});
+
+test('selected omissions and shortenings preserve exact private fragments and ignore tampered saved reconstruction paths', () => {
+  const { state, local, structure } = fixture(); const engineer = entry(structure, 'Engineer A');
+  const privateRange = structure.ranges.find(item => item.bulletId === engineer.bulletIds[1])!;
+  const shortened = privateRange.text.replace('Led ', '');
+  local.bindings.forEach(binding => { binding.path = ['contact', 'name']; Object.keys(binding.tokens).forEach(key => { binding.tokens[key] = 'tampered'; }); });
+  const result = applyCvOperations(local, structure, [operation(1, { type: 'shorten_text', targetId: privateRange.id, text: shortened })], state);
+  assert.equal(result.experience.jobs[0].bullets, '- Built highly reliable robots.  \r\n- !!private lab!! experiments.\r\n- Shared public results.\r\n');
+  assert.equal(result.contact.name, 'Ada Example');
+});
+
+test('operation selection is independent and rejects unknown or duplicate selection identifiers', () => {
+  const { state, local, structure } = fixture(); const job = entry(structure, 'Engineer B');
+  const operations = [operation(1, { type: 'reorder_bullets', targetId: job.id, order: [...job.bulletIds].reverse() }), operation(2, { type: 'omit_bullet', targetId: job.bulletIds[0] })];
+  const none = applyCvOperations(local, structure, operations, state, []);
+  assert.deepEqual(none, state); assert.notEqual(none, state);
+  assert.equal(applyCvOperations(local, structure, operations, state, ['change-1']).experience.jobs[2].bullets, 'Published reproducible results.\nTested many robust sensors.');
+  assert.equal(applyCvOperations(local, structure, operations, state, ['change-2']).experience.jobs[2].bullets, 'Published reproducible results.');
+  assert.equal(applyCvOperations(local, structure, operations, state).experience.jobs[2].bullets, 'Published reproducible results.');
+  assert.throws(() => applyCvOperations(local, structure, operations, state, ['change-9']), /unknown or duplicate/);
+  assert.throws(() => applyCvOperations(local, structure, operations, state, ['change-1', 'change-1']), /unknown or duplicate/);
+});
+
+test('hidden and excluded entries stay fixed when reordering sidebar and custom-section entries', () => {
+  const { state, local, structure } = fixture(); const languages = section(structure, 'Languages'); const skills = section(structure, 'Skills');
+  const result = applyCvOperations(local, structure, [operation(1, { type: 'reorder_entries', targetId: languages.id, order: [...languages.entryIds].reverse() }), operation(2, { type: 'reorder_entries', targetId: skills.id, order: [...skills.entryIds].reverse() })], state);
+  assert.deepEqual(result.languages.map(item => item.id), ['local-language-de', 'local-hidden-language', 'local-language-en']);
+  assert.deepEqual(result.sidebarSections[1].items.map(item => item.id), ['local-rust', 'local-python']);
+  assert.deepEqual(result.sidebarSections[0], state.sidebarSections[0]);
+});
+
+test('ambiguous bullet formatting is comments-only and never guessed into editable list structure', () => {
+  const unsupported = ['- First\n  - Nested', '- First\ncontinuation line', '- First\n\n- Second', '- First\n* Mixed marker', '1. First\n2. Second', '- **Rich** text\n- Second', '  Indented content\nMore text', '- First\r\n- Second\n- Third', '- First !!private\n- nested!! content\n- Second'];
+  for (const bullets of unsupported) {
+    const state = createTestState({ experience: { jobs: [{ id: 'job', title: 'Job', bullets }] } });
+    const local = prepareCvAdjustment({ state, variantId: 'template' }); const { structure } = prepareCvStructure(local);
+    const field = local.publicRequest.fields.find(item => item.label === 'Experience 1: bullets')!;
+    assert.equal(structure.bullets.length, 0, bullets);
+    assert.ok(structure.unsupported.some(item => item.fieldId === field.id), bullets);
+    const comment = { id: 'comment-1', fieldId: field.id, explanation: 'Simplify this formatting manually before structural refinement.' };
+    assert.deepEqual(validateCvOperations([], [comment], structure, local.publicRequest.fields).comments, [comment]);
+    assert.throws(() => validateCvOperations([operation(1, { type: 'omit_bullet', targetId: 'bullet-1' })], [], structure, local.publicRequest.fields), /unavailable/);
+  }
+});
+
+test('dormant entry fields and custom fields excluded from the rendered layout remain comments-only', () => {
+  const state = createTestState({
+    experience: { jobs: [{ id: 'job', title: 'Job', desc: 'Dormant job description.', bullets: 'Visible useful work.' }] },
+    education: [{ id: 'degree', title: 'Degree', desc: 'Dormant degree description.', bullets: 'Dormant degree bullets.' }],
+    customSections: [
+      { id: 'hidden-desc', name: 'Hidden description', fields: ['title'], entries: [{ id: 'entry-a', title: 'Visible title', desc: 'Hidden custom description.', bullets: 'Dormant custom bullets.' }] },
+      { id: 'visible-desc', name: 'Visible description', fields: ['desc'], entries: [{ id: 'entry-b', desc: 'Visible useful custom description.', bullets: 'Dormant custom bullets.' }] },
+      { id: 'textarea', name: 'Text area', entryMode: 'textarea', text: 'Visible useful text.', entries: [{ id: 'dormant-entry', desc: 'Dormant alternate mode.' }] },
+    ],
+    languages: [{ id: 'en', name: 'English', desc: 'Dormant language description.', bullets: 'Dormant language bullets.' }],
+    bodyOrder: ['jobs', 'education', 'hidden-desc', 'visible-desc', 'textarea'],
+  });
+  const local = prepareCvAdjustment({ state, variantId: 'template' }); const { structure } = prepareCvStructure(local);
+  assert.deepEqual(structure.ranges.map(range => range.text), ['Visible useful work.', 'Visible useful custom description.', 'Visible useful text.']);
+  const operations = structure.ranges.map((range, index) => operation(index + 1, { type: 'shorten_text', targetId: range.id, text: range.text.replace('useful ', '') }));
+  const result = applyCvOperations(local, structure, operations, state);
+  assert.equal(result.experience.jobs[0].desc, state.experience.jobs[0].desc);
+  assert.deepEqual(result.education, state.education);
+  assert.deepEqual(result.customSections[0], state.customSections[0]);
+  assert.deepEqual(result.customSections[2].entries, state.customSections[2].entries);
+  assert.deepEqual(result.languages, state.languages);
+});
+
+test('shortening is extractive, strictly shorter and limited to published prose ranges', () => {
+  const { local, structure } = fixture(); const profile = structure.ranges.find(item => item.label === 'Profile')!;
+  for (const text of [profile.text, '', 'I develop advanced robot sensing systems.', 'I DEVELOP robot sensing systems.', 'I develop robot sensing system.', 'systems. I develop robot sensing', `${profile.text} Extra`]) {
+    assert.throws(() => validateCvOperations([operation(1, { type: 'shorten_text', targetId: profile.id, text })], [], structure, local.publicRequest.fields), /shorter|selection|rewrites/);
+  }
+  const title = local.publicRequest.fields.find(item => item.label === 'Experience 1: title')!;
+  assert.throws(() => validateCvOperations([operation(1, { type: 'shorten_text', targetId: title.id, text: 'Engineer' })], [], structure, local.publicRequest.fields), /unavailable|comments only/);
+  const good = operation(1, { type: 'shorten_text', targetId: profile.id, text: 'I develop robot sensing systems.' });
+  assert.deepEqual(validateCvOperations([good], [], structure, local.publicRequest.fields).operations, [good]);
+});
+
+test('shortening cannot remove, duplicate, rewrite or reorder private placeholders or links', () => {
+  const state = createTestState({ about: { text: 'Worked with !!first secret!! and !!second secret!! on public [research](https://example.org).' } });
+  const local = prepareCvAdjustment({ state, variantId: 'template' }); const { structure } = prepareCvStructure(local); const range = structure.ranges[0];
+  const bad = [range.text.replace(/\{\{PRIVATE_1\}\}/, ''), range.text.replace('and {{PRIVATE_2}}', '{{PRIVATE_1}}'), range.text.replace('{{PRIVATE_1}}', '{{PRIVATE_3}}'),
+    range.text.replace('{{PRIVATE_1}}', 'SWAP').replace('{{PRIVATE_2}}', '{{PRIVATE_1}}').replace('SWAP', '{{PRIVATE_2}}').replace('Worked ', ''),
+    range.text.replace(' on public [research](https://example.org)', '')];
+  for (const text of bad) assert.throws(() => validateCvOperations([operation(1, { type: 'shorten_text', targetId: range.id, text })], [], structure, local.publicRequest.fields), /placeholders|links|shorter/);
+  const good = range.text.replace('Worked with ', '').replace(' on public', '');
+  const result = applyCvOperations(local, structure, [operation(1, { type: 'shorten_text', targetId: range.id, text: good })], state);
+  assert.equal(result.about.text, '!!first secret!! and !!second secret!! [research](https://example.org).');
+});
+
+test('complete permutations forbid adding, duplicating, dropping and moving items across containers', () => {
+  const { local, structure } = fixture(); const body = structure.areas[0]; const sidebar = structure.areas[1]; const job = entry(structure, 'Engineer A'); const other = entry(structure, 'Engineer B');
+  for (const order of [body.sectionIds.slice(1), [...body.sectionIds, 'section-999'], [...body.sectionIds.slice(1), body.sectionIds[1]], [sidebar.sectionIds[0], ...body.sectionIds.slice(1)]]) {
+    assert.throws(() => validateCvOperations([operation(1, { type: 'reorder_sections', targetId: 'body', order })], [], structure, local.publicRequest.fields), /complete permutation/);
+  }
+  assert.throws(() => validateCvOperations([operation(1, { type: 'reorder_bullets', targetId: job.id, order: [other.bulletIds[0], ...job.bulletIds.slice(1)] })], [], structure, local.publicRequest.fields), /complete permutation/);
+});
+
+test('duplicate or conflicting operations are rejected even when a smaller subset was selected', () => {
+  const { state, local, structure } = fixture(); const job = entry(structure, 'Engineer A'); const range = structure.ranges.find(item => item.bulletId === job.bulletIds[0])!;
+  const omit = operation(1, { type: 'omit_bullet', targetId: job.bulletIds[0] });
+  const shorten = operation(2, { type: 'shorten_text', targetId: range.id, text: 'Built robots.' });
+  assert.throws(() => validateCvOperations([omit, { ...omit, id: 'change-2' }], [], structure, local.publicRequest.fields), /Conflicting/);
+  assert.throws(() => validateCvOperations([omit, shorten], [], structure, local.publicRequest.fields), /shortened and omitted/);
+  assert.throws(() => applyCvOperations(local, structure, [omit, shorten], state, ['change-1']), /shortened and omitted/);
+  assert.throws(() => validateCvOperations([omit, { ...shorten, id: omit.id }], [], structure, local.publicRequest.fields), /duplicate/);
+});
+
+test('unknown keys, targets, operation types and malformed comments cannot alter structural capabilities', () => {
+  const { local, structure } = fixture(); const field = local.publicRequest.fields[0];
+  const operations: unknown[] = [
+    { id: 'change-1', type: 'reorder_sections', targetId: 'body', order: structure.areas[0].sectionIds, explanation: 'Allowed.', path: ['contact'] },
+    { id: 'change-1', type: 'replace_company', targetId: 'field-1', text: 'New company', explanation: 'Disallowed.' },
+    operation(1, { type: 'reorder_entries', targetId: 'section-999', order: [] }),
+    { id: 'change-1', type: 'omit_bullet', targetId: 'bullet-1', explanation: ' ' },
+  ];
+  for (const value of operations) assert.throws(() => validateCvOperations([value], [], structure, local.publicRequest.fields), /Invalid|Unknown|permutation/);
+  for (const comment of [{ id: 'comment-1', fieldId: 'field-999', explanation: 'Unknown.' }, { id: 'comment-1', fieldId: field.id, explanation: 'x'.repeat(1001) }, { id: 'comment-1', fieldId: field.id, explanation: 'Fine.', text: 'Undeclared edit' }]) {
+    assert.throws(() => validateCvOperations([], [comment], structure, local.publicRequest.fields), /comment/);
+  }
+});
+
+test('public topology validates exact cross references and cannot inject local reconstruction paths', () => {
+  const { local, structure } = fixture();
+  const mutations: ((copy: CvStructure) => void)[] = [
+    copy => { copy.areas[0].sectionIds[0] = 'section-999'; },
+    copy => { copy.sections[0].area = 'sidebar'; },
+    copy => { copy.entries[0].sectionId = 'section-999'; },
+    copy => { copy.bullets[0].entryId = 'entry-999'; },
+    copy => { copy.ranges[0].text = 'Substring only'; },
+    copy => { copy.ranges.push({ ...copy.ranges[0], id: 'range-999' }); },
+    copy => { copy.unsupported.push({ fieldId: copy.ranges[0].fieldId, reason: 'Conflicting capability' }); },
+    copy => { Object.assign(copy.ranges[0], { path: ['contact', 'name'] }); },
+  ];
+  for (const mutate of mutations) { const copy = structuredClone(structure); mutate(copy); assert.throws(() => validateCvStructure(copy, local.publicRequest.fields), /Invalid|inconsistent/); }
+});
+
+test('stale local CVs and tampered public graphs are rejected before applying even an empty selection', () => {
+  const { state, local, structure } = fixture();
+  const changed = structuredClone(state); changed.contact.email = 'new@example.test';
+  assert.throws(() => applyCvOperations(local, structure, [], changed, []), /CV changed/);
+  const changedLayout = structuredClone(state); changedLayout.bodyOrder.reverse();
+  assert.throws(() => applyCvOperations(local, structure, [], changedLayout, []), /CV changed/);
+  const changedStructure = structuredClone(structure); changedStructure.sections[0].label = 'Invented display';
+  assert.throws(() => applyCvOperations(local, changedStructure, [], state, []), /does not match/);
+  const corrupt = structuredClone(local); corrupt.publicRequest.fields[0].text = 'Rewritten source field';
+  assert.throws(() => prepareCvStructure(corrupt), /inconsistent/);
+});
+
+test('review descriptions expose actual old and proposed text or order for each selectable operation', () => {
+  const { structure } = fixture(); const job = entry(structure, 'Engineer B'); const bullet = structure.bullets.find(item => item.id === job.bulletIds[0])!;
+  assert.deepEqual(describeCvOperation(operation(1, { type: 'omit_bullet', targetId: bullet.id }), structure), { target: 'Engineer B', before: 'Tested many robust sensors.', after: '' });
+  assert.deepEqual(describeCvOperation(operation(2, { type: 'reorder_bullets', targetId: job.id, order: [...job.bulletIds].reverse() }), structure), { target: 'Engineer B', before: 'Tested many robust sensors.\nPublished reproducible results.', after: 'Published reproducible results.\nTested many robust sensors.' });
+  const range = structure.ranges.find(item => item.bulletId === bullet.id)!;
+  assert.deepEqual(describeCvOperation(operation(3, { type: 'shorten_text', targetId: range.id, text: 'Tested sensors.' }), structure), { target: range.label, before: bullet.text, after: 'Tested sensors.' });
+});
