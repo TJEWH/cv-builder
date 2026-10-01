@@ -14,7 +14,7 @@ All three browser RPCs are `SECURITY INVOKER`, require a signed-in non-anonymous
 | --- | --- | --- |
 | `public.save_refinement_state` | `p_application_id`, `p_setup`, `p_approvals`, `p_expected_revision` | Save frozen template/settings with optimistic concurrency. Initial expected revision is `0`; subsequent saves require the current revision. Existing approval hashes may be preserved or cleared, but new approvals require a recorded review. |
 | `public.publish_refinement_request` | `p_request` | On first insertion, freeze a request, capture authoritative application research and assigned privacy CV, and advance the current request atomically. Repeating the exact UUID and payload returns the original receipt without changing the current request. |
-| `public.save_refinement_review` | `p_application_id`, nullable `p_request_id`, `p_kind`, `p_payload`, `p_id` | Append feedback or CV decisions, or atomically record an approval/reopening and update state. Identical retries return the stored row. |
+| `public.save_refinement_review` | `p_application_id`, nullable `p_request_id`, `p_kind`, `p_payload`, `p_id` | Append feedback, annotation updates or CV decisions, or atomically record an approval/reopening and update state. Identical retries return the stored row. |
 
 Read `application_refinement_state`, `application_refinement_requests`, `application_refinement_proposals` and `application_refinement_reviews` through the signed-in client. Order request/review history by `created_at, id` and always load **all** feedback before publishing another request. Proposal refresh only adds history; it never changes working documents automatically.
 
@@ -156,3 +156,39 @@ The transactional SQL suite exercises template setup, optimistic concurrency, au
 Post-deployment advisors reported no new security findings. The existing [leaked-password-protection warning](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) and backend-only `opportunity_history` [missing-policy notice](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy) remain. Performance notices include the existing history-table [unindexed foreign key](https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys), older unused indexes, and the new `refinement_reviews_request_idx` [unused-index notice](https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index). The new index is retained to support its composite request foreign key before normal traffic begins.
 
 Frontend verification must also cover local template independence, baseline mismatch refusal, accumulated feedback, privacy reconstruction, unavailable local files, placeholder export blocking, advisory word counts, and the complete desktop/mobile preparation → proposal → feedback → approval → combined PDF → submitted tracking flow.
+
+
+## Shared annotation extension
+
+**Deployed:** **phd-workflow** received `refinement_annotations`, version `20261001213228` (UTC), on **2026-10-01**. Post-deployment transactional checks passed; do not reapply it there.
+
+Apply [`changes/refinement_annotations.sql`](changes/refinement_annotations.sql) after the structured CV upgrade, before releasing this frontend. The consolidated schema includes it. No new tables, document fields or history streams are introduced, and existing proposals are immutable. Existing v1 and v2 proposals without annotations remain readable; neither their summaries nor `cvComments` are automatically reinterpreted.
+
+Version-2 proposals may additionally provide `annotations` (an array, at most 100 entries). The generated prompt includes it, using `[]` when no notes are needed. Each entry has exactly these fields:
+
+```json
+{"id":"annotation-1","type":"question","document":"cv","location":{"fieldId":"field-1"},"text":"Which research methods did you use?"}
+{"id":"annotation-2","type":"todo","document":"letter","location":{"start":0,"quote":"Dear committee,"},"text":"Confirm the addressee before submission."}
+```
+
+`type` is `comment`, `todo` or `question`; `document` is `cv` or `letter`. `location` can be `null` for a whole-document annotation. CV fields must exist in the exact request. Letter `start` is a zero-based Unicode code-point offset in the returned `letterText`, and `quote` must match there exactly. Text is nonempty and limited to 4,000 UTF-16 units; quotes to 2,000. Unknown keys, IDs, invalid locations and privacy violations are rejected. Notes never enter CV operation application, letter rendering, word counts or PDF export.
+
+Initial status is `open`, with no response. The signed-in browser uses the existing `save_refinement_review` RPC with `kind: "annotation"`, the proposal's request ID and this payload:
+
+```json
+{"proposalId":"<UUID>","annotationId":"annotation-1","status":"resolved","response":"Used controlled experiments.","previousReviewId":null}
+```
+
+Status may be `open`, `resolved` or `dismissed`. Response is null or nonempty text up to 12,000 UTF-16 units. The browser scrubs known identity and confidential markers before saving. Later updates must supply the last annotation review UUID as `previousReviewId`. The state-row lock serializes these checks; stale updates fail without changing documents. Identical review UUID/payload retries return the original receipt. Historical proposals remain answerable, and opening them projects the latest status from existing reviews. Unsaved component responses survive a failed save or a conflicting refresh until the user explicitly loads the saved annotation.
+
+“Included as feedback” is a separate, explicit action. Open or answered annotations can append an ordinary `feedback` review with its existing `text`/`scope`, plus:
+
+```json
+{"annotation":{"proposalId":"<UUID>","annotationId":"annotation-1","reviewId":"<annotation review UUID, or null for untouched open notes>"}}
+```
+
+The backend validates proposal ownership, application/request membership, the annotation ID, latest response revision and document scope. The browser composes the note, original reference, status and answer, applies outgoing privacy checks again, and stores the resulting feedback. Include this same `annotation` reference in each frozen request's corresponding feedback entry. Earlier entries remain unchanged and must occur exactly once in chronological order, even when a later answer supersedes them. Annotation status updates alone do not publish feedback or change source documents; selecting “Include as feedback” makes an existing request outdated until the user publishes the next round.
+
+Letter references conservatively identify the originally proposed document version (normalizing only the existing letter parser/serializer). Any changed rendered version displays **Referenced text has changed**, while the original quote remains available separately. The app never searches for another occurrence and silently moves the annotation. Document-wide notes have no text anchor.
+
+All operations retain owner-authenticated invoker RPCs and existing RLS. Private proposal writes remain restricted to the `postgres` management connection. Helper validation functions have explicit revokes/grants. Run [`tests/refinement_annotations.sql`](tests/refinement_annotations.sql) as `postgres`; synthetic fixtures roll back. It checks strict payloads, Unicode offsets/bounds, exact retries, stale updates, unchanged state, referenced feedback preservation, legacy summaries, historical notes, cross-user isolation and anonymous denial.

@@ -5,7 +5,7 @@ import type { Application } from '../cloudTypes';
 import { supabaseConfiguration } from '../lib/supabase';
 import type { CvState, SavedConfiguration } from '../types';
 import type { ApplicationLetter, LetterTemplate } from '../letterTypes';
-import type { LocalRefinementRequest, RefinementApprovals, RefinementFeedback, RefinementProposalRow, RefinementRequestRow, RefinementReviewRow, RefinementScope, RefinementState } from '../refinementTypes';
+import type { AnnotationStatus, AnnotationReference, LocalRefinementRequest, RefinementApprovals, RefinementFeedback, RefinementProposalRow, RefinementRequestRow, RefinementReviewRow, RefinementScope, RefinementState } from '../refinementTypes';
 import { cloneCv, createApplicationCv, cvDifferences, isApplicationCvPublished, loadApplicationCv, saveApplicationCv, type ApplicationCvRecord } from '../composables/applicationCv';
 import { createCloudCvSnapshot } from '../composables/cloudCvPrivacy';
 import { rootVariantId } from '../composables/careerVariants';
@@ -24,6 +24,8 @@ import { buildShortRefinementInstruction } from '../composables/applicationRefer
 import { resolveRefinementSettings, serializeRefinementDraft, sameRefinementInputs } from '../composables/refinementSources';
 import RefinementSourceOverview from './RefinementSourceOverview.vue';
 import RefinementChangeReview from './RefinementChangeReview.vue';
+import RefinementAnnotations from './RefinementAnnotations.vue';
+import { annotationViews, annotationReferenceChanged, annotationFeedback } from '../composables/refinementAnnotations';
 
 const props = defineProps<{
   projectId?: string; active?: boolean;
@@ -197,6 +199,15 @@ const reviewAcceptanceError = computed(() => {
 const previewCvState = computed(() => temporaryReview.value.result?.state || record.value?.state || null);
 const previewLetterContent = computed(() => reviewActive.value && includeProposedLetter.value && temporaryReview.value.result
   ? letterFromEditableText(temporaryReview.value.result.letterText) : letter.value?.working);
+const proposalAnnotations = computed(() => annotationViews(selectedProposal.value, reviews.value).map(view => {
+  const currentLetter = record.value ? sanitizeRefinementText(serializeRefinementDraft(previewLetterContent.value).text, record.value.state) : '';
+  const a = view.annotation;
+  return { ...view,
+    target: a.document === 'letter' ? text('Motivation letter', 'Motivationsschreiben') : 'CV' + (a.location ? ' · ' + (selectedRequest.value?.request_json.cv.fields.find(field => field.id === a.location?.fieldId)?.label || a.location.fieldId) : ''),
+    referenceChanged: annotationReferenceChanged(a, selectedProposal.value?.proposal_json.letterText || '', currentLetter),
+    included: reviews.value.some(row => row.kind === 'feedback' && (row.payload.annotation as AnnotationReference | undefined)?.proposalId === view.proposalId && (row.payload.annotation as AnnotationReference).annotationId === a.id && (row.payload.annotation as AnnotationReference).reviewId === view.reviewId),
+  };
+}));
 // Returning to saved-document views always uses the saved documents, never the temporary selection.
 watch(tab, value => { reviewActive.value = value === 'refinement' && !!selectedProposal.value; });
 const requirementContext = computed(() => Object.fromEntries(Object.entries(props.application.context_json).filter(([key]) => ['requirements', 'required_documents', 'application_documents', 'documents', 'submission_documents', 'eligibility'].includes(key))));
@@ -319,7 +330,32 @@ async function useLetterTemplate() {
 }
 function updateLetter(value: string) { if (letter.value) letter.value = editLetter(letter.value, letterFromEditableText(value)); }
 function feedbackHistory(): RefinementFeedback[] {
-  return reviews.value.filter(item => item.kind === 'feedback').map(item => ({ id: item.id, text: String(item.payload.text), scope: item.payload.scope as RefinementScope, createdAt: item.created_at }));
+  return reviews.value.filter(item => item.kind === 'feedback').map(item => ({ id: item.id, text: String(item.payload.text), scope: item.payload.scope as RefinementScope, createdAt: item.created_at, ...(item.payload.annotation ? { annotation: clone(item.payload.annotation) as AnnotationReference } : {}) }));
+}
+async function saveAnnotation(id: string, status: AnnotationStatus, response: string, previousReviewId: string | null): Promise<boolean> {
+  let saved = false;
+  await run(async () => {
+    const view = proposalAnnotations.value.find(item => item.annotation.id === id);
+    if (!view || !record.value) throw new Error('Restore the local CV before saving an anonymized response.');
+    const safeResponse = response.trim() ? sanitizeRefinementText(response.trim(), record.value.state) : null;
+    const row = await repository.saveReview(props.application.id, view.requestId, 'annotation', { proposalId: view.proposalId, annotationId: id, status, response: safeResponse, previousReviewId });
+    if (disposed) return;
+    if (!reviews.value.some(item => item.id === row.id)) reviews.value.push(row);
+    saved = true; notice.value = text('Annotation saved. Both documents are unchanged.', 'Anmerkung gespeichert. Beide Dokumente bleiben unverändert.');
+  });
+  return saved;
+}
+async function includeAnnotationFeedback(id: string) {
+  await run(async () => {
+    const view = proposalAnnotations.value.find(item => item.annotation.id === id);
+    if (!view || !record.value || view.included || view.status !== 'open' && !view.response) return;
+    const safeText = sanitizeRefinementText(annotationFeedback(view), record.value.state);
+    const row = await repository.saveReview(props.application.id, view.requestId, 'feedback', { text: safeText, scope: view.annotation.document,
+      annotation: { proposalId: view.proposalId, annotationId: id, reviewId: view.reviewId } });
+    if (disposed) return;
+    if (!reviews.value.some(item => item.id === row.id)) reviews.value.push(row);
+    notice.value = text('Annotation included in accumulated feedback. Publish the next round when ready.', 'Anmerkung zum gesammelten Feedback hinzugefügt. Die nächste Runde kann nun veröffentlicht werden.');
+  });
 }
 async function copyPrompt() {
   try { await navigator.clipboard.writeText(prompt.value); notice.value = text('Prompt copied. Paste it into your connected ChatGPT conversation.', 'Prompt kopiert. In die verbundene ChatGPT-Unterhaltung einfügen.'); }
@@ -555,6 +591,7 @@ function legacyChanged(event: { record: ApplicationLetter | null }) { if (event.
               <p class="hint">{{ text('Proposal preview', 'Vorschau des Vorschlags') }} · {{ new Date(selectedProposal.created_at).toLocaleString() }}<br />{{ text('Based on request', 'Basiert auf Anfrage') }} {{ selectedProposal.request_id }}<br />{{ text('The published source stays unchanged when you view this proposal.', 'Die veröffentlichte Quelle bleibt beim Ansehen dieses Vorschlags unverändert.') }}</p>
               <p class="pre-wrap">{{ selectedProposal.proposal_json.summary }}</p>
               <RefinementChangeReview :changes="proposalChanges" :selected="selectedChangeIds" :comments="proposalComments" :legacy="selectedProposal.proposal_json.schemaVersion === 1" :lang="lang" :disabled="busy || proposalAlreadyApplied" :locked="cvApproved" @toggle="toggleProposedChange" />
+              <RefinementAnnotations :items="proposalAnnotations" :lang="lang" :disabled="busy || !record" :save="saveAnnotation" :include="includeAnnotationFeedback" />
               <details><summary>{{ text('Proposed letter', 'Vorgeschlagener Brief') }}</summary><p class="pre-wrap">{{ selectedProposal.proposal_json.letterText }}</p></details>
               <label v-if="selectedRequest?.request_json.scope !== 'cv'" class="selection-checkbox"><input type="checkbox" :checked="includeProposedLetter" :disabled="busy || letterApproved || proposalAlreadyApplied" @change="toggleProposedLetter(($event.target as HTMLInputElement).checked)" />{{ text('Include proposed letter', 'Vorgeschlagenen Brief einbeziehen') }}</label>
               <p v-if="temporaryReview.error || reviewAcceptanceError" class="message error" role="alert">{{ temporaryReview.error || reviewAcceptanceError }}</p>

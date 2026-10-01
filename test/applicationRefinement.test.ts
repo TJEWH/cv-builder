@@ -343,3 +343,18 @@ test('v2 publication reports a required backend migration without downgrading or
   await assert.rejects(createRefinementRepository(missing.client, () => 'owner').publishRequest(request.request), /protocol v2.*migration.*local documents are preserved/);
   assert.deepEqual(request, before);
 });
+
+test('annotation reviews retain retry identity and explain a missing annotation database upgrade', async () => {
+  const request = local();
+  const payload = { proposalId: crypto.randomUUID(), annotationId: 'annotation-1', status: 'resolved', response: 'Confirmed evidence.', previousReviewId: null };
+  let fail = true;
+  const backend = fakeClient(({ params }) => {
+    if (fail) { fail = false; return { data: null, error: { code: '22023', message: 'Invalid review kind.' } }; }
+    return { data: { id: params?.p_id, application_id: APP, user_id: 'owner', request_id: params?.p_request_id, kind: params?.p_kind, payload: params?.p_payload, created_at: CREATED }, error: null };
+  });
+  const repository = createRefinementRepository(backend.client, () => 'owner');
+  await assert.rejects(repository.saveReview(APP, request.request.requestId, 'annotation', payload), /annotations database migration.*unsaved response are preserved/);
+  await repository.saveReview(APP, request.request.requestId, 'annotation', payload);
+  assert.equal(backend.queries[0].params?.p_id, backend.queries[1].params?.p_id);
+  await assert.rejects(repository.saveReview(APP, null, 'annotation', payload), /proposal request ID/);
+});

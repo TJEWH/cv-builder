@@ -16,7 +16,7 @@ import { createCloudCvSnapshot } from '../src/composables/cloudCvPrivacy';
 import { createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES } from '../src/composables/motivationLetters';
 import { createRefinementFixture } from './refinementFixture';
 import type { ApplicationLetter } from '../src/letterTypes';
-import type { LocalRefinementRequest, RefinementRequestRow, RefinementProposalRow, RefinementScope, RefinementSetup } from '../src/refinementTypes';
+import type { AnnotationStatus, LocalRefinementRequest, RefinementRequestRow, RefinementProposalRow, RefinementScope, RefinementSetup } from '../src/refinementTypes';
 
 const account = '90000000-0000-4000-8000-000000000001';
 const applicationId = '10000000-0000-4000-8000-000000000001';
@@ -37,6 +37,9 @@ interface WorkspaceSetup {
   selectedChangeIds: string[]; includeProposedLetter: boolean; reviewActive: boolean; previewCvState: CvState | null;
   previewLetterContent: ApplicationLetter['working'] | undefined; temporaryReview: { result: { state: CvState; letterText: string } | null; error: string }; reviewAcceptanceError: string;
   proposalChanges: { id: string; type: string; status: 'proposed' | 'accepted' | 'rejected'; before: string; after: string; target: string }[];
+  proposalAnnotations: (import('../src/composables/refinementAnnotations').AnnotationView & { referenceChanged: boolean; included: boolean })[];
+  saveAnnotation(id: string, status: AnnotationStatus, response: string, previousReviewId: string | null): Promise<boolean>;
+  includeAnnotationFeedback(id: string): Promise<void>;
   copyShortInstruction(): Promise<void>;
   updateLetter(text: string): void; approve(kind: 'cv' | 'letter', reopen?: boolean): Promise<void>; requestImprovement(): Promise<void>;
 }
@@ -825,4 +828,74 @@ test('invalid returned structural targets are rejected before preview rendering 
   assert.equal(setup.proposals.length, 0);
   assert.equal(setup.reviewActive, false);
   assert.equal(JSON.stringify({ cv: setup.record, letter: setup.letter }), before);
+});
+
+
+test('answering and resolving annotations persists across reload without changing either document or its preview', async (t) => {
+  const fixture = mount(t); let setup = fixture.setup;
+  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
+  await setup.useLetterTemplate(); setup.updateLetter('Working letter.'); await setup.initialPrompt();
+  fixture.cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
+  const before = JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter, cv: setup.previewCvState, previewLetter: setup.previewLetterContent }));
+  assert.equal(setup.proposalAnnotations[0].status, 'open');
+  assert.equal(await setup.saveAnnotation('annotation-1', 'resolved', 'Used controlled experiments with !!private lab!!.', null), true);
+  assert.equal(setup.error, '');
+  assert.equal(setup.proposalAnnotations[0].response, 'Used controlled experiments with {{CONFIDENTIAL}}.');
+  assert.deepEqual(JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter, cv: setup.previewCvState, previewLetter: setup.previewLetterContent })), before);
+  setup = fixture.reopen(); await idle(setup);
+  assert.equal(setup.proposalAnnotations[0].status, 'resolved');
+  assert.equal(setup.proposalAnnotations[0].response, 'Used controlled experiments with {{CONFIDENTIAL}}.');
+  assert.deepEqual(JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter })), { record: before.record, letter: before.letter });
+  assert.equal(fixture.database.application_refinement_reviews.length, 1);
+});
+
+test('open and answered annotations enter existing feedback history only on explicit inclusion, retaining references in subsequent requests', async (t) => {
+  const { setup, cloud, database } = mount(t);
+  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
+  await setup.useLetterTemplate(); await setup.initialPrompt(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
+  await setup.saveAnnotation('annotation-1', 'resolved', 'Confirmed experiments.', null);
+  assert.equal(database.application_refinement_reviews.filter(row => row.kind === 'feedback').length, 0);
+  await setup.includeAnnotationFeedback('annotation-1'); await setup.includeAnnotationFeedback('annotation-1');
+  await setup.includeAnnotationFeedback('annotation-2');
+  assert.equal(setup.error, '');
+  assert.equal(database.application_refinement_reviews.filter(row => row.kind === 'feedback').length, 2, 'identical inclusion cannot add another feedback entry');
+  setup.discardReview(); await setup.initialPrompt();
+  assert.equal(setup.error, '');
+  const feedback = setup.requests[0].request_json.feedback;
+  assert.equal(feedback.length, 2); assert.ok(feedback.every(item => item.annotation?.proposalId === setup.proposals[0].id));
+  assert.equal(feedback[0].annotation?.reviewId, setup.proposalAnnotations[0].reviewId);
+  assert.equal(feedback[1].annotation?.reviewId, null);
+  assert.match(feedback[0].text, /Confirmed experiments/);
+  assert.equal(setup.letterText, '', 'feedback never becomes working letter content');
+});
+
+test('manual letter edits invalidate annotation references without moving notes or adding them to the PDF content', async (t) => {
+  const { setup, cloud } = mount(t);
+  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
+  await setup.useLetterTemplate(); await setup.initialPrompt(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
+  assert.equal(setup.proposalAnnotations[1].referenceChanged, false);
+  await setup.acceptSelectedChanges(); assert.equal(setup.error, '');
+  assert.equal(setup.proposalAnnotations[1].referenceChanged, false);
+  setup.updateLetter('Manually corrected wording.'); await nextTick();
+  assert.equal(setup.proposalAnnotations[1].referenceChanged, true);
+  assert.equal(setup.previewLetterContent?.body, 'Manually corrected wording.');
+  assert.ok(!JSON.stringify(setup.previewLetterContent).includes('Confirm the project-specific'));
+});
+
+test('stale annotation updates and failed saves preserve documents and do not claim success', async (t) => {
+  const { setup, cloud, database, props } = mount(t);
+  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
+  await setup.useLetterTemplate(); await setup.initialPrompt(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
+  await setup.saveAnnotation('annotation-1', 'resolved', 'First answer.', null);
+  const before = JSON.stringify({ record: setup.record, letter: setup.letter });
+  assert.equal(await setup.saveAnnotation('annotation-1', 'dismissed', 'Stale answer.', null), false);
+  assert.match(setup.error, /changed elsewhere/);
+  const rpc = props.client.rpc;
+  props.client.rpc = (async () => ({ data: null, error: new Error('Offline') })) as unknown as typeof rpc;
+  assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'Unsaved response.', null), false);
+  assert.equal(setup.proposalAnnotations[1].status, 'open');
+  props.client.rpc = rpc;
+  assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'Unsaved response.', null), true);
+  assert.equal(database.application_refinement_reviews.length, 2);
+  assert.equal(JSON.stringify({ record: setup.record, letter: setup.letter }), before);
 });

@@ -1,0 +1,61 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { prepareRefinement, parseRefinementProposal, applyRefinementProposal, refinementSignature, buildRefinementPrompt } from '../src/composables/applicationRefinement';
+import { annotationReferenceChanged, annotationViews, validAnnotationReference, validateAnnotationReview } from '../src/composables/refinementAnnotations';
+import { DEFAULT_LETTER_TEMPLATES } from '../src/composables/motivationLetters';
+import { createTestState } from './helpers';
+import type { RefinementAnnotation, RefinementProposalRow, RefinementProposalV2, RefinementReviewRow } from '../src/refinementTypes';
+const appId = crypto.randomUUID(), proposalId = crypto.randomUUID();
+const state = createTestState({ about: { text: 'Research experience with reproducible experiments.' } });
+function fixture() {
+  const local = prepareRefinement({ applicationId: appId, state, variantId: 'base', setup: { template: DEFAULT_LETTER_TEMPLATES[0], language: 'en', maxWords: 400 }, letterText: 'Saved letter.', opportunity: {}, scope: 'both', feedback: [], parentProposalId: null, baselineSignature: refinementSignature(state) });
+  const annotations: RefinementAnnotation[] = [
+    { id: 'annotation-1', type: 'question', document: 'cv', location: { fieldId: local.request.cv.fields[0].id }, text: 'Which methods did you use?' },
+    { id: 'annotation-2', type: 'todo', document: 'letter', location: { start: 2, quote: 'Proposed letter.' }, text: 'Confirm this research interest.' },
+    { id: 'annotation-3', type: 'comment', document: 'letter', location: null, text: 'Consider adding a specific example if documented.' },
+  ];
+  const proposal: RefinementProposalV2 = { schemaVersion: 2, requestId: local.request.requestId, summary: 'Summary remains ordinary prose.', cvOperations: [], cvComments: [], letterText: '😀 Proposed letter.', annotations };
+  const row: RefinementProposalRow = { id: proposalId, application_id: appId, user_id: crypto.randomUUID(), request_id: local.request.requestId, proposal_json: proposal, created_at: new Date().toISOString() };
+  return { local, proposal, row };
+}
+test('structured annotations validate without altering CV or letter document content', () => {
+  const { local, proposal } = fixture();
+  assert.deepEqual(parseRefinementProposal(proposal, local.request), proposal);
+  const result = applyRefinementProposal(local, proposal, state, local.baselineSignature);
+  assert.deepEqual(result.state, state); assert.equal(result.letterText, proposal.letterText);
+  assert.ok(!result.letterText.includes('Confirm this'));
+  assert.match(buildRefinementPrompt(local.request, 'fixture'), /Annotations are separate review material, never document text/);
+});
+test('unknown targets, non-exact references, duplicate IDs, embedded state and invalid annotations are rejected', () => {
+  const { local, proposal } = fixture();
+  const cv = proposal.annotations![0], letter = proposal.annotations![1];
+  for (const annotations of [null, {}, [cv, cv], [{ ...cv, id: 'unknown' }], [{ ...cv, type: 'replacement' }], [{ ...cv, type: ['question'] }], [{ ...cv, document: 'both' }], [{ ...cv, document: ['letter'] }], [{ ...cv, status: 'resolved' }], [{ ...cv, response: 'injected' }], [{ ...cv, text: '' }], [{ ...cv, text: '😀'.repeat(2001) }], [{ ...cv, text: '!!private!!' }], [{ ...cv, location: { fieldId: 'field-9999' } }], [{ ...letter, location: { start: 3, quote: 'Proposed letter.' } }], [{ ...letter, location: { start: -1, quote: 'Proposed letter.' } }], [{ ...letter, location: { start: 2, quote: 'Different text.' } }], [{ ...letter, location: { start: 2, quote: 'Proposed letter.', other: true } }]]) {
+    assert.throws(() => parseRefinementProposal({ ...proposal, annotations }, local.request), /annotation/i);
+  }
+});
+test('letter references remain bound to the original proposed version and never seek another matching passage', () => {
+  const { proposal } = fixture(); const a = proposal.annotations![1];
+  assert.equal(annotationReferenceChanged(a, proposal.letterText, proposal.letterText), false);
+  assert.equal(annotationReferenceChanged(a, proposal.letterText, 'Manually edited. Proposed letter.'), true);
+  assert.equal(annotationReferenceChanged(a, proposal.letterText, '😀 Changed letter. Proposed letter.'), true);
+  assert.equal(annotationReferenceChanged(proposal.annotations![2], proposal.letterText, 'New letter'), false);
+  assert.equal(annotationReferenceChanged(proposal.annotations![0], proposal.letterText, 'New letter'), false);
+});
+test('annotation status and response are projected only from explicitly referenced reviews', () => {
+  const { row } = fixture(); const annotation = annotationViews(row, []);
+  assert.equal(annotation[0].status, 'open'); assert.equal(annotation[0].response, null);
+  const review: RefinementReviewRow = { id: crypto.randomUUID(), application_id: appId, user_id: row.user_id, request_id: row.request_id, kind: 'annotation', payload: { proposalId, annotationId: 'annotation-1', status: 'resolved', response: 'Controlled laboratory experiments.', previousReviewId: null }, created_at: new Date().toISOString() };
+  const result = annotationViews(row, [review]);
+  assert.equal(result[0].status, 'resolved'); assert.equal(result[0].reviewId, review.id); assert.equal(result[1].status, 'open');
+  assert.equal(annotationViews(row, [{ ...review, payload: { ...review.payload, proposalId: crypto.randomUUID() } }])[0].status, 'open');
+  assert.deepEqual(annotationViews({ ...row, proposal_json: { ...row.proposal_json, annotations: undefined } as RefinementProposalV2 }, []), []);
+  assert.deepEqual(annotationViews({ ...row, proposal_json: { schemaVersion: 1, requestId: row.request_id, summary: 'TODO: add details?', cvEdits: [], letterText: 'Legacy letter.' } }, []), []);
+});
+test('annotation references and review payloads are strict, with optional private-filtered response', () => {
+  const payload = { proposalId, annotationId: 'annotation-1', status: 'resolved', response: 'Confirmed evidence.', previousReviewId: null };
+  validateAnnotationReview(payload);
+  validateAnnotationReview({ ...payload, response: null });
+  for (const invalid of [{ ...payload, status: 'accepted' }, { ...payload, status: ['open'] }, { ...payload, response: '' }, { ...payload, response: '!!private!!' }, { ...payload, response: '😀'.repeat(6001) }, { ...payload, previousReviewId: 'not-uuid' }, { ...payload, text: 'extra' }]) assert.throws(() => validateAnnotationReview(invalid), /annotation/);
+  assert.equal(validAnnotationReference({ proposalId, annotationId: 'annotation-1', reviewId: null }), true);
+  assert.equal(validAnnotationReference({ proposalId, annotationId: 'annotation-1' }), false);
+});

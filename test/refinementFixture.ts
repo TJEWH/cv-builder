@@ -86,6 +86,16 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
         if (!state) throw new Error('Save refinement settings first.');
         if (args.p_request_id && !database.application_refinement_requests.some(row => row.id === args.p_request_id && row.application_id === app.id)) throw new Error('Review request unavailable.');
         const kind = String(args.p_kind); const payload = args.p_payload as Row;
+        if (kind === 'annotation' || kind === 'feedback' && payload.annotation) {
+          const reference = kind === 'annotation' ? { proposalId: payload.proposalId, annotationId: payload.annotationId, reviewId: payload.previousReviewId } : payload.annotation as Row;
+          const proposal = database.application_refinement_proposals.find(row => row.id === reference.proposalId && row.application_id === app.id && row.request_id === args.p_request_id);
+          const content = proposal?.proposal_json as RefinementProposal | undefined;
+          const annotation = content?.schemaVersion === 2 && content.annotations?.find(item => item.id === reference.annotationId);
+          if (!annotation) throw new Error('Annotation unavailable.');
+          const previous = [...database.application_refinement_reviews].reverse().find(row => row.kind === 'annotation' && (row.payload as Row).proposalId === reference.proposalId && (row.payload as Row).annotationId === reference.annotationId);
+          if ((previous?.id || null) !== reference.reviewId) throw new Error('Annotation changed elsewhere; reload the saved annotation.');
+          if (kind === 'feedback' && payload.scope !== annotation.document) throw new Error('Annotation feedback scope mismatch.');
+        }
         if (kind === 'cv_decisions') {
           const proposal = database.application_refinement_proposals.find(row => row.id === payload.proposalId && row.application_id === app.id && row.request_id === args.p_request_id);
           if (!proposal || args.p_request_id !== state.current_request_id) throw new Error('CV decisions must refer to the current proposal.');
@@ -96,6 +106,8 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
             || new Set([...accepted, ...rejected]).size !== accepted.length + rejected.length
             || !same([...accepted, ...rejected].sort(), [...available].sort())) throw new Error('CV decisions must partition the proposal changes.');
           if (accepted.length && (state.approvals_json as Row).cv) throw new Error('Reopen the approved CV before accepting changes.');
+        } else if (kind === 'annotation') {
+          if (!['open', 'resolved', 'dismissed'].includes(String(payload.status))) throw new Error('Invalid annotation status.');
         } else if (kind !== 'feedback') {
           if (Number(payload.expectedRevision) !== state.revision) throw new Error('Refinement review is stale.');
           if (args.p_request_id !== null && args.p_request_id !== state.current_request_id) throw new Error('This request is stale; review the current documents.');
@@ -160,6 +172,10 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
       }
     }
     if (options.overLimit && request.scope !== 'cv') proposal.letterText += '\n\n' + 'research '.repeat(request.letter.maxWords + 1);
+    if (proposal.schemaVersion === 2) proposal.annotations = [
+      { id: 'annotation-1', type: 'question', document: 'cv', location: field ? { fieldId: field.id } : null, text: 'Which research methods did you use? Add only details you can confirm.' },
+      { id: 'annotation-2', type: 'todo', document: 'letter', location: proposal.letterText ? { start: 0, quote: [...proposal.letterText].slice(0, 30).join('') } : null, text: 'Confirm the project-specific research interest before the next round.' },
+    ];
     const validated = parseRefinementProposal(proposal, request);
     const saved = { id: crypto.randomUUID(), application_id: row.application_id, user_id: row.user_id, request_id: row.id, proposal_json: validated, created_at: now() };
     database.application_refinement_proposals.push(saved); return clone(saved);

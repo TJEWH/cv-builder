@@ -3,7 +3,13 @@ import type { LetterTemplate } from './letterTypes';
 import type { CvStructure, CvOperation, CvComment, CvStructureBindings } from './cvStructuredTypes';
 
 export type RefinementScope = 'both' | 'cv' | 'letter';
-export interface RefinementFeedback { id: string; text: string; scope: RefinementScope; createdAt: string }
+export interface AnnotationReference { proposalId: string; annotationId: string; reviewId: string | null }
+export type AnnotationStatus = 'open' | 'resolved' | 'dismissed';
+export type RefinementAnnotation = {
+  id: string; type: 'comment' | 'todo' | 'question'; text: string;
+} & ({ document: 'cv'; location: { fieldId: string } | null }
+  | { document: 'letter'; location: { start: number; quote: string } | null });
+export interface RefinementFeedback { id: string; text: string; scope: RefinementScope; createdAt: string; annotation?: AnnotationReference }
 export interface RefinementSetup { template: LetterTemplate; language: string; maxWords: number }
 export interface RefinementApprovals { cv: string | null; letter: string | null }
 export interface RefinementState {
@@ -25,6 +31,8 @@ export interface RefinementProposalV1 {
 export interface RefinementProposalV2 {
   schemaVersion: 2; requestId: string; summary: string;
   cvOperations: CvOperation[]; cvComments: CvComment[]; letterText: string;
+  /** Optional extension: older v2 proposals remain readable without annotations. */
+  annotations?: RefinementAnnotation[];
 }
 export type RefinementProposal = RefinementProposalV1 | RefinementProposalV2;
 export interface RefinementRequestRow {
@@ -36,7 +44,7 @@ export interface RefinementProposalRow {
 }
 export interface RefinementReviewRow {
   id: string; application_id: string; user_id: string; request_id: string | null;
-  kind: 'feedback' | 'approve_cv' | 'approve_letter' | 'reopen_cv' | 'reopen_letter' | 'cv_decisions';
+  kind: 'feedback' | 'approve_cv' | 'approve_letter' | 'reopen_cv' | 'reopen_letter' | 'cv_decisions' | 'annotation';
   payload: Record<string, unknown>; created_at: string;
 }
 /** Full baseline and reconstruction bindings never cross the upload boundary. */
