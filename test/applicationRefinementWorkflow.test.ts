@@ -269,18 +269,87 @@ for (const scope of ['cv', 'letter', 'both'] as const) test(`short ${scope} task
   await setup.initialTask();
   assert.equal(setup.error, '');
   const document = scope === 'cv' ? 'CV' : scope === 'letter' ? 'motivation letter' : 'both';
-  assert.equal(copied.at(-1), `phd-workflow: APP-SYNTHETIC — refine ${document}.`);
+  assert.ok(copied.at(-1)!.startsWith(`phd-workflow: APP-SYNTHETIC — refine ${document}.\n`));
   const current = fixture.database.application_refinement_state[0].current_request_id;
+  assert.equal(typeof current, 'string');
   assert.equal(setup.requests.find(row => row.id === current)?.request_json.scope, scope);
+  assert.ok(copied.at(-1)!.includes(`published request ${current}`));
+  assert.ok(copied.at(-1)!.includes(`scope ${scope}`));
+  assert.ok(!copied.at(-1)!.includes('Original private working letter.'));
   const count = setup.requests.length;
   await setup.initialTask(); assert.equal(setup.requests.length, count, 'unchanged sources reuse the published request');
   setup.updateLetter('Manual correction for the next round.');
   await setup.initialTask(); assert.equal(setup.requests.length, count + 1, 'changed sources publish before copying a short task');
+  assert.ok(copied.at(-1)!.includes(`published request ${fixture.database.application_refinement_state[0].current_request_id}`));
+  assert.ok(!copied.at(-1)!.includes(String(current)), 'the next task cannot retain a superseded request reference');
   assert.equal(copied.length, 3);
-  await setup.initialPrompt(); assert.match(copied.at(-1)!, /private.read_refinement_request/); assert.equal(setup.requests.length, count + 1);
+  await setup.initialPrompt(); assert.match(copied.at(-1)!, /BEGIN_APPROVED_REQUEST_JSON/); assert.equal(setup.requests.length, count + 1);
   setup.updateLetter('Unpublished changed source.');
   fixture.cloud.client.rpc = (() => Promise.resolve({ data: null, error: new Error('Synthetic publication failure') })) as unknown as typeof fixture.cloud.client.rpc;
   await setup.initialTask(); assert.ok(setup.error); assert.equal(copied.length, 4, 'failed publication must not copy an instruction for old sources');
+});
+
+for (const initial of [true, false]) test(`full ${initial ? 'initial' : 'existing'} letter prompt completes through manual import without ChatGPT database tools`, async t => {
+  const fixture = mount(t), original = initial ? '' : 'My complete working draft.';
+  const setup = await prepare(fixture, 'base', { letterText: original, scope: 'letter' });
+  const copied: string[] = [];
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copied.push(value); } } });
+  const before = documents(setup), cloudBefore = JSON.stringify(fixture.database);
+  await setup.initialPrompt();
+  assert.equal(setup.error, '');
+  const task = copied.at(-1)!;
+  const request = JSON.parse(task.split('\nBEGIN_APPROVED_REQUEST_JSON\n')[1].split('\nEND_APPROVED_REQUEST_JSON')[0]);
+  assert.equal(request.letter.text, original);
+  assert.equal(request.requestId, setup.requests[0].id);
+  assert.doesNotMatch(task, /private\.(?:read_refinement_request|save_refinement_proposal)/);
+  assert.equal(documents(setup), before);
+  assert.equal(JSON.stringify(fixture.database), cloudBefore, 'copying unchanged sources cannot create another round');
+  // Stand in only for model generation; no connected read or save is available to the model.
+  const generated = initial ? 'A generated first letter.' : 'A refined complete letter.';
+  setup.manualProposalText = JSON.stringify({ schemaVersion: request.schemaVersion, requestId: request.requestId,
+    summary: 'Synthetic letter proposal.', cvOperations: [], cvComments: [], annotations: [], letterText: generated });
+  await setup.importProposal(); await idle(setup);
+  assert.equal(setup.error, '');
+  assert.equal(setup.previewLetterContent?.body, generated);
+  assert.equal(documents(setup), before, 'import only activates a preview');
+  await setup.acceptSelectedChanges();
+  assert.equal(setup.error, '');
+  assert.equal(setup.letterText, generated);
+  assert.equal(fixture.creations.length, 0);
+  assert.equal(JSON.stringify(fixture.database), cloudBefore, 'manual import and acceptance must not claim or perform a connected proposal save');
+});
+
+test('connected setup remains available while full prompts include sources for the same request', async t => {
+  const fixture = mount(t), setup = await prepare(fixture);
+  const copied: string[] = [];
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copied.push(value); } } });
+  await setup.connectedPrompt(); assert.equal(setup.error, '');
+  assert.match(copied.at(-1)!, /private.read_refinement_request/);
+  assert.match(copied.at(-1)!, /If execute_sql is unavailable, report a missing capability/);
+  assert.doesNotMatch(copied.at(-1)!, /BEGIN_APPROVED_REQUEST_JSON/);
+  await setup.initialPrompt();
+  assert.match(copied.at(-1)!, /BEGIN_APPROVED_REQUEST_JSON/);
+  assert.equal(setup.requests.length, 1);
+});
+
+test('an empty letter publishes an explicit first-draft task and switches to refinement after a working draft exists', async t => {
+  const fixture = mount(t), setup = await prepare(fixture, 'base', { letterText: '', scope: 'letter' });
+  const copied: string[] = [];
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copied.push(value); } } });
+  const before = documents(setup);
+  await setup.initialTask();
+  assert.equal(setup.error, '');
+  assert.match(copied.at(-1)!, /create an initial motivation-letter draft/);
+  assert.match(copied.at(-1)!, /no existing letter is required/);
+  assert.equal(setup.requests[0].request_json.letter.text, '');
+  assert.equal(documents(setup), before, 'copying the task must not generate or replace local letter content');
+  setup.updateLetter('A complete manually written letter.');
+  await setup.initialTask();
+  assert.equal(setup.error, '');
+  assert.match(copied.at(-1)!, /refine motivation letter/);
+  assert.match(copied.at(-1)!, /Refine the complete existing letter/);
+  assert.doesNotMatch(copied.at(-1)!, /source letter is intentionally empty/);
+  assert.equal(setup.requests[0].request_json.letter.text, 'A complete manually written letter.');
 });
 
 test('later application statuses open Tracking despite an earlier saved tab, while preparation statuses retain navigation', async t => {

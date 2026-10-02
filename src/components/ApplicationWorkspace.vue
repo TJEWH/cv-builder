@@ -77,11 +77,17 @@ const reviewComparison = ref<'original' | 'proposed'>('proposed');
 const feedback = ref('');
 const feedbackScope = ref<RefinementScope>('both');
 let scopeWasChosen = false;
-const shortInstruction = computed(() => buildShortRefinementInstruction(props.application, feedbackScope.value));
+const shortInstruction = computed(() => {
+  const request = requests.value.find(row => row.id === cloudState.value?.current_request_id)?.request_json;
+  const projectId = refinementProjectId(false);
+  return buildShortRefinementInstruction(props.application, feedbackScope.value, projectId && request?.scope === feedbackScope.value
+    ? { projectId, request } : undefined);
+});
 const shortInstructionNotice = ref('');
 const shortInstructionError = ref('');
 watch(shortInstruction, () => { shortInstructionNotice.value = ''; shortInstructionError.value = ''; });
 const prompt = ref('');
+const promptDelivery = ref<'connected' | 'inline'>('inline');
 const busy = ref(false);
 const refreshing = ref(false);
 const error = ref('');
@@ -483,7 +489,9 @@ async function includeAnnotationFeedback(id: string) {
   });
 }
 async function copyPrompt() {
-  try { await navigator.clipboard.writeText(prompt.value); notice.value = text('Prompt copied. Paste it into your connected ChatGPT conversation.', 'Prompt kopiert. In die verbundene ChatGPT-Unterhaltung einfügen.'); }
+  try { await navigator.clipboard.writeText(prompt.value); notice.value = promptDelivery.value === 'inline'
+    ? text('Full prompt with sources copied. Paste it into ChatGPT, then import the returned proposal JSON below.', 'Vollständiger Prompt mit Quellen kopiert. In ChatGPT einfügen und das erhaltene Vorschlags-JSON unten importieren.')
+    : text('Connected protocol copied. This requires Supabase execute_sql in ChatGPT.', 'Verbundenes Protokoll kopiert. Dafür muss Supabase execute_sql in ChatGPT verfügbar sein.'); }
   catch { notice.value = text('Select and copy the prompt below.', 'Den Prompt unten markieren und kopieren.'); }
 }
 async function copyShortInstruction() {
@@ -496,12 +504,16 @@ async function copyShortInstruction() {
     if (shortInstruction.value === value) shortInstructionError.value = text('Copy unavailable. Select and copy the instruction below.', 'Kopieren nicht verfügbar. Die Anweisung unten markieren und kopieren.');
   }
 }
-function promptForRequest(request: RefinementRequestRow) {
+function refinementProjectId(required = true) {
   const projectId = props.projectId || (supabaseConfiguration.status === 'ready' ? new URL(supabaseConfiguration.url).hostname.split('.')[0]! : '');
-  if (!projectId) throw new Error('The Supabase project configuration is unavailable.');
-  prompt.value = buildRefinementPrompt(request.request_json, projectId);
+  if (required && !projectId) throw new Error('The Supabase project configuration is unavailable.');
+  return projectId;
 }
-async function createRound(scope: RefinementScope, copy: 'prompt' | 'task' = 'prompt') {
+function promptForRequest(request: RefinementRequestRow, delivery: 'connected' | 'inline') {
+  prompt.value = buildRefinementPrompt(request.request_json, refinementProjectId(delivery === 'connected'), delivery);
+  promptDelivery.value = delivery;
+}
+async function createRound(scope: RefinementScope, copy: 'prompt' | 'task' | 'connected-prompt' = 'prompt') {
   if (reviewActive.value) throw new Error('Accept or close the temporary review before publishing working documents.');
   scopeWasChosen = true;
   await refreshCloud();
@@ -513,7 +525,7 @@ async function createRound(scope: RefinementScope, copy: 'prompt' | 'task' = 'pr
   // or creating another request. Old receipts cannot be reactivated by retrying them.
   const current = currentPublishedRequest.value;
   if (current && publicationStatus.value === 'current') {
-    promptForRequest(current); await (copy === 'task' ? copyShortInstruction() : copyPrompt());
+    promptForRequest(current, copy === 'prompt' ? 'inline' : 'connected'); await (copy === 'task' ? copyShortInstruction() : copyPrompt());
     return;
   }
   await saveSetup(); await refreshCloud();
@@ -533,10 +545,11 @@ async function createRound(scope: RefinementScope, copy: 'prompt' | 'task' = 'pr
   if (disposed) return;
   if (!preparedSource.value || !sameRefinementInputs(local, preparedSource.value)) throw new Error('Sources changed while publishing. Review them and publish a new round.');
   if (cloudState.value?.current_request_id !== saved.id) throw new Error('A different request is current. Check for updates before publishing again.');
-  promptForRequest(saved); await (copy === 'task' ? copyShortInstruction() : copyPrompt());
+  promptForRequest(saved, copy === 'prompt' ? 'inline' : 'connected'); await (copy === 'task' ? copyShortInstruction() : copyPrompt());
 }
 async function initialPrompt() { await run(async () => { await createRound(feedbackScope.value); }); }
 async function initialTask() { await run(async () => { await createRound(feedbackScope.value, 'task'); }); }
+async function connectedPrompt() { await run(async () => { await createRound(feedbackScope.value, 'connected-prompt'); }); }
 function checkedProposalResult() {
   if (!record.value || !letter.value || !selectedProposal.value) throw new Error('Select a proposal and restore its local source documents first.');
   if (saveError.value) throw new Error(saveError.value);
@@ -823,18 +836,21 @@ async function importBackup(event: Event) {
           <div class="stage-heading"><div><h2>{{ text('Refine CV & letter', 'CV & Brief überarbeiten') }}</h2><p>{{ text('Prepare → Publish → Load proposal → Review → Accept', 'Vorbereiten → Veröffentlichen → Vorschlag laden → Prüfen → Übernehmen') }}</p></div></div>
           <p v-if="!record || !letter" class="message">{{ text('Select both templates in Preparation to begin. Existing proposals remain available below.', 'Zum Start beide Vorlagen in Vorbereitung auswählen. Bestehende Vorschläge bleiben unten verfügbar.') }}</p>
           <label>{{ text('Refinement scope', 'Umfang der Überarbeitung') }}<select v-model="feedbackScope" :disabled="busy || (cvApproved && letterApproved)"><option v-if="!cvApproved && !letterApproved" value="both">{{ text('CV and motivation letter', 'CV und Motivationsschreiben') }}</option><option v-if="!cvApproved" value="cv">CV</option><option v-if="!letterApproved" value="letter">{{ text('Motivation letter', 'Motivationsschreiben') }}</option></select></label>
+          <p v-if="preparedSource && feedbackScope !== 'cv' && !preparedSource.request.letter.text.trim()" class="hint initial-letter-notice">{{ text('Initial letter draft: the source letter is empty. ChatGPT should create the first draft from the published CV, opportunity and template.', 'Erster Briefentwurf: Der Quellbrief ist leer. ChatGPT soll anhand des veröffentlichten CVs, der Ausschreibung und der Vorlage einen ersten Entwurf erstellen.') }}</p>
           <details class="workflow-card"><summary>{{ text('Prepare sources & privacy', 'Quellen & Datenschutz vorbereiten') }}</summary>
           <RefinementSourceOverview :application="application" :record="record" :letter="letter" :lang="lang" :settings="effectiveSettings" :prepared="preparedSource" :source-error="sourceError" @approve-context="approvePrivacyContext" @remove-context="removePrivacyContext" />
           <button v-if="sourceError && Object.keys(privacyContexts).length" type="button" @click="privacyContexts = {}">{{ text('Clear approved context descriptions', 'Freigegebene Kontextbeschreibungen entfernen') }}</button>
           </details>
-          <div class="action-row"><button class="primary" type="button" :disabled="busy || reviewActive || !preparedSource || !!saveError || (cvApproved && letterApproved)" @click="initialTask">{{ publicationStatus === 'current' ? text('Copy application & task', 'Bewerbung & Aufgabe kopieren') : text('Publish sources & copy task', 'Quellen veröffentlichen & Aufgabe kopieren') }}</button><button type="button" :disabled="busy || reviewActive || !preparedSource || !!saveError || (cvApproved && letterApproved)" @click="initialPrompt">{{ publicationStatus === 'current' ? text('Copy published prompt', 'Veröffentlichten Prompt kopieren') : text('Publish sources & copy prompt', 'Quellen veröffentlichen & Prompt kopieren') }}</button><button type="button" :disabled="busy || refreshing" @click="checkProposals">{{ refreshing ? text('Checking…', 'Prüfen…') : text('Load / refresh proposals', 'Vorschläge laden / aktualisieren') }}</button></div>
-          <p class="hint">{{ text('Copy the application & task for your configured ChatGPT conversation, or the full prompt for a new conversation. Both publish the same sources for Supabase access. Copying does not start ChatGPT.', 'Bewerbung & Aufgabe für die eingerichtete ChatGPT-Unterhaltung oder den vollständigen Prompt für eine neue Unterhaltung kopieren. Beide veröffentlichen dieselben Quellen für den Supabase-Zugriff. Das Kopieren startet ChatGPT nicht.') }}</p>
+          <div class="action-row"><button class="primary" type="button" :disabled="busy || reviewActive || !preparedSource || !!saveError || (cvApproved && letterApproved)" @click="initialTask">{{ publicationStatus === 'current' ? text('Copy application & task', 'Bewerbung & Aufgabe kopieren') : text('Publish sources & copy task', 'Quellen veröffentlichen & Aufgabe kopieren') }}</button><button type="button" :disabled="busy || reviewActive || !preparedSource || !!saveError || (cvApproved && letterApproved)" @click="initialPrompt">{{ publicationStatus === 'current' ? text('Copy full prompt with sources', 'Vollständigen Prompt mit Quellen kopieren') : text('Publish sources & copy full prompt', 'Quellen veröffentlichen & vollständigen Prompt kopieren') }}</button><button type="button" :disabled="busy || refreshing" @click="checkProposals">{{ refreshing ? text('Checking…', 'Prüfen…') : text('Load / refresh proposals', 'Vorschläge laden / aktualisieren') }}</button></div>
+          <p class="hint">{{ text('Application & task requires Supabase SQL tools in ChatGPT. Full prompt with sources includes the approved privacy-filtered snapshot and works without a ChatGPT connector. Paste the returned JSON into Import a refinement proposal below. Both use the same published request; copying does not start ChatGPT.', 'Bewerbung & Aufgabe benötigt Supabase-SQL-Werkzeuge in ChatGPT. Der vollständige Prompt enthält den freigegebenen, datenschutzgefilterten Snapshot und funktioniert ohne ChatGPT-Verbindung. Das erhaltene JSON unten unter Überarbeitungsvorschlag importieren einfügen. Beide verwenden dieselbe veröffentlichte Anfrage; Kopieren startet ChatGPT nicht.') }}</p>
           <p v-if="shortInstructionNotice || shortInstructionError" role="status" aria-live="polite">{{ shortInstructionNotice || shortInstructionError }}</p>
-          <input v-if="shortInstructionNotice || shortInstructionError" :value="shortInstruction" readonly :aria-label="text('Short ChatGPT instruction', 'Kurze ChatGPT-Anweisung')" @focus="($event.target as HTMLInputElement).select()" />
+          <textarea v-if="shortInstructionNotice || shortInstructionError" :value="shortInstruction" readonly rows="5" :aria-label="text('Short ChatGPT instruction', 'Kurze ChatGPT-Anweisung')" @focus="($event.target as HTMLTextAreaElement).select()" />
           <RefinementHistory :requests="requests" :proposals="proposals" :local-requests="localRequests" :current-request-id="cloudState?.current_request_id || null" :active-id="selectedProposalId" :review-active="reviewActive" :accepted="proposalAlreadyApplied" :publication-status="publicationStatus" :open="historyOpen" :lang="lang" :busy="busy" @select="selectReviewProposal" @details="historyOpen = $event" @export-request="exportRequest" @export-proposal="exportProposal">
             <details><summary>{{ text('Connection & prompt details', 'Verbindungs- & Promptdetails') }}</summary>
+              <p class="hint">{{ text('This app cannot inspect the tools available in your ChatGPT session. Connected read/save requires execute_sql; query_logs is for logs only. If SQL is unavailable, use the full prompt with sources and import the returned JSON.', 'Diese App kann die in ChatGPT verfügbaren Werkzeuge nicht prüfen. Verbundenes Lesen/Speichern benötigt execute_sql; query_logs ist nur für Logs. Ist SQL nicht verfügbar, den vollständigen Prompt mit Quellen verwenden und das erhaltene JSON importieren.') }}</p>
+              <button type="button" :disabled="busy || reviewActive || !preparedSource || !!saveError || (cvApproved && letterApproved)" @click="connectedPrompt">{{ text('Copy connected setup prompt', 'Einrichtungsprompt für die Verbindung kopieren') }}</button>
 
-          <details v-if="prompt" class="workflow-card"><summary>{{ text('Prompt ready to copy', 'Prompt zum Kopieren bereit') }}</summary><textarea :value="prompt" readonly rows="7" :aria-label="text('Refinement prompt', 'Überarbeitungs-Prompt')" /><button type="button" @click="copyPrompt">{{ text('Copy prompt', 'Prompt kopieren') }}</button></details>
+          <details v-if="prompt" class="workflow-card"><summary>{{ promptDelivery === 'inline' ? text('Full prompt with approved sources', 'Vollständiger Prompt mit freigegebenen Quellen') : text('Connected protocol — SQL required', 'Verbundenes Protokoll — SQL erforderlich') }}</summary><textarea :value="prompt" readonly rows="7" :aria-label="text('Refinement prompt', 'Überarbeitungs-Prompt')" /><button type="button" @click="copyPrompt">{{ text('Copy prompt', 'Prompt kopieren') }}</button></details>
             </details>
             <LegacyRefinementHistory v-if="historyOpen" :client="client" :user-id="userId" :application-id="application.id" :lang="lang" :letter="letter" :locked="busy || reviewActive || letterApproved || !!letter?.finalRevisionId" @restore="reopenLocalLetterRevision" @keep-draft="keepIncomingLetter" @download="exportHistory" />
           </RefinementHistory>

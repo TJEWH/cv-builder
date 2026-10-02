@@ -13,6 +13,8 @@ function fixture() {
 }
 test('history presents saved source versions, template, prompt and instructions', () => {
   const { local, row } = fixture();
+  // Older runs retain their recorded prompt version after the generator changes.
+  local.promptVersion = 'refinement-v2-2026-10-02';
   local.source = { cv: { name: 'Original', variantId: 'original', baseRevision: 3, hasApplicationEdits: true }, letter: { updatedAt: row.created_at, version: 'saved-letter-version' }, contextCapturedAt: row.created_at };
   const meta = refinementRunMetadata(row, local);
   assert.equal(meta.cvRevision, 3); assert.equal(meta.cvVersion, local.sourceSignatures!.cv);

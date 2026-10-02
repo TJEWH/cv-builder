@@ -6,6 +6,8 @@ import type { LocalRefinementRequest, RefinementFeedback, RefinementProposalV1, 
 import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText } from '../src/composables/applicationRefinement';
 import { DEFAULT_LETTER_TEMPLATES, letterToEditableText } from '../src/composables/motivationLetters';
 import { createTestState, stub } from './helpers';
+import { buildShortRefinementInstruction } from '../src/composables/applicationReference';
+import { privacyContextTargets } from '../src/composables/refinementPrivacy';
 
 const APP = 'c73b875d-e9bf-4655-adb1-1c2e63d1f4b4';
 const CREATED = '2026-09-22T09:00:00.000Z';
@@ -179,6 +181,67 @@ test('short follow-up instructions resolve only the referenced application and r
   assert.match(prompt, /no current request or the scope differs, stop and ask the user to publish a new matching round in the webapp/);
   assert.match(prompt, /Do not fabricate or mutate requests, reuse an older round, or read unrelated applications/);
   assert.match(prompt, /freshly resolved application\/request identifiers and requested scope throughout, including the proposal payload/);
+});
+
+test('published tasks bind exact references, distinguish first drafts and never embed source contents', () => {
+  const app = { id: APP, application_code: 'APP-SYNTHETIC' };
+  for (const scope of ['cv', 'letter', 'both'] as const) {
+    for (const letterText of ['', 'Complete working letter.']) {
+      const request = local({ scope, letterText }).request;
+      const task = buildShortRefinementInstruction(app, scope, { projectId: 'test-project', request });
+      for (const value of [APP, 'APP-SYNTHETIC', request.requestId, 'test-project', `schemaVersion ${request.schemaVersion}`, `scope ${scope}`, 'still current']) assert.ok(task.includes(value), value);
+      const firstDraft = scope !== 'cv' && !letterText;
+      assert.equal(task.includes('create an initial motivation-letter draft'), firstDraft);
+      if (scope === 'cv') assert.match(task, /Keep the letter unchanged/);
+      else if (letterText) assert.match(task, /Refine the complete existing letter/);
+      for (const value of ['Complete working letter.', 'Taylor Green', 'private collaboration', 'private variant name', 'baselineState', 'bindings']) assert.ok(!task.includes(value), value);
+      assert.match(task, /If a tool call is blocked, stop and report the exact error/);
+      assert.throws(() => buildShortRefinementInstruction({ ...app, id: crypto.randomUUID() }, scope, { projectId: 'test-project', request }), /match/);
+      assert.throws(() => buildShortRefinementInstruction(app, scope === 'cv' ? 'letter' : 'cv', { projectId: 'test-project', request }), /match/);
+      assert.throws(() => buildShortRefinementInstruction(app, scope, { projectId: '', request }), /identifier/);
+    }
+  }
+});
+
+test('full prompts explain empty versus existing source letters and stop at tool-access blocks', () => {
+  for (const scope of ['cv', 'letter', 'both'] as const) {
+    for (const letterText of ['', 'Complete working letter.']) {
+      const prompt = buildRefinementPrompt(local({ scope, letterText }).request, 'test-project');
+      const currentStep = prompt.split('\n4. ')[1].split('\n5. ')[0];
+      if (scope === 'cv') assert.match(currentStep, /CV-only request: preserve request_json.letter.text exactly/);
+      else if (letterText) assert.match(currentStep, /source contains an existing letter/);
+      else assert.match(currentStep, /empty request_json.letter.text is valid, not a missing or inaccessible source/);
+      assert.match(prompt, /stop and report the exact tool error and blocked operation/);
+      assert.match(prompt, /Do not switch roles, widen permissions, retry through another access path/);
+      assert.match(prompt, /require those to match exactly; do not silently switch to a different round/);
+    }
+  }
+});
+
+test('self-contained prompts include the exact filtered request and require no connected read or write', () => {
+  const target = privacyContextTargets(local().cv, refinementSignature)[0];
+  for (const schemaVersion of [1, 2] as const) {
+    for (const scope of ['cv', 'letter', 'both'] as const) {
+      for (const letterText of ['', 'Existing letter by Taylor Green with !!Private rationale!!.']) {
+        const prepared = local({ schemaVersion, scope, letterText,
+          feedback: [{ id: crypto.randomUUID(), scope, text: 'Keep the letter concise for Taylor Green.', createdAt: CREATED }],
+          privacyContexts: { [target.sourceKey]: { type: 'organization', description: 'Approved sensor research context' } } });
+        const before = structuredClone(prepared);
+        const prompt = buildRefinementPrompt(prepared.request, '', 'inline');
+        const embedded = JSON.parse(prompt.split('\nBEGIN_APPROVED_REQUEST_JSON\n')[1].split('\nEND_APPROVED_REQUEST_JSON')[0]);
+        assert.deepEqual(embedded, prepared.request, 'all source fields, approved context and history must match the published request');
+        assert.deepEqual(prepared, before, 'copying cannot modify private reconstruction data');
+        assert.match(prompt, /No Supabase connection, SQL action, RPC, application lookup or other tool is required/);
+        assert.match(prompt, /Return exactly one complete proposal JSON object/);
+        assert.match(prompt, /Import a refinement proposal/);
+        assert.doesNotMatch(prompt, /private\.(?:read_refinement_request|save_refinement_proposal|resolve_application_reference)|execute_sql|persisted receipt/);
+        for (const secret of ['Taylor Green', 'taylor@example.com', 'private collaboration', 'private example', 'Private rationale', 'private variant name', 'baselineState', 'bindings', 'structureBindings']) assert.ok(!prompt.includes(secret), secret);
+        assert.equal(embedded.privacyLegend?.[0].description, 'Approved sensor research context');
+        assert.equal(embedded.letter.text, prepared.request.letter.text);
+      }
+    }
+  }
+  assert.throws(() => buildRefinementPrompt(local() as unknown as RefinementRequest, '', 'inline'), /Invalid refinement request/);
 });
 
 test('revision fingerprints match SHA-256 canonical JSON and conceal private values', () => {

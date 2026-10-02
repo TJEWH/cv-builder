@@ -10,6 +10,7 @@ import './style.css';
 
 type Fixture = ReturnType<typeof createSyntheticRefinementWorkspace>;
 let app: App | undefined, setup: Workspace, fixture: Fixture;
+let copiedPrompt = '';
 const root = document.querySelector<HTMLElement>('#workspace')!;
 const results = document.querySelector<HTMLOListElement>('#test-results')!;
 const status = document.querySelector<HTMLElement>('#test-status')!;
@@ -54,7 +55,8 @@ async function mount(reload = false) {
   if (!reload) fixture = createSyntheticRefinementWorkspace(createPrivateRefinementCv());
   Object.defineProperty(window, 'localStorage', { configurable: true, value: fixture.storage });
   Object.defineProperty(window, 'sessionStorage', { configurable: true, value: fixture.storage });
-  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } });
+  copiedPrompt = '';
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copiedPrompt = value; } } });
   app = createApp({ render: () => h(ApplicationWorkspace as Component, { ...fixture.props, ref: (instance: unknown) => {
     if (instance) setup = (instance as { $: { setupState: Workspace } }).$.setupState;
   } }) });
@@ -66,9 +68,16 @@ async function prepare(scope: 'cv' | 'letter' | 'both', existing = 'Original wor
   else await click(scope === 'cv' ? 'Tailor CV' : 'Draft or refine letter');
   assert(setup.feedbackScope === scope, 'Entry point must select the matching shared scope');
   await click('Letter preview'); await disclose('Edit / approve working documents'); await field('Complete letter text', existing);
+  if (!existing && scope !== 'cv') {
+    const initialNotice = root.querySelector<HTMLElement>('.initial-letter-notice');
+    assert(initialNotice?.getClientRects().length && !initialNotice.closest('details'), 'Initial-draft intent must be visible without expanding privacy details');
+  }
   await disclose('Prepare sources & privacy');
   if (!existing) assert(root.textContent?.includes('No letter available — create an initial draft.'), 'Empty source must be labelled as initial-draft generation');
-  await click('Publish sources & copy prompt'); assert(!setup.error, setup.error);
+  await click('Publish sources & copy full prompt'); assert(!setup.error, setup.error);
+  const copiedSource = JSON.parse(copiedPrompt.split('\nBEGIN_APPROVED_REQUEST_JSON\n')[1].split('\nEND_APPROVED_REQUEST_JSON')[0]);
+  assert(same(copiedSource, setup.requests[0].request_json), 'Full prompt must contain the exact approved request without ChatGPT database access');
+  assert(!copiedPrompt.includes('private.read_refinement_request') && !copiedPrompt.includes('private.save_refinement_proposal'), 'Full prompt must not require a missing SQL action');
   assert(setup.requests[0].request_json.letter.text === existing, 'Published request must preserve the complete existing letter or explicit empty source');
   const outgoing = JSON.stringify(fixture.database);
   for (const secret of ['Synthetic Rowan', 'rowan@example.invalid', 'E2E North Lab', 'E2E South Lab', 'E2E Omit Lab', 'private.example.invalid', 'local-private-job', 'baselineState', 'bindings', 'structureBindings']) assert(!outgoing.includes(secret), `Outgoing fixture payload leaked ${secret}`);

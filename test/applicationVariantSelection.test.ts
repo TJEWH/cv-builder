@@ -244,7 +244,8 @@ test('refinement preserves manual fixes and accumulates letter-only feedback whi
   setup.letter!.maxWords = 400;
   await setup.initialPrompt();
   assert.equal(setup.error, '');
-  assert.match(setup.prompt, /private\.read_refinement_request/);
+  assert.match(setup.prompt, /BEGIN_APPROVED_REQUEST_JSON/);
+  assert.doesNotMatch(setup.prompt, /private\.read_refinement_request/);
   assert.equal(setup.requests.length, 1);
   assert.equal(setup.requests[0].request_json.letter.maxWords, 400);
   const firstProposal = cloud.seedProposal(setup.requests[0].id);
