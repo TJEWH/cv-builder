@@ -259,3 +259,45 @@ test('restoring a legacy revision or letter backup cannot silently replace a fin
   await setup.importLetterBackup(proposalFile(async () => JSON.stringify(setup.letter)));
   assert.match(setup.error, /finalized letter/); assert.equal(documents(setup), before);
 });
+
+for (const scope of ['cv', 'letter', 'both'] as const) test(`short ${scope} task copies the application reference only after publishing the matching current sources`, async t => {
+  const fixture = mount(t), setup = await prepare(fixture);
+  fixture.props.application.application_code = 'APP-SYNTHETIC';
+  const copied: string[] = [];
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copied.push(value); } } });
+  setup.feedbackScope = scope;
+  await setup.initialTask();
+  assert.equal(setup.error, '');
+  const document = scope === 'cv' ? 'CV' : scope === 'letter' ? 'motivation letter' : 'both';
+  assert.equal(copied.at(-1), `phd-workflow: APP-SYNTHETIC — refine ${document}.`);
+  const current = fixture.database.application_refinement_state[0].current_request_id;
+  assert.equal(setup.requests.find(row => row.id === current)?.request_json.scope, scope);
+  const count = setup.requests.length;
+  await setup.initialTask(); assert.equal(setup.requests.length, count, 'unchanged sources reuse the published request');
+  setup.updateLetter('Manual correction for the next round.');
+  await setup.initialTask(); assert.equal(setup.requests.length, count + 1, 'changed sources publish before copying a short task');
+  assert.equal(copied.length, 3);
+  await setup.initialPrompt(); assert.match(copied.at(-1)!, /private.read_refinement_request/); assert.equal(setup.requests.length, count + 1);
+  setup.updateLetter('Unpublished changed source.');
+  fixture.cloud.client.rpc = (() => Promise.resolve({ data: null, error: new Error('Synthetic publication failure') })) as unknown as typeof fixture.cloud.client.rpc;
+  await setup.initialTask(); assert.ok(setup.error); assert.equal(copied.length, 4, 'failed publication must not copy an instruction for old sources');
+});
+
+test('later application statuses open Tracking despite an earlier saved tab, while preparation statuses retain navigation', async t => {
+  const fixture = mount(t); await idle(fixture.setup);
+  const navigationKey = `CV_APPLICATION_TAB:${account}:${applicationId}`;
+  for (const status of ['submitted', 'interview', 'offer', 'rejected', 'withdrawn'] as const) {
+    fixture.props.application.status = status;
+    fixture.storage.setItem(navigationKey, 'refinement');
+    const setup = fixture.reopen(); await idle(setup);
+    assert.equal(setup.tab, 'tracking');
+    setup.tab = 'preparation'; await idle(setup);
+    assert.equal(setup.tab, 'preparation', 'default selection must not lock other tabs');
+  }
+  for (const status of ['shortlist', 'contacted'] as const) {
+    fixture.props.application.status = status;
+    fixture.storage.setItem(navigationKey, 'refinement');
+    const setup = fixture.reopen(); await idle(setup); assert.equal(setup.tab, 'refinement');
+    fixture.props.application.status = 'submitted'; await idle(setup); assert.equal(setup.tab, 'tracking');
+  }
+});

@@ -8,7 +8,7 @@ import { useJobWorkspace } from '../composables/useJobWorkspace';
 import { safeEmailUrl } from '../composables/safeUrl';
 import { isOpportunityDeadlinePassed, opportunityDeadlineSortKey, formatOpportunityDeadline } from '../composables/opportunityDeadline';
 import { opportunityRecency } from '../composables/opportunityRecency';
-import { buildApplicationEvaluationContext } from '../composables/applicationEvaluationContext';
+import { applicationStatusHistory } from '../composables/applicationTracking';
 import OpportunityContext from './OpportunityContext.vue';
 import ApplicationWorkspace from './ApplicationWorkspace.vue';
 import ApplicationIdentifier from './ApplicationIdentifier.vue';
@@ -23,7 +23,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ navigate: [tab: 'opportunities' | 'applications']; 'save-career-variant': [name: string, state: CvState]; 'edit-variant': [id: string] }>();
 const { opportunities, applications, reviews, loading, saving, error, createApplication,
-  updateApplication, setApplicationChecklistItem, removeApplication, setOpportunityReview, markOpportunityReviewed, getApplicationContext, refreshApplicationContext } = useJobWorkspace(props.client, () => props.userId);
+  updateApplication, setApplicationChecklistItem, removeApplication, setOpportunityReview, markOpportunityReviewed, refreshApplicationContext } = useJobWorkspace(props.client, () => props.userId);
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const queries = reactive({ opportunities: '', applications: '' });
 const query = computed({ get: () => queries[props.tab], set: (value: string) => { queries[props.tab] = value; } });
@@ -46,16 +46,12 @@ try { editingId.value = sessionStorage.getItem(`CV_SELECTED_APPLICATION:${props.
 watch(editingId, (id) => { try { if (id) sessionStorage.setItem(`CV_SELECTED_APPLICATION:${props.userId}`, id); else sessionStorage.removeItem(`CV_SELECTED_APPLICATION:${props.userId}`); } catch { /* Optional preference. */ } });
 const notice = ref('');
 const formError = ref('');
-const contextError = ref('');
-const exportText = ref('');
-const preparingContext = ref(false);
 const tableScroll = ref<HTMLElement | null>(null);
 const opportunityDetail = ref<HTMLElement | null>(null);
-const form = reactive({ notes: '', contactedAt: '', submittedAt: '' });
+const form = reactive({ notes: '' });
 const now = ref(new Date());
 const clockTimer = window.setInterval(() => { now.value = new Date(); }, 30_000);
-let viewEpoch = 0;
-onBeforeUnmount(() => { window.clearInterval(clockTimer); viewEpoch++; });
+onBeforeUnmount(() => { window.clearInterval(clockTimer); });
 const reviewById = computed(() => new Map(reviews.value.map((item) => [item.opportunity_id, item])));
 const recencyById = computed(() => new Map(opportunities.value.map((item) => {
   const localVisit = visitedOpportunityVersions.value.get(item.id);
@@ -118,19 +114,14 @@ function dateLabel(value: string | null | undefined) {
   if (!value || !Number.isFinite(Date.parse(value))) return '—';
   return new Intl.DateTimeFormat(props.lang === 'de' ? 'de-DE' : 'en-GB', { dateStyle: 'medium' }).format(new Date(value));
 }
-function toLocalDateTime(value: string | null) {
-  if (!value || !Number.isFinite(Date.parse(value))) return '';
-  const date = new Date(value);
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+const statusHistory = computed(() => editingApplication.value ? applicationStatusHistory(editingApplication.value) : []);
+function timestampLabel(value: string) {
+  return new Intl.DateTimeFormat(props.lang === 'de' ? 'de-DE' : 'en-GB', { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(value));
 }
-const hasUnsavedChanges = computed(() => {
-  const item = editingApplication.value;
-  return Boolean(item && (form.notes !== (item.notes || '')
-    || form.contactedAt !== toLocalDateTime(item.contacted_at) || form.submittedAt !== toLocalDateTime(item.submitted_at)));
-});
-watch(() => props.tab, () => { notice.value = ''; cancelRemoval(); removedOpportunityId.value = null; viewEpoch++; preparingContext.value = false; exportText.value = ''; });
-watch(() => props.userId, () => { editingId.value = null; selectedOpportunityId.value = null; cancelRemoval(); removedOpportunityId.value = null; visitedOpportunityVersions.value = new Map(); viewEpoch++; exportText.value = ''; });
-watch(form, () => { exportText.value = ''; contextError.value = ''; viewEpoch++; preparingContext.value = false; });
+const hasUnsavedChanges = computed(() => Boolean(editingApplication.value && form.notes !== (editingApplication.value.notes || '')));
+watch(() => props.tab, () => { notice.value = ''; cancelRemoval(); removedOpportunityId.value = null; });
+watch(() => props.userId, () => { editingId.value = null; selectedOpportunityId.value = null; cancelRemoval(); removedOpportunityId.value = null; visitedOpportunityVersions.value = new Map(); });
+watch(form, () => { formError.value = ''; });
 function focusResult(kind: 'opportunities' | 'applications', id: string) {
   nextTick(() => {
     if (props.tab !== kind) return;
@@ -170,8 +161,8 @@ async function changeReview(item: Opportunity, event: Event) {
 }
 function openApplication(application: Application) {
   editingId.value = application.id;
-  form.notes = application.notes || ''; form.contactedAt = toLocalDateTime(application.contacted_at); form.submittedAt = toLocalDateTime(application.submitted_at);
-  formError.value = ''; exportText.value = ''; contextError.value = ''; viewEpoch++; preparingContext.value = false;
+  form.notes = application.notes || '';
+  formError.value = '';
 }
 watch(editingApplication, (application, previous) => { if (application && !previous) openApplication(application); });
 function closeApplication() {
@@ -188,9 +179,6 @@ function toggleApplication(application: Application) {
     return;
   }
   editingId.value = null;
-  exportText.value = '';
-  preparingContext.value = false;
-  viewEpoch++;
 }
 async function startApplication(item: Opportunity) {
   const existing = applicationByOpportunity.value.get(item.id);
@@ -204,28 +192,25 @@ async function startApplication(item: Opportunity) {
 async function saveApplication() {
   if (!editingId.value || saving.value) return;
   const id = editingId.value;
-  const result = await updateApplication(id, { notes: form.notes,
-    contactedAt: form.contactedAt || null, submittedAt: form.submittedAt || null });
+  const result = await updateApplication(id, { notes: form.notes });
   if (!result) { formError.value = error.value || text('Could not save.', 'Speichern fehlgeschlagen.'); return; }
   openApplication(result);
   notice.value = text('Application saved.', 'Bewerbung gespeichert.');
 }
-function invalidateEvaluation() { exportText.value = ''; contextError.value = ''; preparingContext.value = false; viewEpoch++; }
 async function changeApplicationStatus(item: Application, event: Event) {
   const target = event.target as HTMLSelectElement;
   const result = await updateApplication(item.id, { status: target.value as Application['status'] });
   if (!result) target.value = item.status;
-  else { invalidateEvaluation(); notice.value = text('Application status saved.', 'Bewerbungsstatus gespeichert.'); }
+  else { notice.value = text('Application status saved.', 'Bewerbungsstatus gespeichert.'); }
 }
 async function changeChecklist(item: Application, key: string, completed: boolean) {
-  if (await setApplicationChecklistItem(item.id, key, completed)) invalidateEvaluation();
+  await setApplicationChecklistItem(item.id, key, completed);
 }
 async function confirmRemoval(item: Application) {
   if (!await removeApplication(item.id)) return;
   cancelRemoval();
   if (editingId.value === item.id) editingId.value = null;
   try { removeApplicationCv(props.userId, item.id); } catch { /* Other local backups remain available. */ }
-  invalidateEvaluation();
   removedOpportunityId.value = item.opportunity_id;
   notice.value = text('Application removed. The opportunity is available again.', 'Bewerbung entfernt. Die Stelle ist wieder verfügbar.');
 }
@@ -249,34 +234,12 @@ async function showRemovedOpportunity() {
     openOpportunity(opportunity.id);
   }
 }
-async function prepareEvaluationContext() {
-  const id = editingId.value;
-  if (!id || preparingContext.value || hasUnsavedChanges.value) return;
-  const epoch = viewEpoch;
-  preparingContext.value = true; contextError.value = ''; exportText.value = '';
-  try {
-    const result = await getApplicationContext(id);
-    if (epoch !== viewEpoch || editingId.value !== id) return;
-    if (!result) { contextError.value = error.value || text('Could not load saved application context.', 'Der gespeicherte Bewerbungskontext konnte nicht geladen werden.'); return; }
-    exportText.value = buildApplicationEvaluationContext(result.application, result.cv, props.lang);
-  } catch { if (epoch === viewEpoch) contextError.value = text('Could not prepare the context. Try again.', 'Der Kontext konnte nicht vorbereitet werden. Bitte erneut versuchen.'); }
-  finally { if (epoch === viewEpoch) preparingContext.value = false; }
-}
 async function refreshResearch() {
   if (!editingId.value || saving.value || hasUnsavedChanges.value) return;
   const result = await refreshApplicationContext(editingId.value);
   if (!result) return;
   openApplication(result);
   notice.value = text('Research context refreshed from the opportunity. Your CV and application progress are preserved.', 'Forschungskontext aus dem Stellenangebot aktualisiert. CV und Bewerbungsfortschritt bleiben erhalten.');
-}
-async function copyContext() {
-  try { await navigator.clipboard.writeText(exportText.value); notice.value = text('Application context copied.', 'Bewerbungskontext kopiert.'); }
-  catch { contextError.value = text('Clipboard unavailable. Download the context instead.', 'Zwischenablage nicht verfügbar. Bitte den Kontext herunterladen.'); }
-}
-function downloadContext() {
-  const url = URL.createObjectURL(new Blob([exportText.value], { type: 'text/markdown;charset=utf-8' }));
-  const link = document.createElement('a'); link.href = url; link.download = `application-context-${editingId.value}.md`; link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 </script>
 
@@ -314,7 +277,7 @@ function downloadContext() {
         <tbody><template v-for="item in filteredApplications" :key="item.id">
           <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'is-expanded': editingId === item.id }" :aria-disabled="saving" @click="toggleApplication(item)"><td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :disabled="saving" :aria-label="`${text('Open application:', 'Bewerbung öffnen:')} ${contextTitle(item)}`" @click.stop="toggleApplication(item)"><span class="jobs-row-chevron" aria-hidden="true">›</span><strong>{{ contextTitle(item) }}</strong></button><span class="jobs-subline">{{ contextInstitution(item) }}</span><ApplicationIdentifier :application="item" :lang="lang" /></td><td :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.context_json, now) }">{{ formatOpportunityDeadline(item.context_json, lang) }}</span></td>
             <td class="jobs-cell-wide jobs-cell-contacts" :data-label="text('Contact person', 'Kontaktperson')"><template v-for="(person, index) in contacts(item)" :key="index"><span class="jobs-subline">{{ person.name }}</span><a v-if="safeEmailUrl(person.email)" :href="safeEmailUrl(person.email)!" @click.stop>{{ person.email }}</a><span v-else>{{ person.email }}</span></template><span v-if="!contacts(item).length">{{ text('Not recorded', 'Nicht erfasst') }}</span></td>
-            <td class="jobs-cell-state" :data-label="text('Status', 'Status')" @click.stop><select class="jobs-row-select" :aria-label="`${text('Status for', 'Status für')} ${contextTitle(item)}`" :value="item.status" :disabled="saving || hasUnsavedChanges" @change="changeApplicationStatus(item, $event)"><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></td>
+            <td class="jobs-cell-state" :data-label="text('Status', 'Status')" @click.stop><span class="jobs-badge">{{ statusLabel(item.status) }}</span></td>
           </tr>
 
         </template><tr v-if="!filteredApplications.length"><td colspan="4" class="jobs-empty">{{ loading ? text('Loading applications…', 'Bewerbungen werden geladen…') : text('No matching applications. Create one from an opportunity.', 'Keine passenden Bewerbungen. Lege eine aus einem Stellenangebot an.') }}<button class="btn" type="button" @click="emit('navigate', 'opportunities')">{{ text('Browse opportunities', 'Stellenangebote ansehen') }}</button></td></tr></tbody>
@@ -335,26 +298,29 @@ function downloadContext() {
       <div class="opportunity-detail__body"><OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity.details" :lang="lang" /></div>
     </section>
     <ApplicationWorkspace v-if="editingApplication" v-show="tab === 'applications'" :active="tab === 'applications'" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-subvariant="createSubvariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
-      <template #actions>
-        <label class="jobs-detail-state"><span class="jobs-action-label">{{ text('Status', 'Status') }}</span><select :aria-label="`${text('Status for', 'Status für')} ${contextTitle(editingApplication)}`" :value="editingApplication.status" :disabled="saving || hasUnsavedChanges" @change="changeApplicationStatus(editingApplication, $event)"><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label>
-      </template>
       <template #secondary-actions>
         <button class="jobs-remove-application" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(editingApplication)}`" @click="requestDetailRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button>
       </template>
       <template #preparation>
-            <div class="jobs-review-toolbar"><h2>{{ text('Application workspace', 'Bewerbung bearbeiten') }}</h2><span>{{ text('Context saved', 'Kontext gespeichert') }}: {{ dateLabel(editingApplication.context_captured_at) }}</span><button class="btn" type="button" :disabled="saving || hasUnsavedChanges || preparingContext" @click="refreshResearch">{{ text('Refresh research', 'Forschung aktualisieren') }}</button></div>
+            <div class="jobs-review-toolbar"><h2>{{ text('Application workspace', 'Bewerbung bearbeiten') }}</h2><span>{{ text('Context saved', 'Kontext gespeichert') }}: {{ dateLabel(editingApplication.context_captured_at) }}</span><button class="btn" type="button" :disabled="saving || hasUnsavedChanges" @click="refreshResearch">{{ text('Refresh research', 'Forschung aktualisieren') }}</button></div>
             <OpportunityContext :context="editingApplication.context_json" :lang="lang" checklist :completed-keys="editingApplication.completed_checklist_keys || []" :saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" />
       </template>
       <template #tracking>
+        <label class="jobs-detail-state"><span class="jobs-action-label">{{ text('Status', 'Status') }}</span><select :aria-label="`${text('Status for', 'Status für')} ${contextTitle(editingApplication)}`" :value="editingApplication.status" :disabled="saving || hasUnsavedChanges" @change="changeApplicationStatus(editingApplication, $event)"><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label>
+        <section class="application-status-history" :aria-label="text('Status history', 'Statusverlauf')">
+          <h3>{{ text('Status history', 'Statusverlauf') }}</h3>
+          <p v-if="statusHistory.some(entry => !entry.changedAt)" class="jobs-subline">{{ text('Earlier status changes and their times were not recorded.', 'Frühere Statusänderungen und ihre Zeitpunkte wurden nicht erfasst.') }}</p>
+          <ol><li v-for="(entry, index) in statusHistory" :key="index" :aria-current="index === statusHistory.length - 1 ? 'step' : undefined">
+            <strong>{{ statusLabel(entry.status) }}</strong><span v-if="index === statusHistory.length - 1" class="jobs-badge">{{ text('Current', 'Aktuell') }}</span>
+            <time v-if="entry.changedAt" :datetime="entry.changedAt">{{ timestampLabel(entry.changedAt) }}</time><span v-else class="jobs-subline">{{ text('Time not recorded', 'Zeitpunkt nicht erfasst') }}</span>
+          </li></ol>
+        </section>
             <form class="application-inline-form" @submit.prevent="saveApplication">
               <div class="application-fields">
-                <label>{{ text('First contacted', 'Erster Kontakt') }}<input v-model="form.contactedAt" type="datetime-local" :disabled="saving" /></label>
-                <label>{{ text('Submitted', 'Eingereicht') }}<input v-model="form.submittedAt" type="datetime-local" :disabled="saving" /></label>
                 <label class="application-notes">{{ text('Notes', 'Notizen') }}<textarea v-model="form.notes" rows="3" maxlength="20000" :disabled="saving" /></label>
               </div>
               <p v-if="formError" class="jobs-error" role="alert">{{ formError }}</p><div class="jobs-form-footer"><span>{{ hasUnsavedChanges ? text('Unsaved changes', 'Ungespeicherte Änderungen') : text('All changes saved', 'Alle Änderungen gespeichert') }}</span><button class="btn btn--success" type="submit" :disabled="saving || !hasUnsavedChanges">{{ saving ? text('Saving…', 'Speichert…') : text('Save changes', 'Änderungen speichern') }}</button></div>
             </form>
-            <section class="jobs-evaluation"><h3>{{ text('Context for ChatGPT', 'Kontext für ChatGPT') }}</h3><p>{{ text('Prepare the saved opportunity research, requirements, documents, contacts and assigned privacy CV for a fit evaluation and a later one-page motivation draft.', 'Bereite die gespeicherte Forschung, Anforderungen, Unterlagen, Kontakte und den zugewiesenen anonymisierten CV für eine Eignungsbewertung und ein späteres einseitiges Motivationsschreiben vor.') }}</p><p v-if="hasUnsavedChanges" class="jobs-subline">{{ text('Save your changes before preparing the context.', 'Speichere deine Änderungen, bevor du den Kontext vorbereitest.') }}</p><button class="btn" type="button" :disabled="saving || preparingContext || hasUnsavedChanges" @click="prepareEvaluationContext">{{ preparingContext ? text('Preparing…', 'Wird vorbereitet…') : text('Prepare evaluation context', 'Bewertungskontext vorbereiten') }}</button><p v-if="contextError" class="jobs-error" role="alert">{{ contextError }}</p><div v-if="exportText" class="jobs-export"><label>{{ text('Evaluation brief', 'Bewertungsunterlagen') }}<textarea :value="exportText" readonly rows="8" /></label><div class="jobs-row-actions"><button class="btn" type="button" @click="copyContext">{{ text('Copy context', 'Kontext kopieren') }}</button><button class="btn" type="button" @click="downloadContext">{{ text('Download context (.md)', 'Kontext herunterladen (.md)') }}</button></div></div></section>
 
       </template>
     </ApplicationWorkspace>
@@ -375,6 +341,13 @@ function downloadContext() {
 .jobs-workspace > .application-workspace, .jobs-workspace > .opportunity-detail { flex: 1 1 auto; min-height: 0; }
 .opportunity-detail { display: flex; flex-direction: column; min-width: 0; padding: 20px; overflow: hidden; border: 1px solid #24504e; border-radius: 12px; background: #06141f; }
 .opportunity-detail__body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-gutter: stable; padding: 20px 4px 0 0; }
+.application-status-history h3 { color: #9be8c7; margin: 0 0 12px; }
+.application-status-history ol { list-style: none; margin: 12px 0 0 5px; padding: 0 0 0 18px; border-left: 2px solid #356454; }
+.application-status-history li { position: relative; padding: 0 0 18px; font-size: 13px; }
+.application-status-history li::before { content: ''; position: absolute; left: -24px; top: 5px; width: 10px; height: 10px; border-radius: 50%; background: #356454; }
+.application-status-history li[aria-current=step]::before { background: #9be8c7; }
+.application-status-history time { display: block; margin-top: 5px; color: #a6c1b9; }
+.application-status-history .jobs-badge { margin-left: 9px; }
 .jobs-workspace .jobs-detail-state { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
 .jobs-workspace .jobs-detail-state select { width: auto; min-width: 0; max-width: 100%; padding: 6px 9px; }
 .jobs-action-mobile { display: none; }
@@ -446,11 +419,6 @@ tr.is-expanded { background: #0b242b; }
 .jobs-form-footer > span { font-size: 11px; color: #91afa4; }
 .jobs-upload-preview summary { color: #a0e7ca; cursor: pointer; }
 .jobs-upload-preview pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #041016; font: 11px/1.5 monospace; }
-.jobs-evaluation { margin: 24px 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
-.jobs-evaluation h3 { margin: 0 0 8px; font-size: 16px; }
-.jobs-evaluation p { color: #9ab7ad; line-height: 1.6; }
-.jobs-export { display: grid; gap: 12px; margin-top: 18px; }
-.jobs-export textarea { resize: vertical; font: 12px/1.5 monospace; }
 @media (max-width: 1000px) {
   .jobs-table-scroll { border: 0; border-radius: 0; }
   .jobs-opportunities-table, .jobs-applications-table { display: block; table-layout: auto; min-width: 0; }
@@ -517,7 +485,7 @@ tr.is-expanded { background: #0b242b; }
   .jobs-removal-dialog .jobs-row-actions .btn { font-size: 16px; }
   .jobs-form-footer { flex-wrap: wrap; }
   .application-fields { grid-template-columns: 1fr; }
-  .application-inline-form, .jobs-evaluation { padding: 0; border: 0; border-radius: 0; background: transparent; }
+  .application-inline-form { padding: 0; border: 0; border-radius: 0; background: transparent; }
   .jobs-review-toolbar { align-items: stretch; gap: 10px; margin-bottom: 16px; }
   .jobs-review-toolbar h2 { display: none; }
   .jobs-workspace :deep(.opportunity-context) { gap: 8px; }

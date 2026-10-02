@@ -62,7 +62,8 @@ async function mount(reload = false) {
 }
 async function prepare(scope: 'cv' | 'letter' | 'both', existing = 'Original working letter.') {
   await mount(); await field('Career variant', 'base'); await click('Use CV template'); await click('Use letter template');
-  await click(scope === 'cv' ? 'Tailor CV' : scope === 'letter' ? 'Draft or refine letter' : 'Continue to refinement →');
+  if (scope === 'both') await click('2Refinement');
+  else await click(scope === 'cv' ? 'Tailor CV' : 'Draft or refine letter');
   assert(setup.feedbackScope === scope, 'Entry point must select the matching shared scope');
   await click('Letter preview'); await disclose('Edit / approve working documents'); await field('Complete letter text', existing);
   await disclose('Prepare sources & privacy');
@@ -151,7 +152,7 @@ async function combinedFlow() {
   await click('Close temporary preview'); await field('Complete letter text', 'Original working letter.');
   await click('Approve letter'); await click('CV preview'); await click('Approve CV');
   await click('Preview selected changes'); assert(button('Download PDF', surface('cv')).disabled, 'Unaccepted CV download must be disabled');
-  await click('Review PDF →');
+  await click('3PDF review');
   assert(!setup.reviewActive && same(setup.previewCvState, setup.record!.state) && same(setup.previewLetterContent!.body, 'Original working letter.'), 'Normal export retained proposed content');
   for (const blob of [await setup.getCvPdf(), await setup.getLetterPdf()]) {
     const pdf = await PDFDocument.load(await blob.arrayBuffer()); assert(pdf.getPageCount() > 0, 'Normal export did not generate a real PDF');

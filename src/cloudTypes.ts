@@ -80,6 +80,8 @@ export interface Application {
   context_captured_at: string;
   completed_checklist_keys: string[];
   status: ApplicationStatus;
+  /** Server-recorded transitions; older installations may not have history yet. */
+  status_history?: { status: ApplicationStatus; changedAt: string | null }[];
   notes: string | null;
   contacted_at: string | null;
   submitted_at: string | null;

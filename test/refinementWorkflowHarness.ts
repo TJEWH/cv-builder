@@ -28,7 +28,7 @@ export interface Workspace {
   saveAnnotation(id: string, status: 'open' | 'resolved' | 'dismissed', response: string, previousReviewId: string | null): Promise<boolean>;
   proposalAnnotations: { annotation: { id: string }; status: string; response: string | null }[];
   reviewAcceptanceError: string; letterText: string;
-  assignBase(): void; useLetterTemplate(): Promise<void>; initialPrompt(): Promise<void>; checkProposals(): Promise<void>;
+  assignBase(): void; useLetterTemplate(): Promise<void>; initialPrompt(): Promise<void>; initialTask(): Promise<void>; checkProposals(): Promise<void>;
   importProposal(): void | Promise<void>; openProposal(): void; discardReview(): void; acceptSelectedChanges(): Promise<void>;
   persist(): void;
   feedbackScope: 'cv' | 'letter' | 'both'; pane: 'cv' | 'letter'; tab: string; historyOpen: boolean; manualLetterText: string;

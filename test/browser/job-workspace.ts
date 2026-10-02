@@ -99,7 +99,12 @@ function from(table: string) {
       matching.sort((a, b) => String(a[column] ?? '').localeCompare(String(b[column] ?? '')) * (ascending ? 1 : -1));
     }
     const selected = matching.slice(first, last + 1);
-    if (patch) selected.forEach((row) => Object.assign(row, patch, { updated_at: new Date().toISOString() }));
+    if (patch) selected.forEach((row) => {
+      if (table === 'applications' && patch!.status && patch!.status !== row.status) {
+        row.status_history = [...(row.status_history as Row[] || []), { status: patch!.status, changedAt: new Date().toISOString() }];
+      }
+      Object.assign(row, patch, { updated_at: new Date().toISOString() });
+    });
     return { data: structuredClone(one ? selected[0] ?? null : selected), error: null, count: matching.length };
   };
   const builder = {
@@ -150,7 +155,7 @@ const client = {
         database.applications.push({ id: parameters.p_application_id, user_id: account,
           application_code: opportunity?.id === '10000000-0000-4000-8000-000000000001' ? 'APP-7K4M9Q' : null,
           opportunity_id: parameters.p_opportunity_id, cv_variant_id: null,
-          contact_email: null, context_json: structuredClone(opportunity), context_captured_at: new Date().toISOString(), status: 'shortlist', completed_checklist_keys: [], notes: null,
+          contact_email: null, context_json: structuredClone(opportunity), context_captured_at: new Date().toISOString(), status: 'shortlist', status_history: [{ status: 'shortlist', changedAt: new Date().toISOString() }], completed_checklist_keys: [], notes: null,
           contacted_at: null, submitted_at: null, created_at: now, updated_at: now });
       } else if (name === 'set_job_application_checklist_item') {
         const application = database.applications.find((row) => row.id === parameters.p_application_id && row.user_id === account);
