@@ -1,3 +1,4 @@
+import { readHistoryPages } from './historyPages';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CvState } from '../types';
 import type { LetterContent } from '../letterTypes';
@@ -140,7 +141,7 @@ export function prepareRefinement(input: {
     feedback: input.feedback.map((item) => ({ ...clone(item), text: sanitizeRefinementText(item.text, input.state) })),
     ...(privacyLegend.length ? { privacyLegend } : {}),
   };
-  return { request: readRequest(request), cv, baselineSignature: input.baselineSignature, letterBaseline,
+  return { request: readRequest(request), cv, promptVersion: `refinement-v${request.schemaVersion}-2026-10-02`, baselineSignature: input.baselineSignature, letterBaseline,
     sourceSignatures: { cv: refinementSignature([cv.sourceVariantId, cv.baselineState]), letter: refinementSignature(letterBaseline) },
     ...(structure ? { structureBindings: structure.bindings } : {}) };
 }
@@ -337,28 +338,34 @@ export function createRefinementRepository(client: SupabaseClient | null, getUse
   }
   async function listRequests(applicationId: string): Promise<RefinementRequestRow[]> {
     const owner = account();
-    const { data, error } = await client!.from('application_refinement_requests').select('*').eq('user_id', owner).eq('application_id', applicationId).order('created_at', { ascending: false });
-    check(owner, error);
-    if (!Array.isArray(data)) throw new Error('Refinement requests could not be loaded.');
-    return data.map((row) => checkedRequest(row, owner, applicationId));
+    return readHistoryPages(async (from, to) => {
+      const { data, error } = await client!.from('application_refinement_requests').select('*').eq('user_id', owner).eq('application_id', applicationId).order('created_at', { ascending: false }).order('id', { ascending: false }).range(from, to);
+      check(owner, error);
+      if (!Array.isArray(data)) throw new Error('Refinement requests could not be loaded.');
+      return data.map((row) => checkedRequest(row, owner, applicationId));
+    });
   }
   async function listProposals(applicationId: string): Promise<RefinementProposalRow[]> {
     const owner = account();
-    const { data, error } = await client!.from('application_refinement_proposals').select('*').eq('user_id', owner).eq('application_id', applicationId).order('created_at', { ascending: false });
-    check(owner, error);
-    if (!Array.isArray(data)) throw new Error('Refinement proposals could not be loaded.');
-    return data.map((row) => {
-      ownedRow(row, owner, applicationId);
-      if (!uuid(row.id) || !uuid(row.request_id) || !text(row.created_at, 100) || readProposal(row.proposal_json).requestId !== row.request_id) throw new Error('The refinement proposal could not be verified.');
-      return row as unknown as RefinementProposalRow;
+    return readHistoryPages(async (from, to) => {
+      const { data, error } = await client!.from('application_refinement_proposals').select('*').eq('user_id', owner).eq('application_id', applicationId).order('created_at', { ascending: false }).order('id', { ascending: false }).range(from, to);
+      check(owner, error);
+      if (!Array.isArray(data)) throw new Error('Refinement proposals could not be loaded.');
+      return data.map((row) => {
+        ownedRow(row, owner, applicationId);
+        if (!uuid(row.id) || !uuid(row.request_id) || !text(row.created_at, 100) || readProposal(row.proposal_json).requestId !== row.request_id) throw new Error('The refinement proposal could not be verified.');
+        return row as unknown as RefinementProposalRow;
+      });
     });
   }
   async function listReviews(applicationId: string): Promise<RefinementReviewRow[]> {
     const owner = account();
-    const { data, error } = await client!.from('application_refinement_reviews').select('*').eq('user_id', owner).eq('application_id', applicationId).order('created_at', { ascending: true }).order('id', { ascending: true });
-    check(owner, error);
-    if (!Array.isArray(data)) throw new Error('Refinement feedback and reviews could not be loaded.');
-    return data.map((row) => checkedReview(row, owner, applicationId));
+    return readHistoryPages(async (from, to) => {
+      const { data, error } = await client!.from('application_refinement_reviews').select('*').eq('user_id', owner).eq('application_id', applicationId).order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, to);
+      check(owner, error);
+      if (!Array.isArray(data)) throw new Error('Refinement feedback and reviews could not be loaded.');
+      return data.map((row) => checkedReview(row, owner, applicationId));
+    });
   }
   async function saveReview(applicationId: string, requestId: string | null, kind: RefinementReviewRow['kind'], payload: Record<string, unknown>, reviewId?: string): Promise<RefinementReviewRow> {
     const owner = account();

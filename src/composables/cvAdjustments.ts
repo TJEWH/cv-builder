@@ -1,3 +1,4 @@
+import { readHistoryPages } from './historyPages';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CvItem, CvState } from '../types';
 import type { CvAdjustmentRequest, CvAdjustmentRequestRow, CvAdjustmentResponse, CvAdjustmentResponseRow, LocalCvAdjustmentRequest } from '../cvAdjustmentTypes';
@@ -245,22 +246,27 @@ export function createCvAdjustmentRepository(client: SupabaseClient | null, getU
     return row;
   }
   async function listRequests(applicationId?: string): Promise<CvAdjustmentRequestRow[]> {
-    const owner = account(); let query = client!.from('cv_adjustment_requests').select('*').eq('user_id', owner);
-    if (applicationId) query = query.eq('application_id', applicationId);
-    const { data, error } = await query.order('created_at', { ascending: false }); check(owner, error);
-    if (!Array.isArray(data)) throw new Error('CV adjustment requests could not be loaded.');
-    return data.map((row) => {
-      const checked = checkedRequest(row, owner);
-      if (applicationId && checked.application_id !== applicationId) throw new Error('The CV adjustment request could not be verified.');
-      return checked;
+    const owner = account();
+    return readHistoryPages(async (from, to) => {
+      let query = client!.from('cv_adjustment_requests').select('*').eq('user_id', owner);
+      if (applicationId) query = query.eq('application_id', applicationId);
+      const { data, error } = await query.order('created_at', { ascending: false }).order('id', { ascending: false }).range(from, to); check(owner, error);
+      if (!Array.isArray(data)) throw new Error('CV adjustment requests could not be loaded.');
+      return data.map((row) => {
+        const checked = checkedRequest(row, owner);
+        if (applicationId && checked.application_id !== applicationId) throw new Error('The CV adjustment request could not be verified.');
+        return checked;
+      });
     });
   }
   async function listResponses(requestId: string): Promise<CvAdjustmentResponseRow[]> {
     const owner = account();
-    const { data, error } = await client!.from('cv_adjustment_responses').select('*').eq('user_id', owner).eq('request_id', requestId).order('created_at', { ascending: false });
-    check(owner, error);
-    if (!Array.isArray(data)) throw new Error('CV adjustment responses could not be loaded.');
-    return data.map((row) => checkedResponse(row, owner, requestId));
+    return readHistoryPages(async (from, to) => {
+      const { data, error } = await client!.from('cv_adjustment_responses').select('*').eq('user_id', owner).eq('request_id', requestId).order('created_at', { ascending: false }).order('id', { ascending: false }).range(from, to);
+      check(owner, error);
+      if (!Array.isArray(data)) throw new Error('CV adjustment responses could not be loaded.');
+      return data.map((row) => checkedResponse(row, owner, requestId));
+    });
   }
   async function saveResponse(requestId: string, value: unknown): Promise<CvAdjustmentResponseRow> {
     const owner = account(); const response = parseCvAdjustmentResponse(value);

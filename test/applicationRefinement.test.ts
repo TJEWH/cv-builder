@@ -195,7 +195,7 @@ function fakeClient(handler: (query: Query) => { data: unknown; error: unknown }
   const queries: Query[] = [];
   function query(name: string, params?: Record<string, unknown>) {
     const entry: Query = { name, params, filters: {}, orders: [] };
-    const builder = { select() { return builder; }, eq(key: string, value: unknown) { entry.filters[key] = value; return builder; },
+    const builder = { select() { return builder; }, range() { return builder; }, eq(key: string, value: unknown) { entry.filters[key] = value; return builder; },
       maybeSingle() { return builder; }, order(key: string, options: { ascending: boolean }) { entry.orders.push([key, options.ascending]); return builder; },
       then(resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) { queries.push(entry); return Promise.resolve().then(() => handler(entry)).then(resolve, reject); } };
     return builder;

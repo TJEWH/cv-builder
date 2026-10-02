@@ -30,6 +30,10 @@ interface Workspace {
   assignBase(): void; useLetterTemplate(): Promise<void>; initialPrompt(): Promise<void>; checkProposals(): Promise<void>;
   importProposal(): void | Promise<void>; openProposal(): void; discardReview(): void; acceptSelectedChanges(): Promise<void>;
   persist(): void;
+  feedbackScope: 'cv' | 'letter' | 'both'; pane: 'cv' | 'letter'; tab: string; historyOpen: boolean; manualLetterText: string;
+  enterRefinement(scope?: 'cv' | 'letter' | 'both'): void; selectReviewProposal(id: string): void;
+  importProposalFile(event: Event): Promise<void>; importLetterBackup(event: Event): Promise<void>;
+  keepIncomingLetter(draft?: import('../src/draftingTypes').MotivationLetterDraft): void; reopenLocalLetterRevision(id: string): void;
   approve(kind: 'cv' | 'letter', reopen?: boolean): Promise<void>;
   updateLetter(value: string): void; toggleProposedChange(id: string, included: boolean): void;
 }
@@ -108,6 +112,7 @@ function mount(t: TestContext) {
   }
   const setup = open();
   return { setup, props, states, base, storage, data, writes, database, cloud, creations,
+    close() { unmount(); },
     failCreation() { creationFails = true; }, failSave(key: string) { failNextWriteKey = key; }, reopen() { unmount(); return open(); } };
 }
 
@@ -279,4 +284,101 @@ test('accepting a manually imported proposal commits locally and persists its id
   setup.openProposal(); await setup.acceptSelectedChanges();
   assert.equal(fixture.creations.length, 1);
   assert.equal(JSON.stringify(fixture.database), beforeCloud);
+});
+
+
+test('all refinement entry points share scope, working documents and independent application status', async t => {
+  const fixture = mount(t), setup = await prepare(fixture);
+  const before = documents(setup), status = fixture.props.application.status;
+  for (const scope of ['cv', 'letter', 'both'] as const) {
+    setup.enterRefinement(scope); await idle(setup);
+    assert.equal(setup.feedbackScope, scope); assert.equal(setup.tab, 'refinement');
+    assert.equal(setup.pane, scope === 'letter' ? 'letter' : 'cv');
+    assert.equal(documents(setup), before); assert.equal(fixture.props.application.status, status);
+  }
+  await setup.approve('cv'); setup.enterRefinement('both');
+  assert.equal(setup.feedbackScope, 'letter', 'a shortcut cannot reopen an approved document');
+  assert.equal(fixture.props.application.status, status);
+});
+
+test('history selection activates exact older proposal previews, and refresh keeps that review active', async t => {
+  const fixture = mount(t), setup = await prepare(fixture);
+  const oldRequest = setup.requests[0];
+  const old = fixture.cloud.seedProposal(oldRequest.id, { letterText: 'Earlier proposal.' });
+  setup.updateLetter('New manual wording.'); await setup.initialPrompt();
+  const current = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Current proposal.' });
+  await setup.checkProposals();
+  assert.equal(setup.selectedProposalId, old.id, 'publishing and refreshing preserve an already active review');
+  setup.selectReviewProposal(current.id);
+  assert.equal(setup.previewLetterContent?.body, 'Current proposal.');
+  const before = documents(setup), status = fixture.props.application.status;
+  setup.selectReviewProposal(old.id);
+  assert.equal(setup.previewLetterContent?.body, 'Earlier proposal.');
+  assert.match(setup.reviewAcceptanceError, /superseded/);
+  await setup.checkProposals(); assert.equal(setup.selectedProposalId, old.id);
+  setup.discardReview(); setup.selectReviewProposal(old.id);
+  assert.equal(setup.reviewActive, true, 'selecting the same dismissed proposal reopens its temporary preview');
+  assert.equal(documents(setup), before); assert.equal(fixture.props.application.status, status);
+});
+
+test('an older run is never automatically loaded when the current request has no proposal', async t => {
+  const fixture = mount(t), setup = await prepare(fixture);
+  fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Older response.' });
+  setup.updateLetter('Next round source.'); await setup.initialPrompt();
+  const reopened = fixture.reopen(); await idle(reopened);
+  assert.equal(reopened.selectedProposalId, ''); assert.equal(reopened.reviewActive, false);
+  assert.equal(reopened.proposals.length, 1, 'the old proposal remains accessible in history');
+});
+
+function proposalFile(text: () => Promise<string>) {
+  return { target: { value: 'proposal.json', files: [{ size: 1000, text }] } } as unknown as Event;
+}
+for (const interruptedBy of ['paste', 'second file', 'new request', 'unmount'] as const) test(`pending manual proposal files yield to ${interruptedBy}`, async t => {
+  const fixture = mount(t), setup = await prepare(fixture);
+  const row = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'File proposal.' });
+  const newer = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Newer file.' });
+  fixture.database.application_refinement_proposals = [];
+  let finish!: (text: string) => void;
+  const pending = setup.importProposalFile(proposalFile(() => new Promise(resolve => { finish = resolve; })));
+  if (interruptedBy === 'paste') setup.manualProposalText = 'newer pasted input';
+  if (interruptedBy === 'second file') {
+    await setup.importProposalFile(proposalFile(async () => JSON.stringify(newer.proposal_json)));
+    assert.equal(setup.error, '');
+  }
+  if (interruptedBy === 'new request') { setup.updateLetter('New source.'); await setup.initialPrompt(); }
+  if (interruptedBy === 'unmount') fixture.close();
+  finish(JSON.stringify(row.proposal_json)); await pending;
+  if (interruptedBy === 'second file') assert.equal(setup.previewLetterContent?.body, 'Newer file.');
+  else assert.equal(setup.reviewActive, false);
+  if (interruptedBy === 'paste') assert.equal(setup.manualProposalText, 'newer pasted input');
+  assert.equal(setup.letterText, interruptedBy === 'new request' ? 'New source.' : 'Original private working letter.');
+});
+
+test('manual and legacy cloud letters remain in local history until explicitly restored', async t => {
+  const fixture = mount(t), setup = await prepare(fixture);
+  const working = JSON.stringify(setup.letter!.working), beforeCloud = JSON.stringify(fixture.database);
+  setup.manualLetterText = JSON.stringify({ subject: 'Imported subject', salutation: 'Dear committee,', body: 'Imported evidence.', closing: 'Kind regards' });
+  setup.keepIncomingLetter(); assert.equal(setup.error, '');
+  const imported = setup.letter!.revisions.at(-1)!;
+  assert.equal(imported.kind, 'generated'); assert.deepEqual(imported.context, { content: 'unknown', theme: 'unknown' });
+  assert.equal(JSON.stringify(setup.letter!.working), working); assert.equal(setup.historyOpen, true);
+  const draft = { id: crypto.randomUUID(), user_id: account, application_id: applicationId, context_id: crypto.randomUUID(), body: 'Earlier generated letter.', created_at: '2026-09-01T00:00:00Z' };
+  setup.keepIncomingLetter(draft); setup.keepIncomingLetter(draft);
+  assert.equal(setup.letter!.revisions.filter(item => item.cloudDraftId === draft.id).length, 1);
+  assert.equal(JSON.stringify(setup.letter!.working), working); assert.equal(JSON.stringify(fixture.database), beforeCloud);
+  setup.reopenLocalLetterRevision(imported.id);
+  assert.equal(setup.letter!.working.body, 'Imported evidence.'); assert.equal(setup.pane, 'letter');
+  assert.ok(setup.letter!.revisions.some(item => JSON.stringify(item.content) === working), 'restoring preserves prior edits');
+  assert.equal(fixture.props.application.status, 'shortlist');
+});
+
+test('restoring a legacy revision or letter backup cannot silently replace a finalized letter', async t => {
+  const fixture = mount(t), setup = await prepare(fixture);
+  setup.manualLetterText = 'Incoming draft.'; setup.keepIncomingLetter();
+  const draftId = setup.letter!.revisions.at(-1)!.id;
+  setup.letter = finalizeLetter(setup.letter!, setup.letter!.workingContext, setup.record!.state.contact);
+  const before = documents(setup);
+  setup.reopenLocalLetterRevision(draftId); assert.match(setup.error, /finalized letter/);
+  await setup.importLetterBackup(proposalFile(async () => JSON.stringify(setup.letter)));
+  assert.match(setup.error, /finalized letter/); assert.equal(documents(setup), before);
 });

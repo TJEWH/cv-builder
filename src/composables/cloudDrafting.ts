@@ -1,3 +1,4 @@
+import { readHistoryPages } from './historyPages';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Application } from '../cloudTypes';
 import type { DraftingContext, DraftingContextBundle, MotivationLetterDraft, PublishDraftingInput } from '../draftingTypes';
@@ -118,19 +119,23 @@ export function createDraftingRepository(client: SupabaseClient | null, getUserI
   }
   async function listContexts(applicationId: string): Promise<DraftingContext[]> {
     const owner = account();
-    const { data, error } = await client!.from('drafting_contexts').select('*').eq('user_id', owner)
-      .eq('application_id', applicationId).order('created_at', { ascending: false });
-    current(owner); throwError(error);
-    if (!Array.isArray(data)) throw new Error('Drafting context history could not be loaded.');
-    return data.map((row) => checkedContext(row, owner, applicationId));
+    return readHistoryPages(async (from, to) => {
+      const { data, error } = await client!.from('drafting_contexts').select('*').eq('user_id', owner)
+        .eq('application_id', applicationId).order('created_at', { ascending: false }).order('id', { ascending: false }).range(from, to);
+      current(owner); throwError(error);
+      if (!Array.isArray(data)) throw new Error('Drafting context history could not be loaded.');
+      return data.map((row) => checkedContext(row, owner, applicationId));
+    });
   }
   async function listDrafts(applicationId: string): Promise<MotivationLetterDraft[]> {
     const owner = account();
-    const { data, error } = await client!.from('motivation_letter_drafts').select('*').eq('user_id', owner)
-      .eq('application_id', applicationId).order('created_at', { ascending: false });
-    current(owner); throwError(error);
-    if (!Array.isArray(data)) throw new Error('Letter drafts could not be loaded.');
-    return data.map((row) => checkedDraft(row, owner, applicationId));
+    return readHistoryPages(async (from, to) => {
+      const { data, error } = await client!.from('motivation_letter_drafts').select('*').eq('user_id', owner)
+        .eq('application_id', applicationId).order('created_at', { ascending: false }).order('id', { ascending: false }).range(from, to);
+      current(owner); throwError(error);
+      if (!Array.isArray(data)) throw new Error('Letter drafts could not be loaded.');
+      return data.map((row) => checkedDraft(row, owner, applicationId));
+    });
   }
   async function publishContext(applicationId: string, input: PublishDraftingInput): Promise<DraftingContext> {
     const owner = account();

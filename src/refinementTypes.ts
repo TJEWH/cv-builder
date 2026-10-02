@@ -43,6 +43,7 @@ export interface RefinementProposalV2 {
 export type RefinementProposal = RefinementProposalV1 | RefinementProposalV2;
 export interface RefinementRequestRow {
   id: string; application_id: string; user_id: string; request_json: RefinementRequest; created_at: string;
+  cv_snapshot?: { snapshotId?: string; revision?: number };
 }
 export interface RefinementProposalRow {
   id: string; application_id: string; user_id: string; request_id: string;
@@ -69,5 +70,7 @@ export interface LocalRefinementRequest {
     letter: { updatedAt: string; version: string };
     contextCapturedAt: string;
   };
+  /** Actual prompt implementation recorded for this request; older sources remain unknown. */
+  promptVersion?: string;
   publishedAt?: string;
 }

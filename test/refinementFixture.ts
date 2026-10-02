@@ -22,9 +22,10 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
   function from(table: string) {
     const filters: [string, unknown][] = [];
     const orders: { key: string; ascending: boolean }[] = [];
-    let one = false;
+    let one = false; let page: [number, number] | null = null;
     const builder = {
       select() { return builder; },
+      range(from: number, to: number) { page = [from, to]; return builder; },
       eq(key: string, value: unknown) { filters.push([key, value]); return builder; },
       order(key: string, options: { ascending?: boolean } = {}) { orders.push({ key, ascending: options.ascending !== false }); return builder; },
       maybeSingle() { one = true; return builder; },
@@ -35,7 +36,7 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
             for (const order of orders) { const compared = String(a[order.key] ?? '').localeCompare(String(b[order.key] ?? '')); if (compared) return compared * (order.ascending ? 1 : -1); }
             return 0;
           });
-          return { data: clone(one ? rows[0] || null : rows), error: null };
+          return { data: clone(one ? rows[0] || null : page ? rows.slice(page[0], page[1] + 1) : rows), error: null };
         }).then(resolve, reject);
       },
     };

@@ -20,7 +20,7 @@ function fakeClient(handler: (query: Request) => { data: unknown; error: unknown
   function query(name: string, params?: Record<string, unknown>) {
     const request: Request = { name, params, filters: {} };
     const builder = {
-      select() { return builder; },
+      select() { return builder; }, range() { return builder; },
       eq(key: string, value: unknown) { request.filters[key] = value; return builder; },
       order(key: string) { request.order = key; return builder; },
       then(resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) {
