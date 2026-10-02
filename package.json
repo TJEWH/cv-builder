@@ -8,6 +8,8 @@
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "test": "tsx --test test/*.test.ts",
+    "test:refinement": "tsx --test test/*Refinement*.test.ts test/refinement*.test.ts test/cloudCvPrivacy.test.ts test/useDocumentPdfPreview.test.ts",
+    "test:e2e:serve": "vite --config test/e2e/vite.config.ts",
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {

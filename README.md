@@ -98,6 +98,8 @@ For GitHub Pages, configure **environment variables** `VITE_SUPABASE_URL` and `V
 
 Run `npm test` and `npm run build` with Node 22+ for client checks. The SQL suites in [`supabase/tests`](supabase/tests), including [`application_refinement.sql`](supabase/tests/application_refinement.sql), [`application_letter_drafting.sql`](supabase/tests/application_letter_drafting.sql) and [`cv_adjustments.sql`](supabase/tests/cv_adjustments.sql), exercise access control, privacy, authoritative capture, immutable history and deletion behavior inside transactions that roll back their fixtures. The drafting suite passed on **phd-workflow** on 2026-09-20; the CV-adjustment suite passed on 2026-09-21. The dev-only [browser fixture](test/browser/job-workspace.html) uses in-memory data without an account or cloud writes and provides a 400-word PhD scenario and synthetic proposals.
 
+The [synthetic refinement test guide](test/REFINEMENT_TESTING.md) maps the regression coverage and explains which boundaries are mocked. Run `npm run test:refinement` for focused regressions, or `npm run test:e2e:serve` and open `http://127.0.0.1:5177/cv-builder/test/e2e/index.html` to run four automated browser flows with the actual CV/letter preview and PDF renderers. This separate test server ignores production environment files and uses only synthetic in-memory requests, proposals and documents.
+
 ---
 
 ## 🚀 Quick Start
@@ -197,6 +199,8 @@ npm run dev          # Dev server (http://localhost:5173)
 npm run build        # Production build
 npm run preview      # Test build
 npm test             # Content, PDF geometry, rendering and storage tests
+npm run test:refinement # Focused refinement and privacy regression tests
+npm run test:e2e:serve  # Serve the synthetic browser test runner (see test guide)
 ```
 
 ### Extend Project

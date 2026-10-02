@@ -4,6 +4,13 @@ import type { RefinementRequest, RefinementProposal } from '../src/refinementTyp
 import type { CvOperation } from '../src/cvStructuredTypes';
 import { parseRefinementProposal, refinementSignature } from '../src/composables/applicationRefinement';
 import { IDENTITY_PLACEHOLDERS } from '../src/composables/identityRedaction';
+import { reactive } from 'vue';
+import type { Application } from '../src/cloudTypes';
+import type { CvState, SavedConfiguration } from '../src/types';
+import { createEmptyDocument, createSampleDocument } from '../src/composables/builtinConfigurations';
+import { cloneCv } from '../src/composables/applicationCv';
+import { createCloudCvSnapshot } from '../src/composables/cloudCvPrivacy';
+import { subvariantParent } from '../src/composables/careerVariants';
 
 type Row = Record<string, unknown>;
 export const REFINEMENT_TABLES = ['application_refinement_state', 'application_refinement_requests', 'application_refinement_proposals', 'application_refinement_reviews'] as const;
@@ -123,7 +130,7 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
       throw new Error(`Unsupported fixture refinement RPC: ${name}`);
     } catch (error) { return { data: null, error }; }
   }
-  function seedProposal(requestId?: string, options: { overLimit?: boolean; letterText?: string } = {}) {
+  function seedProposal(requestId?: string, options: { overLimit?: boolean; letterText?: string; persist?: boolean } = {}) {
     const row = requestId ? database.application_refinement_requests.find(row => row.id === requestId) : database.application_refinement_requests.at(-1);
     if (!row) throw new Error('Copy the initial or improvement prompt first.');
     const request = row.request_json as RefinementRequest;
@@ -178,9 +185,62 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
       { id: 'annotation-2', type: 'todo', document: 'letter', location: proposal.letterText ? { start: 0, quote: [...proposal.letterText].slice(0, 30).join('') } : null, text: 'Confirm the project-specific research interest before the next round.' },
     ];
     const validated = parseRefinementProposal(proposal, request);
-    const saved = { id: crypto.randomUUID(), application_id: row.application_id, user_id: row.user_id, request_id: row.id, proposal_json: validated, created_at: now() };
-    database.application_refinement_proposals.push(saved); return clone(saved);
+    const saved = { id: crypto.randomUUID(), application_id: request.applicationId, user_id: account, request_id: request.requestId, proposal_json: validated, created_at: now() };
+    if (options.persist !== false) database.application_refinement_proposals.push(saved);
+    return clone(saved);
   }
   const client = { supabaseUrl: 'https://fixture.supabase.co', from, rpc: async (name: string, args: Row) => rpc(name, args) } as unknown as SupabaseClient;
   return { client, from, rpc, seedProposal };
+}
+
+/** Small, deliberately synthetic source exercising distinct secrets and a private linked bullet. */
+export function createPrivateRefinementCv(): CvState {
+  const state = createEmptyDocument(); state.lang = 'en';
+  state.contact = { name: 'Synthetic Rowan', role: 'Research engineer', email: 'rowan@example.invalid', location: 'Example City', phone: '', website: '', linkedin: '', github: '' };
+  state.about.text = 'I develop reliable sensing systems. I document reproducible experiments and their limitations.';
+  state.experience.jobs = [
+    { id: 'local-private-job-a', title: 'Research engineer', company: 'Visible employer', bullets: '- Built sensors with !!E2E North Lab!!.\n- Evaluated robots with !!E2E South Lab!!.\n- Archived !!E2E Omit Lab!! findings in !![private evidence](https://private.example.invalid/archive)!!.' },
+    { id: 'local-private-job-b', title: 'Research assistant', bullets: '- Documented repeatable methods.\n- Reviewed measured results.' },
+  ];
+  state.education = [{ id: 'local-private-education', title: 'Engineering degree', sub: 'Visible university', start: '2020', end: '2024' }];
+  state.bodyOrder = ['about', 'jobs', 'education'];
+  return state;
+}
+
+/** Same in-memory publication/variant boundary for Node regressions and real browser rendering. */
+export function createSyntheticRefinementWorkspace(source = createSampleDocument()) {
+  const account = '90000000-0000-4000-8000-000000000001', applicationId = '10000000-0000-4000-8000-000000000001';
+  const data = new Map<string, string>(), writes: { key: string; value: string }[] = [];
+  let failNextWriteKey: string | null = null, creationFails = false;
+  const storage: Storage = {
+    get length() { return data.size; }, key: index => [...data.keys()][index] ?? null, clear: () => data.clear(),
+    getItem: key => data.get(key) ?? null, removeItem: key => { data.delete(key); },
+    setItem(key, value) {
+      if (key === failNextWriteKey) { failNextWriteKey = null; throw new Error('Local storage quota reached.'); }
+      data.set(key, value); writes.push({ key, value });
+    },
+  };
+  const base = cloneCv(source), states = new Map([['base', base]]);
+  const application: Application = { id: applicationId, user_id: account, opportunity_id: '20000000-0000-4000-8000-000000000001',
+    context_json: { title: 'Synthetic robotics application', institution: 'Example University' }, context_captured_at: '2026-10-02T00:00:00Z', cv_variant_id: null,
+    completed_checklist_keys: [], status: 'shortlist', contact_email: null, notes: null, contacted_at: null, submitted_at: null,
+    created_at: '2026-10-02T00:00:00Z', updated_at: '2026-10-02T00:00:00Z' };
+  const database: Record<string, Row[]> = { applications: [{ ...application }], cv_variants: [] };
+  const cloud = createRefinementFixture(database, account);
+  const creations: { sourceId: string; id: string; state: CvState }[] = [];
+  const props = reactive({ application, client: cloud.client, userId: account, lang: 'en', projectId: 'fixture',
+    configurations: [{ id: 'base', name: 'Research' }] as SavedConfiguration[], readVersion: (id: string) => states.get(id) || null,
+    publishCv: async (state: CvState) => {
+      const snapshot = createCloudCvSnapshot(state); database.cv_variants.push({ ...snapshot, user_id: account });
+      props.application = { ...props.application, cv_variant_id: snapshot.id }; database.applications[0].cv_variant_id = snapshot.id; return props.application;
+    },
+    createSubvariant: (sourceId: string, name: string, state: CvState) => {
+      if (creationFails) return null;
+      const parentId = subvariantParent(sourceId, props.configurations), id = `accepted-${creations.length + 1}`;
+      states.set(id, cloneCv(state)); props.configurations.push({ id, name, parentId });
+      creations.push({ sourceId, id, state: cloneCv(state) }); return id;
+    },
+  });
+  return { props, states, base, storage, data, writes, database, cloud, creations,
+    failCreation() { creationFails = true; }, failSave(key: string) { failNextWriteKey = key; } };
 }
