@@ -19,7 +19,7 @@ const emit = defineEmits<{ back: [] }>();
 </template>
 
 <style scoped>
-.workspace-detail-header { flex: 0 0 auto; min-width: 0; padding-bottom: 14px; border-bottom: 1px solid #24504e; color: #d1fae5; background: #06141f; }
+.workspace-detail-header { flex: 0 0 auto; min-width: 0; padding-bottom: 14px; border-bottom: 1px solid #24504e; color: #d1fae5;}
 .workspace-detail-header__main { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; min-width: 0; }
 .workspace-detail-header__controls { display: contents; }
 .workspace-detail-header__back { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; order: 0; }
