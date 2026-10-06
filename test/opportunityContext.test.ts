@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildOpportunityGroups, checklistKeys, opportunityContextMarkdown, opportunityFieldLabel } from '../src/composables/opportunityContext';
+import { buildOpportunityGroups, checklistKeys, opportunityContextMarkdown, opportunityFieldLabel, personalFitScore } from '../src/composables/opportunityContext';
 import type { OpportunityContextNode } from '../src/composables/opportunityContext';
 
 function flatten(nodes: OpportunityContextNode[]): OpportunityContextNode[] {
@@ -213,4 +213,31 @@ test('fit visualization accepts zero and ten, but never invents or clamps missin
   }
   const nested = buildOpportunityGroups({ data: { personal_fit: { score: 8.8 } } }, 'de')[0].items[0];
   assert.equal(nested.text, '8,8 / 10');
+});
+
+test('personal fit sorting and badges read the same explicit scores as the detail view', () => {
+  for (const [value, expected] of [
+    [0, 0], [10, 10], [9.1, 9.1], [9.5, 9.5], [9.6, 9.6],
+    [' 9.6 ', 9.6], ['0.00', 0], ['10.0', 10], ['8.25', 8.25],
+  ] as const) {
+    assert.equal(personalFitScore(value), expected);
+    const structured = { score: value, summary: 'An assessment with 2 gaps' };
+    assert.equal(personalFitScore(structured), expected);
+    const fit = buildOpportunityGroups({ personal_fit: structured }, 'en')[0].items[0];
+    assert.equal(fit.score, expected);
+    assert.deepEqual(structured, { score: value, summary: 'An assessment with 2 gaps' });
+  }
+});
+
+test('personal fit scores reject malformed values without using prose, nested fields or coercion', () => {
+  const invalid = [
+    undefined, null, '', ' ', true, false, -0.1, 10.01, NaN, Infinity, -Infinity,
+    '9.6 / 10', 'Strong fit: 9.6', '9,6', '1e1', '0xA', '+9.6', '.5', '9.',
+    [], [9.6], {}, { assessment: '9.6' }, { summary: 'Personal fit 9.6' },
+    { score: { score: 9.6 } }, { value: 9.6 },
+  ];
+  for (const value of invalid) {
+    assert.equal(personalFitScore(value), undefined, `Unexpected score for ${String(value)}`);
+    assert.equal(personalFitScore({ score: value }), undefined, `Unexpected structured score for ${String(value)}`);
+  }
 });

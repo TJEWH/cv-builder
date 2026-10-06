@@ -117,7 +117,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 function phrase(en: string, de: string, lang: string) { return lang === 'de' ? de : en; }
 
-function fitScore(value: unknown): number | undefined {
+/** Read an explicit 0–10 score without inferring one from the assessment text. */
+export function personalFitScore(value: unknown): number | undefined {
   const raw = isRecord(value) ? value.score : value;
   if (typeof raw !== 'number' && !(typeof raw === 'string' && /^\d+(?:\.\d+)?$/.test(raw.trim()))) return;
   const score = Number(raw);
@@ -301,7 +302,7 @@ export function buildOpportunityGroups(context: Record<string, unknown>, lang: s
     if (SUMMARY_FIELDS.has(key)) node.kind = 'summary';
     if (FIT_FIELDS.has(key)) {
       node.kind = 'fit';
-      const score = fitScore(value);
+      const score = personalFitScore(value);
       if (score !== undefined) {
         node.score = score;
         node.text = `${humanText(score, 'score', lang)} / 10`;

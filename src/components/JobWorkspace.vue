@@ -7,7 +7,8 @@ import { APPLICATION_STATUSES, OPPORTUNITY_REVIEW_STATES } from '../cloudTypes';
 import { useJobWorkspace } from '../composables/useJobWorkspace';
 import { safeEmailUrl } from '../composables/safeUrl';
 import { isOpportunityDeadlinePassed, opportunityDeadlineSortKey, formatOpportunityDeadline } from '../composables/opportunityDeadline';
-import { opportunityRecency } from '../composables/opportunityRecency';
+import { hasReviewedOpportunity, opportunityRecency } from '../composables/opportunityRecency';
+import { personalFitScore } from '../composables/opportunityContext';
 import { applicationStatusHistory } from '../composables/applicationTracking';
 import OpportunityContext from './OpportunityContext.vue';
 import ApplicationWorkspace from './ApplicationWorkspace.vue';
@@ -29,8 +30,8 @@ const queries = reactive({ opportunities: '', applications: '' });
 const query = computed({ get: () => queries[props.tab], set: (value: string) => { queries[props.tab] = value; } });
 const statusFilter = ref('');
 const reviewFilter = ref('active');
-const suitableOnly = ref(false);
-const hideExpired = ref(true);
+const deadlineFilter = ref<'current' | 'past'>('current');
+const opportunityFiltersOpen = ref(false);
 const hideWithApplication = ref(true);
 const sortBy = ref('deadline');
 const applicationSortBy = ref('deadline');
@@ -53,34 +54,44 @@ const now = ref(new Date());
 const clockTimer = window.setInterval(() => { now.value = new Date(); }, 30_000);
 onBeforeUnmount(() => { window.clearInterval(clockTimer); });
 const reviewById = computed(() => new Map(reviews.value.map((item) => [item.opportunity_id, item])));
-const recencyById = computed(() => new Map(opportunities.value.map((item) => {
+const reviewedVersionById = computed(() => new Map(opportunities.value.map((item) => {
   const localVisit = visitedOpportunityVersions.value.get(item.id);
   const savedVisit = reviewById.value.get(item.id)?.reviewed_updated_at;
-  const reviewedVersion = localVisit && (!savedVisit || Date.parse(localVisit) > Date.parse(savedVisit)) ? localVisit : savedVisit;
-  return [item.id, opportunityRecency(item, now.value, reviewedVersion)];
+  const versions = [localVisit, savedVisit].filter((value): value is string => !!value && Number.isFinite(Date.parse(value)));
+  return [item.id, versions.toSorted((a, b) => Date.parse(b) - Date.parse(a))[0]];
 })));
+const recencyById = computed(() => new Map(opportunities.value.map((item) => [item.id, opportunityRecency(item, now.value, reviewedVersionById.value.get(item.id))])));
+// The visit marker persists after the 24-hour badge and priority grouping expire.
+const unseenById = computed(() => new Map(opportunities.value.map((item) => {
+  const reviewedVersion = reviewedVersionById.value.get(item.id);
+  const visitedWithoutVersion = !item.updated_at && !item.created_at && (visitedOpportunityVersions.value.has(item.id) || !!reviewedVersion);
+  return [item.id, hasReviewedOpportunity(item, reviewedVersion) || visitedWithoutVersion ? null : recencyById.value.get(item.id) || (reviewedVersion ? 'updated' : 'new')];
+})));
+const fitScoreById = computed(() => new Map(opportunities.value.map((item) => [item.id, personalFitScore(item.details.personal_fit ?? item.data.personal_fit)])));
+function fitTone(score: number | undefined) { return score !== undefined && score >= 9.6 ? 'red' : score !== undefined && score >= 9.1 ? 'yellow' : undefined; }
+function fitLabel(score: number | undefined) { return score === undefined ? '' : `${props.lang === 'de' ? String(score).replace('.', ',') : score} / 10`; }
 const reviewState = (id: string): OpportunityReviewState => reviewById.value.get(id)?.state || 'unreviewed';
 const applicationByOpportunity = computed(() => new Map(applications.value.map((item) => [item.opportunity_id, item])));
 const filteredOpportunities = computed(() => {
   const needle = query.value.toLocaleLowerCase().trim();
-  return opportunities.value.filter((item) => (!suitableOnly.value || item.particularly_suitable)
-    && (!hideExpired.value || !isOpportunityDeadlinePassed(item.details, now.value))
+  return opportunities.value.filter((item) => (isOpportunityDeadlinePassed(item.details, now.value) === (deadlineFilter.value === 'past'))
     && (!hideWithApplication.value || !applicationByOpportunity.value.has(item.id))
     && (reviewFilter.value === 'all' || (reviewFilter.value === 'active' ? reviewState(item.id) !== 'not_interested' : reviewState(item.id) === reviewFilter.value))
     && (!needle || [item.title, item.university, item.country, ...item.topics].join(' ').toLocaleLowerCase().includes(needle)))
-    .toSorted((a, b) => sortBy.value === 'title' ? a.title.localeCompare(b.title)
+    .toSorted((a, b) => sortBy.value === 'personal_fit' ? (fitScoreById.value.get(b.id) ?? -1) - (fitScoreById.value.get(a.id) ?? -1)
+      : sortBy.value === 'title' ? a.title.localeCompare(b.title)
       : sortBy.value === 'institution' ? (a.university || '').localeCompare(b.university || '')
         : opportunityDeadlineSortKey(a.details) - opportunityDeadlineSortKey(b.details));
 });
 const opportunityGroups = computed(() => {
-  const unvisited: Opportunity[] = [];
-  const visited: Opportunity[] = [];
+  const recent: Opportunity[] = [];
+  const other: Opportunity[] = [];
   for (const item of filteredOpportunities.value) {
-    (visitedOpportunityVersions.value.has(item.id) || reviewById.value.get(item.id)?.reviewed_updated_at ? visited : unvisited).push(item);
+    (recencyById.value.get(item.id) ? recent : other).push(item);
   }
   return [
-    { key: 'new', title: text('New opportunities', 'Neue Stellenangebote'), items: unvisited },
-    { key: 'visited', title: text('Previously viewed', 'Bereits angesehen'), items: visited },
+    { key: 'recent', title: text('New & updated · 24h', 'Neu & aktualisiert · 24 Std.'), items: recent },
+    { key: 'other', title: recent.length ? text('Other opportunities', 'Weitere Stellenangebote') : '', items: other },
   ].filter((group) => group.items.length);
 });
 const opportunityById = computed(() => new Map(opportunities.value.map((item) => [item.id, item])));
@@ -132,6 +143,7 @@ function focusResult(kind: 'opportunities' | 'applications', id: string) {
 function openOpportunity(id: string) {
   const opportunity = opportunityById.value.get(id);
   if (!opportunity) return;
+  opportunityFiltersOpen.value = false;
   recordOpportunityVisit(opportunity);
   selectedOpportunityId.value = id;
   nextTick(() => opportunityDetail.value?.focus({ preventScroll: true }));
@@ -228,9 +240,9 @@ async function showRemovedOpportunity() {
   const opportunity = id && opportunityById.value.get(id);
   emit('navigate', 'opportunities');
   await nextTick();
-  query.value = ''; reviewFilter.value = 'active'; suitableOnly.value = false;
+  query.value = ''; reviewFilter.value = 'active';
   if (opportunity) {
-    if (isOpportunityDeadlinePassed(opportunity.details, now.value)) hideExpired.value = false;
+    deadlineFilter.value = isOpportunityDeadlinePassed(opportunity.details, now.value) ? 'past' : 'current';
     openOpportunity(opportunity.id);
   }
 }
@@ -248,11 +260,13 @@ async function refreshResearch() {
     <p v-if="error" class="jobs-error" role="alert">{{ error }}</p><p v-if="notice" class="jobs-notice" role="status">{{ notice }} <button v-if="removedOpportunityId" class="btn" type="button" @click="showRemovedOpportunity">{{ text('View opportunity', 'Stelle ansehen') }}</button></p>
     <div v-show="!showingDetail" class="jobs-toolbar">
       <label class="jobs-search"><span>{{ text('Search', 'Suchen') }}</span><input v-model="query" type="search" :placeholder="tab === 'applications' ? text('Title, institution or application ID…', 'Titel, Einrichtung oder Bewerbungs-ID…') : text('Title, institution or country…', 'Titel, Einrichtung oder Land…')" /></label>
-      <template v-if="tab === 'opportunities'">
+      <button v-if="tab === 'opportunities'" class="btn jobs-filter-toggle" type="button" :aria-expanded="opportunityFiltersOpen" aria-controls="opportunity-filters" @click="opportunityFiltersOpen = !opportunityFiltersOpen">{{ text('Filters', 'Filter') }}</button>
+      <div v-if="tab === 'opportunities'" id="opportunity-filters" class="jobs-opportunity-filters" :class="{ 'is-open': opportunityFiltersOpen }">
         <label>{{ text('Review state', 'Bewertung') }}<select v-model="reviewFilter"><option value="active">{{ text('Hide not interesting', 'Nicht interessante ausblenden') }}</option><option value="all">{{ text('All review states', 'Alle Bewertungen') }}</option><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
-        <label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="sortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option></select></label>
-        <div class="jobs-filter-checks"><label class="jobs-check"><input v-model="hideExpired" type="checkbox" /> {{ text('Hide past deadlines', 'Abgelaufene Fristen ausblenden') }}</label><label class="jobs-check"><input v-model="hideWithApplication" type="checkbox" /> {{ text('Hide opportunities with applications', 'Stellen mit Bewerbungen ausblenden') }}</label><label class="jobs-check"><input v-model="suitableOnly" type="checkbox" /> {{ text('Particularly suitable', 'Besonders passend') }}</label></div>
-      </template>
+        <label>{{ text('Opportunities', 'Stellenangebote') }}<select v-model="deadlineFilter"><option value="current">{{ text('Current opportunities', 'Aktuelle Stellenangebote') }}</option><option value="past">{{ text('Past opportunities', 'Abgelaufene Stellenangebote') }}</option></select></label>
+        <label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="sortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option><option value="personal_fit">{{ text('Personal fit: high to low', 'Persönliche Passung: absteigend') }}</option></select></label>
+        <div class="jobs-filter-checks"><label class="jobs-check"><input v-model="hideWithApplication" type="checkbox" /> {{ text('Hide opportunities with applications', 'Stellen mit Bewerbungen ausblenden') }}</label></div>
+      </div>
       <template v-else><label>{{ text('Status', 'Status') }}<select v-model="statusFilter"><option value="">{{ text('All statuses', 'Alle Status') }}</option><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label><label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="applicationSortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option></select></label></template>
       <span class="jobs-count">{{ tab === 'opportunities' ? filteredOpportunities.length : filteredApplications.length }} {{ text('results', 'Ergebnisse') }}</span>
     </div>
@@ -261,10 +275,10 @@ async function refreshResearch() {
         <colgroup><col style="width: 27%" /><col style="width: 10%" /><col style="width: 12%" /><col style="width: 17%" /><col style="width: 15%" /><col style="width: 19%" /></colgroup>
         <thead><tr><th scope="col">{{ text('Opportunity', 'Stelle') }}</th><th scope="col">{{ text('Country', 'Land') }}</th><th scope="col">{{ text('Deadline', 'Frist') }}</th><th scope="col">{{ text('Topics', 'Themen') }}</th><th scope="col">{{ text('Your review', 'Deine Bewertung') }}</th><th scope="col">{{ text('Actions', 'Aktionen') }}</th></tr></thead>
         <tbody v-for="group in opportunityGroups" :key="group.key">
-          <tr class="jobs-group-row" :data-opportunity-group="group.key"><th scope="rowgroup" colspan="6">{{ group.title }} <span>{{ group.items.length }}</span></th></tr>
+          <tr v-if="group.title" class="jobs-group-row" :data-opportunity-group="group.key"><th scope="rowgroup" colspan="6">{{ group.title }} <span>{{ group.items.length }}</span></th></tr>
           <template v-for="item in group.items" :key="item.id">
-          <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'jobs-opportunity--new': recencyById.get(item.id) === 'new', 'jobs-opportunity--updated': recencyById.get(item.id) === 'updated' }" @click="openOpportunity(item.id)">
-            <td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :aria-label="`${text('Open opportunity:', 'Stelle öffnen:')} ${item.title}`" @click.stop="openOpportunity(item.id)"><span class="jobs-row-chevron" aria-hidden="true">›</span><strong>{{ item.title }}</strong></button><span class="jobs-subline">{{ item.university || '—' }}</span><div v-if="recencyById.get(item.id) || item.particularly_suitable" class="jobs-opportunity-badges"><span v-if="recencyById.get(item.id)" class="jobs-badge" :class="`jobs-badge--${recencyById.get(item.id)}`" :title="recencyById.get(item.id) === 'new' ? text('Added within the last 24 hours', 'In den letzten 24 Stunden hinzugefügt') : text('Updated within the last 24 hours', 'In den letzten 24 Stunden aktualisiert')">{{ recencyById.get(item.id) === 'new' ? text('New · 24h', 'Neu · 24 Std.') : text('Updated · 24h', 'Aktualisiert · 24 Std.') }}</span><span v-if="item.particularly_suitable" class="jobs-badge">{{ text('Strong fit', 'Besonders passend') }}</span></div></td>
+          <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'jobs-opportunity--new': recencyById.get(item.id) === 'new', 'jobs-opportunity--updated': recencyById.get(item.id) === 'updated', 'jobs-opportunity--unseen-new': unseenById.get(item.id) === 'new', 'jobs-opportunity--unseen-updated': unseenById.get(item.id) === 'updated' }" @click="openOpportunity(item.id)">
+            <td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :aria-label="`${text('Open opportunity:', 'Stelle öffnen:')} ${item.title}`" @click.stop="openOpportunity(item.id)"><span class="jobs-row-chevron" aria-hidden="true">›</span><strong>{{ item.title }}</strong></button><span class="jobs-subline">{{ item.university || '—' }}</span><div v-if="recencyById.get(item.id) || (item.particularly_suitable && fitScoreById.get(item.id) !== undefined)" class="jobs-opportunity-badges"><span v-if="recencyById.get(item.id)" class="jobs-badge" :class="`jobs-badge--${recencyById.get(item.id)}`" :title="recencyById.get(item.id) === 'new' ? text('Added within the last 24 hours', 'In den letzten 24 Stunden hinzugefügt') : text('Updated within the last 24 hours', 'In den letzten 24 Stunden aktualisiert')">{{ recencyById.get(item.id) === 'new' ? text('New · 24h', 'Neu · 24 Std.') : text('Updated · 24h', 'Aktualisiert · 24 Std.') }}</span><span v-if="item.particularly_suitable && fitScoreById.get(item.id) !== undefined" class="jobs-badge jobs-fit-score" :class="fitTone(fitScoreById.get(item.id)) && `jobs-fit-score--${fitTone(fitScoreById.get(item.id))}`" :aria-label="`${text('Personal fit', 'Persönliche Passung')}: ${fitLabel(fitScoreById.get(item.id))}`" :title="text('Personal fit score', 'Bewertung der persönlichen Passung')">{{ fitLabel(fitScoreById.get(item.id)) }}</span></div></td>
             <td :data-label="text('Country', 'Land')">{{ item.country || '—' }}</td><td :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.details, now) }">{{ formatOpportunityDeadline(item.details, lang) }}</span></td>
             <td class="jobs-topics jobs-cell-wide" :data-label="text('Topics', 'Themen')">{{ item.topics.join(' · ') || '—' }}</td><td class="jobs-cell-state" :data-label="text('Your review', 'Deine Bewertung')" @click.stop><select class="jobs-review-select" :aria-label="`${text('Review state for', 'Bewertung für')} ${item.title}`" :value="reviewState(item.id)" :disabled="saving" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></td>
             <td class="jobs-cell-actions"><div class="jobs-row-actions" @click.stop><button class="btn btn--success" type="button" :disabled="saving" @click="startApplication(item)">{{ applicationByOpportunity.has(item.id) ? text('Open application', 'Bewerbung öffnen') : text('Create application', 'Bewerbung anlegen') }}</button></div></td>
@@ -288,7 +302,7 @@ async function refreshResearch() {
         <template #metadata>
           <span v-if="selectedOpportunity.country" class="opportunity-detail__country" :title="selectedOpportunity.country">{{ selectedOpportunity.country }}</span>
           <span class="opportunity-detail__deadline" :class="{ 'jobs-expired': isOpportunityDeadlinePassed(selectedOpportunity.details, now) }" :title="`${text('Deadline', 'Frist')}: ${formatOpportunityDeadline(selectedOpportunity.details, lang)}`" :aria-label="`${text('Deadline', 'Frist')}: ${formatOpportunityDeadline(selectedOpportunity.details, lang)}`"><span class="opportunity-detail__deadline-label">{{ text('Deadline', 'Frist') }}: </span>{{ formatOpportunityDeadline(selectedOpportunity.details, lang) }}</span>
-          <span v-if="selectedOpportunity.particularly_suitable" class="jobs-badge opportunity-detail__fit">{{ text('Strong fit', 'Besonders passend') }}</span>
+          <span v-if="selectedOpportunity.particularly_suitable && fitScoreById.get(selectedOpportunity.id) !== undefined" class="jobs-badge jobs-fit-score opportunity-detail__fit" :class="fitTone(fitScoreById.get(selectedOpportunity.id)) && `jobs-fit-score--${fitTone(fitScoreById.get(selectedOpportunity.id))}`" :aria-label="`${text('Personal fit', 'Persönliche Passung')}: ${fitLabel(fitScoreById.get(selectedOpportunity.id))}`" :title="text('Personal fit score', 'Bewertung der persönlichen Passung')">{{ fitLabel(fitScoreById.get(selectedOpportunity.id)) }}</span>
         </template>
         <template #actions>
           <label class="jobs-detail-state"><span class="jobs-action-label">{{ text('Your review', 'Deine Bewertung') }}</span><select :aria-label="text('Your review', 'Deine Bewertung')" :value="reviewState(selectedOpportunity.id)" :disabled="saving" @change="changeReview(selectedOpportunity, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
@@ -362,6 +376,8 @@ async function refreshResearch() {
 .jobs-search { flex: 1; min-width: 200px; max-width: 450px; }
 .jobs-toolbar .jobs-check { display: flex; align-items: center; }
 .jobs-filter-checks { display: grid; gap: 2px; }
+.jobs-opportunity-filters { display: contents; }
+.jobs-filter-toggle { display: none; }
 .jobs-count { margin-left: auto; color: #9bb3ad; font-size: 12px; padding-bottom: 10px; }
 .jobs-workspace input, .jobs-workspace select, .jobs-workspace textarea { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid #29524e; border-radius: 7px; background: #0b1b25; color: #e3f7ef; font: inherit; color-scheme: dark; }
 .jobs-workspace input[type=checkbox] { width: auto; }
@@ -399,10 +415,12 @@ td a { color: #8be9bf; overflow-wrap: anywhere; }
 .jobs-opportunity-badges { display: flex; flex-wrap: wrap; gap: 6px; }
 .jobs-badge--new { background: #153e57; color: #b9e5ff; }
 .jobs-badge--updated { background: #49351c; color: #ffe0a0; }
+.jobs-fit-score--red { background: #591f2b; color: #ffadb7; }
+.jobs-fit-score--yellow { background: #4a3c10; color: #ffe278; }
 tr.jobs-opportunity--new { background: #0b202e; }
 tr.jobs-opportunity--updated { background: #24241e; }
-.jobs-opportunity--new > td:first-child { box-shadow: inset 3px 0 #77caff; }
-.jobs-opportunity--updated > td:first-child { box-shadow: inset 3px 0 #efbf69; }
+.jobs-opportunity--unseen-new > td:first-child { box-shadow: inset 3px 0 #77caff; }
+.jobs-opportunity--unseen-updated > td:first-child { box-shadow: inset 3px 0 #efbf69; }
 tr.is-expanded { background: #0b242b; }
 .jobs-result-row { cursor: pointer; }
 .jobs-result-row[aria-disabled="true"] { cursor: wait; }
@@ -451,6 +469,9 @@ tr.is-expanded { background: #0b242b; }
   .jobs-heading p { font-size: 12px; }
   .jobs-toolbar { position: fixed; left: 0; right: 0; bottom: var(--mobile-tabs-height, 76px); z-index: 35; height: var(--mobile-context-row-height, 52px); box-sizing: border-box; align-items: center; margin: 0; padding: 5px 8px; border-top: 1px solid #21423e; background: #071820; }
   .jobs-toolbar > :not(.jobs-search) { display: none; }
+  .jobs-toolbar > .jobs-filter-toggle { display: block; flex-shrink: 0; min-height: 40px; }
+  .jobs-toolbar:has(.jobs-filter-toggle) .jobs-search { flex-basis: 0; }
+  .jobs-toolbar > .jobs-opportunity-filters.is-open { display: grid; position: absolute; bottom: 100%; left: 0; right: 0; max-height: calc(100dvh - var(--mobile-tabs-height, 76px) - 64px); overflow: auto; gap: 14px; padding: 16px; border-top: 1px solid #29524e; background: #071820; box-shadow: 0 -8px 24px rgb(0 0 0 / 25%); }
   .jobs-search { flex-basis: 100%; max-width: none; min-width: 0; }
   .jobs-workspace .jobs-search input { height: 40px; padding: 8px 12px; }
   .jobs-search > span { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -468,7 +489,7 @@ tr.is-expanded { background: #0b242b; }
   .jobs-workspace td { padding: 8px 0; }
   .jobs-workspace :is(.jobs-cell-state, .jobs-cell-actions) { display: none; }
   .jobs-cell-heading { background: transparent; }
-  .jobs-opportunity--new > td:first-child, .jobs-opportunity--updated > td:first-child { box-shadow: none; }
+  .jobs-opportunity--unseen-new > td:first-child, .jobs-opportunity--unseen-updated > td:first-child { padding-left: 10px; }
   .opportunity-detail { padding: 0; border: 0; border-radius: 0; background: transparent; }
   .opportunity-detail__header :deep(.workspace-detail-header__metadata) { flex-wrap: nowrap; gap: 8px; }
   .opportunity-detail__country { flex: 0 1 auto; max-width: 28%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
