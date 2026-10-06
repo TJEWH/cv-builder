@@ -141,7 +141,7 @@ If the installed Supabase plugin does not expose `execute_sql`, the connected ta
 
 On desktop and mobile, **New opportunities** groups results that have no saved visit receipt above **Previously viewed** results. Opening an item moves it into the lower group immediately; existing filters and sorting still apply within each group. This grouping does not expire with the separate 24-hour highlight badges.
 
-In **CV Studio → Letter templates**, describe subject, salutation, closing, structure and tone.
+In **CV Studio → Letter templates**, describe subject, salutation, closing, structure and tone. Template selection and **Save template revision** remain visible beside the scrollable form (above it on narrow screens). This tab uses the full editor width without a CV preview. In **Privacy**, the inline preview, expanded preview and its download use the privacy-filtered CV; other CV tabs show the normal document.
 
 **Main research interests** supplies your own research direction, including interests beyond your CV. Drafting connects relevant interests to the opportunity without forcing every topic into the letter or treating aspirations as proven experience.
 

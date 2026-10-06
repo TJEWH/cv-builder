@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, useId, watch } from 'vue';
 import type { LetterTemplate } from '../letterTypes';
 import { createLetterRepository, DEFAULT_LETTER_TEMPLATES, DEFAULT_QUESTION_GUIDANCE, LETTER_TEMPLATE_CONTEXT_MAX_LENGTH } from '../composables/motivationLetters';
 
@@ -11,6 +11,7 @@ const form = ref<LetterTemplate | null>(null);
 const message = ref('');
 const error = ref('');
 const importInput = ref<HTMLInputElement | null>(null);
+const formId = useId();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const applicantNamePlaceholder = '{{APPLICANT_NAME}}';
 const repository = () => createLetterRepository(localStorage, props.userId);
@@ -68,15 +69,18 @@ async function importLibrary(event: Event) {
     </div>
     <p v-if="error" role="alert" class="template-error">{{ error }}</p>
     <p v-if="message" role="status" class="template-notice">{{ message }}</p>
-    <div class="template-layout group-panel__scroll-body">
-      <aside aria-label="Letter template library">
-        <button v-for="template in templates" :key="template.id" type="button" :class="{ selected: selectedId === template.id }" @click="select(template.id)">
-          {{ template.name }}<small>{{ text('Revision', 'Revision') }} {{ template.revision }} · {{ template.maxWords }} {{ text('words', 'Wörter') }}</small>
-        </button>
+    <div class="template-layout">
+      <aside :aria-label="text('Letter template library', 'Briefvorlagenbibliothek')">
+        <label>{{ text('Template', 'Vorlage') }}<select :value="selectedId" @change="select(($event.target as HTMLSelectElement).value)">
+          <option v-if="!selectedId" value="" disabled>{{ text('New template', 'Neue Vorlage') }}</option>
+          <option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }} · {{ text('Revision', 'Revision') }} {{ template.revision }}</option>
+        </select></label>
+        <p v-if="form" class="template-selection-details">{{ text('Revision', 'Revision') }} {{ form.revision }} · {{ form.maxWords }} {{ text('words', 'Wörter') }}</p>
+        <button class="template-primary" type="submit" :form="formId" :disabled="!form">{{ text('Save template revision', 'Vorlagenrevision speichern') }}</button>
         <div class="template-library-actions"><button type="button" @click="download">{{ text('Export library', 'Bibliothek exportieren') }}</button><button type="button" @click="importInput?.click()">{{ text('Import library', 'Bibliothek importieren') }}</button></div>
         <input ref="importInput" hidden type="file" accept=".json,application/json" @change="importLibrary" />
       </aside>
-      <form v-if="form" class="template-form" @submit.prevent="save">
+      <form v-if="form" :id="formId" class="template-form" @submit.prevent="save">
         <label>{{ text('Template name', 'Vorlagenname') }}<input v-model="form.name" required maxlength="120" /></label>
         <div class="template-form-row"><label>{{ text('Default language', 'Standardsprache') }}<select v-model="form.language"><option value="en">English</option><option value="de">Deutsch</option></select></label><label>{{ text('Target words', 'Zielwortzahl') }}<input v-model.number="form.maxWords" type="number" min="50" max="2000" required /></label></div>
         <label>{{ text('Subject instructions', 'Hinweise zum Betreff') }}<textarea v-model="form.subjectInstructions" rows="3" maxlength="1000" /><span class="field-description">{{ text('Describe how to name the position and include a tender reference when available.', 'Beschreiben Sie, wie die Stelle benannt und eine vorhandene Ausschreibungsreferenz aufgenommen werden soll.') }}</span></label>
@@ -89,7 +93,6 @@ async function importLibrary(event: Event) {
         <button class="template-guidance-example" type="button" @click="form.questionGuidance = DEFAULT_QUESTION_GUIDANCE">{{ text('Use missing-requirements question example', 'Beispielfragen zu fehlenden Anforderungsnachweisen verwenden') }}</button>
         <label>{{ text('Example letter (optional)', 'Beispielbrief (optional)') }}<textarea v-model="form.exampleText" rows="8" maxlength="20000" /><span class="field-description">{{ text('Use an earlier letter to guide wording, style and structure. Its claims are not evidence about the applicant. Mark confidential details before sharing.', 'Ein früherer Brief kann Wortwahl, Stil und Struktur vorgeben. Seine Aussagen sind keine Nachweise über die bewerbende Person. Markieren Sie vertrauliche Details vor dem Teilen.') }}</span></label>
         <p class="template-hint">{{ text('Templates stay on this device until included in an explicitly published drafting context.', 'Vorlagen bleiben auf diesem Gerät, bis sie ausdrücklich in einem Entwurfskontext veröffentlicht werden.') }}</p>
-        <button class="template-primary" type="submit">{{ text('Save template revision', 'Vorlagenrevision speichern') }}</button>
       </form>
     </div>
   </section>
@@ -104,21 +107,20 @@ async function importLibrary(event: Event) {
 .letter-templates :is(button,input,select,textarea){font:inherit;border:1px solid #28534e;border-radius:7px;background:#0b1b25;color:#d1fae5;padding:10px 12px}
 button{cursor:pointer;font-size:13px;font-weight:600}
 button:hover{background:#14352e}
-.template-layout{display:grid;flex:1 1 auto;min-height:0;min-width:0;overflow:auto;overscroll-behavior:contain;align-content:start;grid-template-columns:minmax(160px,220px) minmax(0,1fr);gap:24px;padding-right:4px}
-aside>button{display:block;width:100%;text-align:left;margin-bottom:8px}
-aside>button.selected{border-color:#67c8a6;background:#185b4c}
-small{display:block;margin-top:4px;color:#a6c1b9;font-size:11px;font-weight:400}
-.template-library-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px}
+.template-layout{display:grid;flex:1 1 auto;min-height:0;min-width:0;overflow:hidden;grid-template-columns:minmax(180px,240px) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:24px}
+aside{min-width:0;align-self:start;display:grid;gap:12px}
+.letter-templates .template-selection-details{font-size:11px}
+.template-library-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .template-library-actions button{font-size:11px;padding:8px}
-.template-form{display:grid;gap:18px;max-width:760px}
+.template-form{display:grid;align-content:start;gap:18px;min-height:0;min-width:0;max-width:760px;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:0 4px 12px 0}
 .letter-templates label{display:grid;gap:7px;font:600 12px/1.4 system-ui;color:#d1fae5}
 input,select,textarea{font:400 13px/1.5 system-ui;min-width:0;width:100%;box-sizing:border-box}
 textarea{resize:vertical}
 .template-form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.letter-templates .template-primary{justify-self:start;background:#185b4c;color:#effff6;border-color:#67c8a6}
+.letter-templates .template-primary{width:100%;background:#185b4c;color:#effff6;border-color:#67c8a6}
 .letter-templates .template-primary:hover{background:#226e5c}
 .template-hint{font-size:12px}
 .letter-templates .template-error,.letter-templates .template-notice{flex:0 0 auto;padding:12px;margin-bottom:16px;border-radius:7px;background:#3a1720;color:#fecaca}
 .letter-templates .template-notice{background:#10382c;color:#b5e3cb}
-@media(max-width:700px){.template-layout{grid-template-columns:1fr;padding-right:0}.template-heading{flex-direction:column;gap:10px;margin-bottom:14px}.template-form-row{grid-template-columns:1fr}}
+@media(max-width:700px){.template-layout{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr);gap:18px}.template-heading{flex-direction:column;gap:10px;margin-bottom:14px}.template-form-row{grid-template-columns:1fr}.template-library-actions{margin-top:0}.template-form{max-width:none}}
 </style>

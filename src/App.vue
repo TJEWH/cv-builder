@@ -65,6 +65,8 @@ watch([activeWorkspace, activeBuilderGroup], () => {
   try { sessionStorage.setItem('CV_WORKSPACE_NAV', JSON.stringify({ workspace: activeWorkspace.value, cvTab: activeBuilderGroup.value })); } catch { /* Optional preference. */ }
 });
 const isCloudTab = computed(() => activeWorkspace.value !== 'cv-studio');
+const studioHasPreview = computed(() => !['templates', 'attachments'].includes(activeBuilderGroup.value));
+const isPrivacyStudioPreview = computed(() => !isCloudTab.value && activeBuilderGroup.value === 'privacy');
 const cloudTab = computed(() => activeWorkspace.value === 'applications' ? 'applications' : 'opportunities');
 const workspaceGroups = computed(() => [
   { key: 'opportunities' as const, label: lang.value === 'de' ? 'Stellenangebote' : 'Opportunities', icon: 'briefcase' },
@@ -344,8 +346,10 @@ function invalidateAnonymizedPdfPreview({ defer = false } = {}) {
   anonymizedPreviewPages.value = [];
   anonymizedPreviewPage.value = 1;
   renderedAnonymizedSourceVersion = -1;
-  if (!defer && fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
+  if (!defer && (isPrivacyStudioPreview.value || fullPreviewVariant.value === 'anonymized')) requestAnonymizedPdfPreview();
 }
+
+watch(isPrivacyStudioPreview, (active) => { if (active) requestAnonymizedPdfPreview(); }, { immediate: true });
 
 function handleVersionDeleted() {
   saveDebounced.cancel();
@@ -561,11 +565,24 @@ const activeFullPreviewPage = computed({
 const isActiveFullPreviewRendering = computed(() => (
   isAnonymizedFullPreview.value ? isAnonymizedPreviewRendering.value : isPreviewRendering.value
 ));
-
+const studioPreviewPages = computed(() => isPrivacyStudioPreview.value ? anonymizedPreviewPages.value : previewPages.value);
+const studioPreviewPage = computed({
+  get: () => isPrivacyStudioPreview.value ? anonymizedPreviewPage.value : previewPage.value,
+  set: (page: number) => {
+    if (isPrivacyStudioPreview.value) anonymizedPreviewPage.value = page;
+    else previewPage.value = page;
+  },
+});
+const isStudioPreviewRendering = computed(() => isPrivacyStudioPreview.value ? isAnonymizedPreviewRendering.value : isPreviewRendering.value);
+const isStudioPreviewExporting = computed(() => isPrivacyStudioPreview.value ? isAnonymizedExporting.value : isExporting.value);
+function exportStudioPreview() {
+  return isPrivacyStudioPreview.value ? handleAnonymizedExportPdf() : handleExportPdf();
+}
 
 function openFullPreview() {
   flushStateSave();
   if (formBuilder.value?.flushSectionSaves() === false) return;
+  fullPreviewMode.value = isPrivacyStudioPreview.value ? 'anonymized' : 'normal';
   previewMode.value = true;
   if (isAnonymizedFullPreview.value) requestAnonymizedPdfPreview();
 }
@@ -631,9 +648,9 @@ function openAttachmentLibrary() {
       <div v-show="!isCloudTab" class="cv-studio-navigation">
         <nav class="cv-studio-subtabs" aria-label="CV Studio sections">
           <button v-for="group in builderGroups" :key="group.key" class="btn" :class="{ 'is-active': activeBuilderGroup === group.key }" :aria-pressed="activeBuilderGroup === group.key" :disabled="groupDisabled(group.key)" type="button" @click="selectBuilderGroup(group.key)"><font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" /><span>{{ isMobile && group.key === 'templates' ? (lang === 'de' ? 'Vorlagen' : 'Templates') : group.label }}</span></button>
-          <button v-if="isMobile && activeBuilderGroup !== 'attachments'" class="btn cv-studio-open-preview" type="button" :aria-label="t('openPreview')" :title="t('openPreview')" :disabled="isEmptyDocument" @click="openFullPreview"><font-awesome-icon :icon="['fas', 'eye']" aria-hidden="true" /></button>
+          <button v-if="isMobile && studioHasPreview" class="btn cv-studio-open-preview" type="button" :aria-label="t('openPreview')" :title="t('openPreview')" :disabled="isEmptyDocument" @click="openFullPreview"><font-awesome-icon :icon="['fas', 'eye']" aria-hidden="true" /></button>
         </nav>
-        <div v-if="activeBuilderGroup !== 'attachments'" class="cv-studio-version">
+        <div v-if="studioHasPreview" class="cv-studio-version">
           <select class="cv-studio-configuration" :value="selectedRootId" :aria-label="lang === 'de' ? 'Karrierevariante' : 'Career variant'" @change="selectConfiguration">
             <option v-if="!selectedConfigurationId" value="" disabled>{{ t('noSavedVersion') }}</option>
             <option v-for="configuration in rootConfigurations" :key="configuration.id" :value="configuration.id">{{ configuration.name }}</option>
@@ -665,7 +682,7 @@ function openAttachmentLibrary() {
         @open-attachments="openAttachmentLibrary"
       />
 
-      <section v-show="!isCloudTab" id="builder-group-cv-studio" class="builder-layout" :class="{ 'builder-layout--attachments': activeBuilderGroup === 'attachments' }">
+      <section v-show="!isCloudTab" id="builder-group-cv-studio" class="builder-layout" :class="{ 'builder-layout--library': !studioHasPreview }">
         <div class="builder-layout__controls">
           <Transition name="builder-group">
             <BackupManager
@@ -713,7 +730,9 @@ function openAttachmentLibrary() {
           <LocalAttachments v-show="activeBuilderGroup === 'attachments'" class="builder-group-panel studio-attachments" :user-id="cloudUser?.id || ''" :client="supabaseClient" :lang="lang" :active="!isCloudTab && activeBuilderGroup === 'attachments'" />
         </div>
 
-        <InlineDocumentPreview v-if="!isMobile && activeBuilderGroup !== 'attachments'" class="studio-inline-preview" v-model:page="previewPage" :pages="previewPages" :is-updating="isPreviewRendering" :lang="lang" :downloading="isExporting" :title="t('liveCvPreview')" @open="openFullPreview" @download="handleExportPdf" />
+        <InlineDocumentPreview v-if="!isMobile && studioHasPreview" class="studio-inline-preview" v-model:page="studioPreviewPage" :pages="studioPreviewPages" :is-updating="isStudioPreviewRendering" :lang="lang" :downloading="isStudioPreviewExporting" :title="t(isPrivacyStudioPreview ? 'privacyPreview' : 'liveCvPreview')" @open="openFullPreview" @download="exportStudioPreview">
+          <template v-if="isPrivacyStudioPreview" #header><span>{{ t('privacyPreview') }}</span></template>
+        </InlineDocumentPreview>
       </section>
     </section>
 
@@ -886,7 +905,7 @@ body,
 .builder-layout__controls .builder-group-panel:has(.content-mode-toolbar),
 .builder-layout__controls .anonymization-panel { height: 100%; }
 .builder-layout__controls .studio-templates,.builder-layout__controls .studio-attachments { height: 100%; overflow: hidden; padding: 0; }
-.builder-layout.builder-layout--attachments { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.builder-layout.builder-layout--library { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 
 .builder-group-panel > .group-panel__scroll-body,
 .builder-group-panel > .editor-panel__body,
