@@ -4,7 +4,7 @@ import type { PropType, VNode } from 'vue';
 import { buildOpportunityGroups, checklistKeys } from '../composables/opportunityContext';
 import type { OpportunityContextNode } from '../composables/opportunityContext';
 
-const props = defineProps<{ context: Record<string, unknown>; lang: string; checklist?: boolean; completedKeys?: string[]; saving?: boolean }>();
+const props = defineProps<{ context: Record<string, unknown>; lang: string; checklist?: boolean; completedKeys?: string[]; saving?: boolean; defaultOpenGroups?: string[] }>();
 const emit = defineEmits<{ toggleChecklist: [key: string, completed: boolean] }>();
 const groups = computed(() => buildOpportunityGroups(props.context, props.lang));
 const completed = computed(() => new Set(props.completedKeys || []));
@@ -64,7 +64,7 @@ const ContextValue = defineComponent({
 
 <template>
   <div class="opportunity-context">
-    <details v-for="group in groups" :key="group.id" class="opportunity-context__group" :class="`opportunity-context__group--${group.id}`" :open="['overview', 'salary', 'requirements', 'documents'].includes(group.id)">
+    <details v-for="group in groups" :key="group.id" class="opportunity-context__group" :class="`opportunity-context__group--${group.id}`" :open="(defaultOpenGroups ?? ['overview', 'salary', 'requirements', 'documents']).includes(group.id)">
       <summary>{{ group.label }} <span v-if="checklist && ['requirements', 'documents'].includes(group.id)" class="opportunity-context__progress">{{ progress(group.items) }}</span></summary>
       <dl>
         <div v-for="item in group.items" :key="item.id" class="opportunity-context__field" :class="item.kind ? `opportunity-context__field--${item.kind}` : undefined">

@@ -64,10 +64,9 @@ async function mount(reload = false) {
   app.mount(root); await settle();
 }
 async function prepare(scope: 'cv' | 'letter' | 'both', existing = 'Original working letter.') {
-  await mount(); await field('Career variant', 'base'); await click('Use CV template'); await click('Use letter template');
-  if (scope === 'both') await click('2Refinement');
-  else await click(scope === 'cv' ? 'Tailor CV' : 'Draft or refine letter');
-  assert(setup.feedbackScope === scope, 'Entry point must select the matching shared scope');
+  await mount(); await field('Saved CV', 'base'); await field('Letter template', 'research');
+  await click('2Refinement'); await field('Refinement scope', scope);
+  assert(setup.feedbackScope === scope, 'Refinement must use the selected scope');
   await click('Letter preview'); await disclose('Edit / approve working documents'); await field('Complete letter text', existing);
   if (!existing && scope !== 'cv') {
     const initialNotice = root.querySelector<HTMLElement>('.initial-letter-notice');
@@ -182,8 +181,8 @@ async function templateQuestionFlow() {
   await field('Questions and context to ask for (optional)', guidance);
   await click('Save template revision');
   assert(root.textContent?.includes('Template saved locally.'), 'Template guidance did not save through the editor');
-  await mount(true); await field('Career variant', 'base'); await click('Use CV template'); await field('Template', 'research'); await click('Use letter template');
-  await click('Draft or refine letter'); await disclose('Prepare sources & privacy');
+  await mount(true); await field('Saved CV', 'base'); await field('Letter template', 'research');
+  await click('2Refinement'); await field('Refinement scope', 'letter'); await disclose('Prepare sources & privacy');
   await click('Publish sources & copy full prompt'); assert(!setup.error, setup.error);
   const source = setup.requests[0].request_json;
   assert(source.letter.template.researchInterests === interests && source.letter.template.questionGuidance === guidance, 'Published request lost the selected template guidance');

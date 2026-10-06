@@ -8,23 +8,19 @@ import type { MotivationLetterDraft } from '../draftingTypes';
 import type { ApplicationLetter, LetterTemplate } from '../letterTypes';
 import type { ApprovedPrivacyContexts, PrivacyContextType, AnnotationStatus, AnnotationReference, LocalRefinementRequest, RefinementApprovals, RefinementFeedback, RefinementProposalRow, RefinementRequestRow, RefinementReviewRow, RefinementScope, RefinementState } from '../refinementTypes';
 import { cloneCv, createApplicationCv, cvDifferences, isApplicationCvPublished, loadApplicationCv, saveApplicationCv, type ApplicationCvRecord } from '../composables/applicationCv';
-import { createCloudCvSnapshot } from '../composables/cloudCvPrivacy';
-import { rootVariantId, subvariantParent } from '../composables/careerVariants';
+import { subvariantParent } from '../composables/careerVariants';
 import { addIncomingDraft, createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, editLetter, finalizeLetter, letterContextVersion, letterFromEditableText, openLetterRevision, parseIncomingLetter, selectApplicationLetterTemplate, unresolvedLetterPlaceholders } from '../composables/motivationLetters';
 import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, describeCvOperation, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText, validateRefinementReviewPayload } from '../composables/applicationRefinement';
 import { opensInTracking } from '../composables/applicationTracking';
-import { buildOpportunityGroups, checklistKeys } from '../composables/opportunityContext';
+import { formatOpportunityDeadline } from '../composables/opportunityDeadline';
 import FormBuilder from './FormBuilder.vue';
 import DocumentCvPreview from './DocumentCvPreview.vue';
 import MotivationLetterPreview from './MotivationLetterPreview.vue';
-import MotivationLetterEditor from './MotivationLetterEditor.vue';
-import CvAdjustmentWorkflow from './CvAdjustmentWorkflow.vue';
 import RefinementHistory from './RefinementHistory.vue';
 import LegacyRefinementHistory from './LegacyRefinementHistory.vue';
 import ApplicationDocuments from './ApplicationDocuments.vue';
 import WorkspaceDetailHeader from './WorkspaceDetailHeader.vue';
 import OpportunityContext from './OpportunityContext.vue';
-import ApplicationIdentifier from './ApplicationIdentifier.vue';
 import { buildShortRefinementInstruction } from '../composables/applicationReference';
 import { resolveRefinementSettings, serializeRefinementDraft, sameRefinementInputs } from '../composables/refinementSources';
 import PrivacyTextPreview from './PrivacyTextPreview.vue';
@@ -54,9 +50,6 @@ const pane = ref<'cv' | 'letter'>('cv');
 const record = ref<ApplicationCvRecord | null>(null);
 const letter = ref<ApplicationLetter | null>(null);
 const templates = ref<LetterTemplate[]>([]);
-const pendingBaseId = ref('');
-const pendingSubId = ref('');
-const pendingTemplateId = ref('research');
 const approvals = ref<RefinementApprovals>({ cv: null, letter: null });
 const privacyContexts = ref<ApprovedPrivacyContexts>({});
 const localRequests = ref<Record<string, LocalRefinementRequest>>({});
@@ -118,9 +111,6 @@ try {
   if (record.value) { record.value.detached = true; saveApplicationCv(record.value); }
   templates.value = letterRepository.listTemplates();
   letter.value = letterRepository.load(props.application.id);
-  pendingTemplateId.value = letter.value
-    ? templates.value.find(item => item.id === letter.value?.templateId)?.id || ''
-    : templates.value[0]?.id || '';
   const stored = localStorage.getItem(storageKey);
   if (stored) {
     const value = JSON.parse(stored);
@@ -141,17 +131,16 @@ try {
   localReadError = text('Saved application data could not be read. Restore an application backup before saving: ', 'Gespeicherte Bewerbungsdaten konnten nicht gelesen werden. Vor dem Speichern eine Bewerbungssicherung wiederherstellen: ') + String(cause);
   saveError.value = localReadError;
 }
-const roots = computed(() => props.configurations.filter(item => !item.parentId));
 watch(() => props.application.status, status => {
   if (opensInTracking(status)) tab.value = 'tracking';
 }, { immediate: true });
-const subvariants = computed(() => props.configurations.filter(item => item.parentId === pendingBaseId.value));
-if (record.value) {
-  pendingBaseId.value = rootVariantId(record.value.variantId || record.value.baseId, props.configurations);
-  pendingSubId.value = record.value.variantId !== pendingBaseId.value ? record.value.variantId || '' : '';
-}
+const selectedCvId = computed(() => record.value?.variantId || record.value?.baseId || '');
 const selectedTemplate = computed(() => letter.value?.templateSnapshot || templates.value.find(item => item.id === letter.value?.templateId) || DEFAULT_LETTER_TEMPLATES[0]!);
 const missingLetterTemplate = computed(() => !!letter.value && !letter.value.templateSnapshot);
+const selectedTemplateId = computed(() => {
+  const template = templates.value.find(item => item.id === letter.value?.templateId);
+  return template && template.revision === letter.value?.templateSnapshot?.revision ? template.id : '';
+});
 const effectiveSettings = computed(() => resolveRefinementSettings(selectedTemplate.value, letter.value));
 const setup = computed(() => effectiveSettings.value.setup);
 const letterText = computed(() => serializeRefinementDraft(letter.value?.working).text);
@@ -163,7 +152,6 @@ const cvApproved = computed(() => !!record.value && approvals.value.cv === cvRev
 const unresolved = computed(() => letter.value ? unresolvedLetterPlaceholders(letter.value.working, record.value?.state.contact || null) : []);
 const letterApproved = computed(() => !!letterText.value.trim() && approvals.value.letter === letterRevision.value && !unresolved.value.length && !saveError.value);
 const words = computed(() => letterText.value.trim().split(/\s+/).filter(Boolean).length);
-const privacySnapshot = computed(() => record.value ? createCloudCvSnapshot(record.value.state) : null);
 const published = computed(() => !!record.value && isApplicationCvPublished(record.value, props.application.cv_variant_id));
 const selectedProposal = computed(() => proposals.value.find(item => item.id === selectedProposalId.value));
 const selectedRequest = computed(() => requests.value.find(item => item.id === selectedProposal.value?.request_id));
@@ -296,8 +284,6 @@ const proposalAnnotations = computed(() => annotationViews(selectedProposal.valu
 }));
 // Leaving review returns to saved documents; returning must not reopen a dismissed proposal.
 watch(tab, value => { if (value !== 'refinement') reviewActive.value = false; });
-const requirementContext = computed(() => Object.fromEntries(Object.entries(props.application.context_json).filter(([key]) => ['requirements', 'required_documents', 'application_documents', 'documents', 'submission_documents', 'eligibility'].includes(key))));
-const uncheckedRequirements = computed(() => buildOpportunityGroups(props.application.context_json, props.lang).filter(group => ['requirements', 'documents'].includes(group.id)).flatMap(group => checklistKeys(group.items)).filter(key => !props.application.completed_checklist_keys?.includes(key)).length);
 const allowedScope = computed<RefinementScope>(() => cvApproved.value ? 'letter' : letterApproved.value ? 'cv' : 'both');
 watch(allowedScope, scope => { if (cvApproved.value && feedbackScope.value !== 'letter' || letterApproved.value && feedbackScope.value !== 'cv') feedbackScope.value = scope; }, { immediate: true });
 watch(tab, value => { try { sessionStorage.setItem(navigationKey, value); } catch { /* Navigation remains available. */ } });
@@ -366,12 +352,6 @@ async function refreshCloud() {
   try { await loadingCloud; }
   finally { loadingCloud = null; refreshing.value = false; }
 }
-function enterRefinement(scope: RefinementScope = 'both') {
-  if (busy.value) return;
-  feedbackScope.value = cvApproved.value ? 'letter' : letterApproved.value ? 'cv' : scope;
-  pane.value = feedbackScope.value === 'letter' ? 'letter' : 'cv';
-  tab.value = 'refinement';
-}
 function selectReviewProposal(id: string) {
   if (busy.value || !proposals.value.some(row => row.id === id)) return;
   proposalFileSequence++;
@@ -429,7 +409,7 @@ async function publishCurrentCv() {
 }
 async function saveSetup() {
   if (!record.value || !letter.value) throw new Error(text('Select both templates first.', 'Zuerst beide Vorlagen auswählen.'));
-  if (missingLetterTemplate.value) throw new Error(text('The original letter template is unavailable. Choose a template in Preparation and click “Use letter template”. Your existing letter is preserved.', 'Die ursprüngliche Briefvorlage ist nicht verfügbar. In Vorbereitung eine Vorlage auswählen und „Briefvorlage verwenden“ anklicken. Der bestehende Brief bleibt erhalten.'));
+  if (missingLetterTemplate.value) throw new Error(text('The original letter template is unavailable. Select a template in Preparation. Your existing letter is preserved.', 'Die ursprüngliche Briefvorlage ist nicht verfügbar. In Vorbereitung eine Vorlage auswählen. Der bestehende Brief bleibt erhalten.'));
   if (!cloudLoaded.value) await refreshCloud();
   const signature = baselineSignature.value;
   await publishCurrentCv();
@@ -441,23 +421,29 @@ async function saveSetup() {
   cloudState.value = saved;
   if (signature !== baselineSignature.value) throw new Error('Documents changed while saving. Save preparation again.');
 }
-async function savePreparation() { await run(async () => { await saveSetup(); notice.value = text('Preparation saved to Supabase. Your private documents stay on this device.', 'Vorbereitung in Supabase gespeichert. Private Dokumente bleiben auf diesem Gerät.'); }); }
-function assignBase() {
-  const id = pendingSubId.value || pendingBaseId.value;
+async function selectCv(id: string) {
+  if (busy.value) return;
   const variant = props.configurations.find(item => item.id === id); const state = variant && props.readVersion(id);
   if (!variant || !state) return;
-  record.value = createApplicationCv(props.userId, props.application.id, id, variant.name, state);
-  record.value.variantId = id; record.value.detached = true;
-  approvals.value = { cv: null, letter: null }; persist();
-  void run(async () => { await publishCurrentCv(); if (letter.value) await saveSetup(); notice.value = text('Independent CV snapshot saved for this application.', 'Unabhängiger CV-Snapshot für diese Bewerbung gespeichert.'); });
+  await run(async () => {
+    record.value = createApplicationCv(props.userId, props.application.id, id, variant.name, state);
+    record.value.variantId = id; record.value.detached = true;
+    approvals.value = { cv: null, letter: null }; persist();
+    await publishCurrentCv(); if (letter.value) await saveSetup();
+    notice.value = text('CV selected for this application.', 'CV für diese Bewerbung ausgewählt.');
+  });
 }
-async function useLetterTemplate() {
-  const template = templates.value.find(item => item.id === pendingTemplateId.value);
+async function selectLetterTemplate(id: string) {
+  if (busy.value) return;
+  const template = templates.value.find(item => item.id === id);
   if (!template) return;
-  if (letter.value) letter.value = selectApplicationLetterTemplate(letter.value, template);
-  else letter.value = createApplicationLetter(props.userId, props.application.id, template, context.value, template.language);
-  approvals.value.letter = null; persist();
-  if (record.value) await savePreparation();
+  await run(async () => {
+    if (letter.value) letter.value = selectApplicationLetterTemplate(letter.value, template);
+    else letter.value = createApplicationLetter(props.userId, props.application.id, template, context.value, template.language);
+    approvals.value.letter = null; persist();
+    if (record.value) await saveSetup();
+    notice.value = text('Letter template selected for this application.', 'Briefvorlage für diese Bewerbung ausgewählt.');
+  });
 }
 function updateLetter(value: string) { if (letter.value) letter.value = editLetter(letter.value, letterFromEditableText(value)); }
 function mergeReviews(...groups: RefinementReviewRow[][]): RefinementReviewRow[] {
@@ -888,45 +874,39 @@ function restoreImportedReviews(value: unknown, restoredProposals: RefinementPro
 
 <template>
   <section class="application-workspace">
-    <WorkspaceDetailHeader :title="String(application.context_json.title || text('Application', 'Bewerbung'))" :subtitle="String(application.context_json.institution || application.context_json.university || '')" :back-label="text('All applications', 'Alle Bewerbungen')" :status="application.status" @back="emit('close')">
+    <WorkspaceDetailHeader class="application-header" :title="String(application.context_json.title || text('Application', 'Bewerbung'))" :subtitle="String(application.context_json.institution || application.context_json.university || '')" :back-label="text('All applications', 'Alle Bewerbungen')" :status="application.status" @back="emit('close')">
       <template v-if="$slots.actions" #actions><slot name="actions" /></template>
-      <template v-if="$slots['secondary-actions']" #secondary-actions><slot name="secondary-actions" /></template>
-      <template #metadata><ApplicationIdentifier :application="application" :lang="lang" /><span>{{ cvApproved ? text('CV approved', 'CV freigegeben') : text('CV in preparation', 'CV in Vorbereitung') }}</span><span>{{ letterApproved ? text('Letter approved', 'Brief freigegeben') : text('Letter in preparation', 'Brief in Vorbereitung') }}</span></template>
+      <template #metadata><span>{{ text('Deadline', 'Bewerbungsfrist') }}: {{ formatOpportunityDeadline(application.context_json, lang) }}</span></template>
     </WorkspaceDetailHeader>
-    <nav class="workspace-subtabs" :aria-label="text('Application stages', 'Bewerbungsphasen')">
-      <button v-for="(stage, index) in stages" :key="stage" type="button" :class="{ 'is-active': tab === stage }" :aria-pressed="tab === stage" @click="tab = stage"><span class="stage-number">{{ index + 1 }}</span>{{ ({ preparation: text('Preparation', 'Vorbereitung'), refinement: text('Refinement', 'Überarbeitung'), review: text('PDF review', 'PDF-Prüfung'), tracking: text('Tracking', 'Verlauf') })[stage] }}</button>
-    </nav>
     <p v-if="error" class="message error" role="alert">{{ error }}</p><p v-if="saveError" class="message error" role="alert">{{ saveError }} <button type="button" @click="persist">{{ text('Retry save', 'Erneut speichern') }}</button></p><p v-if="notice" class="message" role="status">{{ notice }}</p>
     <div class="workflow-body" :class="{ 'workflow-body--refinement': tab === 'refinement', 'workflow-body--review': tab === 'review' }">
       <section v-show="tab === 'preparation'" class="preparation-stage">
-        <div class="stage-heading"><div><h2>{{ text('Prepare your application', 'Bewerbung vorbereiten') }}</h2><p>{{ text('Choose templates and attach supporting documents. Each application keeps its own copies.', 'Vorlagen auswählen und zusätzliche Dokumente anhängen. Jede Bewerbung behält eigene Kopien.') }}</p></div></div>
         <div class="preparation-grid">
-          <section class="workflow-card"><h3>1. {{ text('CV template', 'CV-Vorlage') }}</h3>
-            <label>{{ text('Career variant', 'Karrierevariante') }}<select v-model="pendingBaseId" :disabled="busy" @change="pendingSubId = ''"><option value="">{{ text('Choose a variant…', 'Variante wählen…') }}</option><option v-for="variant in roots" :key="variant.id" :value="variant.id">{{ variant.name }}</option></select></label>
-            <label v-if="pendingBaseId">{{ text('Subvariant', 'Untervariante') }}<select v-model="pendingSubId" :disabled="busy"><option value="">{{ text('Original variant', 'Originalvariante') }}</option><option v-for="variant in subvariants" :key="variant.id" :value="variant.id">{{ variant.name }}</option></select></label>
-            <button type="button" :disabled="!pendingBaseId || busy" @click="assignBase">{{ text('Use CV template', 'CV-Vorlage verwenden') }}</button>
-            <p v-if="record">{{ record.baseName }} · {{ published ? text('Snapshot saved', 'Snapshot gespeichert') : text('Local copy — save to Supabase', 'Lokale Kopie — in Supabase speichern') }}</p>
-            <p v-else>{{ text('Create a named variant in CV Studio if the library is empty.', 'Bei leerer Bibliothek zuerst eine benannte Variante im CV-Studio erstellen.') }}</p>
-            <CvAdjustmentWorkflow :lang="lang" :disabled="busy" @refine="enterRefinement" />
-            <details v-if="privacySnapshot"><summary>{{ text('Privacy-filtered snapshot', 'Datenschutzgefilterter Snapshot') }}</summary><pre>{{ JSON.stringify(privacySnapshot, null, 2) }}</pre></details>
+          <section class="workflow-card"><h3>CV</h3>
+            <label>{{ text('Saved CV', 'Gespeicherter CV') }}<select :value="selectedCvId" :disabled="busy" @change="selectCv(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ text('Choose a CV…', 'CV wählen…') }}</option><option v-if="record && !configurations.some(item => item.id === selectedCvId)" :value="selectedCvId" disabled>{{ record.baseName }} · {{ text('Saved application copy', 'Gespeicherte Bewerbungskopie') }}</option><option v-for="variant in configurations" :key="variant.id" :value="variant.id">{{ variant.name }}</option></select></label>
+            <p v-if="!configurations.length" class="hint">{{ text('Save a CV in CV Studio to select it here.', 'Einen CV im CV-Studio speichern, um ihn hier auszuwählen.') }}</p>
           </section>
-          <section class="workflow-card"><h3>2. {{ text('Letter template', 'Briefvorlage') }}</h3>
-            <label>{{ text('Template', 'Vorlage') }}<select v-model="pendingTemplateId" :disabled="busy"><option value="">{{ text('Choose a template…', 'Vorlage wählen…') }}</option><option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }} · {{ text('revision', 'Revision') }} {{ template.revision }}</option></select></label>
-            <button type="button" :disabled="busy || !pendingTemplateId" @click="useLetterTemplate">{{ text('Use letter template', 'Briefvorlage verwenden') }}</button>
+          <section class="workflow-card"><h3>{{ text('Letter', 'Brief') }}</h3>
+            <label>{{ text('Letter template', 'Briefvorlage') }}<select :value="selectedTemplateId" :disabled="busy" @change="selectLetterTemplate(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ letter && !missingLetterTemplate ? selectedTemplate.name + ' · ' + text('Saved revision', 'Gespeicherte Revision') + ' ' + selectedTemplate.revision : text('Choose a letter template…', 'Briefvorlage wählen…') }}</option><option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }}</option></select></label>
             <p v-if="missingLetterTemplate" class="message">{{ text('The original letter template is unavailable. Choose a template above to continue; your existing letter is preserved.', 'Die ursprüngliche Briefvorlage ist nicht verfügbar. Zum Fortfahren oben eine Vorlage auswählen; der bestehende Brief bleibt erhalten.') }}</p>
-            <template v-if="letter"><p v-if="!missingLetterTemplate">{{ selectedTemplate.name }} · {{ text('Frozen revision', 'Gespeicherte Revision') }} {{ selectedTemplate.revision }}</p><div class="field-row"><label>{{ text('Language', 'Sprache') }}<select v-model="letter.language" :disabled="busy"><option value="en">English</option><option value="de">Deutsch</option></select></label><label>{{ text('Target words', 'Zielwortzahl') }}<input v-model.number="letter.maxWords" type="number" min="50" max="2000" :disabled="busy" /></label></div><label>{{ text('Application writing instructions', 'Schreibhinweise für diese Bewerbung') }}<textarea v-model="letter.instructions" rows="3" maxlength="20000" :disabled="busy" /></label><details v-if="!missingLetterTemplate"><summary>{{ text('Template guidance', 'Vorlagenhinweise') }}</summary><p class="pre-wrap">{{ selectedTemplate.structure }}</p><p>{{ selectedTemplate.tone }}</p><template v-if="selectedTemplate.researchInterests"><h4>{{ text('Research interests', 'Forschungsinteressen') }}</h4><p class="pre-wrap">{{ selectedTemplate.researchInterests }}</p></template><template v-if="selectedTemplate.questionGuidance"><h4>{{ text('Follow-up question guidance', 'Hinweise für Rückfragen') }}</h4><p class="pre-wrap">{{ selectedTemplate.questionGuidance }}</p></template><p v-if="selectedTemplate.exampleText" class="pre-wrap">{{ selectedTemplate.exampleText }}</p></details></template>
-            <MotivationLetterEditor :lang="lang" :disabled="busy" @refine="enterRefinement" />
           </section>
         </div>
-        <div class="action-row"><button type="button" :disabled="busy || !record || !letter" @click="savePreparation">{{ busy ? text('Saving…', 'Speichern…') : text('Save preparation to Supabase', 'Vorbereitung in Supabase speichern') }}</button><button type="button" @click="downloadBackup">{{ text('Back up application', 'Bewerbung sichern') }}</button><button type="button" :disabled="busy" @click="backupInput?.click()">{{ text('Restore application', 'Bewerbung wiederherstellen') }}</button><input ref="backupInput" hidden type="file" accept=".json,application/json" @change="importBackup" /></div>
-        <details class="workflow-card"><summary>{{ text('Tender context & requirements', 'Ausschreibung & Anforderungen') }}</summary><slot name="preparation"><OpportunityContext :context="application.context_json" :lang="lang" /></slot></details>
-        <h3 class="attachments-heading">3. {{ text('Supporting documents', 'Zusätzliche Dokumente') }}</h3>
+        <details open class="workflow-card"><summary>{{ text('Tender context & requirements', 'Ausschreibung & Anforderungen') }}</summary><slot name="preparation"><OpportunityContext :context="application.context_json" :lang="lang" :default-open-groups="['requirements', 'documents']" /></slot></details>
+        <div v-if="$slots['preparation-actions']" class="preparation-actions"><slot name="preparation-actions" /></div>
       </section>
       <section v-show="tab === 'refinement'" class="refinement-stage">
         <div class="refinement-controls">
-          <div class="stage-heading"><div><h2>{{ text('Refine CV & letter', 'CV & Brief überarbeiten') }}</h2><p>{{ text('Prepare → Publish → Load proposal → Review → Accept', 'Vorbereiten → Veröffentlichen → Vorschlag laden → Prüfen → Übernehmen') }}</p></div></div>
           <p v-if="!record || !letter" class="message">{{ text('Select both templates in Preparation to begin. Existing proposals remain available below.', 'Zum Start beide Vorlagen in Vorbereitung auswählen. Bestehende Vorschläge bleiben unten verfügbar.') }}</p>
           <label>{{ text('Refinement scope', 'Umfang der Überarbeitung') }}<select v-model="feedbackScope" :disabled="busy || (cvApproved && letterApproved)"><option v-if="!cvApproved && !letterApproved" value="both">{{ text('CV and motivation letter', 'CV und Motivationsschreiben') }}</option><option v-if="!cvApproved" value="cv">CV</option><option v-if="!letterApproved" value="letter">{{ text('Motivation letter', 'Motivationsschreiben') }}</option></select></label>
+          <section v-if="letter && feedbackScope !== 'cv'" class="workflow-card letter-refinement-settings">
+            <h3>{{ text('Letter settings', 'Briefeinstellungen') }}</h3>
+            <div class="field-row">
+              <label>{{ text('Language', 'Sprache') }}<select v-model="letter.language" :disabled="busy || reviewActive"><option value="en">English</option><option value="de">Deutsch</option></select></label>
+              <label>{{ text('Target words', 'Zielwortzahl') }}<input v-model.number="letter.maxWords" type="number" min="50" max="2000" :disabled="busy || reviewActive" /></label>
+            </div>
+            <label>{{ text('Application writing instructions', 'Schreibhinweise für diese Bewerbung') }}<textarea v-model="letter.instructions" rows="3" maxlength="20000" :disabled="busy || reviewActive" /></label>
+            <details v-if="!missingLetterTemplate"><summary>{{ text('Template guidance', 'Vorlagenhinweise') }}</summary><p class="pre-wrap">{{ selectedTemplate.structure }}</p><p>{{ selectedTemplate.tone }}</p><template v-if="selectedTemplate.researchInterests"><h4>{{ text('Research interests', 'Forschungsinteressen') }}</h4><p class="pre-wrap">{{ selectedTemplate.researchInterests }}</p></template><template v-if="selectedTemplate.questionGuidance"><h4>{{ text('Follow-up question guidance', 'Hinweise für Rückfragen') }}</h4><p class="pre-wrap">{{ selectedTemplate.questionGuidance }}</p></template><p v-if="selectedTemplate.exampleText" class="pre-wrap">{{ selectedTemplate.exampleText }}</p></details>
+          </section>
           <p v-if="preparedSource && feedbackScope !== 'cv' && !preparedSource.request.letter.text.trim()" class="hint initial-letter-notice">{{ text('Initial letter draft: the source letter is empty. ChatGPT should create the first draft from the published CV, opportunity and template.', 'Erster Briefentwurf: Der Quellbrief ist leer. ChatGPT soll anhand des veröffentlichten CVs, der Ausschreibung und der Vorlage einen ersten Entwurf erstellen.') }}</p>
           <details class="workflow-card"><summary>{{ text('Prepare sources & privacy', 'Quellen & Datenschutz vorbereiten') }}</summary>
           <RefinementSourceOverview :application="application" :record="record" :letter="letter" :lang="lang" :settings="effectiveSettings" :prepared="preparedSource" :source-error="sourceError" @approve-context="approvePrivacyContext" @remove-context="removePrivacyContext" />
@@ -980,20 +960,30 @@ function restoreImportedReviews(value: unknown, restoredProposals: RefinementPro
           </MotivationLetterPreview>
         </div>
       </section>
-      <section v-show="tab === 'review'" class="review-heading"><div class="stage-heading"><div><h2>{{ text('Review the complete application', 'Vollständige Bewerbung prüfen') }}</h2><p>{{ text('Preview exactly what you will download and submit.', 'Genau die Unterlagen prüfen, die heruntergeladen und eingereicht werden.') }}</p></div></div><p v-if="!cvApproved || !letterApproved" class="warning">{{ text('Approve both documents in Refinement before exporting the application.', 'Vor dem Bewerbungsexport beide Dokumente in Überarbeitung freigeben.') }}</p><p v-if="words > setup.maxWords" class="warning">{{ words }} / {{ setup.maxWords }} {{ text('target words — review the tender limit.', 'Zielwörter — Vorgabe prüfen.') }}</p><p v-if="uncheckedRequirements" class="warning">{{ uncheckedRequirements }} {{ text('requirements/checklist items still unchecked. Verify completeness before submission.', 'Anforderungen/Checklistenpunkte noch offen. Vor der Einreichung Vollständigkeit prüfen.') }}</p><details><summary>{{ text('Document requirements', 'Dokumentanforderungen') }}</summary><OpportunityContext :context="requirementContext" :lang="lang" /></details></section>
-      <section v-show="tab === 'tracking'" class="tracking-stage"><h2>{{ text('Application tracking', 'Bewerbungsverlauf') }}</h2><p>{{ text('Update your application status here. Each change is recorded in the history.', 'Aktualisiere hier den Bewerbungsstatus. Jede Änderung wird im Verlauf aufgezeichnet.') }}</p><slot name="tracking"><slot name="overview" /></slot></section>
-      <ApplicationDocuments v-show="tab !== 'refinement'" :client="client" :active="active !== false && tab !== 'refinement'" @open-library="emit('open-attachments')" :mode="tab === 'preparation' ? 'prepare' : tab === 'tracking' ? 'tracking' : 'review'" :application-id="application.id" :user-id="userId" :lang="lang" :cv-state="record?.state || null" :cv-ready="cvApproved" :export-ready="cvApproved && letterApproved" :get-cv-pdf="getCvPdf" :get-letter-pdf="getLetterPdf" :letter-ready="letterApproved" :letter-revision="letterRevision" @readiness="documentReadiness = $event" />
+      <ApplicationDocuments v-show="tab === 'review' || tab === 'tracking'" :client="client" :active="active !== false && (tab === 'review' || tab === 'tracking')" @open-library="emit('open-attachments')" :mode="tab === 'tracking' ? 'tracking' : 'review'" :application-id="application.id" :user-id="userId" :lang="lang" :cv-state="record?.state || null" :cv-ready="cvApproved" :export-ready="cvApproved && letterApproved" :get-cv-pdf="getCvPdf" :get-letter-pdf="getLetterPdf" :letter-ready="letterApproved" :letter-revision="letterRevision" @readiness="documentReadiness = $event" />
     </div>
+    <input ref="backupInput" hidden type="file" accept=".json,application/json" @change="importBackup" />
+    <footer class="workflow-navigation">
+      <button class="workflow-back" type="button" @click="emit('close')"><span aria-hidden="true">←</span>{{ text('All applications', 'Alle Bewerbungen') }}</button>
+      <nav class="workspace-subtabs" :aria-label="text('Application stages', 'Bewerbungsphasen')">
+        <button v-for="(stage, index) in stages" :key="stage" type="button" :class="{ 'is-active': tab === stage }" :aria-pressed="tab === stage" @click="tab = stage"><span class="stage-number">{{ index + 1 }}</span>{{ ({ preparation: text('Preparation', 'Vorbereitung'), refinement: text('Refinement', 'Überarbeitung'), review: text('PDF review', 'PDF-Prüfung'), tracking: text('Tracking', 'Verlauf') })[stage] }}</button>
+      </nav>
+    </footer>
   </section>
 </template>
 
 <style scoped>
 .selection-checkbox{display:flex;align-items:center;gap:9px}.selection-checkbox input{width:18px;height:18px;accent-color:#67c8a6}.preview-review-label{font-size:12px;color:#efcc87;margin:0}.application-workspace{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden;color:#d1fae5;font-family:var(--font-ui,system-ui)}
-.workspace-subtabs{display:flex;gap:6px;flex:0 0 auto;padding:12px 0;border-bottom:1px solid #24504e;margin-bottom:14px}
+.workflow-navigation{display:contents}.workflow-back{display:none}
+.workspace-subtabs{display:flex;gap:6px;flex:1;min-width:0}
 .workspace-subtabs button{display:flex;align-items:center;gap:8px;flex:1;text-align:left}.workspace-subtabs .is-active{background:#185b4c;border-color:#67c8a6}.stage-number{opacity:.7;font-size:12px}
-.workflow-body{flex:1;min-height:0;min-width:0;overflow:auto;padding-right:6px}.workflow-body--refinement,.workflow-body--review{display:flex;flex-direction:column;overflow:hidden}
+.workflow-body{flex:1;min-height:0;min-width:0;overflow:auto;padding:14px 0 0 0}.workflow-body--refinement,.workflow-body--review{display:flex;flex-direction:column;overflow:hidden}
+.workflow-body--review{overflow:auto}.workflow-body--review :deep(.application-documents){flex:1 0 auto;min-height:360px}
+.preparation-actions{display:flex;justify-content:flex-end;padding:20px 0;border-top:1px solid #61343a}
+@media(min-width:761px) and (max-width:1180px){.workflow-body--review :deep(.application-documents){min-height:640px}}
+@media(min-width:761px){.application-workspace{padding-bottom:40px}.application-header :deep(.workspace-detail-header__back){display:none}.workflow-navigation{position:fixed;inset-inline:0;bottom:0;z-index:30;display:flex;align-items:center;gap:20px;min-height:66px;padding:12px max(20px,calc((100vw - 1484px)/2));border-top:1px solid #24504e;background:#06141f;box-shadow:0 -6px 20px #0003}.workflow-back{display:inline-flex;align-items:center;gap:8px;flex-shrink:0}.workspace-subtabs button{justify-content:center}.preparation-stage{padding-bottom:6px}}
 .preparation-stage,.tracking-stage{display:grid;gap:20px}.stage-heading{display:flex;justify-content:space-between;align-items:start;gap:18px;margin-bottom:18px}.stage-heading h2,.tracking-stage h2{color:#9be8c7;font-size:21px;margin:0 0 8px}.stage-heading p,p.hint{font-size:13px;color:#a6c1b9;line-height:1.6}.stage-heading button{flex-shrink:0}
-h3{font-size:16px;margin:0 0 14px}p{line-height:1.6;font-size:13px}button,input,select,textarea{font:inherit;color:inherit;border:1px solid #28534e;background:#0b1b25;border-radius:7px;padding:9px 11px;box-sizing:border-box}button{cursor:pointer;font-size:13px}button:disabled{opacity:.45;cursor:default}button:hover:enabled{background:#185b4c}.primary{background:#185b4c;border-color:#67c8a6}label{display:grid;gap:7px;font-size:12px;font-weight:600;margin-bottom:12px}input,select,textarea{width:100%;min-width:0;font-size:14px;font-weight:400}textarea{resize:vertical;line-height:1.6}select{max-width:100%}summary{cursor:pointer;font-size:13px;font-weight:600}details[open]>summary{margin-bottom:14px}pre{font-size:11px;overflow:auto;max-height:300px;white-space:pre-wrap;overflow-wrap:anywhere}.pre-wrap{white-space:pre-wrap;overflow-wrap:anywhere}.preparation-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.workflow-card{border:1px solid #28534e;border-radius:10px;padding:18px;margin-bottom:16px;background:#091923}.workflow-card p{margin:10px 0}.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.action-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0}.action-row span{font-size:12px;color:#a6c1b9}.message{padding:10px 14px;background:#10382c;border-radius:7px;font-size:13px;margin:0 0 12px}.message.error{background:#3a1720;color:#fecaca}.warning{color:#efcc87;background:#302b1a;padding:9px 12px;border-radius:6px;font-size:13px}.attachments-heading{margin:0}.refinement-stage{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,42%);gap:24px;flex:1;min-height:0;overflow:hidden}.refinement-controls{overflow:auto;min-height:0;padding-right:8px}.refinement-preview{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}.refinement-preview>.document-preview,.refinement-preview>.letter-preview{flex:1;min-height:0}.refinement-preview>.document-switch{flex:0 0 auto;margin:0 0 10px}.document-switch{display:flex;gap:8px;margin:22px 0 14px}.document-switch button[aria-pressed=true]{border-color:#67c8a6;background:#185b4c}.working-document{margin-bottom:24px}.working-document fieldset{border:0;padding:0;min-width:0}.working-document :deep(.builder){height:auto;overflow:visible}.cv-change{display:grid;gap:7px;margin:16px 0;font-size:13px;white-space:pre-wrap}.cv-change del{background:#3a1720;padding:9px;text-decoration:none;color:#fecaca}.cv-change ins{background:#10382c;padding:9px;text-decoration:none;color:#a7f3d0}.review-heading{flex:0 0 auto}.review-heading .stage-heading{margin-bottom:10px}.review-heading details{max-height:25vh;overflow:auto;margin-bottom:10px}.tracking-stage :deep(.letter-workspace){height:650px}.preparation-stage :deep(.opportunity-context){overflow:visible}
+h3{font-size:16px;margin:0 0 14px}p{line-height:1.6;font-size:13px}button,input,select,textarea{font:inherit;color:inherit;border:1px solid #28534e;background:#0b1b25;border-radius:7px;padding:9px 11px;box-sizing:border-box}button{cursor:pointer;font-size:13px}button:disabled{opacity:.45;cursor:default}button:hover:enabled{background:#185b4c}.primary{background:#185b4c;border-color:#67c8a6}label{display:grid;gap:7px;font-size:12px;font-weight:600;margin-bottom:12px}input,select,textarea{width:100%;min-width:0;font-size:14px;font-weight:400}textarea{resize:vertical;line-height:1.6}select{max-width:100%}summary{cursor:pointer;font-size:13px;font-weight:600}details[open]>summary{margin-bottom:14px}pre{font-size:11px;overflow:auto;max-height:300px;white-space:pre-wrap;overflow-wrap:anywhere}.pre-wrap{white-space:pre-wrap;overflow-wrap:anywhere}.preparation-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.workflow-card{border:1px solid #28534e;border-radius:10px;padding:18px;background:#091923}.workflow-card p{margin:10px 0}.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.action-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0}.action-row span{font-size:12px;color:#a6c1b9}.message{padding:10px 14px;background:#10382c;border-radius:7px;font-size:13px;margin:0 0 12px}.message.error{background:#3a1720;color:#fecaca}.warning{color:#efcc87;background:#302b1a;padding:9px 12px;border-radius:6px;font-size:13px}.refinement-stage{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,42%);gap:24px;flex:1;min-height:0;overflow:hidden}.refinement-controls{overflow:auto;min-height:0;padding-right:8px}.refinement-preview{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}.refinement-preview>.document-preview,.refinement-preview>.letter-preview{flex:1;min-height:0}.refinement-preview>.document-switch{flex:0 0 auto;margin:0 0 10px}.document-switch{display:flex;gap:8px;margin:22px 0 14px}.document-switch button[aria-pressed=true]{border-color:#67c8a6;background:#185b4c}.working-document{margin-bottom:24px}.working-document fieldset{border:0;padding:0;min-width:0}.working-document :deep(.builder){height:auto;overflow:visible}.cv-change{display:grid;gap:7px;margin:16px 0;font-size:13px;white-space:pre-wrap}.cv-change del{background:#3a1720;padding:9px;text-decoration:none;color:#fecaca}.cv-change ins{background:#10382c;padding:9px;text-decoration:none;color:#a7f3d0}.review-heading{flex:0 0 auto}.review-heading .stage-heading{margin-bottom:10px}.review-heading details{max-height:25vh;overflow:auto;margin-bottom:10px}.tracking-stage :deep(.letter-workspace){height:650px}.preparation-stage :deep(.opportunity-context){overflow:visible}
 @media(max-width:900px){.preparation-grid{grid-template-columns:1fr;gap:0}.refinement-stage{grid-template-columns:minmax(0,1fr) minmax(270px,38%);gap:12px}.stage-heading{flex-direction:column}}
 @media(max-width:760px){.application-workspace{--mobile-application-tabs-height:48px;padding-bottom:var(--mobile-application-tabs-height)}.workspace-subtabs{position:fixed;inset-inline:0;bottom:var(--mobile-tabs-height,76px);z-index:36;height:48px;margin:0;padding:4px 8px;overflow-x:auto;flex-wrap:nowrap;background:#06141f;border-top:1px solid #24504e}.workspace-subtabs button{font-size:12px;white-space:nowrap;padding:7px;gap:4px}.stage-number{display:none}.workflow-body{padding:8px}.refinement-stage{display:flex;flex-direction:column;gap:10px}.refinement-controls{flex:1}.refinement-preview{flex:0 0 auto}.refinement-preview>.document-preview,.refinement-preview>.letter-preview{flex:0 0 auto}.refinement-preview :deep(.inline-document-preview){min-height:0}.stage-heading{gap:10px}.stage-heading h2{font-size:20px}.workflow-card{padding:14px}.workflow-body input,.workflow-body textarea,.workflow-body select{font-size:16px}.workflow-body p{font-size:15px}.workflow-body--review{overflow:auto}.workflow-body--review :deep(.application-documents){min-height:430px;flex:1 0 auto}.review-heading details{max-height:180px}.tracking-stage{gap:12px}}
 </style>

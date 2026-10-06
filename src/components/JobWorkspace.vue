@@ -265,7 +265,7 @@ async function refreshResearch() {
         <label>{{ text('Review state', 'Bewertung') }}<select v-model="reviewFilter"><option value="active">{{ text('Hide not interesting', 'Nicht interessante ausblenden') }}</option><option value="all">{{ text('All review states', 'Alle Bewertungen') }}</option><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
         <label>{{ text('Opportunities', 'Stellenangebote') }}<select v-model="deadlineFilter"><option value="current">{{ text('Current opportunities', 'Aktuelle Stellenangebote') }}</option><option value="past">{{ text('Past opportunities', 'Abgelaufene Stellenangebote') }}</option></select></label>
         <label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="sortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option><option value="personal_fit">{{ text('Personal fit: high to low', 'Persönliche Passung: absteigend') }}</option></select></label>
-        <div class="jobs-filter-checks"><label class="jobs-check"><input v-model="hideWithApplication" type="checkbox" /> {{ text('Hide opportunities with applications', 'Stellen mit Bewerbungen ausblenden') }}</label></div>
+        <div class="jobs-filter-checks"><label class="jobs-check"><input v-model="hideWithApplication" type="checkbox" /> {{ text('Hide applications', 'Stellen mit Bewerbungen ausblenden') }}</label></div>
       </div>
       <template v-else><label>{{ text('Status', 'Status') }}<select v-model="statusFilter"><option value="">{{ text('All statuses', 'Alle Status') }}</option><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label><label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="applicationSortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option></select></label></template>
       <span class="jobs-count">{{ tab === 'opportunities' ? filteredOpportunities.length : filteredApplications.length }} {{ text('results', 'Ergebnisse') }}</span>
@@ -312,12 +312,12 @@ async function refreshResearch() {
       <div class="opportunity-detail__body"><OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity.details" :lang="lang" /></div>
     </section>
     <ApplicationWorkspace v-if="editingApplication" v-show="tab === 'applications'" :active="tab === 'applications'" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-subvariant="createSubvariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)" @open-attachments="emit('open-attachments')">
-      <template #secondary-actions>
-        <button class="jobs-remove-application" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(editingApplication)}`" @click="requestDetailRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button>
+      <template #preparation-actions>
+        <button class="btn btn--danger jobs-remove-application" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(editingApplication)}`" @click="requestDetailRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button>
       </template>
       <template #preparation>
             <div class="jobs-review-toolbar"><h2>{{ text('Application workspace', 'Bewerbung bearbeiten') }}</h2><span>{{ text('Context saved', 'Kontext gespeichert') }}: {{ dateLabel(editingApplication.context_captured_at) }}</span><button class="btn" type="button" :disabled="saving || hasUnsavedChanges" @click="refreshResearch">{{ text('Refresh research', 'Forschung aktualisieren') }}</button></div>
-            <OpportunityContext :context="editingApplication.context_json" :lang="lang" checklist :completed-keys="editingApplication.completed_checklist_keys || []" :saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" />
+            <OpportunityContext :context="editingApplication.context_json" :lang="lang" :default-open-groups="['requirements', 'documents']" checklist :completed-keys="editingApplication.completed_checklist_keys || []" :saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" />
       </template>
       <template #tracking>
         <label class="jobs-detail-state"><span class="jobs-action-label">{{ text('Status', 'Status') }}</span><select :aria-label="`${text('Status for', 'Status für')} ${contextTitle(editingApplication)}`" :value="editingApplication.status" :disabled="saving || hasUnsavedChanges" @change="changeApplicationStatus(editingApplication, $event)"><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label>
@@ -354,7 +354,7 @@ async function refreshResearch() {
 .jobs-workspace > :not(.jobs-table-scroll) { flex-shrink: 0; }
 .jobs-workspace > .application-workspace, .jobs-workspace > .opportunity-detail { flex: 1 1 auto; min-height: 0; }
 .opportunity-detail { display: flex; flex-direction: column; min-width: 0; padding: 20px; overflow: hidden; border: 1px solid #24504e; border-radius: 12px; background: #06141f; }
-.opportunity-detail__body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-gutter: stable; padding: 20px 4px 0 0; }
+.opportunity-detail__body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-gutter: stable; padding: 20px 0 0 0; }
 .application-status-history h3 { color: #9be8c7; margin: 0 0 12px; }
 .application-status-history ol { list-style: none; margin: 12px 0 0 5px; padding: 0 0 0 18px; border-left: 2px solid #356454; }
 .application-status-history li { position: relative; padding: 0 0 18px; font-size: 13px; }
@@ -365,8 +365,8 @@ async function refreshResearch() {
 .jobs-workspace .jobs-detail-state { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
 .jobs-workspace .jobs-detail-state select { width: auto; min-width: 0; max-width: 100%; padding: 6px 9px; }
 .jobs-action-mobile { display: none; }
-.jobs-remove-application { min-height: 32px; padding: 4px 0; border: 0; background: transparent; color: #c8a1a7; font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.jobs-remove-application:hover { color: #fecaca; }
+.jobs-remove-application { min-height: 44px; padding: 10px 16px; border-color: #ef4444; background: #b91c1c; color: #fff; font-weight: 600; }
+.jobs-remove-application:hover:not(:disabled) { border-color: #f87171; background: #991b1b; }
 .jobs-workspace > .jobs-table-scroll { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-width: thin; }
 .jobs-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .jobs-heading h1 { margin: 4px 0 8px; font-size: 27px; letter-spacing: -.6px; }

@@ -57,7 +57,7 @@ The dedicated Vite configuration does not load `.env` files, disables Supabase c
 | Missing source or token/element mapping fails without guessing | `refinementRegression`, `applicationRefinement`, `cvStructuredRefinement` | Covered by Node workspace/reconstruction tests |
 | Export during review uses only accepted state | `refinementRegression`, `refinementPreviewStatus`, `applicationPackage` | Combined flow checks export gate, approved inputs and real PDFs |
 | Finalized letters, subvariant hierarchy, failed commits and concurrent edits | `applicationRefinementWorkflow` | Covered by Node workflow tests |
-| Shared entry points and active history selection | `applicationRefinementWorkflow`, `refinementEntryPoints`, `refinementHistory` | Scope-specific entry buttons, connected refresh and selection |
+| Shared refinement scope and active history selection | `applicationRefinementWorkflow`, `refinementHistory` | Scope selection, connected refresh and history selection |
 | Visible/pseudonymized/unshared values and approved context descriptions | `refinementPrivacy`, `cloudCvPrivacy`, `applicationRefinement` | Synthetic snapshot privacy boundary; detailed legend cases are Node tests |
 
 Names in the table refer to `.test.ts` files in this directory. The shared `refinementFixture.ts` builds the synthetic source and backend; `refinementWorkflowHarness.ts` mounts the workspace script for Node tests. `e2e/runner.ts` uses the same fixture with the complete browser component tree.

@@ -23,9 +23,9 @@ import type { AnnotationStatus, LocalRefinementRequest, RefinementRequestRow, Re
 const account = '90000000-0000-4000-8000-000000000001';
 const applicationId = '10000000-0000-4000-8000-000000000001';
 interface WorkspaceSetup {
-  record: ApplicationCvRecord | null; pendingBaseId: string; pendingSubId: string; letter: ApplicationLetter | null;
+  record: ApplicationCvRecord | null; selectedCvId: string; letter: ApplicationLetter | null;
   busy: boolean; refreshing: boolean; error: string; saveError: string; letterText: string;
-  pendingTemplateId: string; missingLetterTemplate: boolean;
+  selectedTemplateId: string; missingLetterTemplate: boolean;
   cvApproved: boolean; letterApproved: boolean; feedbackScope: RefinementScope; feedback: string;
   requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; selectedProposalId: string; prompt: string;
   shortInstruction: string; shortInstructionNotice: string; shortInstructionError: string;
@@ -35,7 +35,7 @@ interface WorkspaceSetup {
   effectiveSettings: { setup: RefinementSetup; provenance: unknown };
   currentPublishedRequest: RefinementRequestRow | null; publishedSource: RefinementRequestRow | null;
   publicationStatus: 'unpublished' | 'current' | 'outdated' | 'unverifiable';
-  assignBase(): void; importBackup(event: Event): Promise<void>; useLetterTemplate(): Promise<void>; saveSetup(): Promise<void>;
+  selectCv(id: string): Promise<void>; importBackup(event: Event): Promise<void>; selectLetterTemplate(id: string): Promise<void>; saveSetup(): Promise<void>;
   initialPrompt(): Promise<void>; checkProposals(): Promise<void>; openProposal(): void;
   acceptSelectedChanges(): Promise<void>; toggleProposedChange(id: string, included: boolean): void; toggleProposedLetter(included: boolean): void; discardReview(): void;
   selectedChangeIds: string[]; includeProposedLetter: boolean; reviewActive: boolean; previewCvState: CvState | null;
@@ -136,7 +136,7 @@ function mount(t: TestContext, legacy?: 'unchanged' | 'tailored', missingLetterT
 test('applications freeze selected CVs and keep manual edits independent from the template library', async (t) => {
   const { setup, props, states, base, database } = mount(t);
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase();
+  await setup.selectCv('base');
   await idle(setup);
   assert.equal(setup.error, '');
   assert.equal(setup.record?.variantId, 'base');
@@ -164,6 +164,33 @@ test('tailored legacy application CVs remain intact as independent copies', asyn
   assert.equal(states.size, 1);
 });
 
+test('letter selection saves immediately before a CV is chosen and survives reopening', async (t) => {
+  const fixture = mount(t);
+  let setup = fixture.setup;
+  await idle(setup);
+  assert.equal(setup.selectedCvId, '');
+  assert.equal(setup.selectedTemplateId, '', 'a new application does not imply an unselected default template');
+  await setup.selectLetterTemplate('industry');
+  assert.equal(setup.error, '');
+  assert.equal(setup.selectedTemplateId, 'industry');
+  assert.equal(setup.letter?.templateSnapshot?.id, 'industry');
+  assert.equal(setup.record, null);
+  setup.updateLetter('My existing letter must survive choosing a CV.');
+  setup = fixture.reopen();
+  await idle(setup);
+  assert.equal(setup.selectedTemplateId, 'industry');
+  assert.equal(setup.letterText, 'My existing letter must survive choosing a CV.');
+  await setup.selectCv('base');
+  assert.equal(setup.error, '');
+  assert.equal(setup.selectedCvId, 'base');
+  assert.equal(fixture.database.application_refinement_state.length, 1);
+  setup = fixture.reopen();
+  await idle(setup);
+  assert.equal(setup.selectedCvId, 'base');
+  assert.equal(setup.selectedTemplateId, 'industry');
+  assert.equal(setup.letterText, 'My existing letter must survive choosing a CV.');
+});
+
 test('unchanged legacy application copies stay pinned instead of rejoining their original variant', async (t) => {
   const { setup, states } = mount(t, 'unchanged');
   await idle(setup);
@@ -177,13 +204,12 @@ test('legacy letters whose original template is missing require an explicit repl
   await idle(setup);
   const original = JSON.parse(JSON.stringify(setup.letter));
   assert.equal(setup.missingLetterTemplate, true);
-  assert.equal(setup.pendingTemplateId, '');
-  await assert.rejects(setup.saveSetup(), /original letter template is unavailable.*Use letter template/);
+  assert.equal(setup.selectedTemplateId, '');
+  await assert.rejects(setup.saveSetup(), /original letter template is unavailable.*Select a template in Preparation/);
   assert.equal(database.cv_variants.length, 0, 'missing template blocks publishing preparation');
   assert.equal(database.application_refinement_state.length, 0);
   assert.deepEqual(JSON.parse(JSON.stringify(setup.letter)), original, 'failed setup keeps the entire legacy record intact');
-  setup.pendingTemplateId = 'research';
-  await setup.useLetterTemplate();
+  await setup.selectLetterTemplate('research');
   await idle(setup);
   assert.equal(setup.error, '');
   assert.equal(setup.missingLetterTemplate, false);
@@ -210,37 +236,34 @@ test('restored backups stay detached even when unchanged from their historical b
   const reloaded = loadApplicationCv(account, applicationId);
   assert.equal(reloaded?.detached, true, 'detachment survives a page reload');
   assert.equal(reloaded?.state.about.text, base.about.text);
-  setup.pendingBaseId = 'base'; setup.assignBase();
+  await setup.selectCv('base');
   await idle(setup);
   assert.equal(setup.record?.variantId, 'base', 'explicit reassignment adopts the current variant');
   assert.equal(setup.record?.state.about.text, updated.about.text);
 });
 
-test('library autosaves do not reset pending variant and subvariant selections', async (t) => {
+test('one CV selector accepts saved subvariants and library autosaves preserve the application copy', async (t) => {
   const { setup, props, states, base } = mount(t);
   await idle(setup);
   states.set('other', cloneCv(base)); states.set('other-child', cloneCv(base));
   props.configurations.push({ id: 'other', name: 'Other path' }, { id: 'other-child', name: 'Other application', parentId: 'other' });
-  setup.pendingBaseId = 'base'; setup.assignBase();
+  await setup.selectCv('base');
   await idle(setup);
-  setup.pendingBaseId = 'other'; setup.pendingSubId = 'other-child';
+  await setup.selectCv('other-child');
   const updated = cloneCv(base); updated.about.text = 'Saved while choosing another CV';
-  states.set('base', updated);
+  states.set('other-child', updated);
   props.configurations = props.configurations.map(item => ({ ...item, mtime: 20 }));
   await nextTick();
   assert.equal(setup.record?.state.about.text, base.about.text, 'the application still uses its frozen CV snapshot');
-  assert.equal(setup.pendingBaseId, 'other');
-  assert.equal(setup.pendingSubId, 'other-child');
-  setup.assignBase();
-  await idle(setup);
+  assert.equal(setup.selectedCvId, 'other-child');
   assert.equal(setup.record?.variantId, 'other-child');
 });
 
 test('refinement preserves manual fixes and accumulates letter-only feedback while retaining CV approval', async (t) => {
   const { setup, states, database, cloud } = mount(t);
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research');
   setup.letter!.maxWords = 400;
   await setup.initialPrompt();
   assert.equal(setup.error, '');
@@ -293,8 +316,8 @@ test('refinement preserves manual fixes and accumulates letter-only feedback whi
 test('an unchanged returned letter preserves private wording and its approval when a joint proposal changes the CV', async (t) => {
   const { setup, cloud } = mount(t);
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research');
   const originalText = `Dear selection committee,\n\nI am interested in the advertised research.\n\nKind regards,\n${setup.record!.state.contact.name}`;
   setup.updateLetter(originalText);
   await setup.initialPrompt();
@@ -317,8 +340,8 @@ test('an unchanged returned letter preserves private wording and its approval wh
 test('invalid letter content in a combined backup leaves the application CV and letter untouched', async (t) => {
   const { setup, base } = mount(t);
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research');
   setup.updateLetter('Existing letter that must survive an invalid backup.');
   setup.record!.state.about.text = 'Existing application CV that must survive.';
   await nextTick();
@@ -338,8 +361,8 @@ test('invalid letter content in a combined backup leaves the application CV and 
 test('requesting improvements never applies an unopened proposal over newer manual corrections', async (t) => {
   const { setup, cloud } = mount(t);
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research');
   setup.updateLetter('A manually drafted letter before the request.');
   await setup.initialPrompt();
   const proposed = cloud.seedProposal(setup.requests[0].id);
@@ -359,8 +382,8 @@ test('requesting improvements never applies an unopened proposal over newer manu
 test('superseded feedback rounds remain viewable but cannot replace documents with the same baseline', async (t) => {
   const { setup, cloud } = mount(t);
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research');
   setup.updateLetter('The current manual letter stays unchanged until I open an eligible proposal.');
   await setup.initialPrompt();
   const firstRequest = setup.requests[0];
@@ -442,8 +465,8 @@ test('clipboard failures remain local to the short instruction and can be retrie
 test('publishing an initial round uses the same selected scope as the copied short instruction', async (t) => {
   const { setup, clipboardWrites } = mount(t);
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research');
   setup.feedbackScope = 'letter'; await nextTick();
   await setup.copyShortInstruction();
   assert.equal(clipboardWrites.at(-1), `phd-workflow: ${applicationId} — refine motivation letter.`);
@@ -466,8 +489,8 @@ test('publishing an initial round uses the same selected scope as the copied sho
 test('published sources contain the complete private-filtered working letter and effective application settings', async (t) => {
   const { setup } = mount(t);
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research');
   setup.record!.state.contact.name = 'Dr Ada Example';
   setup.record!.state.contact.email = 'ada.private@example.org';
   setup.letter!.language = 'de';
@@ -506,8 +529,8 @@ test('reopening and refreshing preserve the saved working documents without publ
   const fixture = mount(t);
   let setup = fixture.setup;
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research');
   setup.updateLetter('The local working letter that survives reopening.');
   await setup.initialPrompt();
   assert.equal(setup.error, '');
@@ -534,8 +557,8 @@ test('publishing unchanged current sources reuses the same request without cloud
   const fixture = mount(t);
   let setup = fixture.setup;
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research');
   setup.updateLetter('The unchanged letter to reuse for the published round.');
   await setup.initialPrompt();
   assert.equal(setup.error, '');
@@ -562,8 +585,8 @@ test('changes mark the published source outdated without changing its immutable 
   const { setup, database } = mount(t);
   await idle(setup);
   assert.equal(setup.publicationStatus, 'unpublished');
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research');
   const originalText = 'Current letter with deliberate wording.';
   setup.updateLetter(originalText);
   await setup.initialPrompt();
@@ -595,8 +618,8 @@ test('changes mark the published source outdated without changing its immutable 
 test('proposal selection and explicit application keep the published source separate from returned drafts', async (t) => {
   const { setup, cloud, database } = mount(t);
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research');
   setup.updateLetter('My published source letter.');
   await setup.initialPrompt();
   assert.equal(setup.error, '');
@@ -627,8 +650,8 @@ test('reopening preserves a deliberately empty local working letter instead of r
   const fixture = mount(t);
   let setup = fixture.setup;
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research');
   setup.updateLetter('An older source letter already published.');
   await setup.initialPrompt();
   assert.equal(setup.error, '');
@@ -646,8 +669,8 @@ test('a missing working letter stays absent while its proposal previews from the
   const fixture = mount(t);
   let setup = fixture.setup;
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research');
   setup.updateLetter(`The source text remains available when this device has no letter.\n\nKind regards,\n${setup.record!.state.contact.name}`);
   await setup.initialPrompt();
   assert.equal(setup.error, '');
@@ -672,8 +695,8 @@ test('an unreadable local letter is reported and preserved instead of being repl
   const fixture = mount(t);
   let setup = fixture.setup;
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research');
   setup.updateLetter('Published letter before a local storage problem.');
   await setup.initialPrompt();
   assert.equal(setup.error, '');
@@ -696,8 +719,8 @@ test('an unreadable local letter is reported and preserved instead of being repl
 test('reverting to an older published baseline creates a new current request instead of reviving its old round', async (t) => {
   const { setup, database } = mount(t);
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research');
   setup.updateLetter('Baseline A: retain this exact wording.');
   await setup.initialPrompt();
   assert.equal(setup.error, '');
@@ -726,8 +749,8 @@ test('a cold reopen retains a letter-only published scope and reuses its current
   const fixture = mount(t);
   let setup = fixture.setup;
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research');
   setup.updateLetter('A letter-only round selected without locking the CV.');
   setup.feedbackScope = 'letter';
   await setup.initialPrompt();
@@ -751,8 +774,8 @@ test('a cold reopen retains a letter-only published scope and reuses its current
 test('loaded structured changes immediately preview without accepting, and each toggle updates only temporary state', async (t) => {
   const { setup, cloud, database, base, storage } = mount(t);
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate(); setup.updateLetter('Existing local letter.'); await setup.initialPrompt();
+  await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research'); setup.updateLetter('Existing local letter.'); await setup.initialPrompt();
   const before = JSON.stringify({ record: setup.record, letter: setup.letter });
   const savedBefore = storage.getItem('CV_REFINEMENT:1:' + account + ':' + applicationId);
   const proposal = cloud.seedProposal(setup.requests[0].id, { letterText: 'Proposed letter immediately visible.' });
@@ -789,7 +812,7 @@ test('loaded structured changes immediately preview without accepting, and each 
 test('closing or reopening a temporary review never accepts it and newer manual corrections block application', async (t) => {
   const fixture = mount(t);
   let setup = fixture.setup;
-  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup); await setup.useLetterTemplate();
+  await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
   setup.updateLetter('Retained manual letter.'); await setup.initialPrompt(); fixture.cloud.seedProposal(setup.requests[0].id);
   await setup.checkProposals();
   const original = JSON.stringify({ record: setup.record, letter: setup.letter });
@@ -811,7 +834,7 @@ test('closing or reopening a temporary review never accepts it and newer manual 
 
 test('failed decision recording leaves selected changes proposed and working copies unchanged for retry', async (t) => {
   const { setup, cloud, database, props } = mount(t);
-  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup); await setup.useLetterTemplate();
+  await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
   await setup.initialPrompt(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
   const before = JSON.stringify({ record: setup.record, letter: setup.letter });
   const client = props.client as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<unknown> };
@@ -831,7 +854,7 @@ test('failed decision recording leaves selected changes proposed and working cop
 
 test('invalid returned structural targets are rejected before preview rendering or document mutation', async (t) => {
   const { setup, cloud, database } = mount(t);
-  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup); await setup.useLetterTemplate();
+  await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
   await setup.initialPrompt(); const row = cloud.seedProposal(setup.requests[0].id);
   const stored = database.application_refinement_proposals.find(item => item.id === row.id)!;
   (stored.proposal_json as { cvOperations: { targetId: string }[] }).cvOperations[0].targetId = 'unknown-area';
@@ -846,8 +869,8 @@ test('invalid returned structural targets are rejected before preview rendering 
 
 test('answering and resolving annotations persists across reload without changing either document or its preview', async (t) => {
   const fixture = mount(t); let setup = fixture.setup;
-  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate(); setup.updateLetter('Working letter.'); await setup.initialPrompt();
+  await idle(setup); await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research'); setup.updateLetter('Working letter.'); await setup.initialPrompt();
   fixture.cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
   const before = JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter, cv: setup.previewCvState, previewLetter: setup.previewLetterContent }));
   assert.equal(setup.proposalAnnotations[0].status, 'open');
@@ -864,8 +887,8 @@ test('answering and resolving annotations persists across reload without changin
 
 test('open and answered annotations enter existing feedback history only on explicit inclusion, retaining references in subsequent requests', async (t) => {
   const { setup, cloud, database } = mount(t);
-  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate(); await setup.initialPrompt(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
+  await idle(setup); await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research'); await setup.initialPrompt(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
   await setup.saveAnnotation('annotation-1', 'resolved', 'Confirmed experiments.', null);
   assert.equal(database.application_refinement_reviews.filter(row => row.kind === 'feedback').length, 0);
   await setup.includeAnnotationFeedback('annotation-1'); await setup.includeAnnotationFeedback('annotation-1');
@@ -884,8 +907,8 @@ test('open and answered annotations enter existing feedback history only on expl
 
 test('manual letter edits invalidate annotation references without moving notes or adding them to the PDF content', async (t) => {
   const { setup, cloud } = mount(t);
-  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate(); await setup.initialPrompt(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
+  await idle(setup); await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research'); await setup.initialPrompt(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
   assert.equal(setup.proposalAnnotations[1].referenceChanged, false);
   await setup.acceptSelectedChanges(); assert.equal(setup.error, '');
   assert.equal(setup.proposalAnnotations[1].referenceChanged, false);
@@ -897,8 +920,8 @@ test('manual letter edits invalidate annotation references without moving notes 
 
 test('stale annotation updates and failed saves preserve documents and do not claim success', async (t) => {
   const { setup, cloud, database, props } = mount(t);
-  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  await setup.useLetterTemplate(); await setup.initialPrompt(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
+  await idle(setup); await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research'); await setup.initialPrompt(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
   await setup.saveAnnotation('annotation-1', 'resolved', 'First answer.', null);
   const before = JSON.stringify({ record: setup.record, letter: setup.letter });
   assert.equal(await setup.saveAnnotation('annotation-1', 'dismissed', 'Stale answer.', null), false);
@@ -915,7 +938,7 @@ test('stale annotation updates and failed saves preserve documents and do not cl
 
 test('Original and Proposed use the exact published baseline after local edits and preserve working documents', async (t) => {
   const { setup, cloud, storage } = mount(t);
-  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup); await setup.useLetterTemplate();
+  await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
   setup.letter!.working = { subject: 'Research interest', salutation: 'To the research committee:', body: 'The original private working letter.', closing: 'With sincere interest,\nPrivate applicant' };
   await setup.initialPrompt();
   const baselineCv = cloneCv(setup.record!.state), baselineLetter = JSON.parse(JSON.stringify(setup.letter!.working));
@@ -946,7 +969,7 @@ test('Original and Proposed use the exact published baseline after local edits a
 
 for (const scope of ['cv', 'letter'] as const) test(`${scope}-only proposals leave the other document preview on its working source`, async (t) => {
   const { setup, cloud } = mount(t);
-  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup); await setup.useLetterTemplate();
+  await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
   setup.updateLetter('Existing letter.'); setup.feedbackScope = scope; await setup.initialPrompt();
   const baselineCv = cloneCv(setup.record!.state);
   setup.record!.state.contact.role = 'Manual role after publication';
@@ -973,7 +996,7 @@ for (const scope of ['cv', 'letter'] as const) test(`${scope}-only proposals lea
 
 test('missing private mappings produce no misleading proposed fallback and dismissal stays closed across tabs', async (t) => {
   const { setup, cloud, database } = mount(t);
-  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup); await setup.useLetterTemplate();
+  await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
   setup.updateLetter('Existing letter.'); await setup.initialPrompt();
   const request = setup.requests[0]; cloud.seedProposal(request.id);
   setup.localRequests[request.id].cv.bindings = [];
@@ -1000,8 +1023,8 @@ test('missing private mappings produce no misleading proposed fallback and dismi
 test('privacy context approval persists locally, publishes only approved descriptions, and can be revoked', async t => {
   const mounted = mount(t); let setup = mounted.setup;
   const legend = () => setup.preparedSource!.request.privacyLegend;
-  await idle(setup); setup.pendingBaseId = 'base'; setup.assignBase(); await idle(setup);
-  setup.pendingTemplateId = 'research'; await setup.useLetterTemplate(); await idle(setup);
+  await idle(setup); await setup.selectCv('base'); await idle(setup);
+  await setup.selectLetterTemplate('research'); await idle(setup);
   setup.record!.state.about.text = 'Research with !!Private sensor company!!.';
   await nextTick();
   const baseline = cloneCv(setup.record!.state);

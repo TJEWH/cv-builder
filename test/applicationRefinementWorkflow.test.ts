@@ -164,17 +164,16 @@ test('accepting a manually imported proposal commits locally and persists its id
 });
 
 
-test('all refinement entry points share scope, working documents and independent application status', async t => {
+test('refinement scope changes preserve working documents and independent application status', async t => {
   const fixture = mount(t), setup = await prepare(fixture);
   const before = documents(setup), status = fixture.props.application.status;
   for (const scope of ['cv', 'letter', 'both'] as const) {
-    setup.enterRefinement(scope); await idle(setup);
+    setup.tab = 'refinement'; setup.feedbackScope = scope; await idle(setup);
     assert.equal(setup.feedbackScope, scope); assert.equal(setup.tab, 'refinement');
-    assert.equal(setup.pane, scope === 'letter' ? 'letter' : 'cv');
     assert.equal(documents(setup), before); assert.equal(fixture.props.application.status, status);
   }
-  await setup.approve('cv'); setup.enterRefinement('both');
-  assert.equal(setup.feedbackScope, 'letter', 'a shortcut cannot reopen an approved document');
+  await setup.approve('cv'); await idle(setup);
+  assert.equal(setup.feedbackScope, 'letter', 'approving the CV switches refinement to the letter');
   assert.equal(fixture.props.application.status, status);
 });
 

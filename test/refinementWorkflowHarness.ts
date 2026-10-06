@@ -17,7 +17,7 @@ export const refinementKey = `CV_REFINEMENT:1:${account}:${applicationId}`;
 export interface Workspace {
   record: ApplicationCvRecord | null; letter: ApplicationLetter | null;
   busy: boolean; refreshing: boolean; error: string; saveError: string;
-  pendingBaseId: string; pendingSubId: string; selectedProposalId: string; manualProposalText: string;
+  selectedCvId: string; selectedTemplateId: string; selectedProposalId: string; manualProposalText: string;
   requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; localRequests: Record<string, LocalRefinementRequest>;
   selectedChangeIds: string[]; includeProposedLetter: boolean; reviewActive: boolean;
   previewCvState: CvState | null; previewLetterContent: ApplicationLetter['working'] | undefined;
@@ -29,11 +29,11 @@ export interface Workspace {
   includeAnnotationFeedback(id: string): Promise<void>; feedbackHistory(): RefinementFeedback[];
   proposalAnnotations: { annotation: { id: string }; status: string; response: string | null; reviewId: string | null; included: boolean }[];
   reviewAcceptanceError: string; letterText: string;
-  assignBase(): void; useLetterTemplate(): Promise<void>; initialPrompt(): Promise<void>; initialTask(): Promise<void>; connectedPrompt(): Promise<void>; checkProposals(): Promise<void>;
+  selectCv(id: string): Promise<void>; selectLetterTemplate(id: string): Promise<void>; initialPrompt(): Promise<void>; initialTask(): Promise<void>; connectedPrompt(): Promise<void>; checkProposals(): Promise<void>;
   importProposal(): void | Promise<void>; openProposal(): void; discardReview(): void; acceptSelectedChanges(): Promise<void>;
   persist(): void;
   feedbackScope: 'cv' | 'letter' | 'both'; pane: 'cv' | 'letter'; tab: string; historyOpen: boolean; manualLetterText: string;
-  enterRefinement(scope?: 'cv' | 'letter' | 'both'): void; selectReviewProposal(id: string): void;
+  selectReviewProposal(id: string): void;
   importProposalFile(event: Event): Promise<void>; importLetterBackup(event: Event): Promise<void>;
   importBackup(event: Event): Promise<void>; downloadBackup(): void;
   keepIncomingLetter(draft?: import('../src/draftingTypes').MotivationLetterDraft): void; reopenLocalLetterRevision(id: string): void;
@@ -86,8 +86,7 @@ export function mount(t: TestContext, source?: CvState) {
 export async function prepare(fixture: ReturnType<typeof mount>, sourceId = 'base', options: { letterText?: string; scope?: 'cv' | 'letter' | 'both' } = {}) {
   const { setup } = fixture;
   await idle(setup);
-  setup.pendingBaseId = 'base'; setup.pendingSubId = sourceId === 'base' ? '' : sourceId;
-  setup.assignBase(); await idle(setup); await setup.useLetterTemplate();
+  await setup.selectCv(sourceId); await idle(setup); await setup.selectLetterTemplate('research');
   setup.updateLetter(options.letterText ?? 'Original private working letter.');
   setup.feedbackScope = options.scope ?? 'both'; await setup.initialPrompt();
   assert.equal(setup.error, '');
