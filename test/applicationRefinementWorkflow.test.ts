@@ -3,15 +3,14 @@ import test from 'node:test';
 import { cloneCv, loadApplicationCv } from '../src/composables/applicationCv';
 import { finalizeLetter } from '../src/composables/motivationLetters';
 import type { ApplicationLetter } from '../src/letterTypes';
-import { account, applicationId, refinementKey, mount, prepare, idle, documents } from './refinementWorkflowHarness';
+import { account, applicationId, refinementKey, mount, prepare, idle, documents, loadHistoricalProposal } from './refinementWorkflowHarness';
 
-test('manual proposal import activates the complete temporary candidate without a cloud write or document save', async t => {
+test('loading an existing local proposal activates the complete temporary candidate without a cloud write or document save', async t => {
   const fixture = mount(t); const setup = await prepare(fixture);
   const incoming = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Imported proposed letter.' });
   fixture.database.application_refinement_proposals = [];
   const savedDocuments = documents(setup), savedPrivate = JSON.stringify(setup.localRequests), savedCloud = JSON.stringify(fixture.database);
-  setup.manualProposalText = JSON.stringify(incoming.proposal_json);
-  await setup.importProposal(); await idle(setup);
+  await loadHistoricalProposal(setup, incoming);
   assert.equal(setup.error, '');
   assert.equal(setup.reviewActive, true);
   assert.ok(setup.selectedProposalId);
@@ -142,12 +141,12 @@ test('a failed local commit restores both documents and reuses its completed sub
   assert.equal(setup.letterText, 'Proposed document pair.');
 });
 
-test('accepting a manually imported proposal commits locally and persists its idempotent receipt across reload', async t => {
+test('accepting a historical local proposal commits locally and persists its idempotent receipt across reload', async t => {
   const fixture = mount(t); let setup = await prepare(fixture);
   const incoming = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Locally accepted imported proposal.' });
   fixture.database.application_refinement_proposals = [];
   const beforeCloud = JSON.stringify(fixture.database);
-  setup.manualProposalText = JSON.stringify(incoming.proposal_json); await setup.importProposal(); await idle(setup);
+  await loadHistoricalProposal(setup, incoming);
   const proposalId = setup.selectedProposalId, previewState = cloneCv(setup.previewCvState!);
   await setup.acceptSelectedChanges();
   assert.equal(setup.error, '');
@@ -181,7 +180,7 @@ test('history selection activates exact older proposal previews, and refresh kee
   const fixture = mount(t), setup = await prepare(fixture);
   const oldRequest = setup.requests[0];
   const old = fixture.cloud.seedProposal(oldRequest.id, { letterText: 'Earlier proposal.' });
-  setup.updateLetter('New manual wording.'); await setup.initialPrompt();
+  setup.updateLetter('New manual wording.'); await setup.publishSources();
   const current = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Current proposal.' });
   await setup.checkProposals();
   assert.equal(setup.selectedProposalId, old.id, 'publishing and refreshing preserve an already active review');
@@ -200,63 +199,10 @@ test('history selection activates exact older proposal previews, and refresh kee
 test('an older run is never automatically loaded when the current request has no proposal', async t => {
   const fixture = mount(t), setup = await prepare(fixture);
   fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Older response.' });
-  setup.updateLetter('Next round source.'); await setup.initialPrompt();
+  setup.updateLetter('Next round source.'); await setup.publishSources();
   const reopened = fixture.reopen(); await idle(reopened);
   assert.equal(reopened.selectedProposalId, ''); assert.equal(reopened.reviewActive, false);
   assert.equal(reopened.proposals.length, 1, 'the old proposal remains accessible in history');
-});
-
-function proposalFile(text: () => Promise<string>) {
-  return { target: { value: 'proposal.json', files: [{ size: 1000, text }] } } as unknown as Event;
-}
-for (const interruptedBy of ['paste', 'second file', 'new request', 'unmount'] as const) test(`pending manual proposal files yield to ${interruptedBy}`, async t => {
-  const fixture = mount(t), setup = await prepare(fixture);
-  const row = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'File proposal.' });
-  const newer = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Newer file.' });
-  fixture.database.application_refinement_proposals = [];
-  let finish!: (text: string) => void;
-  const pending = setup.importProposalFile(proposalFile(() => new Promise(resolve => { finish = resolve; })));
-  if (interruptedBy === 'paste') setup.manualProposalText = 'newer pasted input';
-  if (interruptedBy === 'second file') {
-    await setup.importProposalFile(proposalFile(async () => JSON.stringify(newer.proposal_json)));
-    assert.equal(setup.error, '');
-  }
-  if (interruptedBy === 'new request') { setup.updateLetter('New source.'); await setup.initialPrompt(); }
-  if (interruptedBy === 'unmount') fixture.close();
-  finish(JSON.stringify(row.proposal_json)); await pending;
-  if (interruptedBy === 'second file') assert.equal(setup.previewLetterContent?.body, 'Newer file.');
-  else assert.equal(setup.reviewActive, false);
-  if (interruptedBy === 'paste') assert.equal(setup.manualProposalText, 'newer pasted input');
-  assert.equal(setup.letterText, interruptedBy === 'new request' ? 'New source.' : 'Original private working letter.');
-});
-
-test('manual and legacy cloud letters remain in local history until explicitly restored', async t => {
-  const fixture = mount(t), setup = await prepare(fixture);
-  const working = JSON.stringify(setup.letter!.working), beforeCloud = JSON.stringify(fixture.database);
-  setup.manualLetterText = JSON.stringify({ subject: 'Imported subject', salutation: 'Dear committee,', body: 'Imported evidence.', closing: 'Kind regards' });
-  setup.keepIncomingLetter(); assert.equal(setup.error, '');
-  const imported = setup.letter!.revisions.at(-1)!;
-  assert.equal(imported.kind, 'generated'); assert.deepEqual(imported.context, { content: 'unknown', theme: 'unknown' });
-  assert.equal(JSON.stringify(setup.letter!.working), working); assert.equal(setup.historyOpen, true);
-  const draft = { id: crypto.randomUUID(), user_id: account, application_id: applicationId, context_id: crypto.randomUUID(), body: 'Earlier generated letter.', created_at: '2026-09-01T00:00:00Z' };
-  setup.keepIncomingLetter(draft); setup.keepIncomingLetter(draft);
-  assert.equal(setup.letter!.revisions.filter(item => item.cloudDraftId === draft.id).length, 1);
-  assert.equal(JSON.stringify(setup.letter!.working), working); assert.equal(JSON.stringify(fixture.database), beforeCloud);
-  setup.reopenLocalLetterRevision(imported.id);
-  assert.equal(setup.letter!.working.body, 'Imported evidence.'); assert.equal(setup.pane, 'letter');
-  assert.ok(setup.letter!.revisions.some(item => JSON.stringify(item.content) === working), 'restoring preserves prior edits');
-  assert.equal(fixture.props.application.status, 'shortlist');
-});
-
-test('restoring a legacy revision or letter backup cannot silently replace a finalized letter', async t => {
-  const fixture = mount(t), setup = await prepare(fixture);
-  setup.manualLetterText = 'Incoming draft.'; setup.keepIncomingLetter();
-  const draftId = setup.letter!.revisions.at(-1)!.id;
-  setup.letter = finalizeLetter(setup.letter!, setup.letter!.workingContext, setup.record!.state.contact);
-  const before = documents(setup);
-  setup.reopenLocalLetterRevision(draftId); assert.match(setup.error, /finalized letter/);
-  await setup.importLetterBackup(proposalFile(async () => JSON.stringify(setup.letter)));
-  assert.match(setup.error, /finalized letter/); assert.equal(documents(setup), before);
 });
 
 for (const scope of ['cv', 'letter', 'both'] as const) test(`short ${scope} task copies the application reference only after publishing the matching current sources`, async t => {
@@ -265,7 +211,9 @@ for (const scope of ['cv', 'letter', 'both'] as const) test(`short ${scope} task
   const copied: string[] = [];
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copied.push(value); } } });
   setup.feedbackScope = scope;
-  await setup.initialTask();
+  await setup.publishSources();
+  assert.equal(copied.length, 0, 'publishing must not copy anything');
+  await setup.copyTask();
   assert.equal(setup.error, '');
   const document = scope === 'cv' ? 'CV' : scope === 'letter' ? 'motivation letter' : 'both';
   assert.ok(copied.at(-1)!.startsWith(`phd-workflow: APP-SYNTHETIC — refine ${document}.\n`));
@@ -276,49 +224,22 @@ for (const scope of ['cv', 'letter', 'both'] as const) test(`short ${scope} task
   assert.ok(copied.at(-1)!.includes(`scope ${scope}`));
   assert.ok(!copied.at(-1)!.includes('Original private working letter.'));
   const count = setup.requests.length;
-  await setup.initialTask(); assert.equal(setup.requests.length, count, 'unchanged sources reuse the published request');
+  await setup.copyTask(); assert.equal(setup.requests.length, count, 'unchanged sources reuse the published request');
   setup.updateLetter('Manual correction for the next round.');
-  await setup.initialTask(); assert.equal(setup.requests.length, count + 1, 'changed sources publish before copying a short task');
+  await setup.copyTask(); assert.match(setup.error, /Publish the current sources/);
+  assert.equal(copied.length, 2, 'copying changed sources must not publish or copy an old request');
+  assert.equal(setup.requests.length, count);
+  await setup.publishSources(); assert.equal(copied.length, 2);
+  await setup.copyTask(); assert.equal(setup.requests.length, count + 1);
   assert.ok(copied.at(-1)!.includes(`published request ${fixture.database.application_refinement_state[0].current_request_id}`));
   assert.ok(!copied.at(-1)!.includes(String(current)), 'the next task cannot retain a superseded request reference');
-  assert.equal(copied.length, 3);
-  await setup.initialPrompt(); assert.match(copied.at(-1)!, /BEGIN_APPROVED_REQUEST_JSON/); assert.equal(setup.requests.length, count + 1);
   setup.updateLetter('Unpublished changed source.');
   fixture.cloud.client.rpc = (() => Promise.resolve({ data: null, error: new Error('Synthetic publication failure') })) as unknown as typeof fixture.cloud.client.rpc;
-  await setup.initialTask(); assert.ok(setup.error); assert.equal(copied.length, 4, 'failed publication must not copy an instruction for old sources');
+  await setup.publishSources(); assert.ok(setup.error); assert.equal(copied.length, 3);
+  await setup.copyTask(); assert.ok(setup.error); assert.equal(copied.length, 3, 'failed publication must not copy an instruction for old sources');
 });
 
-for (const initial of [true, false]) test(`full ${initial ? 'initial' : 'existing'} letter prompt completes through manual import without ChatGPT database tools`, async t => {
-  const fixture = mount(t), original = initial ? '' : 'My complete working draft.';
-  const setup = await prepare(fixture, 'base', { letterText: original, scope: 'letter' });
-  const copied: string[] = [];
-  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copied.push(value); } } });
-  const before = documents(setup), cloudBefore = JSON.stringify(fixture.database);
-  await setup.initialPrompt();
-  assert.equal(setup.error, '');
-  const task = copied.at(-1)!;
-  const request = JSON.parse(task.split('\nBEGIN_APPROVED_REQUEST_JSON\n')[1].split('\nEND_APPROVED_REQUEST_JSON')[0]);
-  assert.equal(request.letter.text, original);
-  assert.equal(request.requestId, setup.requests[0].id);
-  assert.doesNotMatch(task, /private\.(?:read_refinement_request|save_refinement_proposal)/);
-  assert.equal(documents(setup), before);
-  assert.equal(JSON.stringify(fixture.database), cloudBefore, 'copying unchanged sources cannot create another round');
-  // Stand in only for model generation; no connected read or save is available to the model.
-  const generated = initial ? 'A generated first letter.' : 'A refined complete letter.';
-  setup.manualProposalText = JSON.stringify({ schemaVersion: request.schemaVersion, requestId: request.requestId,
-    summary: 'Synthetic letter proposal.', cvOperations: [], cvComments: [], annotations: [], letterText: generated });
-  await setup.importProposal(); await idle(setup);
-  assert.equal(setup.error, '');
-  assert.equal(setup.previewLetterContent?.body, generated);
-  assert.equal(documents(setup), before, 'import only activates a preview');
-  await setup.acceptSelectedChanges();
-  assert.equal(setup.error, '');
-  assert.equal(setup.letterText, generated);
-  assert.equal(fixture.creations.length, 0);
-  assert.equal(JSON.stringify(fixture.database), cloudBefore, 'manual import and acceptance must not claim or perform a connected proposal save');
-});
-
-test('connected setup remains available while full prompts include sources for the same request', async t => {
+test('connected setup copies the published request without creating another round', async t => {
   const fixture = mount(t), setup = await prepare(fixture);
   const copied: string[] = [];
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copied.push(value); } } });
@@ -326,8 +247,8 @@ test('connected setup remains available while full prompts include sources for t
   assert.match(copied.at(-1)!, /private.read_refinement_request/);
   assert.match(copied.at(-1)!, /If execute_sql is unavailable, report a missing capability/);
   assert.doesNotMatch(copied.at(-1)!, /BEGIN_APPROVED_REQUEST_JSON/);
-  await setup.initialPrompt();
-  assert.match(copied.at(-1)!, /BEGIN_APPROVED_REQUEST_JSON/);
+  await setup.publishSources();
+  assert.equal(copied.length, 1, 'publishing and copying are independent');
   assert.equal(setup.requests.length, 1);
 });
 
@@ -336,14 +257,14 @@ test('an empty letter publishes an explicit first-draft task and switches to ref
   const copied: string[] = [];
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copied.push(value); } } });
   const before = documents(setup);
-  await setup.initialTask();
+  await setup.copyTask();
   assert.equal(setup.error, '');
   assert.match(copied.at(-1)!, /create an initial motivation-letter draft/);
   assert.match(copied.at(-1)!, /no existing letter is required/);
   assert.equal(setup.requests[0].request_json.letter.text, '');
   assert.equal(documents(setup), before, 'copying the task must not generate or replace local letter content');
   setup.updateLetter('A complete manually written letter.');
-  await setup.initialTask();
+  await setup.publishSources(); await setup.copyTask();
   assert.equal(setup.error, '');
   assert.match(copied.at(-1)!, /refine motivation letter/);
   assert.match(copied.at(-1)!, /Refine the complete existing letter/);
@@ -368,4 +289,20 @@ test('later application statuses open Tracking despite an earlier saved tab, whi
     const setup = fixture.reopen(); await idle(setup); assert.equal(setup.tab, 'refinement');
     fixture.props.application.status = 'submitted'; await idle(setup); assert.equal(setup.tab, 'tracking');
   }
+});
+
+test('new applications and saved combined scopes select a separate document scope', async t => {
+  const fixture = mount(t); await idle(fixture.setup);
+  assert.equal(fixture.setup.feedbackScope, 'cv');
+  const setup = await prepare(fixture, 'base', { scope: 'both' });
+  fixture.cloud.seedProposal(setup.requests[0].id);
+  const reopened = fixture.reopen(); await idle(reopened);
+  assert.equal(reopened.feedbackScope, 'cv', 'an old combined scope must not return to the dropdown');
+  reopened.openProposal();
+  assert.match(reopened.reviewAcceptanceError, /separate request/);
+  reopened.discardReview(); reopened.feedbackScope = 'letter'; await reopened.publishSources();
+  assert.equal(reopened.error, '');
+  assert.equal(reopened.requests[0].request_json.scope, 'letter');
+  const again = fixture.reopen(); await idle(again);
+  assert.equal(again.feedbackScope, 'letter');
 });

@@ -24,7 +24,10 @@ test('structured annotations validate without altering CV or letter document con
   const result = applyRefinementProposal(local, proposal, state, local.baselineSignature);
   assert.deepEqual(result.state, state); assert.equal(result.letterText, proposal.letterText);
   assert.ok(!result.letterText.includes('Confirm this'));
-  assert.match(buildRefinementPrompt(local.request, 'fixture'), /Annotations are separate review material, never document text/);
+  const prompt = buildRefinementPrompt(local.request, 'fixture');
+  assert.match(prompt, /Annotations are separate review material, never document text/);
+  assert.match(prompt, /only the latest ordered entry applies/);
+  assert.match(prompt, /dismissed or open status.*ignore that annotation and every earlier answer/);
 });
 test('unknown targets, non-exact references, duplicate IDs, embedded state and invalid annotations are rejected', () => {
   const { local, proposal } = fixture();

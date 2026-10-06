@@ -260,7 +260,7 @@ test('draft and refinement prompts distinguish research goals from qualification
           'Return a complete draft based on available evidence while keeping unconfirmed claims out',
           'type question, document letter annotation',
           'location null when no exact proposed passage fits',
-          'only after the user explicitly includes them as feedback',
+          'only after the user resolves the annotation and its saved response is included as feedback',
           'Annotations are separate review material, never document text',
         ]) assert.ok(prompt.includes(rule), `${delivery}/${scope}/${letterText ? 'refinement' : 'initial draft'}: ${rule}`);
         if (scope === 'letter') assert.match(prompt, /letter-only round MUST have cvOperations: \[\]/);

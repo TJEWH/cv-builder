@@ -12,8 +12,6 @@ import type { CvState, SavedConfiguration } from '../src/types';
 import { createSampleDocument } from '../src/composables/builtinConfigurations';
 import { cloneCv, createApplicationCv, loadApplicationCv, saveApplicationCv } from '../src/composables/applicationCv';
 import type { ApplicationCvRecord } from '../src/composables/applicationCv';
-import { privacyContextTargets } from '../src/composables/refinementPrivacy';
-import { refinementSignature } from '../src/composables/applicationRefinement';
 import { createCloudCvSnapshot } from '../src/composables/cloudCvPrivacy';
 import { createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES } from '../src/composables/motivationLetters';
 import { createRefinementFixture } from './refinementFixture';
@@ -31,12 +29,11 @@ interface WorkspaceSetup {
   shortInstruction: string; shortInstructionNotice: string; shortInstructionError: string;
   preparedSource: LocalRefinementRequest | null; sourceError: string; outgoingFeedback: string;
   privacyContexts: import('../src/refinementTypes').ApprovedPrivacyContexts;
-  approvePrivacyContext(key: string, type: import('../src/refinementTypes').PrivacyContextType, description: string): void; removePrivacyContext(key: string): void;
   effectiveSettings: { setup: RefinementSetup; provenance: unknown };
   currentPublishedRequest: RefinementRequestRow | null; publishedSource: RefinementRequestRow | null;
   publicationStatus: 'unpublished' | 'current' | 'outdated' | 'unverifiable';
-  selectCv(id: string): Promise<void>; importBackup(event: Event): Promise<void>; selectLetterTemplate(id: string): Promise<void>; saveSetup(): Promise<void>;
-  initialPrompt(): Promise<void>; checkProposals(): Promise<void>; openProposal(): void;
+  selectCv(id: string): Promise<void>; selectLetterTemplate(id: string): Promise<void>; saveSetup(): Promise<void>;
+  publishSources(): Promise<void>; checkProposals(): Promise<void>; openProposal(): void;
   acceptSelectedChanges(): Promise<void>; toggleProposedChange(id: string, included: boolean): void; toggleProposedLetter(included: boolean): void; discardReview(): void;
   selectedChangeIds: string[]; includeProposedLetter: boolean; reviewActive: boolean; previewCvState: CvState | null;
   tab: 'preparation' | 'refinement' | 'review' | 'tracking'; reviewComparison: 'original' | 'proposed'; proposalSourceOutdated: boolean;
@@ -233,30 +230,6 @@ test('legacy letters whose original template is missing require an explicit repl
   assert.equal(database.application_refinement_state.length, 1, 'explicit replacement can be saved normally');
 });
 
-test('restored backups stay detached even when unchanged from their historical base', async (t) => {
-  const { setup, props, states, base } = mount(t);
-  await idle(setup);
-  const backup = createApplicationCv(account, applicationId, 'base', 'Research', base);
-  const updated = cloneCv(base);
-  updated.about.text = 'Newer text in the current career variant';
-  states.set('base', updated);
-  const input = { value: 'backup.json', files: [{ size: 100, text: async () => JSON.stringify({ kind: 'application-cv-backup', record: backup }) }] };
-  await setup.importBackup({ target: input } as unknown as Event);
-  assert.equal(setup.record?.detached, true);
-  assert.equal(setup.record?.variantId, undefined);
-  assert.equal(setup.record?.state.about.text, base.about.text);
-  props.configurations = [{ id: 'base', name: 'Research', mtime: 5 }];
-  await nextTick();
-  assert.equal(setup.record?.state.about.text, base.about.text, 'library refresh cannot overwrite restored content');
-  const reloaded = loadApplicationCv(account, applicationId);
-  assert.equal(reloaded?.detached, true, 'detachment survives a page reload');
-  assert.equal(reloaded?.state.about.text, base.about.text);
-  await setup.selectCv('base');
-  await idle(setup);
-  assert.equal(setup.record?.variantId, 'base', 'explicit reassignment adopts the current variant');
-  assert.equal(setup.record?.state.about.text, updated.about.text);
-});
-
 test('one CV selector accepts saved subvariants and library autosaves preserve the application copy', async (t) => {
   const { setup, props, states, base } = mount(t);
   await idle(setup);
@@ -280,10 +253,9 @@ test('refinement preserves manual fixes and accumulates letter-only feedback whi
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.letter!.maxWords = 400;
-  await setup.initialPrompt();
+  setup.feedbackScope = 'both'; await setup.publishSources();
   assert.equal(setup.error, '');
-  assert.match(setup.prompt, /BEGIN_APPROVED_REQUEST_JSON/);
-  assert.doesNotMatch(setup.prompt, /private\.read_refinement_request/);
+  assert.equal(setup.prompt, '', 'publishing must not create or copy a prompt');
   assert.equal(setup.requests.length, 1);
   assert.equal(setup.requests[0].request_json.letter.maxWords, 400);
   const firstProposal = cloud.seedProposal(setup.requests[0].id);
@@ -299,7 +271,7 @@ test('refinement preserves manual fixes and accumulates letter-only feedback whi
   assert.equal(setup.cvApproved, true);
   assert.equal(setup.feedbackScope, 'letter');
   setup.feedback = 'Avoid generic claims and retain my manual corrections.';
-  await setup.requestImprovement();
+  await setup.requestImprovement(); await setup.publishSources();
   assert.equal(setup.error, '');
   const second = setup.requests[0];
   assert.equal(second.request_json.scope, 'letter');
@@ -312,7 +284,7 @@ test('refinement preserves manual fixes and accumulates letter-only feedback whi
   assert.equal(setup.error, '');
   assert.equal(setup.cvApproved, true, 'letter-only revisions preserve CV approval');
   setup.feedback = 'Keep the closing concise as well.';
-  await setup.requestImprovement();
+  await setup.requestImprovement(); await setup.publishSources();
   assert.equal(setup.error, '');
   assert.equal(setup.requests[0].request_json.feedback.length, 2);
   const thirdProposal = cloud.seedProposal(setup.requests[0].id, { overLimit: true });
@@ -328,17 +300,17 @@ test('refinement preserves manual fixes and accumulates letter-only feedback whi
   assert.equal(setup.cvApproved, true);
 });
 
-test('an unchanged returned letter preserves private wording and its approval when a joint proposal changes the CV', async (t) => {
+test('CV-only refinement preserves private letter wording and its approval', async (t) => {
   const { setup, cloud } = mount(t);
   await idle(setup);
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   const originalText = `Dear selection committee,\n\nI am interested in the advertised research.\n\nKind regards,\n${setup.record!.state.contact.name}`;
   setup.updateLetter(originalText);
-  await setup.initialPrompt();
+  setup.feedbackScope = 'cv'; await setup.publishSources();
   assert.equal(setup.error, '');
   const request = setup.requests[0];
-  assert.equal(request.request_json.scope, 'both');
+  assert.equal(request.request_json.scope, 'cv');
   assert.notEqual(request.request_json.letter.text, originalText, 'published identity is anonymized');
   await setup.approve('letter');
   assert.equal(setup.letterApproved, true);
@@ -352,41 +324,20 @@ test('an unchanged returned letter preserves private wording and its approval wh
   assert.equal(JSON.stringify(setup.letter), approved, 'unchanged approved letters retain their exact final revision and history');
 });
 
-test('invalid letter content in a combined backup leaves the application CV and letter untouched', async (t) => {
-  const { setup, base } = mount(t);
-  await idle(setup);
-  await setup.selectCv('base'); await idle(setup);
-  await setup.selectLetterTemplate('research');
-  setup.updateLetter('Existing letter that must survive an invalid backup.');
-  setup.record!.state.about.text = 'Existing application CV that must survive.';
-  await nextTick();
-  const beforeRecord = JSON.stringify(setup.record);
-  const beforeLetter = JSON.stringify(setup.letter);
-  const incomingCv = createApplicationCv(account, applicationId, 'base', 'Incoming backup', base);
-  incomingCv.state.about.text = 'This incoming CV must never be partially restored.';
-  const backup = { kind: 'application-refinement-backup', version: 1, record: incomingCv, letter: { ...setup.letter, working: null } };
-  const input = { value: 'broken-backup.json', files: [{ size: 500, text: async () => JSON.stringify(backup) }] };
-  await setup.importBackup({ target: input } as unknown as Event);
-  assert.match(setup.error, /letter content/i);
-  assert.equal(JSON.stringify(setup.record), beforeRecord);
-  assert.equal(JSON.stringify(setup.letter), beforeLetter);
-  assert.deepEqual(loadApplicationCv(account, applicationId), JSON.parse(beforeRecord), 'failed restore must preserve the saved CV as well');
-});
-
 test('requesting improvements never applies an unopened proposal over newer manual corrections', async (t) => {
   const { setup, cloud } = mount(t);
   await idle(setup);
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.updateLetter('A manually drafted letter before the request.');
-  await setup.initialPrompt();
+  await setup.publishSources();
   const proposed = cloud.seedProposal(setup.requests[0].id);
   await setup.checkProposals(); setup.selectedProposalId = proposed.id;
   setup.discardReview();
   setup.updateLetter('Newer manual correction must be the starting point.');
   setup.record!.state.about.text += '\nNewer CV correction.';
   setup.feedback = 'Keep my updated wording and make the closing more precise.';
-  await setup.requestImprovement();
+  await setup.requestImprovement(); await setup.publishSources();
   assert.equal(setup.error, '');
   assert.equal(setup.letterText, 'Newer manual correction must be the starting point.');
   assert.equal(setup.requests[0].request_json.letter.text, setup.letterText);
@@ -400,7 +351,7 @@ test('superseded feedback rounds remain viewable but cannot replace documents wi
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.updateLetter('The current manual letter stays unchanged until I open an eligible proposal.');
-  await setup.initialPrompt();
+  await setup.publishSources();
   const firstRequest = setup.requests[0];
   const olderProposal = cloud.seedProposal(firstRequest.id);
   await setup.checkProposals(); setup.selectedProposalId = olderProposal.id;
@@ -410,7 +361,7 @@ test('superseded feedback rounds remain viewable but cannot replace documents wi
   // Feedback alone supersedes the request: the CV and letter baseline remains identical.
   setup.discardReview();
   setup.feedback = 'Do not use the generic opening from the previous proposal.';
-  await setup.requestImprovement();
+  await setup.requestImprovement(); await setup.publishSources();
   assert.equal(setup.error, '');
   const currentRequest = setup.requests[0];
   assert.notEqual(currentRequest.id, firstRequest.id);
@@ -436,7 +387,7 @@ test('copying the short instruction follows server code and scope changes withou
   const { setup, props, database, clipboardWrites } = mount(t);
   await idle(setup);
   const before = JSON.stringify(database);
-  assert.equal(setup.shortInstruction, `phd-workflow: ${applicationId} — refine both.`);
+  assert.equal(setup.shortInstruction, `phd-workflow: ${applicationId} — refine CV.`);
   await setup.copyShortInstruction();
   assert.equal(clipboardWrites.at(-1), setup.shortInstruction);
   assert.ok(setup.shortInstructionNotice);
@@ -486,7 +437,7 @@ test('publishing an initial round uses the same selected scope as the copied sho
   await setup.copyShortInstruction();
   assert.equal(clipboardWrites.at(-1), `phd-workflow: ${applicationId} — refine motivation letter.`);
   assert.equal(setup.requests.length, 0, 'copy alone must not publish the selected scope');
-  await setup.initialPrompt();
+  await setup.publishSources();
   assert.equal(setup.error, '');
   assert.equal(setup.requests[0].request_json.scope, 'letter');
   const firstRequestId = setup.requests[0].id;
@@ -495,7 +446,7 @@ test('publishing an initial round uses the same selected scope as the copied sho
   await setup.copyShortInstruction();
   assert.equal(clipboardWrites.at(-1), `phd-workflow: ${applicationId} — refine CV.`);
   assert.equal(setup.requests[0].id, firstRequestId, 'a different copy selection still must not mutate the published round');
-  await setup.initialPrompt();
+  await setup.publishSources();
   assert.equal(setup.error, '');
   assert.equal(setup.requests[0].request_json.scope, 'cv');
   assert.notEqual(setup.requests[0].id, firstRequestId, 'a scope change requires its own immutable request');
@@ -521,7 +472,7 @@ test('published sources contain the complete private-filtered working letter and
   assert.equal(setup.effectiveSettings.setup.language, 'de');
   assert.equal(setup.effectiveSettings.setup.maxWords, 400);
   const sourcePreview = setup.preparedSource!.request;
-  await setup.initialPrompt();
+  await setup.publishSources();
   assert.equal(setup.error, '');
   const request = setup.requests[0].request_json;
   assert.equal(request.letter.text, setup.letterText
@@ -547,7 +498,7 @@ test('reopening and refreshing preserve the saved working documents without publ
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.updateLetter('The local working letter that survives reopening.');
-  await setup.initialPrompt();
+  await setup.publishSources();
   assert.equal(setup.error, '');
   fixture.cloud.seedProposal(setup.requests[0].id);
   setup.updateLetter('A newer local correction, independent of the pending proposal.');
@@ -575,12 +526,12 @@ test('publishing unchanged current sources reuses the same request without cloud
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.updateLetter('The unchanged letter to reuse for the published round.');
-  await setup.initialPrompt();
+  await setup.publishSources();
   assert.equal(setup.error, '');
   const originalRequest = JSON.stringify(setup.requests[0]);
   const originalPrompt = setup.prompt;
   const database = JSON.stringify(fixture.database);
-  await setup.initialPrompt();
+  await setup.publishSources();
   assert.equal(setup.error, '');
   assert.equal(setup.requests.length, 1);
   assert.equal(JSON.stringify(setup.requests[0]), originalRequest);
@@ -588,7 +539,7 @@ test('publishing unchanged current sources reuses the same request without cloud
   assert.equal(JSON.stringify(fixture.database), database, 'reusing a request must not increment the state revision or republish snapshots');
   setup = fixture.reopen();
   await idle(setup);
-  await setup.initialPrompt();
+  await setup.publishSources();
   assert.equal(setup.error, '');
   assert.equal(setup.requests.length, 1);
   assert.equal(JSON.stringify(setup.requests[0]), originalRequest);
@@ -604,7 +555,7 @@ test('changes mark the published source outdated without changing its immutable 
   await setup.selectLetterTemplate('research');
   const originalText = 'Current letter with deliberate wording.';
   setup.updateLetter(originalText);
-  await setup.initialPrompt();
+  await setup.publishSources();
   assert.equal(setup.error, '');
   assert.equal(setup.publicationStatus, 'current');
   const receipt = JSON.stringify(setup.publishedSource);
@@ -620,9 +571,9 @@ test('changes mark the published source outdated without changing its immutable 
   setup.letter!.language = originalLanguage === 'de' ? 'en' : 'de';
   assert.equal(setup.publicationStatus, 'outdated');
   setup.letter!.language = originalLanguage;
-  setup.feedbackScope = 'cv';
+  setup.feedbackScope = 'letter';
   assert.equal(setup.publicationStatus, 'outdated');
-  setup.feedbackScope = 'both';
+  setup.feedbackScope = 'cv';
   assert.equal(setup.publicationStatus, 'current');
   setup.letter!.instructions = 'Add more emphasis on reproducible experiments.';
   assert.equal(setup.publicationStatus, 'outdated');
@@ -636,7 +587,7 @@ test('proposal selection and explicit application keep the published source sepa
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.updateLetter('My published source letter.');
-  await setup.initialPrompt();
+  setup.feedbackScope = 'both'; await setup.publishSources();
   assert.equal(setup.error, '');
   const request = setup.requests[0];
   const first = cloud.seedProposal(request.id, { letterText: 'First returned draft.' });
@@ -668,7 +619,7 @@ test('reopening preserves a deliberately empty local working letter instead of r
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.updateLetter('An older source letter already published.');
-  await setup.initialPrompt();
+  await setup.publishSources();
   assert.equal(setup.error, '');
   setup.updateLetter('');
   const before = JSON.stringify(fixture.database);
@@ -687,7 +638,7 @@ test('a missing working letter stays absent while its proposal previews from the
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.updateLetter(`The source text remains available when this device has no letter.\n\nKind regards,\n${setup.record!.state.contact.name}`);
-  await setup.initialPrompt();
+  setup.feedbackScope = 'both'; await setup.publishSources();
   assert.equal(setup.error, '');
   const sourceText = setup.requests[0].request_json.letter.text;
   assert.notEqual(sourceText, setup.letterText, 'the saved source has identity placeholders');
@@ -713,7 +664,7 @@ test('an unreadable local letter is reported and preserved instead of being repl
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.updateLetter('Published letter before a local storage problem.');
-  await setup.initialPrompt();
+  await setup.publishSources();
   assert.equal(setup.error, '');
   const before = JSON.stringify(fixture.database);
   const key = `cv.letters.v1:${account}:application:${applicationId}`;
@@ -737,17 +688,17 @@ test('reverting to an older published baseline creates a new current request ins
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.updateLetter('Baseline A: retain this exact wording.');
-  await setup.initialPrompt();
+  await setup.publishSources();
   assert.equal(setup.error, '');
   const first = JSON.parse(JSON.stringify(setup.requests[0])) as RefinementRequestRow;
   setup.updateLetter('Baseline B: a later deliberate revision.');
-  await setup.initialPrompt();
+  await setup.publishSources();
   assert.equal(setup.error, '');
   const second = setup.requests[0];
   assert.notEqual(second.id, first.id);
   setup.updateLetter('Baseline A: retain this exact wording.');
   assert.equal(setup.publicationStatus, 'outdated');
-  await setup.initialPrompt();
+  await setup.publishSources();
   assert.equal(setup.error, '');
   const third = setup.requests[0];
   assert.notEqual(third.id, first.id, 'an old immutable round cannot become current again through idempotent replay');
@@ -768,7 +719,7 @@ test('a cold reopen retains a letter-only published scope and reuses its current
   await setup.selectLetterTemplate('research');
   setup.updateLetter('A letter-only round selected without locking the CV.');
   setup.feedbackScope = 'letter';
-  await setup.initialPrompt();
+  await setup.publishSources();
   assert.equal(setup.error, '');
   const requestId = setup.requests[0].id;
   const before = JSON.stringify(fixture.database);
@@ -778,7 +729,7 @@ test('a cold reopen retains a letter-only published scope and reuses its current
   assert.equal(setup.feedbackScope, 'letter');
   assert.equal(setup.publicationStatus, 'current');
   assert.equal(setup.currentPublishedRequest?.id, requestId);
-  await setup.initialPrompt();
+  await setup.publishSources();
   assert.equal(setup.error, '');
   assert.equal(setup.requests.length, 1);
   assert.equal(setup.requests[0].id, requestId);
@@ -790,7 +741,7 @@ test('loaded structured changes immediately preview without accepting, and each 
   const { setup, cloud, database, base, storage } = mount(t);
   await idle(setup);
   await setup.selectCv('base'); await idle(setup);
-  await setup.selectLetterTemplate('research'); setup.updateLetter('Existing local letter.'); await setup.initialPrompt();
+  await setup.selectLetterTemplate('research'); setup.updateLetter('Existing local letter.'); setup.feedbackScope = 'both'; await setup.publishSources();
   const before = JSON.stringify({ record: setup.record, letter: setup.letter });
   const savedBefore = storage.getItem('CV_REFINEMENT:1:' + account + ':' + applicationId);
   const proposal = cloud.seedProposal(setup.requests[0].id, { letterText: 'Proposed letter immediately visible.' });
@@ -828,7 +779,7 @@ test('closing or reopening a temporary review never accepts it and newer manual 
   const fixture = mount(t);
   let setup = fixture.setup;
   await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
-  setup.updateLetter('Retained manual letter.'); await setup.initialPrompt(); fixture.cloud.seedProposal(setup.requests[0].id);
+  setup.updateLetter('Retained manual letter.'); await setup.publishSources(); fixture.cloud.seedProposal(setup.requests[0].id);
   await setup.checkProposals();
   const original = JSON.stringify({ record: setup.record, letter: setup.letter });
   setup.discardReview();
@@ -850,7 +801,7 @@ test('closing or reopening a temporary review never accepts it and newer manual 
 test('failed decision recording leaves selected changes proposed and working copies unchanged for retry', async (t) => {
   const { setup, cloud, database, props } = mount(t);
   await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
-  await setup.initialPrompt(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
+  await setup.publishSources(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
   const before = JSON.stringify({ record: setup.record, letter: setup.letter });
   const client = props.client as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<unknown> };
   const rpc = client.rpc.bind(client);
@@ -870,7 +821,7 @@ test('failed decision recording leaves selected changes proposed and working cop
 test('invalid returned structural targets are rejected before preview rendering or document mutation', async (t) => {
   const { setup, cloud, database } = mount(t);
   await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
-  await setup.initialPrompt(); const row = cloud.seedProposal(setup.requests[0].id);
+  await setup.publishSources(); const row = cloud.seedProposal(setup.requests[0].id);
   const stored = database.application_refinement_proposals.find(item => item.id === row.id)!;
   (stored.proposal_json as { cvOperations: { targetId: string }[] }).cvOperations[0].targetId = 'unknown-area';
   const before = JSON.stringify({ cv: setup.record, letter: setup.letter });
@@ -885,7 +836,7 @@ test('invalid returned structural targets are rejected before preview rendering 
 test('answering and resolving annotations persists across reload without changing either document or its preview', async (t) => {
   const fixture = mount(t); let setup = fixture.setup;
   await idle(setup); await setup.selectCv('base'); await idle(setup);
-  await setup.selectLetterTemplate('research'); setup.updateLetter('Working letter.'); await setup.initialPrompt();
+  await setup.selectLetterTemplate('research'); setup.updateLetter('Working letter.'); await setup.publishSources();
   fixture.cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
   const before = JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter, cv: setup.previewCvState, previewLetter: setup.previewLetterContent }));
   assert.equal(setup.proposalAnnotations[0].status, 'open');
@@ -897,25 +848,24 @@ test('answering and resolving annotations persists across reload without changin
   assert.equal(setup.proposalAnnotations[0].status, 'resolved');
   assert.equal(setup.proposalAnnotations[0].response, 'Used controlled experiments with {{CONFIDENTIAL}}.');
   assert.deepEqual(JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter })), { record: before.record, letter: before.letter });
-  assert.equal(fixture.database.application_refinement_reviews.length, 1);
+  assert.equal(fixture.database.application_refinement_reviews.length, 2);
 });
 
-test('open and answered annotations enter existing feedback history only on explicit inclusion, retaining references in subsequent requests', async (t) => {
+test('only resolved answers enter feedback automatically, retaining references in subsequent requests', async (t) => {
   const { setup, cloud, database } = mount(t);
   await idle(setup); await setup.selectCv('base'); await idle(setup);
-  await setup.selectLetterTemplate('research'); await setup.initialPrompt(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
+  await setup.selectLetterTemplate('research'); await setup.publishSources(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
   await setup.saveAnnotation('annotation-1', 'resolved', 'Confirmed experiments.', null);
-  assert.equal(database.application_refinement_reviews.filter(row => row.kind === 'feedback').length, 0);
+  assert.equal(database.application_refinement_reviews.filter(row => row.kind === 'feedback').length, 1);
   await setup.includeAnnotationFeedback('annotation-1'); await setup.includeAnnotationFeedback('annotation-1');
   await setup.includeAnnotationFeedback('annotation-2');
   assert.equal(setup.error, '');
-  assert.equal(database.application_refinement_reviews.filter(row => row.kind === 'feedback').length, 2, 'identical inclusion cannot add another feedback entry');
-  setup.discardReview(); await setup.initialPrompt();
+  assert.equal(database.application_refinement_reviews.filter(row => row.kind === 'feedback').length, 1, 'resolved feedback is idempotent and open comments stay excluded');
+  setup.discardReview(); await setup.publishSources();
   assert.equal(setup.error, '');
   const feedback = setup.requests[0].request_json.feedback;
-  assert.equal(feedback.length, 2); assert.ok(feedback.every(item => item.annotation?.proposalId === setup.proposals[0].id));
+  assert.equal(feedback.length, 1); assert.ok(feedback.every(item => item.annotation?.proposalId === setup.proposals[0].id));
   assert.equal(feedback[0].annotation?.reviewId, setup.proposalAnnotations[0].reviewId);
-  assert.equal(feedback[1].annotation?.reviewId, null);
   assert.match(feedback[0].text, /Confirmed experiments/);
   assert.equal(setup.letterText, '', 'feedback never becomes working letter content');
 });
@@ -923,7 +873,7 @@ test('open and answered annotations enter existing feedback history only on expl
 test('manual letter edits invalidate annotation references without moving notes or adding them to the PDF content', async (t) => {
   const { setup, cloud } = mount(t);
   await idle(setup); await setup.selectCv('base'); await idle(setup);
-  await setup.selectLetterTemplate('research'); await setup.initialPrompt(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
+  await setup.selectLetterTemplate('research'); setup.feedbackScope = 'both'; await setup.publishSources(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
   assert.equal(setup.proposalAnnotations[1].referenceChanged, false);
   await setup.acceptSelectedChanges(); assert.equal(setup.error, '');
   assert.equal(setup.proposalAnnotations[1].referenceChanged, false);
@@ -936,7 +886,7 @@ test('manual letter edits invalidate annotation references without moving notes 
 test('stale annotation updates and failed saves preserve documents and do not claim success', async (t) => {
   const { setup, cloud, database, props } = mount(t);
   await idle(setup); await setup.selectCv('base'); await idle(setup);
-  await setup.selectLetterTemplate('research'); await setup.initialPrompt(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
+  await setup.selectLetterTemplate('research'); await setup.publishSources(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
   await setup.saveAnnotation('annotation-1', 'resolved', 'First answer.', null);
   const before = JSON.stringify({ record: setup.record, letter: setup.letter });
   assert.equal(await setup.saveAnnotation('annotation-1', 'dismissed', 'Stale answer.', null), false);
@@ -947,7 +897,7 @@ test('stale annotation updates and failed saves preserve documents and do not cl
   assert.equal(setup.proposalAnnotations[1].status, 'open');
   props.client.rpc = rpc;
   assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'Unsaved response.', null), true);
-  assert.equal(database.application_refinement_reviews.length, 2);
+  assert.equal(database.application_refinement_reviews.length, 4);
   assert.equal(JSON.stringify({ record: setup.record, letter: setup.letter }), before);
 });
 
@@ -955,7 +905,7 @@ test('Original and Proposed use the exact published baseline after local edits a
   const { setup, cloud, storage } = mount(t);
   await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
   setup.letter!.working = { subject: 'Research interest', salutation: 'To the research committee:', body: 'The original private working letter.', closing: 'With sincere interest,\nPrivate applicant' };
-  await setup.initialPrompt();
+  setup.feedbackScope = 'both'; await setup.publishSources();
   const baselineCv = cloneCv(setup.record!.state), baselineLetter = JSON.parse(JSON.stringify(setup.letter!.working));
   setup.record!.state.about.text = 'A new manual CV correction.';
   setup.record!.state.contact.role = 'A newer local role';
@@ -985,7 +935,7 @@ test('Original and Proposed use the exact published baseline after local edits a
 for (const scope of ['cv', 'letter'] as const) test(`${scope}-only proposals leave the other document preview on its working source`, async (t) => {
   const { setup, cloud } = mount(t);
   await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
-  setup.updateLetter('Existing letter.'); setup.feedbackScope = scope; await setup.initialPrompt();
+  setup.updateLetter('Existing letter.'); setup.feedbackScope = scope; await setup.publishSources();
   const baselineCv = cloneCv(setup.record!.state);
   setup.record!.state.contact.role = 'Manual role after publication';
   setup.updateLetter('Manual letter after publication.');
@@ -1012,7 +962,7 @@ for (const scope of ['cv', 'letter'] as const) test(`${scope}-only proposals lea
 test('missing private mappings produce no misleading proposed fallback and dismissal stays closed across tabs', async (t) => {
   const { setup, cloud, database } = mount(t);
   await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
-  setup.updateLetter('Existing letter.'); await setup.initialPrompt();
+  setup.updateLetter('Existing letter.'); setup.feedbackScope = 'both'; await setup.publishSources();
   const request = setup.requests[0]; cloud.seedProposal(request.id);
   setup.localRequests[request.id].cv.bindings = [];
   const original = JSON.stringify({ record: setup.record, letter: setup.letter });
@@ -1032,35 +982,4 @@ test('missing private mappings produce no misleading proposed fallback and dismi
   assert.deepEqual(setup.previewCvState, setup.record!.state);
   assert.equal(JSON.stringify({ record: setup.record, letter: setup.letter }), original);
   assert.equal(database.application_refinement_reviews.length, 0);
-});
-
-
-test('privacy context approval persists locally, publishes only approved descriptions, and can be revoked', async t => {
-  const mounted = mount(t); let setup = mounted.setup;
-  const legend = () => setup.preparedSource!.request.privacyLegend;
-  await idle(setup); await setup.selectCv('base'); await idle(setup);
-  await setup.selectLetterTemplate('research'); await idle(setup);
-  setup.record!.state.about.text = 'Research with !!Private sensor company!!.';
-  await nextTick();
-  const baseline = cloneCv(setup.record!.state);
-  const target = privacyContextTargets(setup.preparedSource!.cv, refinementSignature).find(target => target.label === 'Profile')!;
-  setup.approvePrivacyContext(target.sourceKey, 'organization', 'Private sensor company');
-  assert.match(setup.error, /protected text/); assert.equal(legend(), undefined);
-  setup.approvePrivacyContext(target.sourceKey, 'organization', 'Engineering company specializing in sensor technology');
-  assert.equal(setup.error, '');
-  assert.equal(legend()?.length, 1);
-  assert.deepEqual(setup.record!.state, baseline);
-  setup = mounted.reopen(); await idle(setup);
-  assert.equal(legend()?.[0].description, 'Engineering company specializing in sensor technology');
-  await setup.initialPrompt(); await idle(setup); assert.equal(setup.error, '');
-  assert.equal(setup.publishedSource!.request_json.privacyLegend?.length, 1);
-  const cloud = JSON.stringify(mounted.database);
-  for (const secret of ['Private sensor company', target.sourceKey, 'baselineState', 'bindings']) assert.equal(cloud.includes(secret), false, secret);
-  setup.feedback = 'Mention Private sensor company and !!private instruction!!.';
-  assert.equal(setup.outgoingFeedback, 'Mention {{CONFIDENTIAL}} and {{CONFIDENTIAL}}.');
-  setup.removePrivacyContext(target.sourceKey);
-  assert.equal(legend(), undefined);
-  assert.equal(setup.publicationStatus, 'outdated');
-  assert.equal(setup.publishedSource!.request_json.privacyLegend?.length, 1, 'revocation does not rewrite published history');
-  assert.deepEqual(setup.record!.state, baseline);
 });

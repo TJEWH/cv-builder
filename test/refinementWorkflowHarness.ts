@@ -17,7 +17,8 @@ export const refinementKey = `CV_REFINEMENT:1:${account}:${applicationId}`;
 export interface Workspace {
   record: ApplicationCvRecord | null; letter: ApplicationLetter | null;
   busy: boolean; refreshing: boolean; error: string; saveError: string;
-  selectedCvId: string; selectedTemplateId: string; selectedProposalId: string; manualProposalText: string;
+  selectedCvId: string; selectedTemplateId: string; selectedProposalId: string;
+  importedProposals: RefinementProposalRow[];
   requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; localRequests: Record<string, LocalRefinementRequest>;
   selectedChangeIds: string[]; includeProposedLetter: boolean; reviewActive: boolean;
   previewCvState: CvState | null; previewLetterContent: ApplicationLetter['working'] | undefined;
@@ -29,14 +30,11 @@ export interface Workspace {
   includeAnnotationFeedback(id: string): Promise<void>; feedbackHistory(): RefinementFeedback[];
   proposalAnnotations: { annotation: { id: string }; status: string; response: string | null; reviewId: string | null; included: boolean }[];
   reviewAcceptanceError: string; letterText: string;
-  selectCv(id: string): Promise<void>; selectLetterTemplate(id: string): Promise<void>; initialPrompt(): Promise<void>; initialTask(): Promise<void>; connectedPrompt(): Promise<void>; checkProposals(): Promise<void>;
-  importProposal(): void | Promise<void>; openProposal(): void; discardReview(): void; acceptSelectedChanges(): Promise<void>;
+  selectCv(id: string): Promise<void>; selectLetterTemplate(id: string): Promise<void>; publishSources(): Promise<void>; copyTask(): Promise<void>; connectedPrompt(): Promise<void>; checkProposals(): Promise<void>;
+  openProposal(): void; discardReview(): void; acceptSelectedChanges(): Promise<void>;
   persist(): void;
-  feedbackScope: 'cv' | 'letter' | 'both'; pane: 'cv' | 'letter'; tab: string; historyOpen: boolean; manualLetterText: string;
+  feedbackScope: 'cv' | 'letter' | 'both'; pane: 'cv' | 'letter'; tab: string; historyOpen: boolean;
   selectReviewProposal(id: string): void;
-  importProposalFile(event: Event): Promise<void>; importLetterBackup(event: Event): Promise<void>;
-  importBackup(event: Event): Promise<void>; downloadBackup(): void;
-  keepIncomingLetter(draft?: import('../src/draftingTypes').MotivationLetterDraft): void; reopenLocalLetterRevision(id: string): void;
   approve(kind: 'cv' | 'letter', reopen?: boolean): Promise<void>;
   updateLetter(value: string): void; toggleProposedChange(id: string, included: boolean): void;
 }
@@ -88,9 +86,15 @@ export async function prepare(fixture: ReturnType<typeof mount>, sourceId = 'bas
   await idle(setup);
   await setup.selectCv(sourceId); await idle(setup); await setup.selectLetterTemplate('research');
   setup.updateLetter(options.letterText ?? 'Original private working letter.');
-  setup.feedbackScope = options.scope ?? 'both'; await setup.initialPrompt();
+  setup.feedbackScope = options.scope ?? 'both'; await setup.publishSources();
   assert.equal(setup.error, '');
   assert.equal(setup.requests.length, 1);
   return setup;
 }
 export const documents = (setup: Workspace) => JSON.stringify({ record: setup.record, letter: setup.letter });
+
+// Existing local proposal records remain readable after the manual-import UI is removed.
+export async function loadHistoricalProposal(setup: Workspace, row: RefinementProposalRow) {
+  setup.importedProposals.push(row); setup.persist();
+  await setup.checkProposals(); await idle(setup);
+}

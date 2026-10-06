@@ -56,6 +56,8 @@ export function annotationReferenceChanged(annotation: RefinementAnnotation, pro
 }
 export function annotationFeedback(view: AnnotationView): string {
   const a = view.annotation;
+  const prefix = `Annotation: ${view.proposalId}/${a.id}\nStatus: ${view.status}\n`;
+  if (view.status !== 'resolved' || !view.response) return prefix + 'Ignore this annotation and all previous feedback associated with it. No answer is approved for use.';
   const location = a.location ? a.document === 'cv' ? ` (${a.location.fieldId})` : ` (original quote: ${a.location.quote})` : '';
-  return `${a.document === 'cv' ? 'CV' : 'Motivation letter'} ${a.type}${location}: ${a.text}\nStatus: ${view.status}${view.response ? `\nUser response: ${view.response}` : ''}`;
+  return prefix + `${a.document === 'cv' ? 'CV' : 'Motivation letter'} ${a.type}${location}: ${a.text}\nStatus: ${view.status}${view.response ? `\nUser response: ${view.response}` : ''}`;
 }

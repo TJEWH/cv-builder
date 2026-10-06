@@ -12,7 +12,7 @@ import FullDocumentPreview from './FullDocumentPreview.vue';
 
 const props = withDefaults(defineProps<{
   cvState: CvState | null; content: LetterContent; active?: boolean; lang?: string;
-  downloadDisabled?: boolean; downloading?: boolean; downloadError?: string;
+  hideActions?: boolean; downloadDisabled?: boolean; downloading?: boolean; downloadError?: string;
 }>(), { active: true, lang: '', downloadDisabled: false, downloading: false, downloadError: '' });
 const emit = defineEmits<{ download: [] }>();
 const page = ref<HTMLElement | null>(null);
@@ -52,7 +52,7 @@ defineExpose({ getPdfBlob, getRenderElement: () => page.value, open: () => { exp
 
 <template>
   <div class="letter-preview">
-    <InlineDocumentPreview :pages="pages" v-model:page="previewPage" :is-updating="busy" :lang="previewLang" :title="title" :download-disabled="downloadDisabled" :downloading="downloading" @open="expanded = true" @download="emit('download')">
+    <InlineDocumentPreview :hide-actions="hideActions" :pages="pages" v-model:page="previewPage" :is-updating="busy" :lang="previewLang" :title="title" :download-disabled="downloadDisabled" :downloading="downloading" @open="expanded = true" @download="emit('download')">
       <template #header><slot /><p v-if="error" class="letter-preview__error" role="alert">{{ error }}</p></template>
     </InlineDocumentPreview>
     <FullDocumentPreview v-model="expanded" v-model:page="previewPage" :pages="pages" :is-updating="busy" :lang="previewLang" :title="title" :error="downloadError || error" :download-disabled="downloadDisabled" :downloading="downloading" @download="emit('download')">

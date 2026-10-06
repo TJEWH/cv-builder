@@ -11,7 +11,7 @@ test('publishing existing and empty letters preserves exactly the approved sourc
   const first = setup.requests[0].request_json;
   assert.equal(first.letter.text, letterToEditableText(setup.letter!.working));
   assert.match(first.letter.text, /My approved existing draft/);
-  setup.updateLetter(''); await setup.initialPrompt();
+  setup.updateLetter(''); await setup.publishSources();
   assert.equal(setup.error, ''); assert.equal(setup.requests[0].request_json.letter.text, '');
   assert.equal(setup.localRequests[setup.requests[0].id].letterBaseline?.text, '');
   assert.match(first.letter.text, /My approved existing draft/, 'an initial-draft request never clears the older frozen source');
@@ -48,9 +48,9 @@ for (const scope of ['cv', 'letter', 'both'] as const) test(`${scope} proposals 
 test('synthetic CV workflow keeps different secrets and linked omissions attached through selective acceptance and reload', async t => {
   const fixture = mount(t, createPrivateRefinementCv()); let setup = await prepare(fixture, 'base', { scope: 'cv' });
   const request = setup.requests[0], local = setup.localRequests[request.id], originals = JSON.stringify(local.cv), base = cloneCv(fixture.base);
-  const incoming = fixture.cloud.seedProposal(request.id, { persist: false });
+  const incoming = fixture.cloud.seedProposal(request.id, {});
   const cloudBefore = JSON.stringify(fixture.database);
-  setup.manualProposalText = JSON.stringify(incoming.proposal_json); setup.importProposal(); await idle(setup);
+  await setup.checkProposals(); await idle(setup);
   assert.equal(setup.error, ''); assert.equal(JSON.stringify(fixture.database), cloudBefore);
   const preview = setup.previewCvState!, job = preview.experience.jobs.find(job => job.id === 'local-private-job-a')!;
   assert.equal(job.bullets, '- Evaluated robots with !!E2E South Lab!!.\n- Built sensors with !!E2E North Lab!!.');
@@ -65,11 +65,11 @@ test('synthetic CV workflow keeps different secrets and linked omissions attache
   for (const secret of ['E2E North Lab', 'E2E South Lab', 'E2E Omit Lab', 'private.example.invalid', 'rowan@example.invalid', 'local-private-job', 'bindings', 'baselineState', 'sourceSignatures', 'structureBindings']) assert.equal(JSON.stringify(fixture.database).includes(secret), false, `published data leaked ${secret}`);
 });
 
-for (const initial of [true, false]) test(`synthetic ${initial ? 'initial' : 'existing'} letter flow imports, previews and explicitly accepts without changing the CV`, async t => {
+for (const initial of [true, false]) test(`synthetic ${initial ? 'initial' : 'existing'} letter flow loads, previews and explicitly accepts without changing the CV`, async t => {
   const fixture = mount(t, createPrivateRefinementCv()); let setup = await prepare(fixture, 'base', { scope: 'letter', letterText: initial ? '' : 'My existing working letter.' });
   const cv = cloneCv(setup.record!.state), working = JSON.stringify(setup.letter!.working);
-  const incoming = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Proposed letter for {{APPLICANT_NAME}}.', persist: false });
-  setup.manualProposalText = JSON.stringify(incoming.proposal_json); setup.importProposal(); await idle(setup);
+  fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Proposed letter for {{APPLICANT_NAME}}.' });
+  await setup.checkProposals(); await idle(setup);
   assert.equal(setup.error, ''); assert.equal(setup.previewLetterContent?.body, 'Proposed letter for {{APPLICANT_NAME}}.');
   assert.equal(JSON.stringify(setup.letter!.working), working); assert.deepEqual(setup.previewCvState, cv);
   const shown = JSON.stringify(setup.previewLetterContent); await setup.acceptSelectedChanges(); assert.equal(setup.error, '');
