@@ -322,3 +322,19 @@ test('plain text and structured generated drafts import as inert content', () =>
   assert.throws(() => parseIncomingLetter('{"subject":"Missing body"}'), /needs a body/);
   assert.throws(() => parseIncomingLetter('{"body":2}'), /needs a body/);
 });
+
+test('default letter preferences persist per account and resolve the latest saved revision', () => {
+  const storage = memory();
+  const first = createLetterRepository(storage, 'owner');
+  const second = createLetterRepository(storage, 'other');
+  assert.equal(first.defaultTemplate()?.id, 'research');
+  first.setDefaultTemplate('industry');
+  assert.equal(createLetterRepository(storage, 'owner').defaultTemplate()?.id, 'industry');
+  assert.equal(second.defaultTemplate()?.id, 'research');
+  const updated = first.saveTemplate({ ...first.defaultTemplate()!, maxWords: 600 });
+  assert.deepEqual(first.defaultTemplate(), updated);
+  assert.throws(() => first.setDefaultTemplate('unsaved'), /Save the letter template/);
+  assert.equal(first.defaultTemplate()?.id, 'industry');
+  storage.setItem('cv.letters.v1:owner:templates', JSON.stringify([DEFAULT_LETTER_TEMPLATES[0]]));
+  assert.equal(first.defaultTemplate()?.id, 'research', 'removed defaults fall back to an available template');
+});

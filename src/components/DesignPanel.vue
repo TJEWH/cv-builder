@@ -161,10 +161,6 @@ function toggleSection(key: string) {
 
 <template>
   <section class="section-group editor-panel design-panel">
-    <div class="section-head editor-panel__header editor-panel__header--centered">
-      <h2>{{ t('design') }}</h2>
-    </div>
-
     <div class="design-panel__scroll-body">
       <section class="design-favorites">
       <div class="design-favorites__header">
@@ -223,7 +219,7 @@ function toggleSection(key: string) {
 </template>
 
 <style scoped>
-.design-favorites { display: grid; gap: 10px; margin: 0 10px 10px; padding: 12px; border: 1px solid #1c6255; border-radius: 8px; background: rgba(6, 20, 31, .52); }
+.design-favorites { display: grid; gap: 10px; margin: 0 0 20px; }
 .design-favorites__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #d1fae5; font-size: 10pt; font-weight: 700; }
 .design-favorites__header span { display: inline-flex; align-items: center; gap: 7px; }
 .design-favorites__header .svg-inline--fa { color: #fb7185; }

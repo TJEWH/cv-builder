@@ -3,7 +3,6 @@ import { readCvState, isRecord } from './cvStateValidation';
 import { normalizeContentState } from './contentLayout';
 
 type LocalStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
-export interface CareerRevision { revision: number; createdAt: string; state: CvState }
 export interface ApplicationCvRecord {
   format: 1;
   userId: string;
@@ -14,6 +13,7 @@ export interface ApplicationCvRecord {
   /** Restored backups stay pinned until explicitly adopted into the variant library. */
   detached?: boolean;
   baseName: string;
+  /** Legacy snapshot revision retained for saved application and refinement compatibility. */
   baseRevision: number;
   baseState: CvState;
   state: CvState;
@@ -38,35 +38,10 @@ function same(a: unknown, b: unknown): boolean {
   return false;
 }
 const keyFor = (userId: string, applicationId: string) => `CV_APPLICATION:1:${encodeURIComponent(userId)}:${encodeURIComponent(applicationId)}`;
-const revisionsKey = (id: string) => `CV_CAREER_REVISIONS:1:${encodeURIComponent(id)}`;
-
-export function listCareerRevisions(id: string, store: LocalStore = localStorage): CareerRevision[] {
-  const raw = store.getItem(revisionsKey(id));
-  if (!raw) return [];
-  const value: unknown = JSON.parse(raw);
-  if (!Array.isArray(value)) throw new Error('The saved CV revision history could not be read.');
-  return value.map((entry: unknown) => {
-    if (!isRecord(entry) || !Number.isInteger(entry.revision) || Number(entry.revision) < 1 || typeof entry.createdAt !== 'string') throw new Error('Invalid CV revision history.');
-    return { revision: Number(entry.revision), createdAt: entry.createdAt, state: cloneCv(readCvState(entry.state)) };
-  });
-}
-
-/** A checkpoint is explicit (or made on assignment), never created per keystroke. */
-export function pinCareerRevision(id: string, state: CvState, store: LocalStore = localStorage): CareerRevision {
-  const revisions = listCareerRevisions(id, store);
-  const latest = revisions.at(-1);
-  const snapshot = cloneCv(state);
-  if (latest && same(latest.state, snapshot)) return latest;
-  const next = { revision: (latest?.revision ?? 0) + 1, createdAt: new Date().toISOString(), state: snapshot };
-  store.setItem(revisionsKey(id), JSON.stringify([...revisions, next]));
-  return next;
-}
-
-export function createApplicationCv(userId: string, applicationId: string, baseId: string, baseName: string, source: CvState, store: LocalStore = localStorage): ApplicationCvRecord {
+export function createApplicationCv(userId: string, applicationId: string, baseId: string, baseName: string, source: CvState): ApplicationCvRecord {
   if (!userId || !applicationId || !baseId) throw new Error('The application and career variant are required.');
-  const base = pinCareerRevision(baseId, source, store);
-  return { format: 1, userId, applicationId, baseId, baseName, baseRevision: base.revision,
-    baseState: cloneCv(base.state), state: cloneCv(base.state), revision: 1, updatedAt: new Date().toISOString(),
+  return { format: 1, userId, applicationId, baseId, baseName, baseRevision: 1,
+    baseState: cloneCv(source), state: cloneCv(source), revision: 1, updatedAt: new Date().toISOString(),
     publishedState: null, publishedSnapshotId: null };
 }
 

@@ -19,6 +19,8 @@ const props = defineProps({
   state: { type: Object as PropType<CvState>, required: true },
   configurations: { type: Array as PropType<SavedConfiguration[]>, default: () => [] },
   selectedId: { type: String, default: '' },
+  toolbarTarget: { type: String, default: '' },
+  toolbarVisible: { type: Boolean, default: true },
   readVersion: { type: Function as PropType<(id: string) => CvState | null | undefined>, required: true },
   saveVersion: { type: Function as PropType<(id: string, data: CvState) => boolean>, required: true },
 });
@@ -376,11 +378,6 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
       </Transition>
     </Teleport>
     <section class="body section-group editor-panel content-panel" :class="{ 'is-reordering': reorderMode && activeContentTab !== 'header' }">
-      <div class="section-head editor-panel__header editor-panel__header--centered">
-        <h2>{{ t('content') }}</h2>
-      </div>
-
-      <CopyCvSection :state="props.state" :configurations="configurations" :read-version="readVersion" />
       <div class="content-tabs" role="tablist" :aria-label="t('content')">
         <button id="content-tab-header" class="content-tab" :class="{ active: activeContentTab === 'header' }" type="button" role="tab" :aria-selected="activeContentTab === 'header'" aria-controls="content-panel-header" @click="selectContentTab('header')"><span>{{ t('header') }}</span><font-awesome-icon v-if="todosMode && isContentTabComplete('header')" class="content-tab__complete" :icon="['fas', 'check']" aria-hidden="true" /></button>
         <button id="content-tab-body" class="content-tab" :class="{ active: activeContentTab === 'body' }" type="button" role="tab" :aria-selected="activeContentTab === 'body'" aria-controls="content-panel-body" @click="selectContentTab('body')"><span>{{ t('body') }}</span><font-awesome-icon v-if="todosMode && isContentTabComplete('body')" class="content-tab__complete" :icon="['fas', 'check']" aria-hidden="true" /></button>
@@ -552,16 +549,19 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
           </button>
           </template>
       </Draggable>
+      <CopyCvSection :state="props.state" :configurations="configurations" :read-version="readVersion" />
       </div>
-      <div class="content-mode-toolbar" role="group" :aria-label="t('contentTools')">
-        <div class="panel-header-action content-mode-actions content-mode-actions--left">
-          <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': todosMode }" :aria-pressed="todosMode" @click="todosMode = !todosMode"><font-awesome-icon :icon="['fas', 'check']" aria-hidden="true" />{{ t('todos') }}</button>
-          <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': configMode }" :aria-pressed="configMode" @click="toggleConfigMode"><font-awesome-icon :icon="['fas', 'sliders']" aria-hidden="true" />{{ t('config') }}</button>
+      <Teleport defer :to="toolbarTarget || 'body'" :disabled="!toolbarTarget">
+        <div v-show="toolbarVisible" class="content-mode-toolbar" :class="{ 'content-mode-toolbar--docked': !!toolbarTarget }" role="group" :aria-label="t('contentTools')">
+          <div class="panel-header-action content-mode-actions content-mode-actions--left">
+            <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': todosMode }" :aria-pressed="todosMode" @click="todosMode = !todosMode"><font-awesome-icon :icon="['fas', 'check']" aria-hidden="true" />{{ t('todos') }}</button>
+            <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': configMode }" :aria-pressed="configMode" @click="toggleConfigMode"><font-awesome-icon :icon="['fas', 'sliders']" aria-hidden="true" />{{ t('config') }}</button>
+          </div>
+          <div class="panel-header-action content-mode-actions">
+            <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': reorderMode && activeContentTab !== 'header' }" :aria-label="t('reorderSections')" :aria-pressed="reorderMode && activeContentTab !== 'header'" :disabled="activeContentTab === 'header'" @click="toggleReorderMode"><font-awesome-icon :icon="['fas', 'grip-vertical']" aria-hidden="true" />{{ t('reorder') }}</button>
+          </div>
         </div>
-        <div class="panel-header-action content-mode-actions">
-          <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': reorderMode && activeContentTab !== 'header' }" :aria-label="t('reorderSections')" :aria-pressed="reorderMode && activeContentTab !== 'header'" :disabled="activeContentTab === 'header'" @click="toggleReorderMode"><font-awesome-icon :icon="['fas', 'grip-vertical']" aria-hidden="true" />{{ t('reorder') }}</button>
-        </div>
-      </div>
+      </Teleport>
     </section>
   </form>
 </template>
@@ -578,15 +578,15 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
 .content-panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .content-panel__scroll-body { display: grid; align-content: start; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .content-reorder-toggle { display: inline-flex; align-items: center; gap: 6px; }
-.content-panel > .editor-panel__header { display: flex; justify-content: center; padding-bottom: 10px;}
 .content-mode-toolbar { display: flex; flex: none; justify-content: center; flex-wrap: wrap; gap: 6px; margin-top: auto; padding: 10px; border-top: 1px solid #134e4a; border-radius: 0 0 6px 6px; background: #06141f; }
+.content-mode-toolbar--docked { justify-content: flex-start; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.content-mode-toolbar--docked button { min-height: 40px; }
 .content-mode-actions { display: contents; }
 .content-reorder-toggle.is-active { color: #d1fae5; background: #17664f; border-color: #34d399; }
 .content-reorder-toggle:disabled { border-color: #18332e; background: #0b2520; color: #52736b; cursor: not-allowed; opacity: .65; }
 .content-reorder-toggle:disabled:hover { background: #0b2520; }
 .section-fields-control .svg-inline--fa { display: none; }
 @media (max-width: 760px) {
-  .content-panel > .editor-panel__header { display: none; }
   .content-mode-toolbar {
     order: -1;
     display: grid;
@@ -600,6 +600,8 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
     background: #06141f;
   }
   .content-mode-actions { display: contents; }
+  .content-mode-toolbar.content-mode-toolbar--docked { order: initial; display: flex; width: 100%; padding: 0; border: 0; background: transparent; }
+  .content-mode-toolbar--docked button { flex: 1; }
   .content-reorder-toggle { justify-content: center; gap: 6px; min-width: 0; min-height: 40px; padding: 6px 4px; font-size: 14px; }
   .content-reorder-toggle .svg-inline--fa { font-size: 14px; }
   .section-fields-control .svg-inline--fa { display: inline-block; }

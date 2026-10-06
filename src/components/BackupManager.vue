@@ -18,6 +18,8 @@ const props = defineProps({
   state: { type: Object as PropType<CvState>, required: true },
   lang: { type: String, required: true },
   selectedId: { type: String, default: '' },
+  selectorTarget: { type: String, default: '' },
+  selectorVisible: { type: Boolean, default: true },
   onSave: { type: Function as PropType<() => void>, default: () => {} },
   onLoad: { type: Function as PropType<(data: CvState) => void>, default: () => {} },
   beforeLoad: { type: Function as PropType<() => boolean>, default: () => true },
@@ -402,18 +404,16 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
 
 <template>
   <section class="section-group backup-manager">
-    <div class="section-head group-panel__header--centered">
-      <h2>{{ lang === 'de' ? 'Karrierevarianten' : 'Career variants' }}</h2>
-    </div>
-
     <div class="group-panel__scroll-body">
-      <div class="backup-manager__actions">
-        <select :value="currentId" :aria-label="t('versions')" @change="onConfigurationChange">
-          <option v-if="!currentId" value="" disabled>{{ t('noSavedVersion') }}</option>
-          <option v-for="config in configs" :key="config.id" :value="config.id">{{ config.parentId ? `${configs.find(item => item.id === config.parentId)?.name} / ` : '' }}{{ config.name }}</option>
-        </select>
-        <button type="button" class="btn btn--danger" :disabled="!currentId || builtinConfigurations(props.lang).some(({ id }) => id === currentId)" @click="deleteCurrent">{{ t('delete') }}</button>
-      </div>
+      <Teleport defer :to="selectorTarget || 'body'" :disabled="!selectorTarget">
+        <div v-show="selectorVisible" class="backup-manager__actions" :class="{ 'backup-manager__actions--docked': !!selectorTarget }">
+          <select :class="{ 'variant-selector--docked': !!selectorTarget }" :value="currentId" :aria-label="t('versions')" @change="onConfigurationChange">
+            <option v-if="!currentId" value="" disabled>{{ t('noSavedVersion') }}</option>
+            <option v-for="config in configs" :key="config.id" :value="config.id">{{ config.parentId ? `${configs.find(item => item.id === config.parentId)?.name} / ` : '' }}{{ config.name }}</option>
+          </select>
+          <button type="button" class="btn btn--danger" :disabled="!currentId || builtinConfigurations(props.lang).some(({ id }) => id === currentId)" @click="deleteCurrent">{{ t('delete') }}</button>
+        </div>
+      </Teleport>
 
       <p class="backup-manager__hint" aria-live="polite">{{ isEmptyDocument ? t('versionEmptyHint') : t('versionSaveAsHint') }}</p>
       <p v-if="relationError" role="alert">{{ relationError }}</p>
@@ -423,7 +423,6 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
         <button type="button" class="btn" :disabled="!newName.trim() || !currentId || builtinConfigurations(lang).some(item => item.id === currentId)" @click="saveSubvariant">{{ lang === 'de' ? 'Als Untervariante speichern' : 'Save as subvariant' }}</button>
       </form>
 
-      <slot name="history" />
       <div class="backup-manager__language">
         <span>{{ t('language') }}</span>
         <button class="backup-manager__language-toggle" type="button" :class="{ 'is-on': lang === 'en' }" :aria-label="t('language')" :aria-pressed="lang === 'en'" @click="emit('toggle-language')">
@@ -460,9 +459,13 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
 </template>
 
 <style scoped>
+.variant-selector--docked { width: min(100%, 420px); min-width: 0; min-height: 40px; font: inherit; color: #d1fae5; border: 1px solid #28534e; border-radius: 7px; background: #0b1b25; padding: 9px 11px; }
 .group-panel__scroll-body { display: grid; align-content: start; gap: 10px; min-height: 0; }
 .backup-manager__actions, .backup-manager__save-as, .backup-manager__file-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .backup-manager__actions select { flex: 1 1 220px; width: auto; }
+.backup-manager__actions--docked { flex: 1; min-width: 0; flex-wrap: nowrap; }
+.backup-manager__actions--docked select { max-width: 420px; }
+.backup-manager__actions--docked .btn { flex-shrink: 0; min-height: 40px; }
 .backup-manager__save-as input { flex: 1 1 220px; width: auto; }
 .backup-manager__file-input { display: none; }
 .backup-manager__json-group { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid #ffffff26; }

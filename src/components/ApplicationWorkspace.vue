@@ -124,6 +124,14 @@ try {
     parentProposalId.value = value.parentProposalId || null;
     if (['cv', 'letter', 'both'].includes(value.scope)) { feedbackScope.value = value.scope; scopeWasChosen = true; }
   }
+  // Initialize only untouched applications; missing working copies with saved history need recovery.
+  if (!letter.value && !record.value && !stored && !props.application.cv_variant_id) {
+    const template = letterRepository.defaultTemplate();
+    if (template) {
+      const initialContext = letterContextVersion(props.application, null, template, template.language, '', template.maxWords);
+      letter.value = letterRepository.save(createApplicationLetter(props.userId, props.application.id, template, initialContext, template.language));
+    }
+  }
   const previous = sessionStorage.getItem(navigationKey);
   const mapped = ({ overview: 'preparation', cv: 'refinement', letter: 'refinement', documents: 'review' } as Record<string, Stage>)[previous || ''] || previous;
   if (stages.includes(mapped as Stage)) tab.value = mapped as Stage;
@@ -886,6 +894,7 @@ function restoreImportedReviews(value: unknown, restoredProposals: RefinementPro
           <section class="workflow-card"><h3>CV</h3>
             <label>{{ text('Saved CV', 'Gespeicherter CV') }}<select :value="selectedCvId" :disabled="busy" @change="selectCv(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ text('Choose a CV…', 'CV wählen…') }}</option><option v-if="record && !configurations.some(item => item.id === selectedCvId)" :value="selectedCvId" disabled>{{ record.baseName }} · {{ text('Saved application copy', 'Gespeicherte Bewerbungskopie') }}</option><option v-for="variant in configurations" :key="variant.id" :value="variant.id">{{ variant.name }}</option></select></label>
             <p v-if="!configurations.length" class="hint">{{ text('Save a CV in CV Studio to select it here.', 'Einen CV im CV-Studio speichern, um ihn hier auszuwählen.') }}</p>
+            <p class="hint">{{ text('Only an anonymized CV snapshot is stored in Supabase. Your original CV stays on this device.', 'In Supabase wird nur ein anonymisierter CV-Snapshot gespeichert. Der ursprüngliche Lebenslauf bleibt auf diesem Gerät.') }}</p>
           </section>
           <section class="workflow-card"><h3>{{ text('Letter', 'Brief') }}</h3>
             <label>{{ text('Letter template', 'Briefvorlage') }}<select :value="selectedTemplateId" :disabled="busy" @change="selectLetterTemplate(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ letter && !missingLetterTemplate ? selectedTemplate.name + ' · ' + text('Saved revision', 'Gespeicherte Revision') + ' ' + selectedTemplate.revision : text('Choose a letter template…', 'Briefvorlage wählen…') }}</option><option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }}</option></select></label>
@@ -961,7 +970,10 @@ function restoreImportedReviews(value: unknown, restoredProposals: RefinementPro
           </MotivationLetterPreview>
         </div>
       </section>
-      <ApplicationDocuments v-show="tab === 'review' || tab === 'tracking'" :client="client" :active="active !== false && (tab === 'review' || tab === 'tracking')" @open-library="emit('open-attachments')" :mode="tab === 'tracking' ? 'tracking' : 'review'" :application-id="application.id" :user-id="userId" :lang="lang" :cv-state="record?.state || null" :cv-ready="cvApproved" :export-ready="cvApproved && letterApproved" :get-cv-pdf="getCvPdf" :get-letter-pdf="getLetterPdf" :letter-ready="letterApproved" :letter-revision="letterRevision" @readiness="documentReadiness = $event" />
+      <ApplicationDocuments v-show="tab === 'review'" :client="client" :active="active !== false && tab === 'review'" @open-library="emit('open-attachments')" mode="review" :application-id="application.id" :user-id="userId" :lang="lang" :cv-state="record?.state || null" :cv-ready="cvApproved" :export-ready="cvApproved && letterApproved" :get-cv-pdf="getCvPdf" :get-letter-pdf="getLetterPdf" :letter-ready="letterApproved" :letter-revision="letterRevision" @readiness="documentReadiness = $event" />
+      <section v-show="tab === 'tracking'" class="tracking-stage">
+        <slot name="tracking" />
+      </section>
     </div>
     <input ref="backupInput" hidden type="file" accept=".json,application/json" @change="importBackup" />
     <footer class="workflow-navigation">

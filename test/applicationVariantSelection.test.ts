@@ -71,7 +71,7 @@ const renderer = createRenderer<object, object>({
   createElement: () => ({}), createText: () => ({}), createComment: () => ({}),
   insert() {}, remove() {}, setText() {}, setElementText() {}, patchProp() {}, parentNode: () => null, nextSibling: () => null,
 });
-function mount(t: TestContext, legacy?: 'unchanged' | 'tailored', missingLetterTemplate = false) {
+function mount(t: TestContext, legacy?: 'unchanged' | 'tailored', missingLetterTemplate = false, defaultTemplateId?: string) {
   let unmount = () => {};
   t.after(() => unmount());
   const data = new Map<string, string>();
@@ -128,6 +128,7 @@ function mount(t: TestContext, legacy?: 'unchanged' | 'tailored', missingLetterT
     app.mount({}); unmount = () => app.unmount();
     return (mounted as { $: { setupState: WorkspaceSetup } }).$.setupState;
   }
+  if (defaultTemplateId) createLetterRepository(storage, account).setDefaultTemplate(defaultTemplateId);
   const setup = mountComponent();
   const reopen = () => { unmount(); return mountComponent(); };
   return { setup, reopen, props, states, base, database, cloud, storage, clipboard, clipboardWrites };
@@ -164,12 +165,26 @@ test('tailored legacy application CVs remain intact as independent copies', asyn
   assert.equal(states.size, 1);
 });
 
+test('new applications select the preferred letter and reopening preserves that choice after the default changes', async (t) => {
+  const fixture = mount(t, undefined, false, 'industry');
+  await idle(fixture.setup);
+  assert.equal(fixture.setup.selectedTemplateId, 'industry');
+  assert.equal(fixture.setup.letter?.maxWords, 350);
+  assert.equal(fixture.setup.letterText, '');
+  assert.equal(fixture.setup.record, null);
+  assert.equal(fixture.database.cv_variants.length, 0, 'default selection only creates a local letter');
+  createLetterRepository(fixture.storage, account).setDefaultTemplate('research');
+  const reopened = fixture.reopen();
+  await idle(reopened);
+  assert.equal(reopened.selectedTemplateId, 'industry');
+});
+
 test('letter selection saves immediately before a CV is chosen and survives reopening', async (t) => {
   const fixture = mount(t);
   let setup = fixture.setup;
   await idle(setup);
   assert.equal(setup.selectedCvId, '');
-  assert.equal(setup.selectedTemplateId, '', 'a new application does not imply an unselected default template');
+  assert.equal(setup.selectedTemplateId, 'research', 'a new application selects its default letter');
   await setup.selectLetterTemplate('industry');
   assert.equal(setup.error, '');
   assert.equal(setup.selectedTemplateId, 'industry');

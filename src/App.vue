@@ -24,8 +24,6 @@ import JobWorkspace from './components/JobWorkspace.vue';
 import { useSupabaseAuth } from './composables/useSupabaseAuth';
 import LetterTemplates from './components/LetterTemplates.vue';
 import LocalAttachments from './components/LocalAttachments.vue';
-import VariantHistory from './components/VariantHistory.vue';
-import { rootVariantId } from './composables/careerVariants';
 
 const state = reactive<CvState>(createEmptyDocument());
 const { user: cloudUser, client: supabaseClient } = useSupabaseAuth();
@@ -69,8 +67,8 @@ const studioHasPreview = computed(() => !['templates', 'attachments'].includes(a
 const isPrivacyStudioPreview = computed(() => !isCloudTab.value && activeBuilderGroup.value === 'privacy');
 const cloudTab = computed(() => activeWorkspace.value === 'applications' ? 'applications' : 'opportunities');
 const workspaceGroups = computed(() => [
-  { key: 'opportunities' as const, label: lang.value === 'de' ? 'Stellenangebote' : 'Opportunities', icon: 'briefcase' },
   { key: 'cv-studio' as const, label: lang.value === 'de' ? 'CV-Studio' : 'CV Studio', icon: 'layer-group' },
+  { key: 'opportunities' as const, label: lang.value === 'de' ? 'Stellenangebote' : 'Opportunities', icon: 'briefcase' },
   { key: 'applications' as const, label: lang.value === 'de' ? 'Bewerbungen' : 'Applications', icon: 'envelope' },
 ]);
 function selectWorkspace(workspace: Workspace) {
@@ -92,9 +90,6 @@ const savedConfigurations = ref<SavedConfiguration[]>([]);
 const selectedConfigurationId = ref('');
 const isEmptyDocument = computed(() => selectedConfigurationId.value === EMPTY_DOCUMENT_ID);
 const selectableConfigurations = computed(() => savedConfigurations.value.filter(({ id }) => !isBuiltinDocument(id)));
-const rootConfigurations = computed(() => savedConfigurations.value.filter(item => !item.parentId));
-const selectedRootId = computed(() => rootVariantId(selectedConfigurationId.value, savedConfigurations.value));
-const subConfigurations = computed(() => savedConfigurations.value.filter(item => item.parentId === selectedRootId.value));
 watch(isEmptyDocument, (empty) => {
   if (empty && ['content', 'design', 'privacy'].includes(activeBuilderGroup.value)) activeBuilderGroup.value = 'versions';
 }, { flush: 'sync' });
@@ -161,13 +156,6 @@ function scheduleStateSave() {
   }
   saveStatus.value = 'saving';
   saveDebounced();
-}
-
-function selectConfiguration(event: Event) {
-  const target = event.target as HTMLSelectElement;
-  const nextId = target.value;
-  if (nextId === selectedConfigurationId.value) return;
-  if (!backupManager.value?.selectConfiguration(nextId)) target.value = selectedConfigurationId.value;
 }
 
 function handleConfigurationSaveResult(saved: boolean) {
@@ -600,7 +588,7 @@ function openAttachmentLibrary() {
 </script>
 
 <template>
-  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode, 'is-cloud-workspace': isCloudTab, 'has-mobile-context-row': !isCloudTab || !!cloudUser }" @focusout="onPreviewInputBlur" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
+  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode, 'is-cloud-workspace': isCloudTab, 'has-mobile-context-row': !isCloudTab || !!cloudUser, 'has-mobile-studio-tools': !isCloudTab && ['versions', 'content'].includes(activeBuilderGroup) }" @focusout="onPreviewInputBlur" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
     <div v-if="pdfExportError" class="pdf-export-error" role="alert">
       <span>{{ pdfExportError }}</span>
       <button class="mini" type="button" :aria-label="t('close')" @click="pdfExportError = ''">×</button>
@@ -650,16 +638,6 @@ function openAttachmentLibrary() {
           <button v-for="group in builderGroups" :key="group.key" class="btn" :class="{ 'is-active': activeBuilderGroup === group.key }" :aria-pressed="activeBuilderGroup === group.key" :disabled="groupDisabled(group.key)" type="button" @click="selectBuilderGroup(group.key)"><font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" /><span>{{ isMobile && group.key === 'templates' ? (lang === 'de' ? 'Vorlagen' : 'Templates') : group.label }}</span></button>
           <button v-if="isMobile && studioHasPreview" class="btn cv-studio-open-preview" type="button" :aria-label="t('openPreview')" :title="t('openPreview')" :disabled="isEmptyDocument" @click="openFullPreview"><font-awesome-icon :icon="['fas', 'eye']" aria-hidden="true" /></button>
         </nav>
-        <div v-if="studioHasPreview" class="cv-studio-version">
-          <select class="cv-studio-configuration" :value="selectedRootId" :aria-label="lang === 'de' ? 'Karrierevariante' : 'Career variant'" @change="selectConfiguration">
-            <option v-if="!selectedConfigurationId" value="" disabled>{{ t('noSavedVersion') }}</option>
-            <option v-for="configuration in rootConfigurations" :key="configuration.id" :value="configuration.id">{{ configuration.name }}</option>
-          </select>
-          <select v-if="subConfigurations.length" class="cv-studio-configuration" :value="selectedConfigurationId" :aria-label="lang === 'de' ? 'Untervariante' : 'Subvariant'" @change="selectConfiguration">
-            <option :value="selectedRootId">{{ lang === 'de' ? 'Original' : 'Original' }}</option>
-            <option v-for="configuration in subConfigurations" :key="configuration.id" :value="configuration.id">{{ configuration.name }}</option>
-          </select>
-        </div>
         <output class="cv-save-announcement" aria-live="polite" aria-atomic="true">{{ saveStatusLabel }}</output>
       </div>
       <section v-if="isCloudTab && !cloudUser" class="workspace-sign-in"><h1>{{ activeWorkspace === 'opportunities' ? (lang === 'de' ? 'Stellenangebote entdecken' : 'Discover opportunities') : (lang === 'de' ? 'Bewerbungen vorbereiten' : 'Prepare applications') }}</h1><p>{{ lang === 'de' ? 'Melde dich bei Supabase an, um auf deinen Bewerbungsbereich zuzugreifen. Das CV-Studio ist auch ohne Anmeldung verfügbar.' : 'Sign in to Supabase to access your application workspace. CV Studio remains available without an account.' }}</p></section>
@@ -682,6 +660,14 @@ function openAttachmentLibrary() {
         @open-attachments="openAttachmentLibrary"
       />
 
+      <footer v-show="!isCloudTab && studioHasPreview && (!isMobile || ['versions', 'content'].includes(activeBuilderGroup))" class="studio-bottom-bar" :aria-label="lang === 'de' ? 'CV-Studio-Aktionen' : 'CV Studio actions'">
+        <div id="cv-studio-tools" class="studio-bottom-bar__tools" />
+        <div v-if="!isMobile" class="studio-bottom-bar__preview">
+          <button class="btn" type="button" :disabled="isEmptyDocument" @click="openFullPreview">{{ t('openPreview') }}</button>
+          <button class="btn btn--primary" type="button" :disabled="isStudioPreviewExporting || isEmptyDocument" @click="exportStudioPreview"><font-awesome-icon v-if="isStudioPreviewExporting" :icon="['fas', 'spinner']" spin />{{ t(isStudioPreviewExporting ? 'exportingPdf' : 'downloadPdf') }}</button>
+        </div>
+      </footer>
+
       <section v-show="!isCloudTab" id="builder-group-cv-studio" class="builder-layout" :class="{ 'builder-layout--library': !studioHasPreview }">
         <div class="builder-layout__controls">
           <Transition name="builder-group">
@@ -692,6 +678,8 @@ function openAttachmentLibrary() {
               class="builder-group-panel"
               :state="state"
               :lang="lang"
+              selector-target="#cv-studio-tools"
+              :selector-visible="activeBuilderGroup === 'versions'"
               :selected-id="selectedConfigurationId"
               :on-save="scheduleStateSave"
               :on-load="mergeIn"
@@ -701,10 +689,10 @@ function openAttachmentLibrary() {
               @save-result="handleConfigurationSaveResult"
               @version-deleted="handleVersionDeleted"
               @toggle-language="toggleLanguage"
-            ><template #history><VariantHistory v-if="selectedConfigurationId && !isBuiltinDocument(selectedConfigurationId)" :variant-id="selectedConfigurationId" :state="state" @restore="mergeIn" /></template></BackupManager>
+            />
           </Transition>
           <Transition name="builder-group">
-            <FormBuilder v-show="activeBuilderGroup === 'content' && !isEmptyDocument" id="builder-group-content" ref="formBuilder" class="builder-group-panel" :state="state" :configurations="selectableConfigurations" :selected-id="selectedConfigurationId" :read-version="readSectionVersion" :save-version="saveSectionVersion" @section-save-status="sectionSaveStatus = $event" />
+            <FormBuilder v-show="activeBuilderGroup === 'content' && !isEmptyDocument" id="builder-group-content" ref="formBuilder" class="builder-group-panel" toolbar-target="#cv-studio-tools" :toolbar-visible="activeBuilderGroup === 'content' && !isEmptyDocument" :state="state" :configurations="selectableConfigurations" :selected-id="selectedConfigurationId" :read-version="readSectionVersion" :save-version="saveSectionVersion" @section-save-status="sectionSaveStatus = $event" />
           </Transition>
           <Transition name="builder-group">
             <DesignPanel
@@ -721,16 +709,14 @@ function openAttachmentLibrary() {
               id="builder-group-privacy"
               class="builder-group-panel"
               :state="state"
-              :is-exporting="isAnonymizedExporting"
               :lang="lang"
-              @export="handleAnonymizedExportPdf"
             />
           </Transition>
           <LetterTemplates v-show="activeBuilderGroup === 'templates'" class="builder-group-panel studio-templates" :user-id="cloudUser?.id || 'local'" :lang="lang" />
           <LocalAttachments v-show="activeBuilderGroup === 'attachments'" class="builder-group-panel studio-attachments" :user-id="cloudUser?.id || ''" :client="supabaseClient" :lang="lang" :active="!isCloudTab && activeBuilderGroup === 'attachments'" />
         </div>
 
-        <InlineDocumentPreview v-if="!isMobile && studioHasPreview" class="studio-inline-preview" v-model:page="studioPreviewPage" :pages="studioPreviewPages" :is-updating="isStudioPreviewRendering" :lang="lang" :downloading="isStudioPreviewExporting" :title="t(isPrivacyStudioPreview ? 'privacyPreview' : 'liveCvPreview')" @open="openFullPreview" @download="exportStudioPreview">
+        <InlineDocumentPreview v-if="!isMobile && studioHasPreview" class="studio-inline-preview" hide-actions v-model:page="studioPreviewPage" :pages="studioPreviewPages" :is-updating="isStudioPreviewRendering" :lang="lang" :downloading="isStudioPreviewExporting" :title="t(isPrivacyStudioPreview ? 'privacyPreview' : 'liveCvPreview')" @open="openFullPreview" @download="exportStudioPreview">
         </InlineDocumentPreview>
       </section>
     </section>
@@ -806,14 +792,12 @@ body,
 
 .builder-shell > .builder-layout, .builder-shell > .jobs-workspace { flex: 1 1 auto; height: auto; }
 .builder-shell > .builder-topbar, .cv-studio-navigation { flex: 0 0 auto; }
-.builder-topbar, .cv-studio-navigation { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; }
-.cv-studio-navigation { align-items: center; }
+.builder-topbar { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; }
+.cv-studio-navigation { display: block; }
 .cv-studio-subtabs { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .cv-studio-subtabs .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .cv-studio-subtabs .svg-inline--fa { flex: none; }
 .cv-studio-subtabs .is-active { border-color: #67c8a6; background: #185b4c; }
-.cv-studio-version { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.cv-studio-configuration { flex: 1 1 auto; width: 0; min-width: 0; }
 .cv-studio-open-preview { flex: 0 0 auto; white-space: nowrap; }
 .cv-save-announcement { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .workspace-sign-in { padding: 30px; border: 1px solid #24504e; border-radius: 12px; color: #cbe5da; background: #06141f; }
@@ -901,9 +885,9 @@ body,
   overflow: hidden;
 }
 
-.builder-layout__controls .builder-group-panel:has(.content-mode-toolbar),
+.builder-layout__controls #builder-group-content,
 .builder-layout__controls .anonymization-panel { height: 100%; }
-.builder-layout__controls .studio-templates,.builder-layout__controls .studio-attachments { height: 100%; overflow: hidden; padding: 0; }
+.builder-layout__controls .studio-templates,.builder-layout__controls .studio-attachments { height: 100%; overflow: hidden; }
 .builder-layout.builder-layout--library { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 
 .builder-group-panel > .group-panel__scroll-body,
@@ -943,6 +927,14 @@ body,
 }
 .builder-group-enter-from, .builder-group-leave-to { opacity: 0; }
 
+.builder-layout__controls .builder-group-panel { padding: 20px; box-sizing: border-box; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+.builder-layout__controls .builder-group-panel > .content-panel { padding: 0; background: transparent; border: 0; border-radius: 0; }
+.studio-bottom-bar { position: fixed; inset-inline: 0; bottom: 0; z-index: 30; display: flex; align-items: center; gap: 20px; min-height: 66px; padding: 12px max(20px, calc((100vw - 1484px) / 2)); box-sizing: border-box; border-top: 1px solid #24504e; background: #06141f; box-shadow: 0 -6px 20px #0003; }
+.studio-bottom-bar__tools { display: flex; align-items: center; flex: 1; min-width: 0; }
+.studio-bottom-bar__preview { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; }
+.studio-bottom-bar__preview .btn { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; }
+@media (min-width: 761px) { .builder-layout:not(.builder-layout--library) { margin-bottom: 66px; } }
+
 @media (min-width: 761px) and (max-height: 600px) {
   .builder-topbar__tab { min-height: 42px; }
   .builder-topbar__tab .svg-inline--fa { display: none; }
@@ -970,16 +962,18 @@ body,
     --mobile-tabs-height: calc(72px + env(safe-area-inset-bottom, 0px));
     --mobile-context-row-height: 52px;
     --mobile-context-row-space: 0px;
-    padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) calc(var(--mobile-tabs-height) + var(--mobile-context-row-space) + 8px) max(8px, env(safe-area-inset-left, 0px));
+    --mobile-studio-tools-space: 0px;
+    padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) calc(var(--mobile-tabs-height) + var(--mobile-context-row-space) + var(--mobile-studio-tools-space) + 8px) max(8px, env(safe-area-inset-left, 0px));
   }
 
   .cv-builder-app.has-mobile-context-row { --mobile-context-row-space: var(--mobile-context-row-height); }
+  .cv-builder-app.has-mobile-studio-tools:not(.is-preview-mode) { --mobile-studio-tools-space: 52px; }
+  .studio-bottom-bar { bottom: calc(var(--mobile-tabs-height) + var(--mobile-context-row-height)); min-height: 52px; height: 52px; padding: 5px max(8px, env(safe-area-inset-right, 0px)) 5px max(8px, env(safe-area-inset-left, 0px)); gap: 8px; }
   .cv-builder-app.is-preview-mode { overflow: hidden; }
   .cv-studio-navigation { position: fixed; inset: auto 0 var(--mobile-tabs-height); z-index: 35; display: block; height: var(--mobile-context-row-height); padding: 4px max(8px, env(safe-area-inset-right, 0px)) 4px max(8px, env(safe-area-inset-left, 0px)); border-top: 1px solid #24504e; background: #06141f; }
   .cv-studio-subtabs { flex-wrap: nowrap; gap: 6px; height: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
   .cv-studio-subtabs::-webkit-scrollbar { display: none; }
   .cv-studio-subtabs .btn { flex: 0 0 auto; min-width: 44px; padding: 6px 10px; font-size: 14px; line-height: 1.2; white-space: nowrap; }
-  .cv-studio-version { display: none; }
   .cv-studio-open-preview { font-size: 18px !important; }
   .builder-shell { grid-template-rows: auto minmax(0, 1fr); gap: 10px; }
   .builder-layout { grid-template-rows: minmax(0, 1fr); gap: 0; }

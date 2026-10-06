@@ -111,7 +111,7 @@ runButton.addEventListener('click', async () => {
     const previewButton = [...current().querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Preview complete PDF');
     assert(previewButton?.disabled, 'Missing file did not block package export');
     await click('CV Studio · Local attachments', root);
-    assert(current().textContent?.includes('File missing on this device') && fixture.rows.length === 2, 'Missing local file incorrectly removed its cloud metadata');
+    assert(current().querySelector('[role="img"][aria-label="File missing on this device"]') && fixture.rows.length === 2, 'Missing local file incorrectly removed its cloud metadata');
     stage('Missing files remain explicit and block export while metadata stays available');
     status.textContent = '4/4 attachment checks passed'; document.body.dataset.result = 'passed';
   } catch (reason) {

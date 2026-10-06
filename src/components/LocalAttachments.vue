@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { faCloud, faCloudArrowUp, faLaptop, faTriangleExclamation, faPen } from '@fortawesome/free-solid-svg-icons';
 import PreviewDialog from './PreviewDialog.vue';
 import type { AttachmentMetadata, LocalDocumentMetadata } from '../documentTypes';
 import { LocalDocumentRepository, safeDocumentFilename, type LocalDocumentStorage } from '../composables/localDocuments';
@@ -36,6 +37,7 @@ const file = ref<File | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 const dirty = ref(false);
 const editingEntry = computed(() => entries.value.find((entry) => entry.id === editingId.value));
+const attachmentForm = ref<HTMLFormElement | null>(null);
 const previewUrl = ref('');
 const previewName = ref('');
 const previewType = ref('');
@@ -58,16 +60,17 @@ function edit(entry?: Entry) {
   if (busy.value) return;
   editingId.value = entry?.id || ''; name.value = entry?.description?.trim() ? entry.name : ''; description.value = entry?.description || '';
   file.value = null; dirty.value = false; formVisible.value = true; error.value = ''; notice.value = '';
+  void nextTick(() => { attachmentForm.value?.scrollIntoView({ block: 'nearest' }); attachmentForm.value?.querySelector('input')?.focus({ preventScroll: true }); });
   if (fileInput.value) fileInput.value.value = '';
 }
 function chooseFile(event: Event) { file.value = (event.target as HTMLInputElement).files?.[0] || null; dirty.value = true; }
 function syncState(entry: Entry) {
-  if (!entry.description?.trim()) return text('Add a description to share this entry', 'Zum Teilen eine Beschreibung ergänzen');
-  if (!connected.value) return text('Saved on this device', 'Auf diesem Gerät gespeichert');
-  if (cloudFailed.value) return text('Cloud status unavailable', 'Cloud-Status nicht verfügbar');
+  if (!entry.description?.trim()) return { icon: faTriangleExclamation, label: text('Add a description to share this entry', 'Zum Teilen eine Beschreibung ergänzen'), warning: true };
+  if (!connected.value) return { icon: faLaptop, label: text('Saved on this device', 'Auf diesem Gerät gespeichert') };
+  if (cloudFailed.value) return { icon: faTriangleExclamation, label: text('Cloud status unavailable', 'Cloud-Status nicht verfügbar'), warning: true };
   return entry.shared?.name === entry.name && entry.shared?.description === entry.description
-    ? text('Name and description saved to Supabase', 'Name und Beschreibung in Supabase gespeichert')
-    : text('Metadata not yet synced — edit and save to retry', 'Metadaten noch nicht synchronisiert — bearbeiten und erneut speichern');
+    ? { icon: faCloud, label: text('Name and description saved to Supabase', 'Name und Beschreibung in Supabase gespeichert') }
+    : { icon: faCloudArrowUp, label: text('Metadata not yet synced — edit and save to retry', 'Metadaten noch nicht synchronisiert — bearbeiten und erneut speichern'), warning: true };
 }
 async function load() {
   if (busy.value || disposed) return;
@@ -186,12 +189,33 @@ async function importBackup(event: Event) {
 
 <template>
   <section class="local-attachments">
-    <header class="attachments-heading"><div><h2>{{ text('Local attachments', 'Lokale Anhänge') }}</h2><p>{{ text('Keep reusable documents such as transcripts and recommendation letters here, then select them in application preparation.', 'Wiederverwendbare Dokumente wie Leistungsübersichten und Empfehlungsschreiben hier verwalten und in der Bewerbungsvorbereitung auswählen.') }}</p></div><button type="button" :disabled="busy || loading || loadFailed" @click="edit()">{{ text('New attachment', 'Neuer Anhang') }}</button></header>
+    <header class="attachments-heading"><div><p>{{ text('Keep reusable documents such as transcripts and recommendation letters here, then select them in step 3 (PDF review) of an application.', 'Wiederverwendbare Dokumente wie Leistungsübersichten und Empfehlungsschreiben hier verwalten und in Schritt 3 (PDF-Prüfung) einer Bewerbung auswählen.') }}</p></div><div class="actions backup-actions"><button type="button" :disabled="busy || loading || loadFailed" @click="exportBackup">{{ text('Back up files & packages', 'Dateien & Zusammenstellungen sichern') }}</button><label class="file-button">{{ text('Restore backup', 'Backup wiederherstellen') }}<input type="file" accept="application/json,.json" :disabled="busy || loading || loadFailed" @change="importBackup" /></label></div></header>
     <p class="privacy-note">{{ text('Files stay on this device. Enter the name and description yourself: only these two fields are saved to Supabase when signed in. File contents, filenames and file properties are not uploaded.', 'Dateien bleiben auf diesem Gerät. Name und Beschreibung selbst eingeben: Nur diese beiden Felder werden nach der Anmeldung in Supabase gespeichert. Dateiinhalte, Dateinamen und Dateieigenschaften werden nicht hochgeladen.') }}</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p><p v-if="notice" class="notice" role="status">{{ notice }}</p>
     <div class="attachments-scroll group-panel__scroll-body">
-      <div class="library-toolbar"><span>{{ text(`${entries.length} attachment(s)`, `${entries.length} Anhang/Anhänge`) }}</span><button type="button" :disabled="busy || loading" @click="load">{{ loading ? text('Loading…', 'Laden…') : text('Refresh', 'Aktualisieren') }}</button></div>
-      <form v-if="formVisible" class="attachment-form" @submit.prevent="save">
+      <div class="library-toolbar"><span>{{ text(`${entries.length} attachment(s)`, `${entries.length} Anhang/Anhänge`) }}</span><span v-if="loading" role="status">{{ text('Loading…', 'Laden…') }}</span></div>
+
+      <p v-if="!loading && !entries.length" class="empty">{{ text('No attachments yet. Add a local file and give it a name and description.', 'Noch keine Anhänge. Eine lokale Datei hinzufügen und Name und Beschreibung eingeben.') }}</p>
+      <ul class="attachment-list">
+        <li v-for="entry in entries" :key="entry.id">
+          <div class="attachment-copy">
+            <h3>{{ entry.name }}</h3>
+            <p class="attachment-description">{{ entry.description || text('Description missing — edit this existing attachment to add your own description.', 'Beschreibung fehlt — diesen bestehenden Anhang bearbeiten und eine eigene Beschreibung ergänzen.') }}</p>
+            <div class="attachment-status">
+              <span role="img" :title="entry.local ? text('File available on this device', 'Datei auf diesem Gerät vorhanden') : text('File missing on this device', 'Datei fehlt auf diesem Gerät')" :aria-label="entry.local ? text('File available on this device', 'Datei auf diesem Gerät vorhanden') : text('File missing on this device', 'Datei fehlt auf diesem Gerät')" :class="{ missing: !entry.local }"><font-awesome-icon :icon="['fas', entry.local ? 'folder-open' : 'link-slash']" aria-hidden="true" /></span>
+              <span role="img" :title="syncState(entry).label" :aria-label="syncState(entry).label" :class="{ missing: syncState(entry).warning }"><font-awesome-icon :icon="syncState(entry).icon" aria-hidden="true" /></span>
+            </div>
+          </div>
+          <div class="actions attachment-actions">
+            <button type="button" :disabled="busy || loading" :aria-label="text('Edit', 'Bearbeiten')" :title="text('Edit', 'Bearbeiten')" @click="edit(entry)"><font-awesome-icon :icon="faPen" aria-hidden="true" /><span>{{ text('Edit', 'Bearbeiten') }}</span></button>
+            <button type="button" :disabled="busy || !entry.local" :aria-label="text('Open', 'Öffnen')" :title="text('Open', 'Öffnen')" @click="useFile(entry, 'open')"><font-awesome-icon :icon="['fas', 'folder-open']" aria-hidden="true" /><span>{{ text('Open', 'Öffnen') }}</span></button>
+            <button type="button" :disabled="busy || !entry.local" :aria-label="text('Download', 'Herunterladen')" :title="text('Download', 'Herunterladen')" @click="useFile(entry, 'download')"><font-awesome-icon :icon="['fas', 'download']" aria-hidden="true" /><span>{{ text('Download', 'Herunterladen') }}</span></button>
+            <button type="button" :disabled="busy || loading || loadFailed" :aria-label="text('Delete', 'Löschen')" :title="text('Delete', 'Löschen')" @click="remove(entry)"><font-awesome-icon :icon="['fas', 'trash']" aria-hidden="true" /><span>{{ text('Delete', 'Löschen') }}</span></button>
+          </div>
+        </li>
+      </ul>
+      <button class="add-attachment-row" type="button" :disabled="busy || loading || loadFailed" @click="edit()"><font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />{{ text('New attachment', 'Neuer Anhang') }}</button>
+      <form v-if="formVisible" ref="attachmentForm" class="attachment-form" @submit.prevent="save">
         <h3>{{ editingId ? text('Edit attachment', 'Anhang bearbeiten') : text('New attachment', 'Neuer Anhang') }}</h3>
         <label>{{ text('Attachment name', 'Name des Anhangs') }}<input v-model="name" maxlength="200" required :disabled="busy" @input="dirty = true" /></label>
         <label>{{ text('Description', 'Beschreibung') }}<textarea v-model="description" maxlength="4000" rows="4" required :disabled="busy" @input="dirty = true" /><small>{{ text('Write the context you want to share, without copying private details you want to keep local.', 'Den gewünschten Kontext eingeben und private Angaben weglassen, die lokal bleiben sollen.') }}</small></label>
@@ -199,9 +223,7 @@ async function importBackup(event: Event) {
         <p v-if="editingEntry && !editingEntry.local && !file" class="missing">{{ text('This attachment has no file on this device. Add the original file to use it in a PDF package.', 'Für diesen Anhang fehlt die Datei auf diesem Gerät. Zum Verwenden in einer PDF-Zusammenstellung die Originaldatei hinzufügen.') }}</p>
         <div class="actions"><button class="primary" type="submit" :disabled="busy || loading || loadFailed">{{ busy ? text('Saving…', 'Speichern…') : text('Save attachment', 'Anhang speichern') }}</button><button type="button" :disabled="busy" @click="resetForm">{{ text('Cancel', 'Abbrechen') }}</button></div>
       </form>
-      <p v-if="!loading && !entries.length" class="empty">{{ text('No attachments yet. Add a local file and give it a name and description.', 'Noch keine Anhänge. Eine lokale Datei hinzufügen und Name und Beschreibung eingeben.') }}</p>
-      <ul class="attachment-list"><li v-for="entry in entries" :key="entry.id"><div class="attachment-copy"><h3>{{ entry.name }}</h3><p class="attachment-description">{{ entry.description || text('Description missing — edit this existing attachment to add your own description.', 'Beschreibung fehlt — diesen bestehenden Anhang bearbeiten und eine eigene Beschreibung ergänzen.') }}</p><small :class="{ missing: !entry.local }">{{ entry.local ? text('File available on this device', 'Datei auf diesem Gerät vorhanden') : text('File missing on this device', 'Datei fehlt auf diesem Gerät') }}</small><small>{{ syncState(entry) }}</small></div><div class="actions"><button type="button" :disabled="busy || loading" @click="edit(entry)">{{ text('Edit', 'Bearbeiten') }}</button><button type="button" :disabled="busy || !entry.local" @click="useFile(entry, 'open')">{{ text('Open', 'Öffnen') }}</button><button type="button" :disabled="busy || !entry.local" @click="useFile(entry, 'download')">{{ text('Download', 'Herunterladen') }}</button><button type="button" :disabled="busy || loading || loadFailed" @click="remove(entry)">{{ text('Delete', 'Löschen') }}</button></div></li></ul>
-      <details class="backup"><summary>{{ text('Local backup', 'Lokales Backup') }}</summary><p>{{ text('Clearing browser data removes local files. This backup includes files, descriptions, package arrangements and archived PDFs. Keep it somewhere safe.', 'Das Löschen der Browserdaten entfernt lokale Dateien. Dieses Backup enthält Dateien, Beschreibungen, Zusammenstellungen und archivierte PDFs. Sicher aufbewahren.') }}</p><div class="actions"><button type="button" :disabled="busy || loading || loadFailed" @click="exportBackup">{{ text('Back up files & packages', 'Dateien & Zusammenstellungen sichern') }}</button><label class="file-button">{{ text('Restore backup', 'Backup wiederherstellen') }}<input type="file" accept="application/json,.json" :disabled="busy || loading || loadFailed" @change="importBackup" /></label></div></details>
+
     </div>
     <PreviewDialog :model-value="!!previewUrl" :title="previewName" :lang="lang" @update:model-value="(open) => { if (!open) clearPreview(); }"><iframe v-if="previewType === 'application/pdf'" class="attachment-preview" :src="previewUrl" :title="previewName" /><img v-else class="attachment-image" :src="previewUrl" :alt="previewName" /></PreviewDialog>
   </section>
@@ -213,6 +235,6 @@ async function importBackup(event: Event) {
 .local-attachments .privacy-note{margin-bottom:14px;padding:10px 12px;background:#102c28;border-left:3px solid #67c8a6}.attachments-scroll{min-height:0;overflow:auto;overscroll-behavior:contain;padding-right:4px}.library-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13px;margin-bottom:14px}
 .local-attachments :is(button,input,textarea,.file-button){font:inherit;border:1px solid #28534e;border-radius:7px;background:#0b1b25;color:#d1fae5;padding:9px 12px;box-sizing:border-box}.local-attachments button,.file-button{font-size:12px;cursor:pointer;min-height:38px}.local-attachments button:hover:not(:disabled){background:#14352e}.local-attachments button:disabled{opacity:.5;cursor:not-allowed}.local-attachments :is(button,input,textarea):focus-visible{outline:2px solid #67c8a6;outline-offset:2px}.local-attachments .primary{background:#185b4c;border-color:#67c8a6}
 .attachment-form{display:grid;gap:16px;padding:18px;background:#091f25;border:1px solid #28534e;border-radius:8px;margin:0 0 20px;max-width:760px}.attachment-form h3,.attachment-copy h3{font:600 15px/1.4 system-ui;margin:0;color:#d1fae5;text-transform:none;letter-spacing:0}.attachment-form label{display:grid;gap:7px;font:600 12px/1.4 system-ui;color:#d1fae5}.attachment-form :is(input,textarea){font:400 13px/1.5 system-ui;min-width:0;width:100%}.attachment-form textarea{resize:vertical}.attachment-form small{font-weight:400;color:#a6c1b9;line-height:1.5}
-.attachment-list{padding:0;margin:0;list-style:none}.attachment-list li{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:18px 0;border-bottom:1px solid #28534e}.attachment-copy{min-width:0}.attachment-copy h3{overflow-wrap:anywhere}.local-attachments .attachment-description{white-space:pre-wrap;overflow-wrap:anywhere;margin:7px 0}.attachment-copy small{display:block;font-size:11px;color:#a6c1b9;line-height:1.5;margin-top:4px}.local-attachments .missing{color:#f2c6a7}.actions{display:flex;gap:7px;flex-wrap:wrap}.attachment-list .actions{flex-shrink:0;max-width:280px}.local-attachments .error,.local-attachments .notice{padding:10px 12px;margin-bottom:14px;border-radius:7px;background:#3a1720;color:#fecaca;white-space:pre-line}.local-attachments .notice{background:#10382c;color:#b5e3cb}.local-attachments .empty{padding:20px 0}.backup{margin:24px 0 12px;font-size:13px}.backup summary{cursor:pointer}.backup p{margin:12px 0}.file-button input{position:absolute;width:1px;height:1px;opacity:0}.attachment-preview{display:block;width:100%;height:100%;border:0;background:white}.attachment-image{display:block;width:100%;height:100%;object-fit:contain}.file-button:focus-within{outline:2px solid #67c8a6;outline-offset:2px}
-@media(max-width:850px){.attachment-list li{flex-direction:column}.attachment-list .actions{max-width:none}}@media(max-width:700px){.attachments-heading{flex-direction:column;gap:10px}.attachment-form{padding:12px}.attachments-scroll{padding-right:0}}
+.attachment-list{padding:0;margin:0;list-style:none}.attachment-list li{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:18px 0;border-bottom:1px solid #28534e}.attachment-copy{min-width:0}.attachment-copy h3{overflow-wrap:anywhere}.local-attachments .attachment-description{white-space:pre-wrap;overflow-wrap:anywhere;margin:7px 0}.attachment-copy small{display:block;font-size:11px;color:#a6c1b9;line-height:1.5;margin-top:4px}.local-attachments .missing{color:#f2c6a7}.actions{display:flex;gap:7px;flex-wrap:wrap}.attachment-list .actions{flex-shrink:0;flex-wrap:nowrap}.attachment-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap}.attachment-status{display:flex;gap:12px;margin-top:8px;color:#9be8c7}.attachment-status [role=img]{display:inline-flex;align-items:center;justify-content:center;min-width:20px;min-height:24px}.local-attachments .error,.local-attachments .notice{padding:10px 12px;margin-bottom:14px;border-radius:7px;background:#3a1720;color:#fecaca;white-space:pre-line}.local-attachments .notice{background:#10382c;color:#b5e3cb}.local-attachments .empty{padding:20px 0}.backup-actions{flex-shrink:0;justify-content:flex-end}.backup-actions .file-button{display:inline-flex;align-items:center;white-space:nowrap}.local-attachments .add-attachment-row{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin:0 0 16px;min-height:54px;padding:8px;border:0;border-top:1px dashed #2a6a60;border-bottom:1px dashed #2a6a60;border-radius:0;background:transparent;color:#9be8c7;font:inherit}.local-attachments .add-attachment-row:hover:not(:disabled){border-color:#27f3a2;background:rgba(16,185,129,.1)}.file-button input{position:absolute;width:1px;height:1px;opacity:0}.attachment-preview{display:block;width:100%;height:100%;border:0;background:white}.attachment-image{display:block;width:100%;height:100%;object-fit:contain}.file-button:focus-within{outline:2px solid #67c8a6;outline-offset:2px}
+@media(max-width:850px){.attachment-list li{flex-direction:column}.attachment-list .actions{max-width:none}}@media(max-width:700px){.attachment-actions button{min-width:44px}.attachment-actions button span{display:none}.backup-actions{width:100%;justify-content:flex-end}.backup-actions button,.backup-actions .file-button{font-size:11px;padding:8px}.attachments-heading{flex-direction:column;gap:10px}.attachment-form{padding:12px}.attachments-scroll{padding-right:0}}
 </style>

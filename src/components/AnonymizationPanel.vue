@@ -6,11 +6,9 @@ import { makeT } from '../i18n/dict';
 
 const props = defineProps({
   state: { type: Object as PropType<CvState>, required: true },
-  isExporting: { type: Boolean, default: false },
   lang: { type: String, required: true },
 });
 
-const emit = defineEmits<{ export: [] }>();
 const langRef = computed(() => props.lang);
 const t = makeT(langRef);
 
@@ -62,10 +60,6 @@ function setExcluded(key: keyof CvState['anonymization'], id: string, shouldExcl
 
 <template>
   <section class="section-group editor-panel anonymization-panel">
-    <div class="section-head editor-panel__header editor-panel__header--centered anonymization-panel__header">
-      <h2>{{ t('privacy') }}</h2>
-    </div>
-
     <div class="editor-panel__body">
       <p class="anonymization-panel__help">{{ t('anonymizationHelp') }}</p>
       <p class="anonymization-panel__marker-help">{{ t('confidentialMarkerHelp') }}</p>
@@ -110,12 +104,6 @@ function setExcluded(key: keyof CvState['anonymization'], id: string, shouldExcl
         </section>
       </div>
     </div>
-    <div class="anonymization-panel__footer">
-      <button class="btn btn--primary anonymization-panel__export" type="button" :disabled="isExporting" @click="$emit('export')">
-        <font-awesome-icon :icon="['fas', isExporting ? 'spinner' : 'user-secret']" :spin="isExporting" />
-        {{ isExporting ? t('exportingAnonymizedPdf') : t('downloadAnonymizedPdf') }}
-      </button>
-    </div>
   </section>
 </template>
 
@@ -135,12 +123,5 @@ function setExcluded(key: keyof CvState['anonymization'], id: string, shouldExcl
 .anonymization-panel__row.disabled { cursor: not-allowed; opacity: .55; }
 .anonymization-panel__row.disabled input, .anonymization-panel__contact input { cursor: not-allowed; }
 .anonymization-panel__contact { margin-top: 12px; cursor: default; }
-.anonymization-panel__footer { display: flex; flex: none; justify-content: center; margin-top: auto; padding: 10px; border-top: 1px solid #134e4a; border-radius: 0 0 6px 6px; background: #06141f; }
-.anonymization-panel__export { width: auto; max-width: 100%; }
-@media (max-width: 760px) {
-  .anonymization-panel__header { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 10px; text-align: center; }
-  .anonymization-panel__header h2 { grid-column: 1; justify-self: center; }
-  .anonymization-panel__export { min-height: 44px; font-size: 12px; }
-}
 @media (max-width: 640px) { .anonymization-panel__columns { grid-template-columns: 1fr; gap: 0; } }
 </style>

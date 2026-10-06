@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, useId, watch } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { debounce } from '../composables/useStorage';
 import type { LetterTemplate } from '../letterTypes';
 import { createLetterRepository, DEFAULT_LETTER_TEMPLATES, DEFAULT_QUESTION_GUIDANCE, LETTER_TEMPLATE_CONTEXT_MAX_LENGTH } from '../composables/motivationLetters';
 
@@ -7,39 +8,96 @@ const props = defineProps<{ userId: string; lang?: string }>();
 const emit = defineEmits<{ changed: [] }>();
 const templates = ref<LetterTemplate[]>([]);
 const selectedId = ref('');
+const defaultId = ref('');
 const form = ref<LetterTemplate | null>(null);
 const message = ref('');
 const error = ref('');
 const importInput = ref<HTMLInputElement | null>(null);
-const formId = useId();
+const saveStatus = ref<'saved' | 'saving' | 'error'>('saved');
+let editingOwner = props.userId;
+let replacingForm = false;
+let dirty = false;
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const applicantNamePlaceholder = '{{APPLICANT_NAME}}';
-const repository = () => createLetterRepository(localStorage, props.userId);
+const repository = () => createLetterRepository(localStorage, editingOwner);
 function select(id: string) {
+  if (!flushSave()) return;
   selectedId.value = id;
   const selected = templates.value.find((item) => item.id === id);
-  form.value = selected ? JSON.parse(JSON.stringify(selected)) : null;
+  replaceForm(selected ? JSON.parse(JSON.stringify(selected)) : null);
+}
+function selectFromInput(event: Event) {
+  const input = event.target as HTMLSelectElement;
+  select(input.value);
+  input.value = selectedId.value;
 }
 function reload() {
-  try { templates.value = repository().listTemplates(); select(templates.value.find((item) => item.id === selectedId.value)?.id || templates.value[0]?.id || ''); }
+  try {
+    templates.value = repository().listTemplates();
+    defaultId.value = repository().defaultTemplate()?.id || '';
+    select(templates.value.find((item) => item.id === selectedId.value)?.id || defaultId.value);
+  }
   catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); }
 }
-watch(() => props.userId, () => { error.value = ''; message.value = ''; selectedId.value = ''; reload(); }, { immediate: true });
-function create() {
-  form.value = { ...DEFAULT_LETTER_TEMPLATES[0], id: crypto.randomUUID(), name: text('New letter template', 'Neue Briefvorlage'), revision: 1 };
-  selectedId.value = '';
-  message.value = '';
+function replaceForm(value: LetterTemplate | null) {
+  replacingForm = true; form.value = value; replacingForm = false;
 }
-function save() {
-  if (!form.value) return;
+function create() {
+  if (!flushSave()) return;
+  replaceForm({ ...DEFAULT_LETTER_TEMPLATES[0]!, id: crypto.randomUUID(), name: text('New letter template', 'Neue Briefvorlage'), revision: 1 });
+  selectedId.value = ''; message.value = ''; dirty = true;
+  save();
+}
+function setDefault() {
+  if (!flushSave()) return;
   try {
     error.value = '';
-    const saved = repository().saveTemplate(form.value);
-    selectedId.value = saved.id; reload(); emit('changed'); window.dispatchEvent(new Event('cv-letter-templates-updated'));
-    message.value = text('Template saved locally. Existing letters keep their text.', 'Vorlage lokal gespeichert. Bestehende Briefe behalten ihren Text.');
+    repository().setDefaultTemplate(selectedId.value);
+    defaultId.value = selectedId.value;
+    emit('changed'); window.dispatchEvent(new Event('cv-letter-templates-updated'));
+    message.value = text('Default letter selected. New applications will use this template.', 'Standardbrief ausgewählt. Neue Bewerbungen verwenden diese Vorlage.');
   } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); }
 }
+function save(): boolean {
+  if (!form.value || !dirty) return true;
+  try {
+    if (!form.value.name.trim() || !form.value.structure.trim() || !form.value.tone.trim()) throw new Error(text('Enter a template name, structure and tone to save your changes.', 'Zum Speichern Vorlagenname, Struktur und Tonalität eingeben.'));
+    error.value = '';
+    const saved = repository().saveTemplate(form.value);
+    dirty = false;
+    selectedId.value = saved.id;
+    replacingForm = true;
+    form.value.revision = saved.revision; form.value.updatedAt = saved.updatedAt;
+    replacingForm = false;
+    templates.value = repository().listTemplates();
+    defaultId.value = repository().defaultTemplate()?.id || '';
+    saveStatus.value = 'saved';
+    emit('changed'); window.dispatchEvent(new Event('cv-letter-templates-updated'));
+    return true;
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : String(cause);
+    saveStatus.value = 'error';
+    return false;
+  }
+}
+const saveLater = debounce(save, 250);
+function flushSave() { saveLater.cancel(); return save(); }
+watch(form, () => {
+  if (replacingForm) return;
+  dirty = true; saveStatus.value = 'saving'; message.value = '';
+  saveLater();
+}, { deep: true, flush: 'sync' });
+watch(() => props.userId, (id) => {
+  const saved = flushSave();
+  editingOwner = id; dirty = false; selectedId.value = ''; message.value = '';
+  replaceForm(null);
+  if (saved) { error.value = ''; saveStatus.value = 'saved'; }
+  reload();
+}, { immediate: true });
+onMounted(() => window.addEventListener('pagehide', flushSave));
+onBeforeUnmount(() => { flushSave(); window.removeEventListener('pagehide', flushSave); });
 function download() {
+  if (!flushSave()) return;
   try {
     const url = URL.createObjectURL(new Blob([repository().exportTemplates()], { type: 'application/json' }));
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'letter-templates.json'; anchor.click();
@@ -49,7 +107,7 @@ function download() {
 async function importLibrary(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
-  if (!file) return;
+  if (!file || !flushSave()) return;
   const user = props.userId;
   try {
     const raw = await file.text();
@@ -64,23 +122,25 @@ async function importLibrary(event: Event) {
 <template>
   <section class="letter-templates">
     <div class="template-heading">
-      <div><h2>{{ text('Letter templates', 'Briefvorlagen') }}</h2><p>{{ text('Reusable structure, research interests and drafting guidance. Each application inherits fonts, colors and margins from its assigned CV.', 'Wiederverwendbare Struktur, Forschungsinteressen und Entwurfshinweise. Schriftarten, Farben und Ränder folgen dem zugewiesenen Lebenslauf.') }}</p></div>
-      <button type="button" @click="create">{{ text('New template', 'Neue Vorlage') }}</button>
+      <p>{{ text('Reusable structure, research interests and drafting guidance. Each application inherits fonts, colors and margins from its assigned CV.', 'Wiederverwendbare Struktur, Forschungsinteressen und Entwurfshinweise. Schriftarten, Farben und Ränder folgen dem zugewiesenen Lebenslauf.') }}</p>
     </div>
     <p v-if="error" role="alert" class="template-error">{{ error }}</p>
     <p v-if="message" role="status" class="template-notice">{{ message }}</p>
     <div class="template-layout">
       <aside :aria-label="text('Letter template library', 'Briefvorlagenbibliothek')">
-        <label>{{ text('Template', 'Vorlage') }}<select :value="selectedId" @change="select(($event.target as HTMLSelectElement).value)">
+        <button type="button" @click="create">{{ text('New template', 'Neue Vorlage') }}</button>
+        <label>{{ text('Template', 'Vorlage') }}<select :value="selectedId" @change="selectFromInput">
           <option v-if="!selectedId" value="" disabled>{{ text('New template', 'Neue Vorlage') }}</option>
-          <option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }} · {{ text('Revision', 'Revision') }} {{ template.revision }}</option>
+          <option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }} · {{ text('Revision', 'Revision') }} {{ template.revision }}{{ template.id === defaultId ? ' · ' + text('Default', 'Standard') : '' }}</option>
         </select></label>
         <p v-if="form" class="template-selection-details">{{ text('Revision', 'Revision') }} {{ form.revision }} · {{ form.maxWords }} {{ text('words', 'Wörter') }}</p>
-        <button class="template-primary" type="submit" :form="formId" :disabled="!form">{{ text('Save template revision', 'Vorlagenrevision speichern') }}</button>
+        <button type="button" :disabled="!selectedId || selectedId === defaultId" @click="setDefault">{{ selectedId && selectedId === defaultId ? text('Default letter', 'Standardbrief') : text('Set as default letter', 'Als Standardbrief festlegen') }}</button>
+        <p class="template-selection-details">{{ text('The default is selected automatically for new applications on this device.', 'Der Standardbrief wird auf diesem Gerät automatisch für neue Bewerbungen ausgewählt.') }}</p>
+        <output class="template-save-status" aria-live="polite">{{ saveStatus === 'saving' ? text('Saving…', 'Speichern…') : saveStatus === 'error' ? text('Changes not saved', 'Änderungen nicht gespeichert') : text('All changes saved locally', 'Alle Änderungen lokal gespeichert') }}</output>
         <div class="template-library-actions"><button type="button" @click="download">{{ text('Export library', 'Bibliothek exportieren') }}</button><button type="button" @click="importInput?.click()">{{ text('Import library', 'Bibliothek importieren') }}</button></div>
         <input ref="importInput" hidden type="file" accept=".json,application/json" @change="importLibrary" />
       </aside>
-      <form v-if="form" :id="formId" class="template-form" @submit.prevent="save">
+      <form v-if="form" class="template-form" @submit.prevent="flushSave" @focusout="flushSave">
         <label>{{ text('Template name', 'Vorlagenname') }}<input v-model="form.name" required maxlength="120" /></label>
         <div class="template-form-row"><label>{{ text('Default language', 'Standardsprache') }}<select v-model="form.language"><option value="en">English</option><option value="de">Deutsch</option></select></label><label>{{ text('Target words', 'Zielwortzahl') }}<input v-model.number="form.maxWords" type="number" min="50" max="2000" required /></label></div>
         <label>{{ text('Subject instructions', 'Hinweise zum Betreff') }}<textarea v-model="form.subjectInstructions" rows="3" maxlength="1000" /><span class="field-description">{{ text('Describe how to name the position and include a tender reference when available.', 'Beschreiben Sie, wie die Stelle benannt und eine vorhandene Ausschreibungsreferenz aufgenommen werden soll.') }}</span></label>
@@ -106,19 +166,19 @@ async function importLibrary(event: Event) {
 .field-description{font-size:12px;font-weight:400;color:#a6c1b9;line-height:1.5}
 .letter-templates :is(button,input,select,textarea){font:inherit;border:1px solid #28534e;border-radius:7px;background:#0b1b25;color:#d1fae5;padding:10px 12px}
 button{cursor:pointer;font-size:13px;font-weight:600}
-button:hover{background:#14352e}
+button:hover:not(:disabled){background:#14352e}
+button:disabled{opacity:.55;cursor:default}
 .template-layout{display:grid;flex:1 1 auto;min-height:0;min-width:0;overflow:hidden;grid-template-columns:minmax(180px,240px) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:24px}
 aside{min-width:0;align-self:start;display:grid;gap:12px}
 .letter-templates .template-selection-details{font-size:11px}
 .template-library-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .template-library-actions button{font-size:11px;padding:8px}
-.template-form{display:grid;align-content:start;gap:18px;min-height:0;min-width:0;max-width:760px;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:0 4px 12px 0}
+.template-form{display:grid;align-content:start;gap:18px;min-height:0;min-width:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;}
 .letter-templates label{display:grid;gap:7px;font:600 12px/1.4 system-ui;color:#d1fae5}
 input,select,textarea{font:400 13px/1.5 system-ui;min-width:0;width:100%;box-sizing:border-box}
 textarea{resize:vertical}
 .template-form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.letter-templates .template-primary{width:100%;background:#185b4c;color:#effff6;border-color:#67c8a6}
-.letter-templates .template-primary:hover{background:#226e5c}
+.template-save-status{font-size:12px;color:#a6c1b9}
 .template-hint{font-size:12px}
 .letter-templates .template-error,.letter-templates .template-notice{flex:0 0 auto;padding:12px;margin-bottom:16px;border-radius:7px;background:#3a1720;color:#fecaca}
 .letter-templates .template-notice{background:#10382c;color:#b5e3cb}

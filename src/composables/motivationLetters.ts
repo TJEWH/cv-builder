@@ -111,6 +111,15 @@ export function createLetterRepository(storage: StorageAdapter, userId: string) 
   }
   return {
     listTemplates,
+    defaultTemplate() {
+      const templates = listTemplates();
+      const preferredId = storage.getItem(`${scope}:default-template`) || DEFAULT_LETTER_TEMPLATES[0]!.id;
+      return templates.find(item => item.id === preferredId) || templates[0] || null;
+    },
+    setDefaultTemplate(id: string) {
+      if (!listTemplates().some(item => item.id === id)) throw new Error('Save the letter template before making it the default.');
+      storage.setItem(`${scope}:default-template`, id);
+    },
     saveTemplate(input: LetterTemplate) {
       const template = readLetterTemplate(input);
       const templates = listTemplates();

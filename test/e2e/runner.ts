@@ -179,8 +179,7 @@ async function templateQuestionFlow() {
   const guidance = 'When required or beneficial robot calibration experience has no CV evidence, ask about relevant coursework or projects and a concrete example. If useful, ask about a genuine learning interest instead; do not assume experience.';
   await field('Main research interests (optional)', interests);
   await field('Questions and context to ask for (optional)', guidance);
-  await click('Save template revision');
-  assert(root.textContent?.includes('Template saved locally.'), 'Template guidance did not save through the editor');
+  await until(() => root.querySelector('.template-save-status')?.textContent?.includes('All changes saved locally'), 'template guidance autosaves');
   await mount(true); await field('Saved CV', 'base'); await field('Letter template', 'research');
   await click('2Refinement'); await field('Refinement scope', 'letter'); await disclose('Prepare sources & privacy');
   await click('Publish sources & copy full prompt'); assert(!setup.error, setup.error);

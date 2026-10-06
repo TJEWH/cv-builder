@@ -178,7 +178,7 @@ function openApplication(application: Application) {
 }
 watch(editingApplication, (application, previous) => { if (application && !previous) openApplication(application); });
 function closeApplication() {
-  if (hasUnsavedChanges.value) { formError.value = text('Save overview changes before leaving this application.', 'Speichere die Übersicht, bevor du diese Bewerbung verlässt.'); return; }
+  if (hasUnsavedChanges.value) { formError.value = text('Save your notes before leaving this application.', 'Speichere deine Notizen, bevor du diese Bewerbung verlässt.'); return; }
   const id = editingId.value;
   editingId.value = null;
   if (id) focusResult('applications', id);

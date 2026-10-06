@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { PropType } from 'vue';
 import type { PreviewPage } from '../pdfTypes';
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue';
 import { makeT } from '../i18n/dict.ts';
+import { scopePreviewSvgIds } from '../composables/previewSvgIds';
 
 const props = defineProps({
   pages: { type: Array as PropType<PreviewPage[]>, default: () => [] },
@@ -18,7 +19,8 @@ const langRef = computed(() => props.lang);
 const t = makeT(langRef);
 const totalPages = computed(() => props.pages.length);
 const currentPage = computed(() => Math.min(Math.max(props.page, 1), Math.max(totalPages.value, 1)));
-const currentPageData = computed(() => props.pages[currentPage.value - 1]?.svg || '');
+const svgScope = useId();
+const currentPageData = computed(() => scopePreviewSvgIds(props.pages[currentPage.value - 1]?.svg || '', svgScope));
 
 const TRACKPAD_SWIPE_THRESHOLD = 72;
 const TOUCH_SWIPE_THRESHOLD = 48;

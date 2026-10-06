@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createSampleDocument } from '../src/composables/builtinConfigurations';
-import { cloneCv, copyCvSection, createApplicationCv, cvDifferences, isApplicationCvPublished, listCareerRevisions, loadApplicationCv, pinCareerRevision, resetCvDifference, saveApplicationCv } from '../src/composables/applicationCv';
+import { cloneCv, copyCvSection, createApplicationCv, cvDifferences, isApplicationCvPublished, loadApplicationCv, resetCvDifference, saveApplicationCv } from '../src/composables/applicationCv';
 import { normalizeContentState } from '../src/composables/contentLayout';
 
 function memoryStorage() {
@@ -10,30 +10,21 @@ function memoryStorage() {
 }
 test('application CV copies retain independent content and pinned sources across later base edits', () => {
   const store = memoryStorage(); const source = createSampleDocument();
-  const first = createApplicationCv('owner', 'application-a', 'research', 'Research', source, store);
-  const second = createApplicationCv('owner', 'application-b', 'research', 'Research', source, store);
+  const first = createApplicationCv('owner', 'application-a', 'research', 'Research', source);
+  const second = createApplicationCv('owner', 'application-b', 'research', 'Research', source);
   first.state.contact.role = 'Robotics researcher';
   first.state.experience.jobs[0]!.title = 'Application-specific title';
   source.contact.role = 'Changed career variant';
-  pinCareerRevision('research', source, store);
   saveApplicationCv(first, store); saveApplicationCv(second, store);
   assert.equal(loadApplicationCv('owner', 'application-a', store)?.state.contact.role, 'Robotics researcher');
   assert.equal(first.baseState.contact.role, second.state.contact.role);
   assert.notEqual(first.state.experience.jobs[0]!.title, second.state.experience.jobs[0]!.title);
   assert.equal(first.baseRevision, 1);
-  assert.equal(listCareerRevisions('research', store).length, 2);
+  assert.ok([...store.values.keys()].every(key => key.startsWith('CV_APPLICATION:')), 'assignment stores no career checkpoint history');
   assert.equal(loadApplicationCv('other-owner', 'application-a', store), null);
 });
-test('career checkpoints deduplicate unchanged documents and return detached content', () => {
-  const store = memoryStorage(); const source = createSampleDocument();
-  pinCareerRevision('career', source, store); pinCareerRevision('career', source, store);
-  const history = listCareerRevisions('career', store);
-  assert.equal(history.length, 1);
-  history[0]!.state.contact.name = 'Modified read';
-  assert.notEqual(listCareerRevisions('career', store)[0]!.state.contact.name, 'Modified read');
-});
 test('resetting one naming adjustment preserves unrelated application adjustments', () => {
-  const record = createApplicationCv('u', 'a', 'research', 'Research', createSampleDocument(), memoryStorage());
+  const record = createApplicationCv('u', 'a', 'research', 'Research', createSampleDocument());
   record.state.contact.role = 'Adjusted role'; record.state.about.text = 'Adjusted summary';
   const difference = cvDifferences(record.baseState, record.state).find(({ label }) => label === 'contact › role')!;
   record.state = resetCvDifference(record, difference);
@@ -49,7 +40,7 @@ test('reordered entries are treated as a whole collection rather than mismatchin
   assert.deepEqual(changes.map(({ path }) => path), [['experience', 'jobs']]);
 });
 test('publication status follows exact local content and assigned cloud snapshot', () => {
-  const record = createApplicationCv('u', 'a', 'research', 'Research', createSampleDocument(), memoryStorage());
+  const record = createApplicationCv('u', 'a', 'research', 'Research', createSampleDocument());
   record.publishedSnapshotId = 'snapshot-1'; record.publishedState = cloneCv(record.state);
   assert.equal(isApplicationCvPublished(record, 'snapshot-1'), true);
   assert.equal(isApplicationCvPublished(record, 'snapshot-2'), false);
@@ -67,7 +58,7 @@ test('section copying changes only the target and its chosen section', () => {
   assert.equal(source.about.text, 'Research-focused summary');
 });
 test('failed writes preserve previous stored CV and corrupt or foreign backups are rejected', () => {
-  const store = memoryStorage(); const record = createApplicationCv('u', 'a', 'research', 'Research', createSampleDocument(), store);
+  const store = memoryStorage(); const record = createApplicationCv('u', 'a', 'research', 'Research', createSampleDocument());
   saveApplicationCv(record, store);
   const original = loadApplicationCv('u', 'a', store);
   record.state.about.text = 'Unsaved edit';
@@ -76,24 +67,21 @@ test('failed writes preserve previous stored CV and corrupt or foreign backups a
   assert.throws(() => loadApplicationCv('u', 'a', { ...store, getItem: () => JSON.stringify({ ...record, userId: 'someone-else' }) }), /invalid/);
 });
 
-test('mounting FormBuilder adds no adjustments or extra career revision before a single role edit', () => {
-  const store = memoryStorage();
+test('mounting FormBuilder adds no adjustments before a single role edit', () => {
   const source = createSampleDocument();
   const original = structuredClone(source);
-  const record = createApplicationCv('owner', 'app', 'career', 'Career', source, store);
+  const record = createApplicationCv('owner', 'app', 'career', 'Career', source);
   normalizeContentState(record.state); // The same normalization executed by FormBuilder on mount.
   assert.deepEqual(cvDifferences(record.baseState, record.state), []);
   assert.deepEqual(source, original);
   record.state.contact.role = 'Research engineer';
   assert.deepEqual(cvDifferences(record.baseState, record.state).map(({ label }) => label), ['contact › role']);
-  pinCareerRevision('career', cloneCv(source), store);
-  assert.equal(listCareerRevisions('career', store).length, 1);
 });
 
 test('legacy application records normalize base, working and published copies without losing real adjustments', () => {
   const store = memoryStorage();
   const raw = createSampleDocument();
-  const record = createApplicationCv('owner', 'app', 'career', 'Career', raw, store);
+  const record = createApplicationCv('owner', 'app', 'career', 'Career', raw);
   // Simulate data stored before application CV normalization was introduced.
   record.baseState = structuredClone(raw);
   record.state = structuredClone(raw);
@@ -132,13 +120,9 @@ test('normalization retains explicit custom content, layout options and non-defa
   assert.deepEqual(cvDifferences(source, normalized), []);
 });
 
-test('normalization treats explicit editor defaults and reordered object keys as the same career checkpoint', () => {
-  const store = memoryStorage();
+test('normalization treats explicit editor defaults and reordered object keys as equivalent content', () => {
   const source = createSampleDocument();
-  pinCareerRevision('career', source, store);
   const normalized = cloneCv(source);
   normalized.customSections[0] = { text: '', entryMode: 'fields', ...normalized.customSections[0]! };
-  pinCareerRevision('career', normalized, store);
-  assert.equal(listCareerRevisions('career', store).length, 1);
   assert.deepEqual(cvDifferences(source, normalized), []);
 });

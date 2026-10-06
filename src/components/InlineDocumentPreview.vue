@@ -7,17 +7,17 @@ import PdfPagination from './PdfPagination.vue';
 
 const props = withDefaults(defineProps<{
   pages: PreviewPage[]; page: number; isUpdating?: boolean; lang: string;
-  downloading?: boolean; downloadDisabled?: boolean; title?: string;
+  downloading?: boolean; downloadDisabled?: boolean; title?: string; hideActions?: boolean;
 }>(), { isUpdating: false, downloading: false, downloadDisabled: false, title: '' });
 const emit = defineEmits<{ 'update:page': [value: number]; open: []; download: [] }>();
 const t = makeT(computed(() => props.lang));
 </script>
 
 <template>
-  <aside class="document-inline-preview" :aria-label="title || t('liveCvPreview')">
-    <div class="document-inline-preview__header">
+  <aside class="document-inline-preview" :class="{ 'document-inline-preview--no-actions': hideActions && !$slots.header }" :aria-label="title || t('liveCvPreview')">
+    <div v-if="!hideActions || $slots.header" class="document-inline-preview__header">
       <slot name="header" />
-      <div class="document-inline-preview__actions">
+      <div v-if="!hideActions" class="document-inline-preview__actions">
         <button class="btn" type="button" @click="emit('open')">{{ t('openPreview') }}</button>
         <button class="btn btn--primary" type="button" :disabled="downloading || downloadDisabled" @click="emit('download')">
           <font-awesome-icon v-if="downloading" :icon="['fas', 'spinner']" spin />
@@ -34,6 +34,7 @@ const t = makeT(computed(() => props.lang));
 
 <style scoped>
 .document-inline-preview{display:grid;grid-template-rows:auto minmax(0,1fr);gap:10px;min-width:0;min-height:0;height:100%;overflow:hidden;background:transparent}
+.document-inline-preview--no-actions{grid-template-rows:minmax(0,1fr);gap:0}
 .document-inline-preview__header{display:grid;gap:10px;min-width:0}
 .document-inline-preview__actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:min(100%,794px);justify-self:center}
 .document-inline-preview__actions .btn{width:100%;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px}
