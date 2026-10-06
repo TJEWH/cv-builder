@@ -731,7 +731,6 @@ function openAttachmentLibrary() {
         </div>
 
         <InlineDocumentPreview v-if="!isMobile && studioHasPreview" class="studio-inline-preview" v-model:page="studioPreviewPage" :pages="studioPreviewPages" :is-updating="isStudioPreviewRendering" :lang="lang" :downloading="isStudioPreviewExporting" :title="t(isPrivacyStudioPreview ? 'privacyPreview' : 'liveCvPreview')" @open="openFullPreview" @download="exportStudioPreview">
-          <template v-if="isPrivacyStudioPreview" #header><span>{{ t('privacyPreview') }}</span></template>
         </InlineDocumentPreview>
       </section>
     </section>

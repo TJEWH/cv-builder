@@ -106,7 +106,7 @@ const showingDetail = computed(() => props.tab === 'opportunities' ? Boolean(sel
 const statusNames: Record<string, [string, string]> = {
   shortlist: ['Shortlist', 'Vorgemerkt'], contacted: ['Contacted', 'Kontaktiert'], submitted: ['Submitted', 'Eingereicht'],
   interview: ['Interview', 'Gespräch'], offer: ['Offer', 'Angebot'], rejected: ['Rejected', 'Abgelehnt'], withdrawn: ['Withdrawn', 'Zurückgezogen'],
-  unreviewed: ['Not reviewed', 'Ungeprüft'], interested: ['Interested', 'Interessant'], not_interested: ['Not interesting', 'Nicht interessant'],
+  unreviewed: ['Not reviewed', 'Ungeprüft'], interested: ['Interested', 'Interessant'], strong_interest: ['Strong interest', 'Starkes Interesse'], not_interested: ['Not interesting', 'Nicht interessant'],
 };
 function statusLabel(value: string) { const pair = statusNames[value]; return pair ? text(...pair) : value; }
 function contextTitle(item: Application) { return String(item.context_json.title || opportunityById.value.get(item.opportunity_id)?.title || text('Application', 'Bewerbung')); }

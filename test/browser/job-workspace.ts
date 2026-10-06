@@ -50,7 +50,7 @@ const database: Record<string, Row[]> = {
       requirements: ['MSc in robotics or computer science', 'Python and C++ experience'],
       required_documents: ['CV', 'Motivation letter (maximum 400 words)', 'Transcript of records'],
       official_url: 'https://example.org/opportunities/robotics', verification_level: 'official listing',
-      source_url: 'https://example.org/opportunities/robotics',
+      source_url: 'https://example.org/opportunities/robotics', original_search: 'Robotics',
       sources: [
         { url: 'https://example.org/opportunities/robotics', supports: ['Salary', 'Duration'], checked_at: '2026-09-20' },
         { url: 'https://example.org/opportunities/robotics', supports: ['Requirements', 'Salary'], notes: 'Official listing' },
@@ -64,7 +64,7 @@ const database: Record<string, Row[]> = {
       salary_text: 'TV-L E13', duration_months: 36, requirements: ['Embedded software experience'],
       required_documents: ['CV', 'Portfolio'], official_url: 'https://example.org/opportunities/embedded-ai',
       availability: 'open', created_at: now, updated_at: recent },
-    { id: '10000000-0000-4000-8000-000000000003', opportunity_key: 'past-opportunity', title: 'Archived research position', institution: 'Example Institute', deadline: '2025-01-01', topics: [], contacts: [], created_at: now, updated_at: now },
+    { id: '10000000-0000-4000-8000-000000000003', opportunity_key: 'past-opportunity', title: 'Archived research position', institution: 'Example Institute', deadline: '2025-01-01', topics: ['Materials discovery'], contacts: [], personal_fit: { score: 6.4 }, original_search: 'Materials discovery', created_at: now, updated_at: now },
     { id: '10000000-0000-4000-8000-000000000004', opportunity_key: 'open-deadline', title: 'Rolling research fellowship', institution: 'Example Institute', deadline: null, topics: ['Research'], contacts: [], particularly_suitable: true, personal_fit: { score: 10 }, created_at: now, updated_at: now },
     { id: '10000000-0000-4000-8000-000000000005', opportunity_key: 'recent-learning', title: 'Learning Systems PhD', institution: 'Synthetic Science University', country: 'Sweden', deadline: null, topics: ['Learning'], particularly_suitable: true, personal_fit: { score: 9.1 }, created_at: recent, updated_at: recent },
     { id: '10000000-0000-4000-8000-000000000006', opportunity_key: 'older-unseen', title: 'Applied Robotics Fellowship', institution: 'Example Institute', country: 'Denmark', deadline: null, topics: ['Robotics'], particularly_suitable: true, personal_fit: { score: 9.5 }, created_at: now, updated_at: now },
@@ -76,6 +76,7 @@ const database: Record<string, Row[]> = {
   cv_variants: [],
   local_attachment_metadata: [],
   opportunity_reviews: [
+    { user_id: account, opportunity_id: '10000000-0000-4000-8000-000000000003', state: 'strong_interest', reviewed_updated_at: now, created_at: now, updated_at: now },
     { user_id: account, opportunity_id: '10000000-0000-4000-8000-000000000002', state: 'unreviewed', reviewed_updated_at: now, created_at: now, updated_at: now },
     { user_id: account, opportunity_id: '10000000-0000-4000-8000-000000000007', state: 'unreviewed', reviewed_updated_at: '2025-01-01T12:00:00Z', created_at: '2025-01-01T12:00:00Z', updated_at: now },
     { user_id: account, opportunity_id: '10000000-0000-4000-8000-000000000008', state: 'interested', reviewed_updated_at: recent, created_at: now, updated_at: recent },

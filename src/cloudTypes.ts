@@ -2,7 +2,7 @@ import type { CvConfig, CvContent, CvState } from './types';
 
 export const APPLICATION_STATUSES = ['shortlist', 'contacted', 'submitted', 'interview', 'offer', 'rejected', 'withdrawn'] as const;
 export type ApplicationStatus = typeof APPLICATION_STATUSES[number];
-export const OPPORTUNITY_REVIEW_STATES = ['unreviewed', 'interested', 'not_interested'] as const;
+export const OPPORTUNITY_REVIEW_STATES = ['unreviewed', 'interested', 'strong_interest', 'not_interested'] as const;
 export type OpportunityReviewState = typeof OPPORTUNITY_REVIEW_STATES[number];
 
 export interface OpportunityReview {

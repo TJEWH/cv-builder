@@ -78,6 +78,19 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string } = {})
   return { setup, props, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, created: () => created };
 }
 
+test('strong-interest reviews remain filterable for current and past opportunities regardless of score', (t) => {
+  const { setup, props, opportunity, opportunities, reviews } = mount(t);
+  const past = normalizeOpportunity({ id: 'past', title: 'Materials discovery', deadline: '2025-01-01', personal_fit: { score: 5.8 }, original_search: 'Materials' });
+  opportunities.value.push(past);
+  reviews.value = [opportunity, past].map(item => ({ user_id: props.userId, opportunity_id: item.id, state: 'strong_interest', reviewed_updated_at: item.updated_at, created_at: '', updated_at: '' }));
+  setup.reviewFilter = 'strong_interest';
+  assert.deepEqual(setup.filteredOpportunities.map(item => item.id), [opportunity.id]);
+  setup.deadlineFilter = 'past';
+  assert.deepEqual(setup.filteredOpportunities.map(item => item.id), [past.id]);
+  reviews.value[1].state = 'interested';
+  assert.equal(setup.filteredOpportunities.length, 0);
+});
+
 test('application search matches server codes and full IDs, including applications without a code', async (t) => {
   const { setup, props, application, applications } = mount(t);
   const coded = { ...application, id: '30000000-0000-4000-8000-000000000001', application_code: 'APP-7K4M9Q' };

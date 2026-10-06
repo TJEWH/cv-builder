@@ -271,20 +271,71 @@ test('opportunity review RPC updates the current user’s choice without writing
   scope.stop();
 });
 
-test('late review writes cannot restore a previous user’s choices after logout', async () => {
+test('late strong-interest writes cannot restore a previous user’s choices after an account change', async () => {
   const saving = deferred<Result>();
   const { client } = fakeClient((query) => query.operation === 'rpc' ? saving.promise : { data: [], error: null });
   const scope = effectScope();
   const account = ref<string | null>('account-a');
   const workspace = scope.run(() => useJobWorkspace(client, account))!;
   await settleUntil(() => !workspace.loading.value);
-  const pending = workspace.setOpportunityReview('opportunity-1', 'interested');
-  account.value = null;
-  saving.resolve({ data: review(), error: null });
+  const pending = workspace.setOpportunityReview('opportunity-1', 'strong_interest');
+  account.value = 'account-b';
+  await settleUntil(() => !workspace.loading.value);
+  saving.resolve({ data: review('opportunity-1', 'strong_interest'), error: null });
   assert.equal(await pending, null);
   assert.deepEqual(workspace.reviews.value, []);
   assert.equal(workspace.error.value, '');
   scope.stop();
+});
+
+test('strong interest survives a fresh workspace, updated-source receipt, and application creation', async (t) => {
+  let source = { id: 'opportunity-1', title: 'Materials discovery', personal_fit: { score: 6.4 },
+    deadline: '2025-01-01', original_search: 'Materials discovery', created_at: '2026-09-18T12:00:00Z', updated_at: '2026-09-20T10:00:00Z' };
+  let stored = review('opportunity-1', 'unreviewed');
+  let created: Application | null = null;
+  const { client, queries } = fakeClient((query) => {
+    if (query.table === 'review_job_opportunity') {
+      stored = { ...stored, state: (query.payload?.p_state ?? stored.state) as OpportunityReview['state'],
+        reviewed_updated_at: String(query.payload?.p_observed_updated_at) };
+      return { data: { ...stored }, error: null };
+    }
+    if (query.table === 'create_job_application') {
+      created = application(String(query.payload?.p_application_id), null);
+      return { data: created.id, error: null };
+    }
+    return { data: query.table === 'opportunities' ? [{ ...source }]
+      : query.table === 'opportunity_reviews' ? [{ ...stored }]
+        : query.table === 'applications' ? query.single ? created : created ? [created] : [] : [], error: null };
+  });
+  const scope = effectScope(); t.after(() => scope.stop());
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  assert.equal((await workspace.setOpportunityReview(source.id, 'strong_interest'))?.state, 'strong_interest');
+  assert.deepEqual(queries.at(-1)?.payload,
+    { p_opportunity_id: source.id, p_observed_updated_at: source.updated_at, p_state: 'strong_interest' });
+  scope.stop();
+
+  const nextScope = effectScope(); t.after(() => nextScope.stop());
+  const reloaded = nextScope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !reloaded.loading.value);
+  assert.equal(reloaded.reviews.value[0].state, 'strong_interest');
+  assert.equal(reloaded.reviews.value[0].reviewed_updated_at, source.updated_at);
+
+  source = { ...source, updated_at: '2026-09-21T10:00:00Z' };
+  assert.equal(await reloaded.refresh(), true);
+  assert.equal((await reloaded.markOpportunityReviewed(reloaded.opportunities.value[0]))?.state, 'strong_interest');
+  assert.deepEqual(queries.at(-1)?.payload,
+    { p_opportunity_id: source.id, p_observed_updated_at: source.updated_at, p_state: null });
+  assert.equal(reloaded.reviews.value[0].state, 'strong_interest');
+  assert.equal(reloaded.reviews.value[0].reviewed_updated_at, source.updated_at);
+
+  assert.ok(await reloaded.createApplication({ opportunityId: source.id }));
+  assert.equal(reloaded.reviews.value[0].state, 'strong_interest');
+  assert.equal(await reloaded.refresh(), true);
+  assert.equal(reloaded.reviews.value[0].state, 'strong_interest');
+  assert.equal(queries.filter(({ table }) => table === 'review_job_opportunity').length, 2,
+    'creating an application does not write or weaken an explicit review preference');
+  assert.ok(queries.filter(({ table }) => table === 'opportunities').every(({ operation }) => operation === 'select'));
 });
 
 test('opening and changing review state persist the viewed source version across fresh workspaces', async () => {
@@ -315,13 +366,13 @@ test('opening and changing review state persist the viewed source version across
   nextScope.stop();
 });
 
-test('parallel row receipts do not block state changes or overwrite a newer interest choice', async () => {
+test('parallel row receipts do not block state changes or overwrite a newer strong-interest choice', async () => {
   const opening = deferred<Result>();
   const source = normalizeOpportunity({ id: 'opportunity-1', updated_at: '2026-09-20T10:00:00Z' });
   const source2 = normalizeOpportunity({ id: 'opportunity-2', updated_at: source.updated_at });
   const { client, queries } = fakeClient((query) => query.operation === 'rpc'
     ? query.payload?.p_state === null ? opening.promise
-      : { data: { ...review('opportunity-1', 'interested'), reviewed_updated_at: source.updated_at }, error: null }
+      : { data: { ...review('opportunity-1', 'strong_interest'), reviewed_updated_at: source.updated_at }, error: null }
     : { data: [], error: null });
   const scope = effectScope();
   const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
@@ -330,10 +381,10 @@ test('parallel row receipts do not block state changes or overwrite a newer inte
   assert.equal(workspace.saving.value, false);
   const duplicate = workspace.markOpportunityReviewed(source);
   assert.equal(await duplicate, null);
-  await workspace.setOpportunityReview(source.id, 'interested');
+  await workspace.setOpportunityReview(source.id, 'strong_interest');
   opening.resolve({ data: { ...review('opportunity-1', 'unreviewed'), reviewed_updated_at: source.updated_at }, error: null });
   await pending;
-  assert.equal(workspace.reviews.value[0].state, 'interested');
+  assert.equal(workspace.reviews.value[0].state, 'strong_interest');
   assert.equal(workspace.reviews.value[0].reviewed_updated_at, source.updated_at);
   assert.equal(queries.filter(({ operation }) => operation === 'rpc').length, 2);
   // Unexpected cross-opportunity response is rejected, never applied to the second row.
