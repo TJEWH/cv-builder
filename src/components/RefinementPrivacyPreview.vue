@@ -10,6 +10,10 @@ const props = defineProps<{ request: RefinementRequest; localCv?: LocalCvAdjustm
 const emit = defineEmits<{ approve: [sourceKey: string, type: PrivacyContextType, description: string]; remove: [sourceKey: string] }>();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const targets = computed(() => props.localCv ? privacyContextTargets(props.localCv, refinementSignature) : []);
+const templateStyle = computed(() => {
+  const { researchInterests: _interests, questionGuidance: _questions, ...style } = props.request.letter.template;
+  return style;
+});
 const drafts = reactive<Record<string, { type: PrivacyContextType; description: string }>>({});
 function draft(target: typeof targets.value[number]) {
   if (!drafts[target.sourceKey]) {
@@ -33,7 +37,11 @@ const typeLabel = (type: PrivacyContextType) => ({ person: text('Person', 'Perso
     <details><summary>{{ text('CV wording to share', 'Zu teilender CV-Wortlaut') }}</summary><article v-for="field in request.cv.fields" :key="field.id"><strong>{{ field.label }}</strong><PrivacyTextPreview :value="field.text" :lang="lang" /></article></details>
     <details><summary>{{ text('Complete letter to share', 'Vollständiger zu teilender Brief') }}</summary><PrivacyTextPreview :value="request.letter.text || text('Empty — request an initial draft.', 'Leer — ersten Entwurf anfordern.')" :lang="lang" /></details>
     <details><summary>{{ text('Opportunity context & additional instructions', 'Ausschreibungskontext & zusätzliche Hinweise') }}</summary><PrivacyTextPreview :value="JSON.stringify(request.cv.opportunity, null, 2)" :lang="lang" /><PrivacyTextPreview :value="request.cv.instructions || '—'" :lang="lang" /></details>
-    <details><summary>{{ text('Template guidance & example text', 'Vorlagenhinweise & Beispieltext') }}</summary><PrivacyTextPreview :value="JSON.stringify(request.letter.template, null, 2)" :lang="lang" /></details>
+    <details><summary>{{ text('Template guidance & example text', 'Vorlagenhinweise & Beispieltext') }}</summary>
+      <h5>{{ text('Research interests', 'Forschungsinteressen') }}</h5><PrivacyTextPreview :value="request.letter.template.researchInterests || text('Not specified', 'Nicht angegeben')" :lang="lang" />
+      <h5>{{ text('Follow-up question guidance', 'Hinweise für Rückfragen') }}</h5><PrivacyTextPreview :value="request.letter.template.questionGuidance || text('Not specified', 'Nicht angegeben')" :lang="lang" />
+      <PrivacyTextPreview :value="JSON.stringify(templateStyle, null, 2)" :lang="lang" />
+    </details>
     <details><summary>{{ text('Outgoing saved feedback', 'Ausgehendes gespeichertes Feedback') }} ({{ request.feedback.length }})</summary><article v-for="item in request.feedback" :key="item.id"><strong>{{ item.scope }} · {{ item.createdAt }}</strong><PrivacyTextPreview :value="item.text" :lang="lang" /></article></details>
     <details v-if="targets.length || request.privacyLegend?.length" class="privacy-contexts">
       <summary>{{ text('Approved context descriptions (optional)', 'Freigegebene Kontextbeschreibungen (optional)') }}</summary>

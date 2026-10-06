@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import type { LetterTemplate } from '../letterTypes';
-import { createLetterRepository, DEFAULT_LETTER_TEMPLATES } from '../composables/motivationLetters';
+import { createLetterRepository, DEFAULT_LETTER_TEMPLATES, DEFAULT_QUESTION_GUIDANCE, LETTER_TEMPLATE_CONTEXT_MAX_LENGTH } from '../composables/motivationLetters';
 
 const props = defineProps<{ userId: string; lang?: string }>();
 const emit = defineEmits<{ changed: [] }>();
@@ -63,7 +63,7 @@ async function importLibrary(event: Event) {
 <template>
   <section class="letter-templates">
     <div class="template-heading">
-      <div><h2>{{ text('Letter templates', 'Briefvorlagen') }}</h2><p>{{ text('Reusable structure and tone. Each application inherits fonts, colors and margins from its assigned CV.', 'Wiederverwendbare Struktur und Tonalität. Schriftarten, Farben und Ränder folgen dem zugewiesenen Lebenslauf.') }}</p></div>
+      <div><h2>{{ text('Letter templates', 'Briefvorlagen') }}</h2><p>{{ text('Reusable structure, research interests and drafting guidance. Each application inherits fonts, colors and margins from its assigned CV.', 'Wiederverwendbare Struktur, Forschungsinteressen und Entwurfshinweise. Schriftarten, Farben und Ränder folgen dem zugewiesenen Lebenslauf.') }}</p></div>
       <button type="button" @click="create">{{ text('New template', 'Neue Vorlage') }}</button>
     </div>
     <p v-if="error" role="alert" class="template-error">{{ error }}</p>
@@ -84,6 +84,9 @@ async function importLibrary(event: Event) {
         <label>{{ text('Structure and sections', 'Struktur und Abschnitte') }}<textarea v-model="form.structure" rows="8" required maxlength="16000" /></label>
         <label>{{ text('Closing instructions', 'Hinweise zum Abschluss') }}<textarea v-model="form.closingInstructions" rows="3" maxlength="1000" /><span class="field-description">{{ text(`Describe the closing invitation, sign-off and signature. Use ${applicantNamePlaceholder} for the private name.`, `Beschreiben Sie die abschließende Einladung, Grußformel und Unterschrift. Verwenden Sie ${applicantNamePlaceholder} für den privaten Namen.`) }}</span></label>
         <label>{{ text('Tone and writing guidance', 'Tonalität und Schreibhinweise') }}<textarea v-model="form.tone" rows="4" maxlength="1000" required /></label>
+        <label>{{ text('Main research interests (optional)', 'Zentrale Forschungsinteressen (optional)') }}<textarea v-model="form.researchInterests" rows="5" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span class="field-description">{{ text('Describe the research topics and questions that genuinely interest you, including interests not yet reflected in your CV. They enrich the motivation alongside your experience and the opportunity. Use the relevant interests selectively; the letter need not cover them all. Interests do not establish prior experience or qualifications.', 'Beschreiben Sie Forschungsthemen und Fragestellungen, die Sie wirklich interessieren, auch wenn sie noch nicht im Lebenslauf erscheinen. Sie ergänzen Ihre Erfahrungen und die Ausschreibung als Grundlage der Motivation. Relevante Interessen werden gezielt ausgewählt; der Brief muss nicht alle abdecken. Interessen sind kein Nachweis für Vorerfahrung oder Qualifikationen.') }}</span></label>
+        <label>{{ text('Questions and context to ask for (optional)', 'Rückfragen und gewünschter Kontext (optional)') }}<textarea v-model="form.questionGuidance" rows="6" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span class="field-description">{{ text('Explain when a question would improve a draft or refinement and what context to ask for. For example, ask about required or beneficial qualifications without CV evidence, then request a relevant example or an honest learning interest. Questions should add value, avoid repeating answered questions and never assume missing experience.', 'Beschreiben Sie, wann eine Rückfrage einen Entwurf oder eine Überarbeitung verbessert und welcher Kontext erfragt werden soll. Zum Beispiel: nach geforderten oder vorteilhaften Qualifikationen ohne Lebenslaufnachweis fragen und um ein relevantes Beispiel oder ehrliches Lerninteresse bitten. Fragen sollen einen Mehrwert bieten, beantwortete Fragen nicht wiederholen und fehlende Erfahrung nicht unterstellen.') }}</span></label>
+        <button class="template-guidance-example" type="button" @click="form.questionGuidance = DEFAULT_QUESTION_GUIDANCE">{{ text('Use missing-requirements question example', 'Beispielfragen zu fehlenden Anforderungsnachweisen verwenden') }}</button>
         <label>{{ text('Example letter (optional)', 'Beispielbrief (optional)') }}<textarea v-model="form.exampleText" rows="8" maxlength="20000" /><span class="field-description">{{ text('Use an earlier letter to guide wording, style and structure. Its claims are not evidence about the applicant. Mark confidential details before sharing.', 'Ein früherer Brief kann Wortwahl, Stil und Struktur vorgeben. Seine Aussagen sind keine Nachweise über die bewerbende Person. Markieren Sie vertrauliche Details vor dem Teilen.') }}</span></label>
         <p class="template-hint">{{ text('Templates stay on this device until included in an explicitly published drafting context.', 'Vorlagen bleiben auf diesem Gerät, bis sie ausdrücklich in einem Entwurfskontext veröffentlicht werden.') }}</p>
         <button class="template-primary" type="submit">{{ text('Save template revision', 'Vorlagenrevision speichern') }}</button>

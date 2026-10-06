@@ -55,6 +55,28 @@ test('preparation freezes templates and current CV without leaking private names
   for (const key of ['letterBaseline', 'sourceSignatures', 'structureBindings']) assert.equal(wire.includes(key), false, key);
 });
 
+test('template interests and question context are filtered in public requests while private frozen guidance stays local', () => {
+  const original = { ...setup(), template: { ...setup().template,
+    researchInterests: 'Taylor Green wants to explore sensor fusion through private collaboration and !!private research focus!!.',
+    questionGuidance: 'Ask taylor@example.com about missing evidence for [!!confidential project!!](https://private-project.example).',
+  } };
+  const before = structuredClone(original);
+  const prepared = local({ schemaVersion: 2, scope: 'letter', setup: original });
+  assert.match(prepared.request.letter.template.researchInterests!, /\{\{APPLICANT_NAME\}\} wants to explore sensor fusion/);
+  assert.match(prepared.request.letter.template.researchInterests!, /\{\{CONFIDENTIAL\}\}/);
+  assert.match(prepared.request.letter.template.questionGuidance!, /Ask \{\{APPLICANT_EMAIL\}\} about missing evidence for \{\{CONFIDENTIAL\}\}/);
+  const prompt = buildRefinementPrompt(prepared.request, '', 'inline');
+  for (const privateValue of ['Taylor Green', 'taylor@example.com', 'private collaboration', 'private research focus', 'confidential project', 'private-project.example']) {
+    assert.equal(JSON.stringify(prepared.request).includes(privateValue), false, privateValue);
+    assert.equal(prompt.includes(privateValue), false, privateValue);
+  }
+  assert.deepEqual(prepared.letterBaseline!.setup, before);
+  assert.deepEqual(original, before);
+  for (const key of ['researchInterests', 'questionGuidance'] as const) {
+    assert.throws(() => sanitizeRefinementSetup({ ...original, template: { ...original.template, [key]: 'x'.repeat(4001) } }, state()), /Research interests and question guidance/);
+  }
+});
+
 test('feedback iterations retain every earlier instruction and current manual corrections', () => {
   const feedback: RefinementFeedback[] = Array.from({ length: 80 }, (_, index) => ({ id: crypto.randomUUID(), scope: 'both', text: `Correction ${index}: avoid generic claims about Taylor Green.`, createdAt: CREATED }));
   const current = state(); current.experience.jobs[0].bullets = 'Built a measurement prototype, not a deployed product.';
@@ -215,6 +237,43 @@ test('full prompts explain empty versus existing source letters and stop at tool
       assert.match(prompt, /Do not switch roles, widen permissions, retry through another access path/);
       assert.match(prompt, /require those to match exactly; do not silently switch to a different round/);
     }
+  }
+});
+
+test('draft and refinement prompts distinguish research goals from qualifications and keep contextual questions scoped to letter review', () => {
+  for (const delivery of ['connected', 'inline'] as const) {
+    for (const scope of ['letter', 'both'] as const) {
+      for (const letterText of ['', 'An existing working letter.']) {
+        const prepared = local({ schemaVersion: 2, scope, letterText });
+        const prompt = buildRefinementPrompt(prepared.request, 'test-project', delivery);
+        for (const rule of [
+          'researchInterests as the applicant\'s explicitly stated research direction',
+          'interests can go beyond past experience',
+          'not every interest needs to appear',
+          'interests or learning goals, never as proven experience or qualifications',
+          'do not invent a personal research agenda',
+          'questionGuidance to decide when contextual follow-up questions would materially improve',
+          'required or beneficial opportunity criteria',
+          'name the criterion, explain why an answer could help this letter',
+          'Missing evidence in the CV is not proof of missing experience',
+          'do not repeat answered or explicitly declined questions',
+          'Return a complete draft based on available evidence while keeping unconfirmed claims out',
+          'type question, document letter annotation',
+          'location null when no exact proposed passage fits',
+          'only after the user explicitly includes them as feedback',
+          'Annotations are separate review material, never document text',
+        ]) assert.ok(prompt.includes(rule), `${delivery}/${scope}/${letterText ? 'refinement' : 'initial draft'}: ${rule}`);
+        if (scope === 'letter') assert.match(prompt, /letter-only round MUST have cvOperations: \[\]/);
+      }
+    }
+    const cvPrompt = buildRefinementPrompt(local({ schemaVersion: 2, scope: 'cv', letterText: 'Keep this letter unchanged.' }).request, 'test-project', delivery);
+    assert.match(cvPrompt, /CV-only round MUST return the current letter text byte-for-byte unchanged/);
+    assert.doesNotMatch(cvPrompt, /questionGuidance to decide when contextual follow-up questions|type question, document letter annotation/);
+    const legacyPrompt = buildRefinementPrompt(local({ scope: 'letter' }).request, 'test-project', delivery);
+    assert.match(legacyPrompt, /legacy format has no structured question annotations/);
+    assert.match(legacyPrompt, /proposal summary, never in letterText/);
+    assert.match(legacyPrompt, /do not add unsupported annotations or infer an answer/);
+    assert.doesNotMatch(legacyPrompt, /type question, document letter annotation|"annotations":\[\]/);
   }
 });
 

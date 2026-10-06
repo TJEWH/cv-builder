@@ -45,6 +45,16 @@ export function sanitizeDraftingInput(input: PublishDraftingInput, cvState?: CvS
     const value = input.template[key];
     if (value !== undefined && value !== '') structure.push(`${label}:\n${clean(value, label, 1, 1000)}`);
   }
+  for (const [key, label] of [
+    ['researchInterests', 'Applicant research interests (intent, not evidence of experience; select relevant interests without forcing every topic into the letter)'],
+    ['questionGuidance', 'Follow-up question guidance (ask only when useful; keep questions separate from letter text and never assume missing CV evidence means no experience)'],
+  ] as const) {
+    const value = input.template[key];
+    if (value !== undefined) {
+      const guidance = bounded(value, key, 0, 4000);
+      if (guidance) structure.push(`${label}:\n${clean(guidance, key, 1, 4000)}`);
+    }
+  }
   if (input.template.exampleText !== undefined && input.template.exampleText !== '') {
     structure.push(`Example letter (wording, style and structure only; never use its claims as applicant evidence):\n${clean(input.template.exampleText, 'Example letter', 0, 20000)}`);
   }

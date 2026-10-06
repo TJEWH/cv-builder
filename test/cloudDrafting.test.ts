@@ -100,6 +100,42 @@ test('template examples share only anonymized style guidance through the legacy 
   assert.throws(() => sanitizeDraftingInput({ ...input, template: { ...input.template, exampleText: 'a'.repeat(20000) } }), /Template structure/);
 });
 
+test('research and question guidance uses the existing five-key cloud template projection once without leaking originals', async () => {
+  const state = createTestState({ contact: { ...createTestState().contact, name: 'Private Person', email: 'private@example.org' } });
+  const local = { ...input, template: { ...input.template,
+    researchInterests: 'Private Person is interested in sensor fusion and !!Private research direction!!.',
+    questionGuidance: 'Ask private@example.org about evidence for field testing and [!!Private project!!](https://secret.example).',
+  } };
+  const before = structuredClone(local);
+  const safe = sanitizeDraftingInput(local, state);
+  assert.deepEqual(Object.keys(safe.template).sort(), ['id', 'name', 'revision', 'structure', 'tone']);
+  assert.match(safe.template.structure, /Applicant research interests \(intent, not evidence of experience; select relevant interests/);
+  assert.match(safe.template.structure, /Follow-up question guidance \(ask only when useful; keep questions separate from letter text/);
+  assert.match(safe.template.structure, /never assume missing CV evidence means no experience/);
+  assert.match(safe.template.structure, /\{\{APPLICANT_NAME\}\} is interested in sensor fusion and \{\{CONFIDENTIAL\}\}/);
+  assert.match(safe.template.structure, /Ask \{\{APPLICANT_EMAIL\}\} about evidence for field testing and \{\{CONFIDENTIAL\}\}/);
+  for (const privateValue of ['Private Person', 'private@example.org', 'Private research direction', 'Private project', 'secret.example']) {
+    assert.equal(JSON.stringify(safe).includes(privateValue), false, privateValue);
+  }
+  assert.deepEqual(sanitizeDraftingInput(safe), safe);
+  assert.deepEqual(local, before, 'local user-authored interests and guidance remain intact');
+  const { client, queries } = fakeClient(({ params }) => ({ data: context(String(params?.p_context_id)), error: null }));
+  await createDraftingRepository(client, () => 'owner-a').publishContext('app-a', safe);
+  assert.deepEqual(queries[0].params?.p_template, safe.template, 'repository sanitization must not append guidance again');
+});
+
+test('optional drafting guidance accepts empty text and bounded values but rejects malformed fields', () => {
+  for (const key of ['researchInterests', 'questionGuidance'] as const) {
+    assert.deepEqual(sanitizeDraftingInput({ ...input, template: { ...input.template, [key]: '' } }), input);
+    assert.deepEqual(sanitizeDraftingInput({ ...input, template: { ...input.template, [key]: ' \n ' } }), input);
+    assert.ok(sanitizeDraftingInput({ ...input, template: { ...input.template, [key]: 'x'.repeat(4000) } }).template.structure.includes('x'.repeat(4000)));
+    for (const value of [null, 42, {}, 'x'.repeat(4001)]) {
+      const malformed = { ...input, template: { ...input.template, [key]: value } } as PublishDraftingInput;
+      assert.throws(() => sanitizeDraftingInput(malformed), new RegExp(key));
+    }
+  }
+});
+
 test('roles and cities remain factual CV evidence while contact identity fields become placeholders', () => {
   const state = createTestState({ experience: { jobs: [{ id: 'job', title: 'Software Engineer', place: 'Neustadt', company: 'Public employer' }] } });
   const result = prepareDraftingContext({ ...input, application, cvState: state,

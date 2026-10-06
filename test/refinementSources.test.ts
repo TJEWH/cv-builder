@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { LetterContent, LetterTemplate } from '../src/letterTypes';
 import type { LocalRefinementRequest, RefinementFeedback } from '../src/refinementTypes';
 import { prepareRefinement, refinementSignature } from '../src/composables/applicationRefinement';
-import { DEFAULT_LETTER_TEMPLATES } from '../src/composables/motivationLetters';
+import { DEFAULT_LETTER_TEMPLATES, readLetterTemplate } from '../src/composables/motivationLetters';
 import { refinementInputsSignature, resolveRefinementSettings, sameRefinementInputs, serializeRefinementDraft } from '../src/composables/refinementSources';
 import { createTestState } from './helpers';
 
@@ -85,6 +85,8 @@ test('changes to every source, effective setting, selected scope, feedback or li
     ['current letter', next => { next.request.letter.text += '\nManual correction'; }],
     ['frozen template revision', next => { next.request.letter.template.revision++; }],
     ['template example', next => { next.request.letter.template.exampleText = 'Updated style'; }],
+    ['research interests', next => { next.request.letter.template.researchInterests = 'New interest in robust perception.'; }],
+    ['question context', next => { next.request.letter.template.questionGuidance = 'Ask about field deployment evidence when relevant.'; }],
     ['language', next => { next.request.letter.language = 'en'; }],
     ['word target', next => { next.request.letter.maxWords = 400; }],
     ['scope', next => { next.request.scope = 'letter'; }],
@@ -106,6 +108,20 @@ test('changes to every source, effective setting, selected scope, feedback or li
   for (const [name, change] of changes) {
     const next = structuredClone(first); change(next);
     assert.equal(sameRefinementInputs(first, next), false, name);
+  }
+});
+
+test('preparing revised interests or question guidance requires a fresh request while reading legacy templates preserves reuse', () => {
+  const { researchInterests: _interests, questionGuidance: _questions, ...legacyTemplate } = template;
+  const legacy = prepare({ setup: resolveRefinementSettings(legacyTemplate).setup });
+  const reread = prepare({ setup: resolveRefinementSettings(readLetterTemplate(legacyTemplate)).setup });
+  assert.equal(sameRefinementInputs(legacy, reread), true, 'legacy frozen guidance must not acquire new defaults on read');
+  assert.equal(Object.hasOwn(reread.request.letter.template, 'researchInterests'), false);
+  assert.equal(Object.hasOwn(reread.request.letter.template, 'questionGuidance'), false);
+  for (const change of [{ researchInterests: 'Robust perception.' }, { questionGuidance: 'Ask about relevant field testing.' }]) {
+    const updated = prepare({ setup: resolveRefinementSettings({ ...legacyTemplate, ...change }).setup });
+    assert.equal(sameRefinementInputs(legacy, updated), false);
+    assert.notEqual(updated.sourceSignatures?.letter, legacy.sourceSignatures?.letter, 'the frozen local letter source must track the changed context');
   }
 });
 

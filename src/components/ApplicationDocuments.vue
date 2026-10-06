@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import PreviewDialog from './PreviewDialog.vue';
 import type { CvState } from '../types';
-import type { ApplicationPackageManifest, LocalDocumentMetadata, LocalPackageArchive, PackageCompositionResult } from '../documentTypes';
-import { defaultPackageManifest, LocalDocumentRepository, newLocalId, safeDocumentFilename } from '../composables/localDocuments';
+import type { ApplicationPackageManifest, AttachmentMetadata, LocalDocumentMetadata, LocalPackageArchive, PackageCompositionResult } from '../documentTypes';
+import { defaultPackageManifest, LocalDocumentRepository, newLocalId, safeDocumentFilename, type LocalDocumentStorage } from '../composables/localDocuments';
+import { createAttachmentMetadataRepository } from '../composables/attachmentMetadata';
 import { composeApplicationPackage, packageItemProblem } from '../composables/applicationPackage';
 
 const props = withDefaults(defineProps<{
@@ -18,10 +20,14 @@ const props = withDefaults(defineProps<{
   cvReady?: boolean;
   exportReady?: boolean;
   mode?: 'prepare' | 'review' | 'tracking';
-}>(), { mode: 'review', cvReady: undefined, exportReady: true });
-const emit = defineEmits<{ readiness: [value: { included: number; missing: number }] }>();
+  client?: SupabaseClient | null;
+  active?: boolean;
+  storage?: LocalDocumentStorage;
+}>(), { mode: 'review', cvReady: undefined, exportReady: true, client: null, active: true });
+const emit = defineEmits<{ readiness: [value: { included: number; missing: number }]; openLibrary: [] }>();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const documents = ref<LocalDocumentMetadata[]>([]);
+const sharedDocuments = ref<AttachmentMetadata[]>([]);
 const archives = ref<LocalPackageArchive[]>([]);
 const manifest = shallowRef<ApplicationPackageManifest>(defaultPackageManifest(props.applicationId));
 const loading = ref(true);
@@ -36,12 +42,20 @@ const selectedLibraryId = ref('');
 let generation = 0;
 let previewGeneration = 0;
 let disposed = false;
-const repository = computed(() => new LocalDocumentRepository(props.userId));
+let reloadPending = false;
+const repository = computed(() => new LocalDocumentRepository(props.userId, props.storage));
 const cvAvailable = computed(() => props.cvReady ?? !!props.cvState);
 const availableIds = computed(() => new Set(documents.value.map(({ id }) => id)));
 const problems = computed(() => manifest.value.items.map((item) => ({ id: item.id, message: packageItemProblem(item, availableIds.value, cvAvailable.value, props.letterReady) })).filter((problem) => problem.message));
 const includedCount = computed(() => manifest.value.items.filter(({ included }) => included).length);
-const libraryOptions = computed(() => documents.value.filter((document) => !manifest.value.items.some((item) => item.documentId === document.id)));
+const library = computed(() => {
+  const byId = new Map<string, { id: string; name: string; description?: string }>(sharedDocuments.value.map((entry) => [entry.id, entry]));
+  for (const entry of documents.value) if (entry.description?.trim() || !byId.has(entry.id)) byId.set(entry.id, entry);
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+});
+const libraryOptions = computed(() => library.value.filter((document) => !manifest.value.items.some((item) => item.documentId === document.id)));
+const selectedLibraryDocument = computed(() => libraryOptions.value.find(({ id }) => id === selectedLibraryId.value));
+const canAttach = computed(() => !!selectedLibraryDocument.value?.description?.trim() && availableIds.value.has(selectedLibraryId.value));
 const canBuild = computed(() => !loading.value && !busy.value && props.exportReady && !!includedCount.value && !problems.value.length);
 
 function clearPreview() {
@@ -53,24 +67,32 @@ function clearPreview() {
 }
 function reportError(reason: unknown) { error.value = reason instanceof Error ? reason.message : text('The operation failed. Please retry.', 'Der Vorgang ist fehlgeschlagen. Bitte erneut versuchen.'); }
 function itemLabel(item: ApplicationPackageManifest['items'][number]) {
-  return item.kind === 'cv' ? text('Application CV', 'Bewerbungslebenslauf') : item.kind === 'letter' ? text('Motivation letter', 'Motivationsschreiben') : item.label;
+  return item.kind === 'cv' ? text('Application CV', 'Bewerbungslebenslauf') : item.kind === 'letter' ? text('Motivation letter', 'Motivationsschreiben') : library.value.find(({ id }) => id === item.documentId)?.name || item.label;
 }
-function sizeLabel(bytes: number) { return bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`; }
+function itemDescription(id?: string) { return library.value.find((entry) => entry.id === id)?.description; }
 
 async function load() {
   const token = ++generation;
+  reloadPending = false;
   const repo = repository.value;
   const applicationId = props.applicationId;
+  const owner = props.userId;
+  const cloud = props.client && owner ? createAttachmentMetadataRepository(props.client, () => owner) : null;
   loading.value = true; loadFailed.value = false; busy.value = false; error.value = ''; notice.value = ''; selectedLibraryId.value = '';
-  documents.value = []; archives.value = []; manifest.value = defaultPackageManifest(applicationId); clearPreview();
+  documents.value = []; sharedDocuments.value = []; archives.value = []; manifest.value = defaultPackageManifest(applicationId); clearPreview();
   try {
-    const [nextDocuments, nextManifest, nextArchives] = await Promise.all([repo.listDocuments(), repo.getManifest(applicationId), repo.listArchives(applicationId)]);
+    const [nextDocuments, nextManifest, nextArchives, remote] = await Promise.all([repo.listDocuments(), repo.getManifest(applicationId), repo.listArchives(applicationId), cloud ? cloud.list().then((value) => ({ value, error: '' })).catch(() => ({ value: [], error: text('Shared attachment descriptions could not be loaded. Local files remain available; refresh to retry.', 'Geteilte Anhangsbeschreibungen konnten nicht geladen werden. Lokale Dateien bleiben verfügbar; zum Wiederholen aktualisieren.') })) : Promise.resolve({ value: [], error: '' })]);
     if (token !== generation || disposed) return;
-    documents.value = nextDocuments; manifest.value = nextManifest; archives.value = nextArchives;
+    documents.value = nextDocuments; sharedDocuments.value = remote.value; manifest.value = nextManifest; archives.value = nextArchives; error.value = remote.error;
   } catch (reason) { if (token === generation && !disposed) { loadFailed.value = true; reportError(reason); } }
-  finally { if (token === generation && !disposed) loading.value = false; }
+  finally { if (token === generation && !disposed) { loading.value = false; flushPendingRefresh(); } }
 }
-watch(() => [props.userId, props.applicationId], load, { immediate: true });
+watch(() => [props.userId, props.applicationId, props.client], load, { immediate: true });
+watch(() => props.active, (active) => { if (active) refreshIfActive(); });
+function flushPendingRefresh() { if (reloadPending && props.active && !busy.value && !loading.value) void load(); }
+function refreshIfActive() { if (props.active) { reloadPending = true; clearPreview(); flushPendingRefresh(); } }
+function attachmentFilesChanged() { reloadPending = true; clearPreview(); flushPendingRefresh(); }
+onMounted(() => { window.addEventListener('focus', refreshIfActive); window.addEventListener('cv-local-documents-updated', attachmentFilesChanged); });
 watch(() => [props.cvState, props.cvReady, props.exportReady, props.letterReady, props.letterRevision], clearPreview, { deep: true });
 watch([includedCount, problems], () => emit('readiness', { included: includedCount.value, missing: problems.value.length }), { immediate: true });
 
@@ -80,7 +102,7 @@ async function perform(operation: (repo: LocalDocumentRepository, applicationId:
   busy.value = true; error.value = ''; notice.value = '';
   try { await operation(repository.value, props.applicationId, token); }
   catch (reason) { if (token === generation && !disposed) reportError(reason); }
-  finally { if (token === generation && !disposed) busy.value = false; }
+  finally { if (token === generation && !disposed) { busy.value = false; flushPendingRefresh(); } }
 }
 function current(token: number) { return token === generation && !disposed; }
 async function updateManifest(next: ApplicationPackageManifest) {
@@ -102,41 +124,10 @@ function moveItem(index: number, direction: number) {
 }
 function removeItem(id: string) { void updateManifest({ ...manifest.value, items: manifest.value.items.filter((item) => item.id !== id) }); }
 function attachLibraryDocument() {
-  const document = documents.value.find(({ id }) => id === selectedLibraryId.value);
-  if (!document) return;
+  const document = selectedLibraryDocument.value;
+  if (!document || !canAttach.value) return;
   void updateManifest({ ...manifest.value, items: [...manifest.value.items, { id: newLocalId(), kind: 'attachment', documentId: document.id, label: document.name, included: true }] });
   selectedLibraryId.value = '';
-}
-async function uploadDocuments(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const files = Array.from(input.files || []);
-  input.value = '';
-  if (!files.length) return;
-  await perform(async (repo, applicationId, token) => {
-    let nextManifest = structuredClone(manifest.value);
-    let added = 0;
-    const failures: string[] = [];
-    for (const file of files) {
-      try {
-        const document = await repo.addDocument(file, file.name);
-        nextManifest = { ...nextManifest, items: [...nextManifest.items, { id: newLocalId(), kind: 'attachment', documentId: document.id, label: document.name, included: true }] };
-        added++;
-      } catch (reason) { failures.push(`${file.name}: ${reason instanceof Error ? reason.message : 'Could not store file.'}`); }
-    }
-    // Files are already safely in the reusable library if saving the package fails.
-    try { if (added) await repo.saveManifest(nextManifest); }
-    finally {
-      const [nextDocuments, storedManifest] = await Promise.all([repo.listDocuments(), repo.getManifest(applicationId)]);
-      if (current(token)) {
-        documents.value = nextDocuments;
-        manifest.value = storedManifest;
-        clearPreview();
-      }
-    }
-    if (!current(token)) return;
-    notice.value = text(`${added} file(s) saved on this device.`, `${added} Datei(en) auf diesem Gerät gespeichert.`);
-    if (failures.length) error.value = failures.join('\n');
-  });
 }
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -145,21 +136,6 @@ function downloadBlob(blob: Blob, filename: string) {
   document.body.appendChild(anchor); anchor.click(); anchor.remove();
   // The browser must consume the navigation before the temporary URL is released.
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-async function downloadOriginal(id: string) {
-  await perform(async (repo, _applicationId, token) => {
-    const document = await repo.getDocument(id);
-    if (!document) throw new Error('This document is unavailable on this device. Restore its backup.');
-    if (current(token)) downloadBlob(document.blob, document.name);
-  });
-}
-async function deleteOriginal(document: LocalDocumentMetadata) {
-  if (!window.confirm(text(`Delete “${document.name}” from this device? Applications using it will show a missing document. Download a backup first if needed.`, `„${document.name}“ von diesem Gerät löschen? Bewerbungen, die diese Datei verwenden, zeigen dann ein fehlendes Dokument an. Bei Bedarf vorher ein Backup herunterladen.`))) return;
-  await perform(async (repo, _applicationId, token) => {
-    await repo.removeDocument(document.id);
-    if (!current(token)) return;
-    documents.value = documents.value.filter(({ id }) => id !== document.id); clearPreview();
-  });
 }
 async function buildPreview() {
   if (!canBuild.value) return;
@@ -210,14 +186,14 @@ async function importBackup(event: Event) {
     notice.value = text(`Restored ${restored.documents} documents and ${restored.packages} package arrangements.`, `${restored.documents} Dokumente und ${restored.packages} Zusammenstellungen wiederhergestellt.`);
   });
 }
-onBeforeUnmount(() => { disposed = true; generation++; clearPreview(); });
+onBeforeUnmount(() => { disposed = true; generation++; clearPreview(); window.removeEventListener('focus', refreshIfActive); window.removeEventListener('cv-local-documents-updated', attachmentFilesChanged); });
 </script>
 
 <template>
   <section :class="['application-documents', 'documents-mode-' + mode]" :aria-label="text('Documents and export', 'Dokumente und Export')">
       <div class="documents-controls">
     <header class="documents-header">
-      <div><h3>{{ mode === 'tracking' ? text('Package archive', 'PDF-Archiv') : mode === 'prepare' ? text('Local attachments', 'Lokale Anhänge') : text('Documents & export', 'Dokumente & Export') }}</h3><p>{{ text('Arrange the complete application package. Supporting files stay on this device.', 'Vollständige Bewerbungsunterlagen zusammenstellen. Zusätzliche Dateien bleiben auf diesem Gerät.') }}</p></div>
+      <div><h3>{{ mode === 'tracking' ? text('Package archive', 'PDF-Archiv') : mode === 'prepare' ? text('Local attachments', 'Lokale Anhänge') : text('Documents & export', 'Dokumente & Export') }}</h3><p>{{ mode === 'prepare' ? text('Select reusable attachments from CV Studio for this application. Files stay on this device.', 'Wiederverwendbare Anhänge aus dem CV-Studio für diese Bewerbung auswählen. Dateien bleiben auf diesem Gerät.') : text('Arrange the complete application package. Supporting files stay on this device.', 'Vollständige Bewerbungsunterlagen zusammenstellen. Zusätzliche Dateien bleiben auf diesem Gerät.') }}</p></div>
       <span class="local-badge">{{ text('Local files only', 'Dateien nur lokal') }}</span>
     </header>
     <p v-if="loading" role="status">{{ text('Loading local documents…', 'Lokale Dokumente werden geladen…') }}</p>
@@ -232,18 +208,20 @@ onBeforeUnmount(() => { disposed = true; generation++; clearPreview(); });
             <li v-for="(item, index) in manifest.items" :key="item.id" :class="{ excluded: !item.included, missing: problems.some((problem) => problem.id === item.id) }">
               <div class="package-item-main"><input :id="`package-${item.id}`" type="checkbox" :checked="item.included" :disabled="busy" @change="toggleItem(item.id, ($event.target as HTMLInputElement).checked)" /><label :for="`package-${item.id}`">{{ itemLabel(item) }}</label></div>
               <div class="item-actions"><button type="button" :disabled="busy || index === 0" :aria-label="text(`Move ${itemLabel(item)} up`, `${itemLabel(item)} nach oben`)" @click="moveItem(index, -1)">↑</button><button type="button" :disabled="busy || index === manifest.items.length - 1" :aria-label="text(`Move ${itemLabel(item)} down`, `${itemLabel(item)} nach unten`)" @click="moveItem(index, 1)">↓</button><button v-if="item.kind === 'attachment'" type="button" :disabled="busy" :aria-label="text(`Remove ${item.label} from package`, `${item.label} aus Zusammenstellung entfernen`)" @click="removeItem(item.id)">×</button></div>
-              <small v-if="mode === 'review' && problems.find((problem) => problem.id === item.id)" class="item-problem">{{ problems.find((problem) => problem.id === item.id)?.message }}</small>
+              <p v-if="item.kind === 'attachment'" class="attachment-description">{{ itemDescription(item.documentId) || text('Description missing. Edit this attachment in CV Studio to add one.', 'Beschreibung fehlt. Diesen Anhang im CV-Studio bearbeiten und eine Beschreibung ergänzen.') }}</p>
+              <small v-if="(mode === 'review' || item.kind === 'attachment') && problems.find((problem) => problem.id === item.id)" class="item-problem">{{ problems.find((problem) => problem.id === item.id)?.message }}</small>
             </li>
           </ol>
           <p v-if="!includedCount" class="muted">{{ text('Include at least one document to create a package.', 'Mindestens ein Dokument für die Zusammenstellung auswählen.') }}</p>
-          <label class="file-button" :class="{ disabled: busy }">{{ text('Add PDF or images', 'PDF oder Bilder hinzufügen') }}<input type="file" accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg" multiple :disabled="busy" @change="uploadDocuments" /></label>
-          <div v-if="libraryOptions.length" class="library-picker"><select v-model="selectedLibraryId" :disabled="busy" :aria-label="text('Choose an existing document', 'Vorhandenes Dokument auswählen')"><option value="">{{ text('From local document library…', 'Aus lokaler Dokumentenbibliothek…') }}</option><option v-for="document in libraryOptions" :key="document.id" :value="document.id">{{ document.name }}</option></select><button type="button" :disabled="busy || !selectedLibraryId" @click="attachLibraryDocument">{{ text('Add', 'Hinzufügen') }}</button></div>
+          <div class="library-actions"><button type="button" :disabled="busy" @click="emit('openLibrary')">{{ text('Manage attachments in CV Studio', 'Anhänge im CV-Studio verwalten') }}</button><button type="button" :disabled="busy || loading" @click="load">{{ text('Refresh attachments', 'Anhänge aktualisieren') }}</button></div>
+          <div v-if="libraryOptions.length" class="library-picker"><select v-model="selectedLibraryId" :disabled="busy" :aria-label="text('Choose an existing document', 'Vorhandenes Dokument auswählen')"><option value="">{{ text('From local attachment library…', 'Aus lokaler Anhangsbibliothek…') }}</option><option v-for="document in libraryOptions" :key="document.id" :value="document.id" :disabled="!availableIds.has(document.id) || !document.description?.trim()">{{ document.name }}{{ !availableIds.has(document.id) ? text(' — file missing on this device', ' — Datei fehlt auf diesem Gerät') : !document.description?.trim() ? text(' — description needed in CV Studio', ' — Beschreibung im CV-Studio ergänzen') : '' }}</option></select><button type="button" :disabled="busy || !canAttach" @click="attachLibraryDocument">{{ text('Add', 'Hinzufügen') }}</button></div>
+          <p v-if="selectedLibraryDocument" class="attachment-description selected-description">{{ selectedLibraryDocument.description }}</p>
+          <p v-if="!library.length" class="muted">{{ text('Add a named attachment with a description in CV Studio, then select it here.', 'Einen benannten Anhang mit Beschreibung im CV-Studio hinzufügen und dann hier auswählen.') }}</p>
           <div v-if="mode === 'review'" class="package-actions"><button type="button" class="primary" :disabled="!canBuild" @click="buildPreview">{{ busy ? text('Working…', 'Wird bearbeitet…') : text('Preview complete PDF', 'Gesamtes PDF ansehen') }}</button><button type="button" :disabled="busy || !composition" @click="downloadPackage">{{ text('Download & archive', 'Herunterladen & archivieren') }}</button></div>
         </section>
         <details v-show="mode !== 'tracking'" class="document-section">
-          <summary>{{ text('Local document library', 'Lokale Dokumentenbibliothek') }} ({{ documents.length }})</summary>
-          <p class="muted">{{ text('Reusable across applications in this account. Files are never uploaded. Clearing browser data removes them; keep a backup.', 'In diesem Konto für weitere Bewerbungen nutzbar. Dateien werden niemals hochgeladen. Beim Löschen der Browserdaten gehen sie verloren; ein Backup aufbewahren.') }}</p>
-          <ul class="library-list"><li v-for="document in documents" :key="document.id"><div><strong>{{ document.name }}</strong><small>{{ sizeLabel(document.size) }}</small></div><div class="item-actions"><button type="button" :disabled="busy" @click="downloadOriginal(document.id)">{{ text('Download', 'Laden') }}</button><button type="button" :disabled="busy" @click="deleteOriginal(document)">{{ text('Delete', 'Löschen') }}</button></div></li></ul>
+          <summary>{{ text('Local backup', 'Lokales Backup') }}</summary>
+          <p class="muted">{{ text('Manage reusable files, names and descriptions in CV Studio → Local attachments. Clearing browser data removes local files; keep a backup.', 'Wiederverwendbare Dateien, Namen und Beschreibungen unter CV-Studio → Lokale Anhänge verwalten. Beim Löschen der Browserdaten gehen lokale Dateien verloren; ein Backup aufbewahren.') }}</p>
           <div class="backup-actions"><button type="button" :disabled="busy" @click="exportBackup">{{ text('Back up files & packages', 'Dateien & Zusammenstellungen sichern') }}</button><label class="file-button secondary" :class="{ disabled: busy }">{{ text('Restore backup', 'Backup wiederherstellen') }}<input type="file" accept="application/json,.json" :disabled="busy" @change="importBackup" /></label></div>
           <p class="muted">{{ text('This backup includes local attachments, package order, and archived PDFs. Back up your editable CVs separately in CV Studio.', 'Dieses Backup enthält lokale Anhänge, die Reihenfolge und archivierte PDFs. Bearbeitbare Lebensläufe separat im CV-Studio sichern.') }}</p>
         </details>
@@ -298,6 +276,9 @@ input[type="checkbox"] { accent-color:#67c8a6; width:16px; height:16px; flex-shr
 .item-actions { display:flex; gap:4px; flex-wrap:wrap; }
 .item-actions button { padding:4px 8px; min-width:36px; min-height:36px; }
 .item-problem { flex-basis:100%; color:#f2c6a7; line-height:1.45; }
+.attachment-description { flex-basis:100%; color:#a6c1b9; white-space:pre-wrap; overflow-wrap:anywhere; font-size:.82rem; line-height:1.5; }
+.selected-description { margin-top:10px; }
+.library-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
 .package-actions,.backup-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:18px; }
 .library-picker { display:flex; gap:7px; margin-top:10px; } select { min-width:0; flex:1; }
 .library-list,.archive-list,.page-map { list-style:none; padding:0; margin:14px 0; }

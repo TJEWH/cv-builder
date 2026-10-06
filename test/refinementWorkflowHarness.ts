@@ -7,7 +7,7 @@ import ts from 'typescript';
 import { createRenderer, h, nextTick, type Component } from 'vue';
 import type { CvState } from '../src/types';
 import type { ApplicationLetter } from '../src/letterTypes';
-import type { LocalRefinementRequest, RefinementProposalRow, RefinementRequestRow } from '../src/refinementTypes';
+import type { LocalRefinementRequest, RefinementFeedback, RefinementProposalRow, RefinementRequestRow } from '../src/refinementTypes';
 import { type ApplicationCvRecord } from '../src/composables/applicationCv';
 import { createSyntheticRefinementWorkspace } from './refinementFixture';
 
@@ -26,7 +26,8 @@ export interface Workspace {
   preview: { getPdfBlob(): Promise<Blob> } | null; letterPreview: { getPdfBlob(): Promise<Blob> } | null;
   getCvPdf(): Promise<Blob>; getLetterPdf(): Promise<Blob>;
   saveAnnotation(id: string, status: 'open' | 'resolved' | 'dismissed', response: string, previousReviewId: string | null): Promise<boolean>;
-  proposalAnnotations: { annotation: { id: string }; status: string; response: string | null }[];
+  includeAnnotationFeedback(id: string): Promise<void>; feedbackHistory(): RefinementFeedback[];
+  proposalAnnotations: { annotation: { id: string }; status: string; response: string | null; reviewId: string | null; included: boolean }[];
   reviewAcceptanceError: string; letterText: string;
   assignBase(): void; useLetterTemplate(): Promise<void>; initialPrompt(): Promise<void>; initialTask(): Promise<void>; connectedPrompt(): Promise<void>; checkProposals(): Promise<void>;
   importProposal(): void | Promise<void>; openProposal(): void; discardReview(): void; acceptSelectedChanges(): Promise<void>;
@@ -34,6 +35,7 @@ export interface Workspace {
   feedbackScope: 'cv' | 'letter' | 'both'; pane: 'cv' | 'letter'; tab: string; historyOpen: boolean; manualLetterText: string;
   enterRefinement(scope?: 'cv' | 'letter' | 'both'): void; selectReviewProposal(id: string): void;
   importProposalFile(event: Event): Promise<void>; importLetterBackup(event: Event): Promise<void>;
+  importBackup(event: Event): Promise<void>; downloadBackup(): void;
   keepIncomingLetter(draft?: import('../src/draftingTypes').MotivationLetterDraft): void; reopenLocalLetterRevision(id: string): void;
   approve(kind: 'cv' | 'letter', reopen?: boolean): Promise<void>;
   updateLetter(value: string): void; toggleProposedChange(id: string, included: boolean): void;

@@ -1,4 +1,5 @@
 import type { ApplicationPackageManifest, ApplicationPackageItem, LocalDocument, LocalDocumentMetadata, LocalDocumentMime, LocalPackageArchive } from '../documentTypes';
+import { validateAttachmentId, validateAttachmentMetadata } from './attachmentMetadata';
 
 export const MAX_LOCAL_DOCUMENT_BYTES = 50 * 1024 * 1024;
 export const MAX_DOCUMENT_BACKUP_BYTES = 350 * 1024 * 1024;
@@ -153,11 +154,36 @@ export class LocalDocumentRepository {
   async getDocument(id: string): Promise<LocalDocument | undefined> {
     return await this.storage.get(this.scope, 'documents', id) as LocalDocument | undefined;
   }
-  async addDocument(file: Blob, name: string): Promise<LocalDocumentMetadata> {
+  async addDocument(file: Blob, name: string, description?: string): Promise<LocalDocumentMetadata> {
+    const fields = description === undefined ? { name: safeDocumentFilename(name) } : validateAttachmentMetadata(name, description);
+    return this.writeDocumentFile(newLocalId(), file, fields);
+  }
+  private async writeDocumentFile(id: string, file: Blob, fields: Pick<LocalDocumentMetadata, 'name' | 'description'>, createdAt = new Date().toISOString()): Promise<LocalDocumentMetadata> {
     if (!file.size || file.size > MAX_LOCAL_DOCUMENT_BYTES) throw new Error('Choose a nonempty file smaller than 50 MB.');
     const mimeType = await detectDocumentMime(file);
-    const document: LocalDocument = { id: newLocalId(), name: safeDocumentFilename(name), mimeType, size: file.size, createdAt: new Date().toISOString(), blob: file.slice(0, file.size, mimeType) };
+    const document: LocalDocument = { id, ...fields, mimeType, size: file.size, createdAt, blob: file.slice(0, file.size, mimeType) };
     await this.storage.write(this.scope, [{ collection: 'documents', id: document.id, value: document }]);
+    const { blob: _blob, ...metadata } = document;
+    return metadata;
+  }
+  /** Attach file bytes to an existing metadata reference, including on a new device. */
+  async putDocumentFile(id: string, file: Blob, name: string, description: string): Promise<LocalDocumentMetadata> {
+    validateAttachmentId(id);
+    const fields = validateAttachmentMetadata(name, description);
+    const previous = await this.getDocument(id);
+    return this.writeDocumentFile(id, file, fields, previous?.createdAt);
+  }
+  async replaceDocumentFile(id: string, file: Blob): Promise<LocalDocumentMetadata> {
+    const previous = await this.getDocument(id);
+    if (!previous) throw new Error('This attachment is unavailable on this device. Select its local file again.');
+    return this.writeDocumentFile(id, file, { name: previous.name, ...(previous.description === undefined ? {} : { description: previous.description }) }, previous.createdAt);
+  }
+  async updateDocumentMetadata(id: string, name: string, description: string): Promise<LocalDocumentMetadata> {
+    const fields = validateAttachmentMetadata(name, description);
+    const previous = await this.getDocument(id);
+    if (!previous) throw new Error('This attachment is unavailable on this device. Select its local file again.');
+    const document = { ...previous, ...fields };
+    await this.storage.write(this.scope, [{ collection: 'documents', id, value: document }]);
     const { blob: _blob, ...metadata } = document;
     return metadata;
   }
@@ -213,9 +239,10 @@ export class LocalDocumentRepository {
     };
     for (const document of value.documents) {
       if (!isRecord(document) || !validString(document.id) || !validString(document.name) || !validString(document.createdAt) || !['application/pdf', 'image/png', 'image/jpeg'].includes(String(document.mimeType))) throw new Error('The backup contains invalid document metadata.');
+      const fields = document.description === undefined ? { name: safeDocumentFilename(document.name) } : validateAttachmentMetadata(document.name, document.description);
       const blob = base64Blob(document.bytes, String(document.mimeType));
       if (!blob.size || blob.size > MAX_LOCAL_DOCUMENT_BYTES || blob.size !== document.size || await detectDocumentMime(blob) !== document.mimeType) throw new Error('A document in the backup is invalid or too large.');
-      add({ collection: 'documents', id: document.id, value: { id: document.id, name: safeDocumentFilename(document.name), createdAt: document.createdAt, size: blob.size, mimeType: document.mimeType, blob } });
+      add({ collection: 'documents', id: document.id, value: { id: document.id, ...fields, createdAt: document.createdAt, size: blob.size, mimeType: document.mimeType, blob } });
     }
     for (const manifest of value.manifests) { validateManifest(manifest); add({ collection: 'manifests', id: manifest.applicationId, value: manifest }); }
     for (const archive of value.archives) {

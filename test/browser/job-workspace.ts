@@ -68,6 +68,7 @@ const database: Record<string, Row[]> = {
   ],
   applications: [],
   cv_variants: [],
+  local_attachment_metadata: [],
   opportunity_reviews: [],
   drafting_contexts: [],
   motivation_letter_drafts: [],

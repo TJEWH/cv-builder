@@ -13,21 +13,25 @@ export const DEFAULT_TEMPLATE_GUIDANCE = {
   salutationInstructions: 'Address the recipient named in the tender or opportunity using their stated title. If no suitable person is named, address the hiring or selection committee. Match the letter language and do not guess gender or titles.',
   closingInstructions: 'Close professionally in the letter language, express interest in a conversation and sign with {{APPLICANT_NAME}}.',
 };
+export const DEFAULT_QUESTION_GUIDANCE = 'When a required or beneficial qualification in the opportunity has no supporting CV evidence, ask whether I have relevant experience and request a concrete example only if the answer would improve the letter. Missing CV evidence does not mean I lack experience. If I do not have that experience, ask about a genuine learning interest only when useful; do not invent qualifications or imply that an unanswered question is evidence. Ask only unresolved, value-adding questions during drafting and refinement; do not repeat answered questions.';
+export const LETTER_TEMPLATE_CONTEXT_MAX_LENGTH = 4000;
 
 export const DEFAULT_LETTER_TEMPLATES: LetterTemplate[] = [{
-  id: 'research', name: 'Research application', revision: 1,
+  id: 'research', name: 'Research application', revision: 2,
   ...DEFAULT_TEMPLATE_GUIDANCE,
   structure: 'Opening: identify the opportunity and research interest.\nEvidence: connect two relevant experiences from the CV to the requirements.\nResearch fit: explain a specific connection to the project.\nClosing: state the contribution and interest in a discussion.',
   tone: 'Specific, thoughtful and professional. Use only facts present in the context; do not invent experience.',
   exampleText: '',
-  language: 'en', maxWords: 450, updatedAt: '2026-09-20T00:00:00.000Z',
+  researchInterests: '', questionGuidance: DEFAULT_QUESTION_GUIDANCE,
+  language: 'en', maxWords: 450, updatedAt: '2026-10-03T00:00:00.000Z',
 }, {
-  id: 'industry', name: 'Industry application', revision: 1,
+  id: 'industry', name: 'Industry application', revision: 2,
   ...DEFAULT_TEMPLATE_GUIDANCE,
   structure: 'Opening: role and motivation.\nRelevant evidence: two examples of skills and outcomes from the CV.\nContribution: connect experience to the organization and role.\nClosing: concise invitation to discuss.',
   tone: 'Clear, concise and confident. Avoid generic claims and invented qualifications.',
   exampleText: '',
-  language: 'en', maxWords: 350, updatedAt: '2026-09-20T00:00:00.000Z',
+  researchInterests: '', questionGuidance: DEFAULT_QUESTION_GUIDANCE,
+  language: 'en', maxWords: 350, updatedAt: '2026-10-03T00:00:00.000Z',
 }];
 
 function readContent(value: unknown): LetterContent {
@@ -53,7 +57,16 @@ export function readLetterTemplate(value: unknown): LetterTemplate {
   if (value.exampleText !== undefined && (typeof value.exampleText !== 'string' || value.exampleText.length > 20000)) {
     throw new Error('The example letter must contain at most 20000 characters.');
   }
-  return { ...guidance, id: String(value.id), name: String(value.name), revision: Number(value.revision), structure: String(value.structure),
+  // Older libraries and frozen snapshots keep their original guidance until explicitly edited.
+  const context: Pick<LetterTemplate, 'researchInterests' | 'questionGuidance'> = {};
+  for (const key of ['researchInterests', 'questionGuidance'] as const) {
+    if (value[key] === undefined) continue;
+    if (typeof value[key] !== 'string' || value[key].length > LETTER_TEMPLATE_CONTEXT_MAX_LENGTH) {
+      throw new Error(`Research interests and question guidance must contain at most ${LETTER_TEMPLATE_CONTEXT_MAX_LENGTH} characters each.`);
+    }
+    context[key] = value[key];
+  }
+  return { ...guidance, ...context, id: String(value.id), name: String(value.name), revision: Number(value.revision), structure: String(value.structure),
     tone: String(value.tone), exampleText: (value.exampleText as string | undefined) ?? '', language: String(value.language), maxWords: Number(value.maxWords), updatedAt: String(value.updatedAt) };
 }
 
@@ -156,9 +169,10 @@ export function sameLetterContextInput(left: unknown, right: unknown) { return f
 
 export function letterContextVersion(application: Pick<Application, 'context_json' | 'cv_variant_id'>, state: CvState | null, template: LetterTemplate, language: string, instructions: string, maxWords: number): LetterContextVersion {
   const { design, completedSections: _completed, keepTogetherSections: _together, sectionHeaderSizes: _sizes, ...content } = state || {};
-  // An absent example and its new empty default describe the same legacy context.
-  const { exampleText, ...guidance } = template;
-  const templateContext = exampleText ? { ...guidance, exampleText } : guidance;
+  // Absent optional fields and their empty defaults describe the same legacy context.
+  const { exampleText, researchInterests, questionGuidance, ...guidance } = template;
+  const templateContext = { ...guidance, ...(exampleText ? { exampleText } : {}),
+    ...(researchInterests ? { researchInterests } : {}), ...(questionGuidance ? { questionGuidance } : {}) };
   return { content: fingerprint({ opportunity: application.context_json, cv: content, template: templateContext, language, instructions, maxWords }), theme: fingerprint(design || {}) };
 }
 

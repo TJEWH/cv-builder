@@ -11,7 +11,7 @@ import { cloneCv, createApplicationCv, cvDifferences, isApplicationCvPublished, 
 import { createCloudCvSnapshot } from '../composables/cloudCvPrivacy';
 import { rootVariantId, subvariantParent } from '../composables/careerVariants';
 import { addIncomingDraft, createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, editLetter, finalizeLetter, letterContextVersion, letterFromEditableText, openLetterRevision, parseIncomingLetter, selectApplicationLetterTemplate, unresolvedLetterPlaceholders } from '../composables/motivationLetters';
-import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, describeCvOperation, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText } from '../composables/applicationRefinement';
+import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, describeCvOperation, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText, validateRefinementReviewPayload } from '../composables/applicationRefinement';
 import { opensInTracking } from '../composables/applicationTracking';
 import { buildOpportunityGroups, checklistKeys } from '../composables/opportunityContext';
 import FormBuilder from './FormBuilder.vue';
@@ -33,7 +33,7 @@ import RefinementSourceOverview from './RefinementSourceOverview.vue';
 import RefinementChangeReview from './RefinementChangeReview.vue';
 import RefinementAnnotations from './RefinementAnnotations.vue';
 import RefinementPreviewStatus from './RefinementPreviewStatus.vue';
-import { annotationViews, annotationReferenceChanged, annotationFeedback } from '../composables/refinementAnnotations';
+import { annotationViews, annotationReferenceChanged, annotationFeedback, validateAnnotationReview } from '../composables/refinementAnnotations';
 
 const props = defineProps<{
   projectId?: string; active?: boolean;
@@ -42,7 +42,7 @@ const props = defineProps<{
   publishCv: (state: CvState) => Promise<Application | null>;
   createSubvariant?: (sourceId: string, name: string, state: CvState) => string | null;
 }>();
-const emit = defineEmits<{ close: []; 'edit-variant': [id: string] }>();
+const emit = defineEmits<{ close: []; 'edit-variant': [id: string]; 'open-attachments': [] }>();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const storageKey = 'CV_REFINEMENT:1:' + encodeURIComponent(props.userId) + ':' + props.application.id;
@@ -354,7 +354,7 @@ async function refreshCloud() {
       if (proposal.application_id !== props.application.id || proposal.user_id !== props.userId) throw new Error('The proposal belongs to another application or account.');
       parseRefinementProposal(proposal.proposal_json, source.request_json);
     }
-    cloudState.value = state; requests.value = nextRequests; proposals.value = combinedProposals; reviews.value = [...nextReviews, ...importedReviews.value];
+    cloudState.value = state; requests.value = nextRequests; proposals.value = combinedProposals; reviews.value = mergeReviews(nextReviews, importedReviews.value);
     if (state && initialSignature === baselineSignature.value) approvals.value = clone(state.approvals_json);
     if (!scopeWasChosen && currentPublishedRequest.value) {
       const scope = currentPublishedRequest.value.request_json.scope;
@@ -460,8 +460,32 @@ async function useLetterTemplate() {
   if (record.value) await savePreparation();
 }
 function updateLetter(value: string) { if (letter.value) letter.value = editLetter(letter.value, letterFromEditableText(value)); }
+function mergeReviews(...groups: RefinementReviewRow[][]): RefinementReviewRow[] {
+  return [...new Map(groups.flat().map(row => [row.id, row])).values()]
+    .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+}
 function feedbackHistory(): RefinementFeedback[] {
-  return reviews.value.filter(item => item.kind === 'feedback').map(item => ({ id: item.id, text: String(item.payload.text), scope: item.payload.scope as RefinementScope, createdAt: item.created_at, ...(item.payload.annotation ? { annotation: clone(item.payload.annotation) as AnnotationReference } : {}) }));
+  return mergeReviews(reviews.value).filter(item => item.kind === 'feedback').map(item => {
+    const annotation = item.payload.annotation as AnnotationReference | undefined;
+    // Imported proposals have no cloud identity. Their approved question/answer is
+    // ordinary feedback in the protocol; its review association stays local.
+    const sharedReference = annotation && !importedProposals.value.some(proposal => proposal.id === annotation.proposalId);
+    return { id: item.id, text: String(item.payload.text), scope: item.payload.scope as RefinementScope, createdAt: item.created_at,
+      ...(sharedReference ? { annotation: clone(annotation) } : {}) };
+  });
+}
+function storedImportedReviews(): RefinementReviewRow[] {
+  return JSON.parse(localStorage.getItem(storageKey) || '{}').importedReviews || [];
+}
+function persistImportedReview(row: RefinementReviewRow) {
+  const previousImported = importedReviews.value, previousReviews = reviews.value;
+  importedReviews.value = mergeReviews(storedImportedReviews(), importedReviews.value, [row]);
+  reviews.value = mergeReviews(reviews.value, importedReviews.value);
+  persist();
+  if (saveError.value) {
+    importedReviews.value = previousImported; reviews.value = previousReviews;
+    throw new Error(saveError.value);
+  }
 }
 async function saveAnnotation(id: string, status: AnnotationStatus, response: string, previousReviewId: string | null): Promise<boolean> {
   let saved = false;
@@ -469,7 +493,19 @@ async function saveAnnotation(id: string, status: AnnotationStatus, response: st
     const view = proposalAnnotations.value.find(item => item.annotation.id === id);
     if (!view || !record.value) throw new Error('Restore the local CV before saving an anonymized response.');
     const safeResponse = response.trim() ? sanitizeRefinementText(response.trim(), record.value.state) : null;
-    const row = await repository.saveReview(props.application.id, view.requestId, 'annotation', { proposalId: view.proposalId, annotationId: id, status, response: safeResponse, previousReviewId });
+    const payload = { proposalId: view.proposalId, annotationId: id, status, response: safeResponse, previousReviewId };
+    validateAnnotationReview(payload);
+    const imported = importedProposals.value.find(proposal => proposal.id === view.proposalId);
+    let row: RefinementReviewRow;
+    if (imported) {
+      const latest = annotationViews(imported, storedImportedReviews()).find(item => item.annotation.id === id);
+      if (latest?.reviewId !== previousReviewId || view.reviewId !== previousReviewId) throw new Error('Annotation changed elsewhere; reload the saved annotation.');
+      if (view.status === status && view.response === safeResponse) { saved = true; return; }
+      const createdAt = new Date(Math.max(Date.now(), ...storedImportedReviews().map(item => Date.parse(item.created_at) + 1))).toISOString();
+      row = { id: crypto.randomUUID(), application_id: props.application.id, user_id: props.userId, request_id: view.requestId,
+        kind: 'annotation', payload, created_at: createdAt };
+      persistImportedReview(row);
+    } else row = await repository.saveReview(props.application.id, view.requestId, 'annotation', payload);
     if (disposed) return;
     if (!reviews.value.some(item => item.id === row.id)) reviews.value.push(row);
     saved = true; notice.value = text('Annotation saved. Both documents are unchanged.', 'Anmerkung gespeichert. Beide Dokumente bleiben unverändert.');
@@ -481,8 +517,20 @@ async function includeAnnotationFeedback(id: string) {
     const view = proposalAnnotations.value.find(item => item.annotation.id === id);
     if (!view || !record.value || view.included || view.status !== 'open' && !view.response) return;
     const safeText = sanitizeRefinementText(annotationFeedback(view), record.value.state);
-    const row = await repository.saveReview(props.application.id, view.requestId, 'feedback', { text: safeText, scope: view.annotation.document,
-      annotation: { proposalId: view.proposalId, annotationId: id, reviewId: view.reviewId } });
+    const annotation = { proposalId: view.proposalId, annotationId: id, reviewId: view.reviewId };
+    const imported = importedProposals.value.find(proposal => proposal.id === view.proposalId);
+    let row: RefinementReviewRow;
+    if (imported) {
+      const latest = annotationViews(imported, storedImportedReviews()).find(item => item.annotation.id === id);
+      if (latest?.reviewId !== view.reviewId) throw new Error('Annotation changed elsewhere; reload the saved annotation.');
+      // Retry the same explicit inclusion even if cloud saving succeeded but the
+      // local receipt failed. This cannot create duplicate accumulated feedback.
+      const hash = refinementSignature(['imported-annotation-feedback', props.application.id, annotation]).slice(3, 35);
+      const reviewId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20)}`;
+      row = await repository.saveReview(props.application.id, view.requestId, 'feedback', { text: safeText, scope: view.annotation.document }, reviewId);
+      if (disposed) return;
+      persistImportedReview({ ...row, payload: { ...row.payload, annotation } });
+    } else row = await repository.saveReview(props.application.id, view.requestId, 'feedback', { text: safeText, scope: view.annotation.document, annotation });
     if (disposed) return;
     if (!reviews.value.some(item => item.id === row.id)) reviews.value.push(row);
     notice.value = text('Annotation included in accumulated feedback. Publish the next round when ready.', 'Anmerkung zum gesammelten Feedback hinzugefügt. Die nächste Runde kann nun veröffentlicht werden.');
@@ -662,7 +710,7 @@ async function requestImprovement() {
     const key = refinementSignature([safeFeedback, feedbackScope.value, parentProposalId.value]);
     if (pendingReview?.key !== key) pendingReview = { key, id: crypto.randomUUID() };
     await repository.saveReview(props.application.id, selectedProposal.value?.request_id || null, 'feedback', { text: safeFeedback, scope: feedbackScope.value }, pendingReview.id);
-    reviews.value = await repository.listReviews(props.application.id);
+    reviews.value = mergeReviews(await repository.listReviews(props.application.id), importedReviews.value);
     feedback.value = ''; pendingReview = null;
     await createRound(feedbackScope.value);
   });
@@ -778,6 +826,10 @@ async function importBackup(event: Event) {
       if (!source || row.application_id !== props.application.id || row.user_id !== props.userId) throw new Error('An imported proposal in the backup has no matching local request.');
       return { ...clone(row), proposal_json: parseRefinementProposal(row.proposal_json, source.request) };
     });
+    const restoredReviews = restoreImportedReviews(data.importedReviews || [], restoredProposals, restoredRequests);
+    const previousImportedIds = new Set(importedProposals.value.map(row => row.id));
+    const previousReviewIds = new Set(importedReviews.value.map(row => row.id));
+    if (restoredProposals.some(imported => proposals.value.some(row => row.id === imported.id && !previousImportedIds.has(row.id)))) throw new Error('An imported proposal in the backup conflicts with connected proposal history.');
     localReadError = '';
     committingSelection = true;
     try {
@@ -785,13 +837,52 @@ async function importBackup(event: Event) {
       if (checkedLetter) letter.value = checkedLetter;
       approvals.value = { cv: null, letter: null }; localRequests.value = restoredRequests;
       privacyContexts.value = data.record.applicationId === props.application.id ? data.privacyContexts || {} : {};
-      importedProposals.value = restoredProposals; importedReviews.value = [];
+      importedProposals.value = restoredProposals; importedReviews.value = restoredReviews;
+      proposals.value = [...proposals.value.filter(row => !previousImportedIds.has(row.id)), ...restoredProposals];
+      reviews.value = mergeReviews(reviews.value.filter(row => !previousReviewIds.has(row.id)), restoredReviews);
       parentProposalId.value = null; reviewActive.value = false;
     } finally { committingSelection = false; }
     persist();
     notice.value = text('Application restored. Review and save preparation before continuing.', 'Bewerbung wiederhergestellt. Vorbereitung prüfen und speichern.');
     if (incompleteSources) notice.value += text(' Some older proposal sources are incomplete; restore their original mappings or publish a new round.', ' Einige ältere Vorschlagsquellen sind unvollständig; ursprüngliche Zuordnungen wiederherstellen oder eine neue Runde veröffentlichen.');
   });
+}
+function restoreImportedReviews(value: unknown, restoredProposals: RefinementProposalRow[], restoredRequests: Record<string, LocalRefinementRequest>): RefinementReviewRow[] {
+  if (!Array.isArray(value)) throw new Error('Invalid imported review history in the backup.');
+  const ids = new Set<string>();
+  const restored = value.map((row: RefinementReviewRow) => {
+    if (!row || typeof row !== 'object' || typeof row.id !== 'string' || !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(row.id)
+      || ids.has(row.id) || row.application_id !== props.application.id || row.user_id !== props.userId
+      || !row.request_id || !restoredRequests[row.request_id] || !['annotation', 'feedback', 'cv_decisions'].includes(row.kind)
+      || typeof row.created_at !== 'string' || !Number.isFinite(Date.parse(row.created_at))) throw new Error('Invalid imported review history in the backup.');
+    ids.add(row.id); validateRefinementReviewPayload(row.kind, row.payload);
+    const reference = row.kind === 'feedback' ? row.payload.annotation as AnnotationReference | undefined : { proposalId: row.payload.proposalId, annotationId: row.payload.annotationId };
+    const proposal = restoredProposals.find(item => item.id === reference?.proposalId && item.request_id === row.request_id);
+    if (!proposal) throw new Error('An imported review in the backup has no matching proposal.');
+    if (row.kind === 'cv_decisions') {
+      const available = proposal.proposal_json.schemaVersion === 2 ? proposal.proposal_json.cvOperations.map(item => item.id) : proposal.proposal_json.cvEdits.map(item => item.fieldId);
+      const selected = [...row.payload.accepted as string[], ...row.payload.rejected as string[]];
+      if (refinementSignature([...available].sort()) !== refinementSignature(selected.sort())) throw new Error('Invalid imported proposal decisions in the backup.');
+    } else {
+      const annotation = proposal.proposal_json.schemaVersion === 2 && proposal.proposal_json.annotations?.find(item => item.id === reference?.annotationId);
+      if (!annotation || row.kind === 'feedback' && row.payload.scope !== annotation.document) throw new Error('An imported review in the backup has no matching annotation.');
+    }
+    return clone(row);
+  });
+  const ordered = mergeReviews(restored);
+  const seen: RefinementReviewRow[] = [];
+  for (const row of ordered) {
+    if (row.kind === 'annotation') {
+      const previous = [...seen].reverse().find(item => item.kind === 'annotation' && item.payload.proposalId === row.payload.proposalId && item.payload.annotationId === row.payload.annotationId);
+      if ((previous?.id || null) !== row.payload.previousReviewId) throw new Error('The imported annotation response history in the backup is incomplete.');
+      seen.push(row);
+    } else if (row.kind === 'feedback') {
+      const reference = row.payload.annotation as AnnotationReference;
+      if (reference.reviewId !== null && !restored.some(item => item.id === reference.reviewId && item.kind === 'annotation'
+        && item.payload.proposalId === reference.proposalId && item.payload.annotationId === reference.annotationId)) throw new Error('An imported feedback answer in the backup is unavailable.');
+    }
+  }
+  return ordered;
 }
 </script>
 
@@ -823,7 +914,7 @@ async function importBackup(event: Event) {
             <label>{{ text('Template', 'Vorlage') }}<select v-model="pendingTemplateId" :disabled="busy"><option value="">{{ text('Choose a template…', 'Vorlage wählen…') }}</option><option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }} · {{ text('revision', 'Revision') }} {{ template.revision }}</option></select></label>
             <button type="button" :disabled="busy || !pendingTemplateId" @click="useLetterTemplate">{{ text('Use letter template', 'Briefvorlage verwenden') }}</button>
             <p v-if="missingLetterTemplate" class="message">{{ text('The original letter template is unavailable. Choose a template above to continue; your existing letter is preserved.', 'Die ursprüngliche Briefvorlage ist nicht verfügbar. Zum Fortfahren oben eine Vorlage auswählen; der bestehende Brief bleibt erhalten.') }}</p>
-            <template v-if="letter"><p v-if="!missingLetterTemplate">{{ selectedTemplate.name }} · {{ text('Frozen revision', 'Gespeicherte Revision') }} {{ selectedTemplate.revision }}</p><div class="field-row"><label>{{ text('Language', 'Sprache') }}<select v-model="letter.language" :disabled="busy"><option value="en">English</option><option value="de">Deutsch</option></select></label><label>{{ text('Target words', 'Zielwortzahl') }}<input v-model.number="letter.maxWords" type="number" min="50" max="2000" :disabled="busy" /></label></div><label>{{ text('Application writing instructions', 'Schreibhinweise für diese Bewerbung') }}<textarea v-model="letter.instructions" rows="3" maxlength="20000" :disabled="busy" /></label><details v-if="!missingLetterTemplate"><summary>{{ text('Template guidance', 'Vorlagenhinweise') }}</summary><p class="pre-wrap">{{ selectedTemplate.structure }}</p><p>{{ selectedTemplate.tone }}</p><p v-if="selectedTemplate.exampleText" class="pre-wrap">{{ selectedTemplate.exampleText }}</p></details></template>
+            <template v-if="letter"><p v-if="!missingLetterTemplate">{{ selectedTemplate.name }} · {{ text('Frozen revision', 'Gespeicherte Revision') }} {{ selectedTemplate.revision }}</p><div class="field-row"><label>{{ text('Language', 'Sprache') }}<select v-model="letter.language" :disabled="busy"><option value="en">English</option><option value="de">Deutsch</option></select></label><label>{{ text('Target words', 'Zielwortzahl') }}<input v-model.number="letter.maxWords" type="number" min="50" max="2000" :disabled="busy" /></label></div><label>{{ text('Application writing instructions', 'Schreibhinweise für diese Bewerbung') }}<textarea v-model="letter.instructions" rows="3" maxlength="20000" :disabled="busy" /></label><details v-if="!missingLetterTemplate"><summary>{{ text('Template guidance', 'Vorlagenhinweise') }}</summary><p class="pre-wrap">{{ selectedTemplate.structure }}</p><p>{{ selectedTemplate.tone }}</p><template v-if="selectedTemplate.researchInterests"><h4>{{ text('Research interests', 'Forschungsinteressen') }}</h4><p class="pre-wrap">{{ selectedTemplate.researchInterests }}</p></template><template v-if="selectedTemplate.questionGuidance"><h4>{{ text('Follow-up question guidance', 'Hinweise für Rückfragen') }}</h4><p class="pre-wrap">{{ selectedTemplate.questionGuidance }}</p></template><p v-if="selectedTemplate.exampleText" class="pre-wrap">{{ selectedTemplate.exampleText }}</p></details></template>
             <MotivationLetterEditor :lang="lang" :disabled="busy" @refine="enterRefinement" />
           </section>
         </div>
@@ -891,7 +982,7 @@ async function importBackup(event: Event) {
       </section>
       <section v-show="tab === 'review'" class="review-heading"><div class="stage-heading"><div><h2>{{ text('Review the complete application', 'Vollständige Bewerbung prüfen') }}</h2><p>{{ text('Preview exactly what you will download and submit.', 'Genau die Unterlagen prüfen, die heruntergeladen und eingereicht werden.') }}</p></div></div><p v-if="!cvApproved || !letterApproved" class="warning">{{ text('Approve both documents in Refinement before exporting the application.', 'Vor dem Bewerbungsexport beide Dokumente in Überarbeitung freigeben.') }}</p><p v-if="words > setup.maxWords" class="warning">{{ words }} / {{ setup.maxWords }} {{ text('target words — review the tender limit.', 'Zielwörter — Vorgabe prüfen.') }}</p><p v-if="uncheckedRequirements" class="warning">{{ uncheckedRequirements }} {{ text('requirements/checklist items still unchecked. Verify completeness before submission.', 'Anforderungen/Checklistenpunkte noch offen. Vor der Einreichung Vollständigkeit prüfen.') }}</p><details><summary>{{ text('Document requirements', 'Dokumentanforderungen') }}</summary><OpportunityContext :context="requirementContext" :lang="lang" /></details></section>
       <section v-show="tab === 'tracking'" class="tracking-stage"><h2>{{ text('Application tracking', 'Bewerbungsverlauf') }}</h2><p>{{ text('Update your application status here. Each change is recorded in the history.', 'Aktualisiere hier den Bewerbungsstatus. Jede Änderung wird im Verlauf aufgezeichnet.') }}</p><slot name="tracking"><slot name="overview" /></slot></section>
-      <ApplicationDocuments v-show="tab !== 'refinement'" :mode="tab === 'preparation' ? 'prepare' : tab === 'tracking' ? 'tracking' : 'review'" :application-id="application.id" :user-id="userId" :lang="lang" :cv-state="record?.state || null" :cv-ready="cvApproved" :export-ready="cvApproved && letterApproved" :get-cv-pdf="getCvPdf" :get-letter-pdf="getLetterPdf" :letter-ready="letterApproved" :letter-revision="letterRevision" @readiness="documentReadiness = $event" />
+      <ApplicationDocuments v-show="tab !== 'refinement'" :client="client" :active="active !== false && tab !== 'refinement'" @open-library="emit('open-attachments')" :mode="tab === 'preparation' ? 'prepare' : tab === 'tracking' ? 'tracking' : 'review'" :application-id="application.id" :user-id="userId" :lang="lang" :cv-state="record?.state || null" :cv-ready="cvApproved" :export-ready="cvApproved && letterApproved" :get-cv-pdf="getCvPdf" :get-letter-pdf="getLetterPdf" :letter-ready="letterApproved" :letter-revision="letterRevision" @readiness="documentReadiness = $event" />
     </div>
   </section>
 </template>

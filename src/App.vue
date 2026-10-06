@@ -23,6 +23,7 @@ import SupabaseAuth from './components/SupabaseAuth.vue';
 import JobWorkspace from './components/JobWorkspace.vue';
 import { useSupabaseAuth } from './composables/useSupabaseAuth';
 import LetterTemplates from './components/LetterTemplates.vue';
+import LocalAttachments from './components/LocalAttachments.vue';
 import VariantHistory from './components/VariantHistory.vue';
 import { rootVariantId } from './composables/careerVariants';
 
@@ -58,7 +59,7 @@ const activeBuilderGroup = ref('content');
 try {
   const cached = JSON.parse(sessionStorage.getItem('CV_WORKSPACE_NAV') || '{}');
   if (['opportunities', 'cv-studio', 'applications'].includes(cached.workspace)) activeWorkspace.value = cached.workspace;
-  if (['versions', 'content', 'design', 'privacy', 'templates'].includes(cached.cvTab)) activeBuilderGroup.value = cached.cvTab;
+  if (['versions', 'content', 'design', 'privacy', 'templates', 'attachments'].includes(cached.cvTab)) activeBuilderGroup.value = cached.cvTab;
 } catch { /* Navigation is available without browser storage. */ }
 watch([activeWorkspace, activeBuilderGroup], () => {
   try { sessionStorage.setItem('CV_WORKSPACE_NAV', JSON.stringify({ workspace: activeWorkspace.value, cvTab: activeBuilderGroup.value })); } catch { /* Optional preference. */ }
@@ -93,7 +94,7 @@ const rootConfigurations = computed(() => savedConfigurations.value.filter(item 
 const selectedRootId = computed(() => rootVariantId(selectedConfigurationId.value, savedConfigurations.value));
 const subConfigurations = computed(() => savedConfigurations.value.filter(item => item.parentId === selectedRootId.value));
 watch(isEmptyDocument, (empty) => {
-  if (empty) activeBuilderGroup.value = 'versions';
+  if (empty && ['content', 'design', 'privacy'].includes(activeBuilderGroup.value)) activeBuilderGroup.value = 'versions';
 }, { flush: 'sync' });
 const saveStatus = ref<SaveStatus>('saved');
 const lastSavedAt = ref<number | null>(null);
@@ -116,6 +117,7 @@ const builderGroups = computed(() => [
   { key: 'design', label: t('design'), icon: 'palette' },
   { key: 'privacy', label: t('privacy'), icon: 'user-secret' },
   { key: 'templates', label: lang.value === 'de' ? 'Briefvorlagen' : 'Letter templates', icon: 'envelope' },
+  { key: 'attachments', label: lang.value === 'de' ? 'Lokale Anhänge' : 'Local attachments', icon: 'folder-open' },
 ]);
 function groupDisabled(key: string) {
   return isEmptyDocument.value && ['content', 'design', 'privacy'].includes(key);
@@ -573,6 +575,10 @@ function selectBuilderGroup(group: string) {
   activeBuilderGroup.value = group;
   previewMode.value = false;
 }
+function openAttachmentLibrary() {
+  selectWorkspace('cv-studio');
+  if (activeWorkspace.value === 'cv-studio') selectBuilderGroup('attachments');
+}
 
 </script>
 
@@ -625,9 +631,9 @@ function selectBuilderGroup(group: string) {
       <div v-show="!isCloudTab" class="cv-studio-navigation">
         <nav class="cv-studio-subtabs" aria-label="CV Studio sections">
           <button v-for="group in builderGroups" :key="group.key" class="btn" :class="{ 'is-active': activeBuilderGroup === group.key }" :aria-pressed="activeBuilderGroup === group.key" :disabled="groupDisabled(group.key)" type="button" @click="selectBuilderGroup(group.key)"><font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" /><span>{{ isMobile && group.key === 'templates' ? (lang === 'de' ? 'Vorlagen' : 'Templates') : group.label }}</span></button>
-          <button v-if="isMobile" class="btn cv-studio-open-preview" type="button" :aria-label="t('openPreview')" :title="t('openPreview')" :disabled="isEmptyDocument" @click="openFullPreview"><font-awesome-icon :icon="['fas', 'eye']" aria-hidden="true" /></button>
+          <button v-if="isMobile && activeBuilderGroup !== 'attachments'" class="btn cv-studio-open-preview" type="button" :aria-label="t('openPreview')" :title="t('openPreview')" :disabled="isEmptyDocument" @click="openFullPreview"><font-awesome-icon :icon="['fas', 'eye']" aria-hidden="true" /></button>
         </nav>
-        <div class="cv-studio-version">
+        <div v-if="activeBuilderGroup !== 'attachments'" class="cv-studio-version">
           <select class="cv-studio-configuration" :value="selectedRootId" :aria-label="lang === 'de' ? 'Karrierevariante' : 'Career variant'" @change="selectConfiguration">
             <option v-if="!selectedConfigurationId" value="" disabled>{{ t('noSavedVersion') }}</option>
             <option v-for="configuration in rootConfigurations" :key="configuration.id" :value="configuration.id">{{ configuration.name }}</option>
@@ -656,9 +662,10 @@ function selectBuilderGroup(group: string) {
         @navigate="selectBuilderGroup"
         @save-career-variant="saveCareerVariant"
         @edit-variant="openStudioVariant"
+        @open-attachments="openAttachmentLibrary"
       />
 
-      <section v-show="!isCloudTab" id="builder-group-cv-studio" class="builder-layout">
+      <section v-show="!isCloudTab" id="builder-group-cv-studio" class="builder-layout" :class="{ 'builder-layout--attachments': activeBuilderGroup === 'attachments' }">
         <div class="builder-layout__controls">
           <Transition name="builder-group">
             <BackupManager
@@ -703,9 +710,10 @@ function selectBuilderGroup(group: string) {
             />
           </Transition>
           <LetterTemplates v-show="activeBuilderGroup === 'templates'" class="builder-group-panel studio-templates" :user-id="cloudUser?.id || 'local'" :lang="lang" />
+          <LocalAttachments v-show="activeBuilderGroup === 'attachments'" class="builder-group-panel studio-attachments" :user-id="cloudUser?.id || ''" :client="supabaseClient" :lang="lang" :active="!isCloudTab && activeBuilderGroup === 'attachments'" />
         </div>
 
-        <InlineDocumentPreview v-if="!isMobile" class="studio-inline-preview" v-model:page="previewPage" :pages="previewPages" :is-updating="isPreviewRendering" :lang="lang" :downloading="isExporting" :title="t('liveCvPreview')" @open="openFullPreview" @download="handleExportPdf" />
+        <InlineDocumentPreview v-if="!isMobile && activeBuilderGroup !== 'attachments'" class="studio-inline-preview" v-model:page="previewPage" :pages="previewPages" :is-updating="isPreviewRendering" :lang="lang" :downloading="isExporting" :title="t('liveCvPreview')" @open="openFullPreview" @download="handleExportPdf" />
       </section>
     </section>
 
@@ -877,7 +885,8 @@ body,
 
 .builder-layout__controls .builder-group-panel:has(.content-mode-toolbar),
 .builder-layout__controls .anonymization-panel { height: 100%; }
-.builder-layout__controls .studio-templates { height: 100%; overflow: hidden; padding: 0; }
+.builder-layout__controls .studio-templates,.builder-layout__controls .studio-attachments { height: 100%; overflow: hidden; padding: 0; }
+.builder-layout.builder-layout--attachments { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 
 .builder-group-panel > .group-panel__scroll-body,
 .builder-group-panel > .editor-panel__body,

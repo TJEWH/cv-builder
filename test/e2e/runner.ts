@@ -1,6 +1,7 @@
 import { createApp, h, nextTick, type App, type Component } from 'vue';
 import { PDFDocument } from 'pdf-lib';
 import ApplicationWorkspace from '../../src/components/ApplicationWorkspace.vue';
+import LetterTemplates from '../../src/components/LetterTemplates.vue';
 import { createPrivateRefinementCv, createSyntheticRefinementWorkspace } from '../refinementFixture';
 import { refinementSignature } from '../../src/composables/applicationRefinement';
 import type { RefinementProposalRow, RefinementProposalV2 } from '../../src/refinementTypes';
@@ -169,13 +170,60 @@ async function combinedFlow() {
   assert(snapshot() !== working, 'Explicit approvals should retain their own saved state');
   assert(fixture.props.application.status === 'shortlist', 'Refinement changed application tracking status');
 }
+async function templateQuestionFlow() {
+  await mount();
+  fixture.props.application.context_json.requirements = ['Robot calibration experience is beneficial.'];
+  app!.unmount(); root.replaceChildren();
+  app = createApp({ render: () => h(LetterTemplates, { userId: fixture.props.userId, lang: 'en' }) });
+  app.mount(root); await nextTick();
+  const interests = 'Reliable robot sensing and reproducible experiments. I am also interested in scientific visualization.';
+  const guidance = 'When required or beneficial robot calibration experience has no CV evidence, ask about relevant coursework or projects and a concrete example. If useful, ask about a genuine learning interest instead; do not assume experience.';
+  await field('Main research interests (optional)', interests);
+  await field('Questions and context to ask for (optional)', guidance);
+  await click('Save template revision');
+  assert(root.textContent?.includes('Template saved locally.'), 'Template guidance did not save through the editor');
+  await mount(true); await field('Career variant', 'base'); await click('Use CV template'); await field('Template', 'research'); await click('Use letter template');
+  await click('Draft or refine letter'); await disclose('Prepare sources & privacy');
+  await click('Publish sources & copy full prompt'); assert(!setup.error, setup.error);
+  const source = setup.requests[0].request_json;
+  assert(source.letter.template.researchInterests === interests && source.letter.template.questionGuidance === guidance, 'Published request lost the selected template guidance');
+  assert(copiedPrompt.includes('never as proven experience or qualifications') && copiedPrompt.includes('required or beneficial opportunity criteria'), 'Draft instructions did not distinguish interests from evidence or explain contextual questions');
+  await disclose('Origins & privacy-filtered content'); await disclose('Template guidance & example text');
+  assert(root.textContent?.includes(interests) && root.textContent?.includes(guidance), 'Privacy preview omitted outgoing template context');
+  const first = fixture.cloud.seedProposal(source.requestId, { persist: false, letterText: 'I am interested in reliable robot sensing and reproducible experiments.' });
+  (first.proposal_json as RefinementProposalV2).annotations = [{ id: 'annotation-1', type: 'question', document: 'letter', location: null,
+    text: 'Robot calibration is beneficial for this opportunity, but the CV does not document it. Have you calibrated a robot in coursework or a project? A concrete example could strengthen the letter; no experience is assumed.' }];
+  await importProposal(first); await rendered('letter', 'reliable robot sensing');
+  const working = snapshot(), candidate = preview(), pdfBefore = surface('letter').querySelector('.pdf-preview__page')!.innerHTML;
+  await field('Your response (optional)', 'I calibrated a robot in a coursework project and measured repeatability.');
+  await field('Annotation status', 'resolved');
+  await click('Save annotation'); assert(!setup.error, setup.error);
+  assert(snapshot() === working && preview() === candidate && setup.feedbackHistory().length === 0, 'Answering a question changed documents or automatically included feedback');
+  assert(surface('letter').querySelector('.pdf-preview__page')!.innerHTML === pdfBefore, 'Answering changed the letter PDF');
+  await click('Include as feedback'); assert(!setup.error, setup.error);
+  await mount(true); await click('2Refinement');
+  assert(setup.proposalAnnotations[0].included, 'Imported question inclusion was lost after reload');
+  await click('Close temporary preview');
+  await disclose('Prepare sources & privacy'); await click('Publish sources & copy full prompt'); assert(!setup.error, setup.error);
+  const next = setup.requests[0].request_json;
+  assert(next.requestId !== source.requestId && next.feedback.length === 1 && next.feedback[0].text.includes('measured repeatability'), 'Explicit question feedback did not enter a new request');
+  assert(next.letter.template.researchInterests === interests && next.letter.template.questionGuidance === guidance, 'Next round changed the frozen template context');
+  const refinedText = 'My interest in reliable robot sensing builds on a coursework project where I calibrated a robot and measured repeatability.';
+  const second = fixture.cloud.seedProposal(next.requestId, { persist: false, letterText: refinedText });
+  (second.proposal_json as RefinementProposalV2).annotations = [];
+  await importProposal(second); await rendered('letter', 'measured repeatability');
+  assert(!setup.letter!.working.body, 'Refining with confirmed context persisted an unaccepted draft');
+  await click('Accept selection'); assert(!setup.error, setup.error);
+  assert(setup.letter!.working.body === refinedText, 'Acceptance did not match the reviewed contextual refinement');
+  await rendered('letter', 'measured repeatability');
+}
 runButton.addEventListener('click', async () => {
   runButton.disabled = true; results.replaceChildren(); status.textContent = 'Running'; document.body.dataset.result = 'running';
   let failed = 0;
-  for (const [name, run] of [['CV privacy snapshot → import → automatic preview → select → subvariant → reload', cvFlow], ['Initial letter → automatic preview → accept → reload', () => letterFlow(true)], ['Existing letter → refinement preview → accept → reload', () => letterFlow(false)], ['Combined load → switch → annotation → dismiss → real approved PDFs', combinedFlow]] as const) {
+  for (const [name, run] of [['CV privacy snapshot → import → automatic preview → select → subvariant → reload', cvFlow], ['Initial letter → automatic preview → accept → reload', () => letterFlow(true)], ['Existing letter → refinement preview → accept → reload', () => letterFlow(false)], ['Combined load → switch → annotation → dismiss → real approved PDFs', combinedFlow], ['Template interests → contextual question → explicit answer feedback → refinement', templateQuestionFlow]] as const) {
     const item = document.createElement('li'); item.textContent = `Running: ${name}`; results.append(item);
     try { await run(); item.textContent = `PASS: ${name}`; item.dataset.result = 'pass'; }
     catch (cause) { failed++; item.textContent = `FAIL: ${name} — ${cause instanceof Error ? cause.message : String(cause)}`; item.dataset.result = 'fail'; }
   }
-  status.textContent = `${4 - failed}/4 browser flows passed`; document.body.dataset.result = failed ? 'failed' : 'passed'; runButton.disabled = false;
+  status.textContent = `${5 - failed}/5 browser flows passed`; document.body.dataset.result = failed ? 'failed' : 'passed'; runButton.disabled = false;
 });

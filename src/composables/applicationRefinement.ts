@@ -141,7 +141,7 @@ export function prepareRefinement(input: {
     feedback: input.feedback.map((item) => ({ ...clone(item), text: sanitizeRefinementText(item.text, input.state) })),
     ...(privacyLegend.length ? { privacyLegend } : {}),
   };
-  return { request: readRequest(request), cv, promptVersion: `refinement-v${request.schemaVersion}-2026-10-02-inline-source`, baselineSignature: input.baselineSignature, letterBaseline,
+  return { request: readRequest(request), cv, promptVersion: `refinement-v${request.schemaVersion}-2026-10-03-template-guidance`, baselineSignature: input.baselineSignature, letterBaseline,
     sourceSignatures: { cv: refinementSignature([cv.sourceVariantId, cv.baselineState]), letter: refinementSignature(letterBaseline) },
     ...(structure ? { structureBindings: structure.bindings } : {}) };
 }
@@ -253,6 +253,8 @@ ${acquisition}
 The optional request_json.privacyLegend contains only user-approved context: fieldId, token, type and description. Descriptions are context only, never substitutes for tokens or evidence of extra qualifications. Never infer, recover or output private originals. Keep each private token attached to its original content element; move it only with its complete bullet and remove it only when explicitly omitting that bullet. Visible organizations, locations and links remain identifying information; this is pseudonymized content, not a guarantee of anonymity.
 3. Fit the opportunity using only evidenced qualifications. ${cvRules} Never add links, images, HTML, contact details or confidential markers to the CV. Do not invent evidence; describe missing evidence in the short summary.
 4. ${request.scope === 'cv' ? 'This is a CV-only request: preserve request_json.letter.text exactly, including an empty string.' : request.letter.text.trim() ? 'The source contains an existing letter. Refine its complete current text while preserving manual corrections.' : 'The source letter is intentionally empty: this is initial-draft generation. An empty request_json.letter.text is valid, not a missing or inaccessible source. Create the first complete letter from the published CV evidence, opportunity and template; do not require a prior letter or recover one from chat history.'} For a letter or combined request, create or improve the complete motivation letter using the template's wording, tone, structure, optional example, subject/salutation/closing instructions, requested language and word target. Template examples demonstrate style only and never establish qualifications. Keep the letter within the requested word limit, counting the complete letter, and respect any tighter tender requirement. Use {{APPLICANT_NAME}} for the signature; leave other necessary identity placeholders intact. Do not transfer {{PRIVATE_n}} tokens from CV fields to the letter or invent personal information. Return ordinary text with an optional '# Subject' heading, no HTML or Markdown fences.
+For letter and combined requests, use request_json.letter.template.researchInterests as the applicant's explicitly stated research direction, alongside CV evidence and the opportunity. These interests can go beyond past experience. Select the interests that meaningfully connect to the opportunity; not every interest needs to appear, and do not force a connection. Describe aspirations as interests or learning goals, never as proven experience or qualifications. When no interests are supplied, do not invent a personal research agenda from the CV or tender alone.
+${request.schemaVersion === 2 && request.scope !== 'cv' ? 'Use optional request_json.letter.template.questionGuidance to decide when contextual follow-up questions would materially improve this first draft or refinement. Prefer a few focused questions, usually no more than three. For required or beneficial opportunity criteria without supporting CV or explicitly supplied answer evidence, name the criterion, explain why an answer could help this letter, and ask whether the applicant has relevant experience (for example a project, course, self-study or transferable work) and a concrete example. Missing evidence in the CV is not proof of missing experience. If useful, let the applicant clarify an honest learning interest or knowledge gap instead; do not pressure them to claim competence. Ask only for information that adds value, check accumulated feedback first, and do not repeat answered or explicitly declined questions. Return a complete draft based on available evidence while keeping unconfirmed claims out of the letter. Put each question and its context in a type question, document letter annotation, with location null when no exact proposed passage fits. User answers may inform a later draft only after the user explicitly includes them as feedback; never invent an answer or silently alter CV content.' : request.schemaVersion === 1 && request.scope !== 'cv' ? 'This legacy format has no structured question annotations. If the template questionGuidance identifies a useful clarification, describe it briefly in the proposal summary, never in letterText; do not add unsupported annotations or infer an answer. Draft from available evidence.' : ''}
 ${request.schemaVersion === 2 ? 'Annotations are separate review material, never document text. Use annotations for missing evidence, comments, ToDos or questions; do not insert requests for detail or annotation markers into CV operations or letterText. Each annotation has exactly {id,type,document,location,text}: a unique annotation-N id, type comment/todo/question, document cv/letter, concise text (maximum 4,000 UTF-16 units), and location null for a document-wide note, {fieldId} for an existing CV field, or {start,quote} for an exact passage in the returned letterText. Letter start is a zero-based Unicode code-point offset; quote is exact nonempty text, at most 2,000 UTF-16 units. Maximum 100 annotations. Annotations start open; only the user can answer, resolve or dismiss them. Do not include status or response in proposal annotations. Prefer annotations for actionable detail requests; cvComments remains available for legacy structural-adapter comments. Never reinterpret prior summaries as annotations. Feedback with an annotation reference includes an explicit user-selected note/answer; treat that response as source evidence, respecting all other privacy and factual constraints.' : ''}
 5. The requested scope is ${request.scope}. A letter-only round MUST have ${request.schemaVersion === 2 ? 'cvOperations: []' : 'cvEdits: []'}; a CV-only round MUST return the current letter text byte-for-byte unchanged. Approved documents are locked unless reopened. Always return both document fields. Keep the complete letter consistent with evidenced CV facts and proposed operations. Produce precisely this JSON contract, no additional properties:
 ${JSON.stringify(contract)}
@@ -266,6 +268,26 @@ END_APPROVED_REQUEST_JSON` : `6. Validate scope, field IDs, private tokens, fact
 7. Inspect the persisted receipt: confirm proposal ID, request/application IDs and complete saved payload match. If a response is uncertain, retry the identical operation with the SAME proposal UUID and identical payload; do not create duplicates. The save operation is idempotent and its returned persisted row is the verification receipt. Report completion only after receiving and verifying that receipt. The user will return to the application to check, review and approve the proposal.
 
 For a later explicit "phd-workflow: <code or complete UUID> — refine CV/motivation letter/both." or initial-letter-draft instruction, use this same project and resolve only the supplied reference with select private.resolve_application_reference('<safely SQL-escaped reference>'); escape apostrophes correctly, never guess codes or derive them from titles. Read the returned current_request_id through private.read_refinement_request. Verify the request's application_id equals the resolver's application_id, its requestId equals current_request_id, and its scope matches the requested document: CV = cv, motivation letter = letter, both = both. If there is no current request or the scope differs, stop and ask the user to publish a new matching round in the webapp. If the copied task also names a project, request ID or schema version, require those to match exactly; do not silently switch to a different round. An initial motivation-letter draft uses scope letter (or both if CV refinement was also requested), and an empty source letter is valid. Determine step 4 from the freshly read source: create a first draft when letter.text is empty, refine its complete existing text otherwise, and preserve it unchanged for scope cv. Do not fabricate or mutate requests, reuse an older round, or read unrelated applications. Otherwise repeat steps 1–7 using these freshly resolved application/request identifiers and requested scope throughout, including the proposal payload, instead of the initial identifiers and scope above.`}`;
+}
+
+export function validateRefinementReviewPayload(kind: RefinementReviewRow['kind'], value: unknown): asserts value is Record<string, unknown> {
+  if (kind === 'feedback') {
+    if (!exact(value, ['text', 'scope', ...(record(value) && Object.hasOwn(value, 'annotation') ? ['annotation'] : [])]) || (record(value) && Object.hasOwn(value, 'annotation') && !validAnnotationReference(value.annotation)) || !text(value.text) || !value.text.trim() || !SCOPES.includes(value.scope as RefinementScope)) throw new Error('Invalid refinement feedback.');
+    return;
+  }
+  if (kind === 'annotation') { validateAnnotationReview(value); return; }
+  if (kind === 'cv_decisions') {
+    if (!exact(value, ['proposalId', 'accepted', 'rejected', 'revision']) || !uuid(value.proposalId)
+      || typeof value.revision !== 'string' || !SIGNATURE.test(value.revision)
+      || !Array.isArray(value.accepted) || !Array.isArray(value.rejected)
+      || value.accepted.length + value.rejected.length > 1000) throw new Error('Invalid CV review decisions.');
+    const ids = [...value.accepted, ...value.rejected];
+    if (ids.some(id => typeof id !== 'string' || !/^(?:change|field)-[1-9][0-9]*$/.test(id)) || new Set(ids).size !== ids.length) throw new Error('CV review decisions must contain unique available change or legacy field IDs.');
+    return;
+  }
+  const approval = kind === 'approve_cv' || kind === 'approve_letter';
+  if (!exact(value, approval ? ['revision', 'expectedRevision'] : ['expectedRevision']) || !Number.isInteger(value.expectedRevision) || Number(value.expectedRevision) < 1
+    || (approval && (typeof value.revision !== 'string' || !SIGNATURE.test(value.revision)))) throw new Error('Invalid refinement approval revision.');
 }
 
 export function createRefinementRepository(client: SupabaseClient | null, getUserId: () => string | null | undefined) {
@@ -301,30 +323,11 @@ export function createRefinementRepository(client: SupabaseClient | null, getUse
     ownedRow(value, owner, applicationId);
     if (!uuid(value.id) || !(value.request_id === null || uuid(value.request_id)) || !REVIEW_KINDS.includes(value.kind as RefinementReviewRow['kind'])
       || !record(value.payload) || !text(value.created_at, 100)) throw new Error('The refinement review could not be verified.');
-    validateReviewPayload(value.kind as RefinementReviewRow['kind'], value.payload);
+    validateRefinementReviewPayload(value.kind as RefinementReviewRow['kind'], value.payload);
     return value as unknown as RefinementReviewRow;
   }
   function validateApprovals(value: unknown): asserts value is RefinementApprovals {
     if (!exact(value, ['cv', 'letter']) || ![value.cv, value.letter].every((revision) => revision === null || (typeof revision === 'string' && SIGNATURE.test(revision)))) throw new Error('Invalid document approvals.');
-  }
-  function validateReviewPayload(kind: RefinementReviewRow['kind'], value: unknown): asserts value is Record<string, unknown> {
-    if (kind === 'feedback') {
-      if (!exact(value, ['text', 'scope', ...(record(value) && Object.hasOwn(value, 'annotation') ? ['annotation'] : [])]) || (record(value) && Object.hasOwn(value, 'annotation') && !validAnnotationReference(value.annotation)) || !text(value.text) || !value.text.trim() || !SCOPES.includes(value.scope as RefinementScope)) throw new Error('Invalid refinement feedback.');
-      return;
-    }
-    if (kind === 'annotation') { validateAnnotationReview(value); return; }
-    if (kind === 'cv_decisions') {
-      if (!exact(value, ['proposalId', 'accepted', 'rejected', 'revision']) || !uuid(value.proposalId)
-        || typeof value.revision !== 'string' || !SIGNATURE.test(value.revision)
-        || !Array.isArray(value.accepted) || !Array.isArray(value.rejected)
-        || value.accepted.length + value.rejected.length > 1000) throw new Error('Invalid CV review decisions.');
-      const ids = [...value.accepted, ...value.rejected];
-      if (ids.some(id => typeof id !== 'string' || !/^(?:change|field)-[1-9][0-9]*$/.test(id)) || new Set(ids).size !== ids.length) throw new Error('CV review decisions must contain unique available change or legacy field IDs.');
-      return;
-    }
-    const approval = kind === 'approve_cv' || kind === 'approve_letter';
-    if (!exact(value, approval ? ['revision', 'expectedRevision'] : ['expectedRevision']) || !Number.isInteger(value.expectedRevision) || Number(value.expectedRevision) < 1
-      || (approval && (typeof value.revision !== 'string' || !SIGNATURE.test(value.revision)))) throw new Error('Invalid refinement approval revision.');
   }
   async function loadState(applicationId: string): Promise<RefinementState | null> {
     const owner = account();
@@ -382,7 +385,7 @@ export function createRefinementRepository(client: SupabaseClient | null, getUse
   async function saveReview(applicationId: string, requestId: string | null, kind: RefinementReviewRow['kind'], payload: Record<string, unknown>, reviewId?: string): Promise<RefinementReviewRow> {
     const owner = account();
     if (!REVIEW_KINDS.includes(kind) || !record(payload) || JSON.stringify(payload).length > 50000 || (reviewId !== undefined && !uuid(reviewId))) throw new Error('Invalid refinement review.');
-    validateReviewPayload(kind, payload);
+    validateRefinementReviewPayload(kind, payload);
     if ((kind === 'cv_decisions' || kind === 'annotation' || Object.hasOwn(payload, 'annotation')) && !uuid(requestId)) throw new Error('Referenced reviews require the proposal request ID.');
     const reviewPayload = clone(payload);
     const fingerprint = refinementSignature([owner, applicationId, requestId, kind, reviewPayload]);

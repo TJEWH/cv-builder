@@ -10,6 +10,10 @@ export interface LetterTemplateGuidance {
   subjectInstructions?: string;
   salutationInstructions?: string;
   closingInstructions?: string;
+  /** Applicant-defined interests, not evidence of qualifications or past experience. */
+  researchInterests?: string;
+  /** When and why to ask the applicant for useful context during drafting or refinement. */
+  questionGuidance?: string;
 }
 
 export interface LetterTemplate extends LetterTemplateGuidance {
