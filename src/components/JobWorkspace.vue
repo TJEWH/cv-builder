@@ -357,7 +357,7 @@ async function refreshResearch() {
 .jobs-workspace > :not(.jobs-table-scroll) { flex-shrink: 0; }
 .jobs-workspace > .application-workspace, .jobs-workspace > .opportunity-detail { flex: 1 1 auto; min-height: 0; }
 .opportunity-detail { display: flex; flex-direction: column; min-width: 0; padding: 20px; overflow: hidden;}
-.opportunity-detail__body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-gutter: stable; padding: 20px 0 0 0; }
+.opportunity-detail__body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-gutter: stable; }
 .application-status-history h3 { color: #9be8c7; margin: 0 0 12px; }
 .application-status-history ol { list-style: none; margin: 12px 0 0 5px; padding: 0 0 0 18px; border-left: 2px solid #356454; }
 .application-status-history li { position: relative; padding: 0 0 18px; font-size: 13px; }

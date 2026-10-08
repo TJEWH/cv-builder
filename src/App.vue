@@ -777,7 +777,6 @@ body,
 .builder-shell {
   display: flex;
   flex-direction: column;
-  gap: 14px;
   height: 100%;
   min-height: 0;
   max-width: 1540px;
@@ -789,7 +788,7 @@ body,
 .builder-shell > .builder-topbar, .cv-studio-navigation { flex: 0 0 auto; }
 .builder-topbar { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; }
 .cv-studio-navigation { display: block; }
-.cv-studio-subtabs { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.cv-studio-subtabs { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; margin-top: 14px;}
 .cv-studio-subtabs .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .cv-studio-subtabs .svg-inline--fa { flex: none; }
 .cv-studio-subtabs .is-active { border-color: #67c8a6; background: #185b4c; }

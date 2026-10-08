@@ -74,7 +74,7 @@ async function prepare(scope: 'cv' | 'letter', existing = 'Original working lett
     const initialNotice = root.querySelector<HTMLElement>('.initial-letter-notice');
     assert(initialNotice?.getClientRects().length && !initialNotice.closest('details'), 'Initial-draft intent must be visible without expanding privacy details');
   }
-  await click('Publish sources'); assert(!setup.error, setup.error);
+  await click('Sync Snapshot'); assert(!setup.error, setup.error);
   assert(!copiedPrompt, 'Publishing must not write to the clipboard');
   const saved = JSON.stringify(fixture.database);
   await click('Copy task'); assert(!setup.error, setup.error);
@@ -193,7 +193,7 @@ async function templateQuestionFlow() {
   await until(() => root.querySelector('.template-save-status')?.textContent?.includes('All changes saved locally'), 'template guidance autosaves');
   await mount(true); await field('Saved CV', 'base'); await field('Letter template', 'research');
   await click('2Refinement'); await field('Refinement scope', 'letter');
-  await click('Publish sources'); await click('Copy task'); assert(!setup.error, setup.error);
+  await click('Sync Snapshot'); await click('Copy task'); assert(!setup.error, setup.error);
   const source = setup.requests[0].request_json;
   assert(source.letter.template.researchInterests === interests && source.letter.template.questionGuidance === guidance, 'Published request lost the selected template guidance');
   await disclose('History / Details'); await disclose('Connection & prompt details'); await click('Copy connected setup prompt');
@@ -212,7 +212,7 @@ async function templateQuestionFlow() {
   await mount(true); await click('2Refinement');
   assert(setup.proposalAnnotations[0].included, 'Imported question inclusion was lost after reload');
   await click('Close temporary preview');
-  await click('Publish sources'); await click('Copy task'); assert(!setup.error, setup.error);
+  await click('Sync Snapshot'); await click('Copy task'); assert(!setup.error, setup.error);
   const next = setup.requests[0].request_json;
   assert(next.requestId !== source.requestId && next.feedback.length === 1 && next.feedback[0].text.includes('measured repeatability'), 'Explicit question feedback did not enter a new request');
   assert(next.letter.template.researchInterests === interests && next.letter.template.questionGuidance === guidance, 'Next round changed the frozen template context');
