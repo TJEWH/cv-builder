@@ -57,7 +57,7 @@ const typeLabel = (type: string) => type === 'question' ? text('Question', 'Frag
       <p class="annotation-text">{{ item.annotation.text }}</p>
       <template v-if="item.annotation.document === 'letter' && item.annotation.location">
         <p v-if="item.referenceChanged" class="reference-warning" role="status">{{ text('Referenced text has changed', 'Referenzierter Text wurde geändert') }}</p>
-        <details><summary>{{ text('Original text reference', 'Ursprünglicher Textbezug') }}</summary><blockquote>{{ item.annotation.location.quote }}</blockquote></details>
+        <details class="disclosure-row"><summary>{{ text('Original text reference', 'Ursprünglicher Textbezug') }}</summary><blockquote>{{ item.annotation.location.quote }}</blockquote></details>
       </template>
       <label v-if="drafts[key(item)]!.status !== 'dismissed'">{{ text('Your response (optional)', 'Deine Antwort (optional)') }}<textarea v-model="drafts[key(item)]!.response" @input="schedule(item)" rows="3" maxlength="12000" :disabled="disabled" /></label>
       <label>{{ text('Annotation status', 'Status der Anmerkung') }}<select v-model="drafts[key(item)]!.status" :disabled="disabled" @change="save(item)"><option value="open">{{ text('Open', 'Offen') }}</option><option value="resolved">{{ text('Resolved', 'Erledigt') }}</option><option value="dismissed">{{ text('Dismissed', 'Verworfen') }}</option></select></label>

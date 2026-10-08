@@ -28,10 +28,10 @@ const runs = computed(() => props.requests.map(row => ({ row, metadata: refineme
       <label v-if="available.length">{{ text('Available proposals', 'Verfügbare Vorschläge') }}<select :value="activeId" :disabled="busy" @change="emit('select', ($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ text('Select a proposal', 'Vorschlag auswählen') }}</option><option v-for="proposal in available" :key="proposal.id" :value="proposal.id">{{ date(proposal.created_at) }} · {{ proposal.id }}{{ proposal.request_id !== currentRequestId ? text(' · Older run', ' · Frühere Runde') : '' }}</option></select></label>
       <p v-if="activeId">{{ reviewActive ? accepted ? text('Accepted selection', 'Angenommene Auswahl') : text('Active proposal — not yet accepted', 'Aktiver Vorschlag — noch nicht angenommen') : text('Preview closed — showing working documents', 'Vorschau geschlossen — Arbeitsfassungen werden angezeigt') }}</p>
     </div>
-    <details class="run-details" :open="open" @toggle="emit('details', ($event.target as HTMLDetailsElement).open)">
+    <details class="disclosure-row run-details" :open="open" @toggle="emit('details', ($event.target as HTMLDetailsElement).open)">
       <summary>{{ text('History / Details', 'Verlauf / Details') }}</summary>
       <p>{{ text('Historical metadata comes from saved records. Missing versions remain unknown.', 'Historische Metadaten stammen aus gespeicherten Datensätzen. Fehlende Versionen bleiben unbekannt.') }}</p>
-      <details v-for="run in runs" :key="run.row.id" class="history-run">
+      <details v-for="run in runs" :key="run.row.id" class="disclosure-row history-run">
         <summary>{{ date(run.row.created_at) }} · {{ run.row.request_json.scope }} · {{ run.proposals.length }} {{ text('proposals', 'Vorschläge') }}{{ run.row.id === currentRequestId ? text(' · Current', ' · Aktuell') : '' }}</summary>
         <dl>
           <dt>{{ text('Request', 'Anfrage') }}</dt><dd><code>{{ run.metadata.requestId }}</code></dd>
@@ -46,7 +46,7 @@ const runs = computed(() => props.requests.map(row => ({ row, metadata: refineme
         </dl>
         <button type="button" @click="emit('exportRequest', run.row.id)">{{ text('Export public request', 'Öffentliche Anfrage exportieren') }}</button>
         <div v-for="proposal in run.proposals" :key="proposal.id" class="history-proposal"><p><code>{{ proposal.id }}</code> · {{ date(proposal.created_at) }}</p><p>{{ proposal.proposal_json.summary }}</p><button type="button" :disabled="busy" @click="emit('select', proposal.id)">{{ text('Review this proposal', 'Diesen Vorschlag prüfen') }}</button><button type="button" @click="emit('exportProposal', proposal.id)">{{ text('Export proposal', 'Vorschlag exportieren') }}</button></div>
-        <details><summary>{{ text('Captured public sources', 'Gespeicherte öffentliche Quellen') }}</summary><RefinementPrivacyPreview :request="run.row.request_json" :lang="lang" /></details>
+        <details class="disclosure-row"><summary>{{ text('Captured public sources', 'Gespeicherte öffentliche Quellen') }}</summary><RefinementPrivacyPreview :request="run.row.request_json" :lang="lang" /></details>
       </details>
       <slot />
     </details>
@@ -54,6 +54,6 @@ const runs = computed(() => props.requests.map(row => ({ row, metadata: refineme
 </template>
 
 <style scoped>
-.refinement-history{margin:16px 0;padding:14px;border:1px solid #28534e;border-radius:9px;background:#091923;font-size:13px;line-height:1.5}.run-details{margin-top:14px;border-top:1px solid #28534e;padding-top:14px}h3{font-size:16px;margin:0 0 8px}p{margin:8px 0}code,dd{overflow-wrap:anywhere}code{font-size:11px;color:#a6c1b9}label{display:grid;gap:8px;margin-top:12px}select{width:100%;min-width:0}button,select{color:inherit;background:#0b1b25;border:1px solid #28534e;border-radius:6px;padding:8px;font:inherit}button{cursor:pointer;margin:5px 8px 5px 0}button:disabled{opacity:.5}summary{cursor:pointer;font-weight:600}details[open]>summary{margin-bottom:12px}.history-run{margin-top:14px;border-top:1px solid #28534e;padding-top:12px}dl{display:grid;grid-template-columns:minmax(90px,35%) minmax(0,1fr);gap:7px 12px}dt{color:#a6c1b9}dd{margin:0}.pre-wrap{white-space:pre-wrap}.history-proposal{border-left:2px solid #447565;margin:14px 0;padding-left:12px}
+.refinement-history{margin:16px 0 0;padding:0;font-size:13px;line-height:1.5}.current-run{padding:0 0 14px}h3{font-size:16px;margin:0 0 8px}p{margin:8px 0}code,dd{overflow-wrap:anywhere}code{font-size:11px;color:#a6c1b9}label{display:grid;gap:8px;margin-top:12px}select{width:100%;min-width:0}button,select{color:inherit;background:#0b1b25;border:1px solid #28534e;border-radius:6px;padding:8px;font:inherit}button{cursor:pointer;margin:5px 8px 5px 0}button:disabled{opacity:.5}dl{display:grid;grid-template-columns:minmax(90px,35%) minmax(0,1fr);gap:7px 12px}dt{color:#a6c1b9}dd{margin:0}.pre-wrap{white-space:pre-wrap}.history-proposal{border-left:2px solid #447565;margin:14px 0;padding-left:12px}
 @media(max-width:600px){dl{grid-template-columns:1fr;gap:3px}dd{margin-bottom:9px}select{font-size:16px}}
 </style>

@@ -33,7 +33,7 @@ const origin = (value: string) => value === 'application' ? text('Saved applicat
       <dt>{{ text('Language', 'Sprache') }}</dt><dd>{{ hasTemplate ? language(settings.setup.language) : '—' }}</dd>
       <dt>{{ text('Effective word limit', 'Wirksame Wortgrenze') }}</dt><dd><strong>{{ hasTemplate ? `${settings.setup.maxWords} ${text('words', 'Wörter')}` : '—' }}</strong></dd>
     </dl>
-    <details>
+    <details class="disclosure-row">
       <summary>{{ text('Origins & privacy-filtered content', 'Herkunft & datenschutzgefilterte Inhalte') }}</summary>
       <p v-if="hasTemplate">{{ text('Language:', 'Sprache:') }} {{ origin(settings.provenance.language) }}. {{ text('Word limit:', 'Wortgrenze:') }} {{ origin(settings.provenance.maxWords) }}.</p>
       <p>{{ text('The CV comes from the frozen application copy. The letter uses the complete current working draft. Both are included as context; the selected scope controls which may change.', 'Der CV stammt aus der gespeicherten Bewerbungskopie. Der Brief verwendet die vollständige aktuelle Arbeitsfassung. Beide dienen als Kontext; der gewählte Umfang bestimmt, was geändert werden darf.') }}</p>
@@ -45,6 +45,6 @@ const origin = (value: string) => value === 'application' ? text('Saved applicat
 
 <style scoped>
 .source-overview{border:1px solid #28534e;border-radius:10px;padding:16px;margin-bottom:16px;background:#091923;font-size:13px;line-height:1.5}
-h3{font-size:16px;margin:0 0 12px}.source-overview__values{display:grid;grid-template-columns:minmax(90px,31%) minmax(0,1fr);gap:9px 14px;margin:0 0 12px}dt{color:#9ebdb2}dd{margin:0;overflow-wrap:anywhere}small{display:block;color:#9ebdb2;font-size:11px}summary{cursor:pointer;font-size:12px}details{margin-top:10px}details[open]>summary{margin-bottom:8px}p{margin:8px 0}.source-overview__empty{color:#efcc87}.source-overview__error{color:#fecaca}
-@media(max-width:760px){.source-overview{padding:12px;font-size:14px}.source-overview__values{gap:10px}small,summary{font-size:12px}}
+h3{font-size:16px;margin:0 0 12px}.source-overview__values{display:grid;grid-template-columns:minmax(90px,31%) minmax(0,1fr);gap:9px 14px;margin:0 0 12px}dt{color:#9ebdb2}dd{margin:0;overflow-wrap:anywhere}small{display:block;color:#9ebdb2;font-size:11px}p{margin:8px 0}.source-overview__empty{color:#efcc87}.source-overview__error{color:#fecaca}
+@media(max-width:760px){.source-overview{padding:12px;font-size:14px}.source-overview__values{gap:10px}small{font-size:12px}}
 </style>

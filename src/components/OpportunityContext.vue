@@ -64,7 +64,7 @@ const ContextValue = defineComponent({
 
 <template>
   <div class="opportunity-context">
-    <details v-for="group in groups" :key="group.id" class="opportunity-context__group" :class="`opportunity-context__group--${group.id}`" :open="(defaultOpenGroups ?? ['overview', 'salary', 'requirements', 'documents']).includes(group.id)">
+    <details v-for="group in groups" :key="group.id" class="opportunity-context__group disclosure-row" :class="`opportunity-context__group--${group.id}`" :open="(defaultOpenGroups ?? ['overview', 'salary', 'requirements', 'documents']).includes(group.id)">
       <summary>{{ group.label }} <span v-if="checklist && ['requirements', 'documents'].includes(group.id)" class="opportunity-context__progress">{{ progress(group.items) }}</span></summary>
       <dl>
         <div v-for="item in group.items" :key="item.id" class="opportunity-context__field" :class="item.kind ? `opportunity-context__field--${item.kind}` : undefined">
@@ -77,13 +77,8 @@ const ContextValue = defineComponent({
 </template>
 
 <style scoped>
-.opportunity-context { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; color: #c8ded5; }
-.opportunity-context__group { min-width: 0; padding: 17px 18px; border: 1px solid #21473f; border-radius: 9px; background: #0a2027; }
-.opportunity-context__group--advisor { border-color: #376457; }
-.opportunity-context__group--overview { border-color: #376457; }
-.opportunity-context__group summary { color: #9be8c7; font-size: 13px; font-weight: 600; letter-spacing: .2px; cursor: pointer; }
-.opportunity-context__group summary:focus-visible { outline: 2px solid #9be8c7; outline-offset: 5px; border-radius: 2px; }
-.opportunity-context__group[open] > summary { margin-bottom: 18px; }
+.opportunity-context { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; min-width: 0; color: #c8ded5; }
+.opportunity-context__group:first-child { border-top-color: transparent; }
 .opportunity-context__group dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 24px; margin: 0; }
 .opportunity-context__group--overview dl { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .opportunity-context__field { min-width: 0; }
@@ -110,11 +105,7 @@ const ContextValue = defineComponent({
 .opportunity-context :deep(a) { color: #9be8c7; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
 .opportunity-context :deep(a:focus-visible) { outline: 2px solid #9be8c7; outline-offset: 3px; border-radius: 2px; }
 @media (max-width: 760px) {
-  .opportunity-context { gap: 0; }
-  .opportunity-context__group { padding: 14px 0; border: 0; border-radius: 0; background: transparent; }
-  .opportunity-context__group + .opportunity-context__group { border-top: 1px solid #24504e; }
   .opportunity-context__group dl { grid-template-columns: minmax(0, 1fr); }
-  .opportunity-context__group summary { font-size: 16px; }
   .opportunity-context__field dt, .opportunity-context__progress { font-size: 14px; }
   .opportunity-context__field dd { font-size: 16px; line-height: 1.6; }
   .opportunity-context :deep(.opportunity-context__checklist-item > input[type=checkbox]) { flex-basis: 20px; width: 20px; height: 20px; margin-top: 3px; }

@@ -519,8 +519,6 @@ tr.is-expanded { background: #0b242b; }
   .application-inline-form { padding: 0; border: 0; border-radius: 0; background: transparent; }
   .jobs-review-toolbar { align-items: stretch; gap: 10px; margin-bottom: 16px; }
   .jobs-review-toolbar h2 { display: none; }
-  .jobs-workspace :deep(.opportunity-context) { gap: 8px; }
-  .jobs-workspace :deep(.opportunity-context__group[open] > summary) { margin-bottom: 12px; }
   .jobs-workspace :deep(.opportunity-context__group dl) { gap: 14px; }
   .jobs-workspace :deep(.opportunity-context__field--fit) { padding: 0; border: 0; border-radius: 0; background: transparent; }
 }
