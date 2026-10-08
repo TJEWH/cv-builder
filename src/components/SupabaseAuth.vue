@@ -62,9 +62,8 @@ onBeforeUnmount(() => { password.value = ''; });
 <template>
   <details ref="panel" class="supabase-auth" :class="{ 'supabase-auth--bottom': bottomBar }" @toggle="onToggle" @keydown.esc="close">
     <summary :title="user?.email || copy.account" :aria-label="user ? copy.account : copy.title">
-      <font-awesome-icon v-if="bottomBar" class="supabase-auth__icon" :class="{ 'is-connected': user }" :icon="['fas', user ? 'lock-open' : 'lock']" aria-hidden="true" />
-      <span v-else class="supabase-auth__dot" :class="{ 'is-connected': user }" aria-hidden="true"></span>
-      <span>{{ user ? (bottomBar ? copy.shortAccount : copy.account) : configuration.status === 'ready' ? copy.login : copy.local }}</span>
+      <font-awesome-icon class="supabase-auth__icon" :class="{ 'is-connected': user }" :icon="['fas', user ? 'lock-open' : 'lock']" aria-hidden="true" />
+      <span class="supabase-auth__label">{{ user ? copy.shortAccount : configuration.status === 'ready' ? copy.login : copy.local }}</span>
     </summary>
     <section class="supabase-auth__panel" :aria-labelledby="`${id}-title`">
       <div class="supabase-auth__heading">
@@ -97,10 +96,9 @@ onBeforeUnmount(() => { password.value = ''; });
 <style scoped>
 .supabase-auth { position: relative; font-size: 12px; }
 .supabase-auth summary { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 7px 11px; border: 1px solid #246153; border-radius: 8px; color: #d1fae5; background: #0a1c26; cursor: pointer; list-style: none; white-space: nowrap; }
+.supabase-auth:not(.supabase-auth--bottom) summary { flex-direction: column; gap: 6px; width: var(--topbar-tab-height, 66px); height: var(--topbar-tab-height, 66px); min-height: 0; padding: 8px; border-radius: 9px; font-size: 11px; font-weight: 700; }
 .supabase-auth summary::-webkit-details-marker { display: none; }
 .supabase-auth summary:focus-visible, .supabase-auth__close:focus-visible { outline: 2px solid #9be8c7; outline-offset: 3px; }
-.supabase-auth__dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: #8ba39d; }
-.supabase-auth__dot.is-connected { background: #27f3a2; box-shadow: 0 0 8px #27f3a240; }
 .supabase-auth__panel { position: absolute; z-index: 60; top: calc(100% + 8px); right: 0; display: grid; gap: 12px; width: min(340px, calc(100vw - 32px)); max-height: calc(100dvh - 160px); overflow-y: auto; overscroll-behavior: contain; padding: 18px; border: 1px solid #246153; border-radius: 12px; background: #091c24; box-shadow: 0 16px 48px #0008; color: #d1fae5; scrollbar-width: thin; }
 .supabase-auth__heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .supabase-auth__heading h2 { margin: 0; font-size: 16px; color: #d1fae5; }
@@ -114,6 +112,9 @@ onBeforeUnmount(() => { password.value = ''; });
 .supabase-auth__panel .supabase-auth__hint { color: #91aaa5; font-size: 11px; }
 .supabase-auth__panel .supabase-auth__error { color: #fca5a5; }
 .supabase-auth .btn:disabled { opacity: .55; cursor: not-allowed; }
+@media (min-width: 761px) and (max-height: 600px) {
+  .supabase-auth:not(.supabase-auth--bottom) .supabase-auth__label { display: none; }
+}
 @media (max-width: 760px), (max-height: 520px) {
   .supabase-auth__panel { position: fixed; top: 70px; right: max(16px, env(safe-area-inset-right, 0px)); max-height: calc(100dvh - 90px); }
 }

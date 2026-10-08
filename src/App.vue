@@ -798,6 +798,7 @@ body,
 .workspace-sign-in { padding: 30px; border: 1px solid #24504e; border-radius: 12px; color: #cbe5da; background: #06141f; }
 
 .builder-topbar {
+  --topbar-tab-height: 66px;
   position: relative;
   z-index: 20;
 }
@@ -815,7 +816,7 @@ body,
   place-items: center;
   align-content: center;
   gap: 6px;
-  min-height: 66px;
+  min-height: var(--topbar-tab-height, 66px);
   padding: 8px;
   border: 1px solid #134e4a;
   border-radius: 9px;
@@ -931,7 +932,7 @@ body,
 @media (min-width: 761px) { .builder-layout:not(.builder-layout--library) { margin-bottom: 66px; } }
 
 @media (min-width: 761px) and (max-height: 600px) {
-  .builder-topbar__tab { min-height: 42px; }
+  .builder-topbar { --topbar-tab-height: 42px; }
   .builder-topbar__tab .svg-inline--fa { display: none; }
 }
 
