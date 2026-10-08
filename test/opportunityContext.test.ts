@@ -167,8 +167,13 @@ test('repeated source URLs merge evidence without losing distinct links, contact
   ]);
   const source = overview.items.find((node) => node.href === 'https://example.org/job')!;
   const sourceText = flatten(source.children || []).map((node) => node.text);
-  for (const value of ['Salary', 'Requirements', 'Duration', 'Official source', 'No', '0']) assert.ok(sourceText.includes(value), value);
-  assert.equal(sourceText.filter((text) => text === 'Salary').length, 1);
+  for (const value of ['Official source', 'No', '0']) assert.ok(sourceText.includes(value), value);
+  const metadataText = flatten(groups.find(({ id }) => id === 'metadata')!.items).map((node) => node.text);
+  for (const value of ['Salary', 'Requirements', 'Duration', '20 Sept 2026']) {
+    assert.ok(metadataText.includes(value), value);
+    assert.equal(sourceText.includes(value), false, value);
+  }
+  assert.equal(metadataText.filter((text) => text === 'Salary').length, 1);
   assert.ok(nodes.some((node) => node.text === 'Archived source without URL'));
   const email = links.items.find((node) => node.href === 'mailto:science@example.org')!;
   assert.ok(email.label?.includes('Dr. Example'));
@@ -177,6 +182,35 @@ test('repeated source URLs merge evidence without losing distinct links, contact
   const markdown = opportunityContextMarkdown(context, 'en');
   assert.equal(markdown.split('](<https://example.org/job>)').length - 1, 1);
   assert.ok(markdown.includes('Duration'));
+});
+
+test('primary source type, supports and checked date move to metadata in both languages', () => {
+  const context = {
+    research_summary: 'Research into safe collaboration', official_url: 'https://example.org/job',
+    sources: [{ url: 'https://example.org/job', type: 'Official vacancy', supports: ['Project'], checked_at: '2026-09-20', notes: 'Keep this note' }],
+    data: { sources: [{ url: 'https://example.org/job', supports: ['Project', 'Funding'] }] },
+  };
+  const original = structuredClone(context);
+  for (const lang of ['en', 'de']) {
+    const groups = buildOpportunityGroups(context, lang);
+    const overview = groups.find(({ id }) => id === 'overview')!;
+    const metadata = groups.find(({ id }) => id === 'metadata')!;
+    const source = overview.items.find(({ kind }) => kind === 'main-link')!;
+    const relocated = metadata.items.find(({ text }) => text === source.text)!;
+    assert.equal(source.href, context.official_url);
+    assert.ok(flatten(source.children || []).some(({ text }) => text === 'Keep this note'));
+    assert.deepEqual(relocated.children?.map(({ label }) => label), lang === 'de' ? ['Typ', 'Belegt', 'Geprüft'] : ['Type', 'Supports', 'Checked']);
+    const metadataValues = flatten(relocated.children || []).map(({ text }) => text);
+    for (const value of ['Official vacancy', 'Project', 'Funding']) {
+      assert.equal(metadataValues.filter(text => text === value).length, 1);
+      assert.equal(flatten(overview.items).some(({ text }) => text === value), false);
+    }
+    assert.equal(flatten(groups.flatMap(({ items }) => items)).filter(({ href }) => href === context.official_url).length, 1);
+    const markdown = opportunityContextMarkdown(context, lang);
+    const metadataHeading = lang === 'de' ? '## Metadaten' : '## Metadata';
+    assert.ok(markdown.indexOf('Official vacancy') > markdown.indexOf(metadataHeading));
+  }
+  assert.deepEqual(context, original);
 });
 
 test('overview puts research, the main link and normalized fit scores first; topics live in metadata', () => {

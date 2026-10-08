@@ -97,6 +97,7 @@ const LABELS: Record<string, [string, string]> = {
   source_context: ['Source context', 'Quellenkontext'], open_questions: ['Open questions', 'Offene Fragen'],
   metadata_schema_version: ['Record format version', 'Version des Datensatzformats'], created_at: ['Added', 'Hinzugefügt'],
   updated_at: ['Updated', 'Aktualisiert'], last_checked_at: ['Last checked', 'Zuletzt geprüft'],
+  type: ['Type', 'Typ'], supports: ['Supports', 'Belegt'],
   checked_at: ['Checked', 'Geprüft'], context_captured_at: ['Context captured', 'Kontext gespeichert'],
   historical_context: ['Historical context', 'Historischer Kontext'], official_listing: ['Official listing', 'Offizielle Ausschreibung'],
   open: ['Open', 'Offen'], closed: ['Closed', 'Geschlossen'], unknown: ['Unknown', 'Unbekannt'],
@@ -109,6 +110,7 @@ const PRIVATE_KEYS = new Set(['id', 'user_id']);
 const FIT_FIELDS = new Set(['personal_fit', 'research_fit', 'research_career_potential', 'rd_career_potential']);
 const SUMMARY_FIELDS = new Set(['research_summary', 'project_summary', 'project_description']);
 const PRIMARY_LINK_FIELDS = ['official_url', 'application_url', 'source_url'];
+const SOURCE_METADATA_FIELDS = new Set(['type', 'supports', 'checked_at']);
 const ENUM_KEYS = new Set(['role', 'availability', 'verification_level', 'historical_match_status', 'period']);
 
 function keyName(value: string) { return value.replace(/([a-z\d])([A-Z])/g, '$1_$2').toLowerCase().replace(/[ -]+/g, '_'); }
@@ -338,7 +340,15 @@ export function buildOpportunityGroups(context: Record<string, unknown>, lang: s
   const primaryLink = primaryHref ? links.items.find((node) => node.href === primaryHref) : undefined;
   const overview = byGroup.get('overview')!;
   if (primaryLink) {
-    overview.items.push({ ...primaryLink, kind: 'main-link' });
+    const isSourceMetadata = (node: OpportunityContextNode) => SOURCE_METADATA_FIELDS.has(keyName(node.id.split('.').at(-1)!));
+    const sourceMetadata = primaryLink.children?.filter(isSourceMetadata) || [];
+    overview.items.push({ ...primaryLink, kind: 'main-link', children: primaryLink.children?.filter((node) => !isSourceMetadata(node)) });
+    if (sourceMetadata.length) {
+      byGroup.get('metadata')!.items.push({
+        id: `${primaryLink.id}.metadata`, label: phrase('Source metadata', 'Quellenmetadaten', lang),
+        text: primaryLink.text, children: sourceMetadata,
+      });
+    }
     links.items = links.items.filter((node) => node !== primaryLink);
   }
   // Stable reading order, independent of the database column order or JSON wrappers.
