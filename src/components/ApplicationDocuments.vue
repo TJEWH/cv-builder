@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import PreviewDialog from './PreviewDialog.vue';
+import InlineDocumentPreview from './InlineDocumentPreview.vue';
+import FullDocumentPreview from './FullDocumentPreview.vue';
 import type { CvState } from '../types';
 import type { ApplicationPackageManifest, AttachmentMetadata, LocalDocumentMetadata, PackageCompositionResult } from '../documentTypes';
 import { defaultPackageManifest, LocalDocumentRepository, newLocalId, safeDocumentFilename, type LocalDocumentStorage } from '../composables/localDocuments';
 import { createAttachmentMetadataRepository } from '../composables/attachmentMetadata';
 import { composeApplicationPackage, packageItemProblem } from '../composables/applicationPackage';
+import { usePdfBlobPreview } from '../composables/usePdfBlobPreview';
 
 const props = withDefaults(defineProps<{
   applicationId: string;
@@ -34,12 +36,14 @@ const loadFailed = ref(false);
 const busy = ref(false);
 const error = ref('');
 const notice = ref('');
-const previewUrl = ref('');
-const previewSrc = computed(() => previewUrl.value ? `${previewUrl.value}#toolbar=0&navpanes=0` : '');
+const previewPage = ref(1);
 const previewBusy = ref(false);
 const previewFailed = ref(false);
 const expanded = ref(false);
 const composition = ref<PackageCompositionResult | null>(null);
+const { pages: previewPages, loading: previewLoading, error: previewError, retry: retryPreview } = usePdfBlobPreview(
+  () => props.active && props.mode === 'review' ? composition.value?.blob || null : null,
+);
 const selectedLibraryId = ref('');
 let generation = 0;
 const previewGeneration = ref(0);
@@ -65,8 +69,7 @@ function clearPreview() {
   expanded.value = false;
   previewGeneration.value++;
   previewFailed.value = false;
-  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value);
-  previewUrl.value = '';
+  previewPage.value = 1;
   composition.value = null;
 }
 function reportError(reason: unknown) { error.value = reason instanceof Error ? reason.message : text('The operation failed. Please retry.', 'Der Vorgang ist fehlgeschlagen. Bitte erneut versuchen.'); }
@@ -152,9 +155,6 @@ async function buildPreview() {
       try {
         const result = await composeApplicationPackage(structuredClone(manifest.value), { cvReady: cvAvailable.value, letterReady: props.letterReady, getCvPdf: props.getCvPdf, getLetterPdf: props.getLetterPdf, getDocument: (id) => repo.getDocument(id) });
         if (!current(token) || previewToken !== previewGeneration.value) return;
-        const url = URL.createObjectURL(result.blob);
-        if (previewUrl.value) URL.revokeObjectURL(previewUrl.value);
-        previewUrl.value = url;
         composition.value = result;
       } catch (reason) {
         if (!current(token) || previewToken !== previewGeneration.value) return;
@@ -200,6 +200,7 @@ onBeforeUnmount(() => { disposed = true; generation++; clearPreview(); window.re
       <div class="documents-controls">
     <p v-if="loading" role="status">{{ text('Loading local documents…', 'Lokale Dokumente werden geladen…') }}</p>
     <p v-if="error" role="alert" class="message error">{{ error }}</p>
+    <p v-if="previewError" role="alert" class="message error">{{ previewError }}</p>
     <p v-if="notice" role="status" class="message notice">{{ notice }}</p>
     <button v-if="loadFailed" type="button" @click="load">{{ text('Retry local storage', 'Lokalen Speicher erneut öffnen') }}</button>
         <template v-if="!loading && !loadFailed">
@@ -227,14 +228,14 @@ onBeforeUnmount(() => { disposed = true; generation++; clearPreview(); window.re
         </template>
       </div>
       <section v-show="mode === 'review'" class="package-preview document-section" :aria-label="text('Complete PDF preview', 'Vorschau des gesamten PDFs')">
-        <iframe v-if="composition && previewUrl" class="package-inline-pdf" :src="previewSrc" :title="text('Complete application PDF', 'Vollständige Bewerbungsunterlagen als PDF')" />
-        <div v-else class="preview-empty" role="status"><span aria-hidden="true">▤</span><p>{{ previewBusy ? text('Updating PDF preview…', 'PDF-Vorschau wird aktualisiert…') : previewFailed ? text('The PDF preview could not be created.', 'Die PDF-Vorschau konnte nicht erstellt werden.') : text('The complete PDF appears automatically once the selected documents are ready.', 'Das gesamte PDF erscheint automatisch, sobald die ausgewählten Unterlagen bereit sind.') }}</p><button v-if="previewFailed" type="button" :disabled="!canBuild" @click="buildPreview">{{ text('Retry preview', 'Vorschau erneut versuchen') }}</button></div>
+        <InlineDocumentPreview v-if="composition && !previewError" class="package-inline-pdf" v-model:page="previewPage" :pages="previewPages" :is-updating="previewBusy || previewLoading" :lang="lang" :title="text('Complete application PDF', 'Vollständige Bewerbungsunterlagen als PDF')" hide-actions show-on-mobile />
+        <div v-else class="preview-empty" role="status"><span aria-hidden="true">▤</span><p>{{ previewBusy ? text('Updating PDF preview…', 'PDF-Vorschau wird aktualisiert…') : previewFailed || previewError ? text('The PDF preview could not be created.', 'Die PDF-Vorschau konnte nicht erstellt werden.') : text('The complete PDF appears automatically once the selected documents are ready.', 'Das gesamte PDF erscheint automatisch, sobald die ausgewählten Unterlagen bereit sind.') }}</p><button v-if="previewFailed || previewError" type="button" :disabled="!canBuild" @click="previewError ? retryPreview() : buildPreview()">{{ text('Retry preview', 'Vorschau erneut versuchen') }}</button></div>
         <div class="package-preview-actions">
           <details v-if="composition" class="page-map-summary"><summary>{{ text('Document order', 'Dokumentreihenfolge') }}</summary><ul class="page-map"><li v-for="document in composition.documents" :key="document.itemId">{{ document.label }} <span>{{ text('p.', 'S.') }} {{ document.firstPage }}<template v-if="document.pageCount > 1">–{{ document.firstPage + document.pageCount - 1 }}</template></span></li></ul></details>
-          <button type="button" :disabled="!previewUrl" @click="expanded = true">{{ text('Open preview', 'Vorschau öffnen') }}</button>
+          <button type="button" :disabled="!previewPages.length || !!previewError" @click="expanded = true">{{ text('Open preview', 'Vorschau öffnen') }}</button>
         </div>
       </section>
-    <PreviewDialog v-model="expanded" :title="text('Complete application PDF', 'Vollständige Bewerbungsunterlagen als PDF')" :lang="lang"><iframe v-if="previewUrl" class="package-full-pdf" :src="previewSrc" :title="text('Complete application PDF', 'Vollständige Bewerbungsunterlagen als PDF')" /></PreviewDialog>
+    <FullDocumentPreview v-model="expanded" v-model:page="previewPage" :pages="previewPages" :is-updating="previewBusy || previewLoading" :title="text('Complete application PDF', 'Vollständige Bewerbungsunterlagen als PDF')" :lang="lang" :error="previewError" :download-disabled="busy || !composition" @download="downloadPackage" />
   </section>
 </template>
 
@@ -277,8 +278,8 @@ input[type="checkbox"] { accent-color:#67c8a6; width:16px; height:16px; flex-shr
 .page-map { list-style:none; padding:0; margin:14px 0; }
 .message { padding:10px 0; margin-bottom:16px; white-space:pre-line; font-size:.9rem; line-height:1.5; }
 .error { color:#fecaca; } .notice { color:#9ee6c7; }
-.package-inline-pdf { display:block; width:100%; height:65vh; flex:none; min-height:360px; border:0; background:#fff; color-scheme:light; }
-.package-full-pdf { display:block; width:100%; height:100%; border:0; background:#fff; color-scheme:light; }
+.package-inline-pdf { width:100%; height:auto; flex:none; overflow:visible; }
+.package-inline-pdf :deep(.document-inline-preview__viewport) { overflow:visible; overscroll-behavior:auto; }
 .package-preview-actions { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
 .package-preview-actions > button { flex-shrink:0; margin-left:auto; }
 .page-map-summary { flex:1; min-width:0; }

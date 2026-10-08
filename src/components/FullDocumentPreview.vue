@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import type { PreviewPage } from '../pdfTypes';
+import type { DocumentPreviewPage } from '../pdfTypes';
 import { makeT } from '../i18n/dict';
 import PdfPreview from './PdfPreview.vue';
 import PdfPagination from './PdfPagination.vue';
 
 const props = withDefaults(defineProps<{
-  modelValue: boolean; pages: PreviewPage[]; page: number; isUpdating?: boolean; lang: string;
+  modelValue: boolean; pages: DocumentPreviewPage[]; page: number; isUpdating?: boolean; lang: string;
   mode?: string; modes?: { value: string; label: string }[];
   downloading?: boolean; downloadDisabled?: boolean; downloadLabel?: string; title?: string; error?: string;
 }>(), { isUpdating: false, mode: 'normal', modes: () => [], downloading: false, downloadDisabled: false, downloadLabel: '', title: '', error: '' });
@@ -35,7 +35,7 @@ onBeforeUnmount(() => mobileViewport.removeEventListener('change', syncViewport)
 
 <template>
   <Teleport to="body">
-    <dialog ref="dialog" class="document-full-preview" :aria-label="title || t('liveCvPreview')" @close="emit('update:modelValue', false)">
+    <dialog ref="dialog" class="document-full-preview" :class="{ 'document-full-preview--pdf': showPdf }" :aria-label="title || t('liveCvPreview')" @close="emit('update:modelValue', false)">
       <template v-if="modelValue">
         <div class="document-full-preview__toolbar">
           <button class="btn document-full-preview__back" type="button" :aria-label="t('backToBuilder')" autofocus @click="emit('update:modelValue', false)">
@@ -85,6 +85,14 @@ onBeforeUnmount(() => mobileViewport.removeEventListener('change', syncViewport)
 .document-full-preview__actions select{min-height:36px;font:inherit;color:#d1fae5;background:#0b1b25;border:1px solid #28534e;border-radius:7px;padding:6px 10px}
 .document-full-preview__actions .btn{display:flex;justify-content:center;align-items:center;gap:8px}
 .document-full-preview__error{position:fixed;z-index:35;left:50%;bottom:64px;transform:translateX(-50%);width:min(560px,calc(100vw - 32px));box-sizing:border-box;padding:10px 12px;margin:0;border:1px solid #733844;border-radius:8px;background:#3a1720;color:#fecaca;font:13px/1.4 system-ui;overflow-wrap:anywhere}
+.document-full-preview--pdf{padding-block:0;overflow:hidden}
+.document-full-preview--pdf .document-full-preview__content{width:100%;height:100%;min-height:0;margin:0;overflow:hidden}
+.document-full-preview--pdf .document-full-preview__content--with-header{padding-top:84px;box-sizing:border-box}
+.document-full-preview--pdf .document-full-preview__header{width:min(100%,860px)}
+.document-full-preview--pdf .document-full-preview__viewport{container-type:size;height:100%;min-height:0;overflow:hidden}
+.document-full-preview--pdf :deep(.pdf-preview),.document-full-preview--pdf :deep(.pdf-preview__stage){height:100%;min-height:0}
+.document-full-preview--pdf :deep(.pdf-preview__stage){background:transparent}
+.document-full-preview--pdf :deep(.pdf-preview__page){width:min(100cqw,calc(100cqh * var(--pdf-page-ratio, 0.7070707)))}
 @media(max-width:760px){
   .document-full-preview{padding:max(8px,env(safe-area-inset-top,0px)) max(8px,env(safe-area-inset-right,0px)) max(8px,env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px));overflow:hidden}
   .document-full-preview[open]{display:grid;grid-template-rows:auto minmax(0,1fr) 52px;gap:8px;justify-content:stretch}
@@ -95,9 +103,6 @@ onBeforeUnmount(() => mobileViewport.removeEventListener('change', syncViewport)
   .document-full-preview__actions .btn{flex:1;min-width:0;min-height:44px;padding:6px;font-size:clamp(11px,3vw,13px);line-height:1.2}
   .document-full-preview__actions .svg-inline--fa{flex:none;margin:0;font-size:16px}
   .document-full-preview__content{width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;margin:0}
-  .document-full-preview__viewport{container-type:size;min-height:0;height:100%;overflow:hidden}
-  .document-full-preview :deep(.pdf-preview),.document-full-preview :deep(.pdf-preview__stage){height:100%;min-height:0}
-  .document-full-preview :deep(.pdf-preview__stage){background:transparent}
-  .document-full-preview :deep(.pdf-preview__page){width:min(100cqw,calc(100cqh * 210 / 297),794px)}
+  .document-full-preview--pdf .document-full-preview__content--with-header{padding-top:0}
 }
 </style>

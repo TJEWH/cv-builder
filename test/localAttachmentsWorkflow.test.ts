@@ -4,9 +4,9 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
-import { createRenderer, h, nextTick, ref, type Component } from 'vue';
+import { computed, createRenderer, h, nextTick, ref, type Component } from 'vue';
 import { PDFDocument } from 'pdf-lib';
-import type { ApplicationPackageManifest, AttachmentMetadata, LocalDocumentMetadata, PackageCompositionResult } from '../src/documentTypes';
+import type { ApplicationPackageManifest, AttachmentMetadata, LocalDocument, LocalDocumentMetadata, PackageCompositionResult } from '../src/documentTypes';
 import { LocalDocumentRepository, type LocalDocumentStorage } from '../src/composables/localDocuments';
 import { attachmentAccount, createAttachmentFixture } from './attachmentFixture';
 
@@ -16,7 +16,13 @@ function component(name: string) {
   const compiled = compileScript(descriptor, { id: `local-attachment-${name}` });
   const code = ts.transpileModule(compiled.content, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   const exports: { default?: Component } = {}; const requireComponent = createRequire(filename);
-  new Function('require', 'exports', code)((path: string) => path.endsWith('.vue') ? { default: {} } : requireComponent(path), exports);
+  new Function('require', 'exports', code)((path: string) => {
+    if (path.endsWith('.vue')) return { default: {} };
+    if (path.endsWith('/usePdfBlobPreview')) return { usePdfBlobPreview: (source: () => Blob | null) => ({
+      pages: computed(() => source() ? [{ svg: '<svg />' }] : []), loading: ref(false), error: ref(''), retry() {},
+    }) };
+    return requireComponent(path);
+  }, exports);
   return { ...exports.default, render: () => null };
 }
 const Library = component('LocalAttachments');
@@ -27,12 +33,14 @@ type Entry = AttachmentMetadata & { local?: LocalDocumentMetadata };
 interface LibraryState {
   loading: boolean; busy: boolean; error: string; name: string; description: string; file: File | null;
   entries: Entry[]; localDocuments: LocalDocumentMetadata[]; sharedDocuments: AttachmentMetadata[]; editingId: string;
+  previewDocument: LocalDocument | null; previewUrl: string; previewPage: number;
   edit(entry?: Entry): void; chooseFile(event: Event): void; save(): Promise<void>; load(): Promise<void>;
+  useFile(entry: Entry, action: 'open' | 'download'): Promise<void>; clearPreview(): void;
 }
 interface ApplicationState {
   loading: boolean; busy: boolean; error: string; selectedLibraryId: string; canAttach: boolean;
   manifest: ApplicationPackageManifest; libraryOptions: Entry[];
-  composition: PackageCompositionResult | null; previewUrl: string; previewBusy: boolean; previewFailed: boolean; buildPreview(): Promise<void>;
+  composition: PackageCompositionResult | null; previewPage: number; previewBusy: boolean; previewFailed: boolean; buildPreview(): Promise<void>;
   moveItem(index: number, direction: number): void;
   attachLibraryDocument(): void; removeItem(id: string): void; load(): Promise<void>;
 }
@@ -127,6 +135,51 @@ test('switching accounts ignores a delayed local read from the previous account'
   assert.equal(setup.entries.length, 1); assert.equal(setup.entries[0].name, 'New account attachment');
 });
 
+test('local PDF preview keeps original bytes, resets page selection and ignores an older open request', async t => {
+  const fixture = createAttachmentFixture(), repo = new LocalDocumentRepository(attachmentAccount, fixture.storage);
+  const first = await repo.addDocument(pdf(), 'First attachment', 'First local document.');
+  const latest = await repo.addDocument(pdf(), 'Latest attachment', 'Latest local document.');
+  let release!: () => void, reading!: () => void;
+  const started = new Promise<void>(resolve => { reading = resolve; }), blocked = new Promise<void>(resolve => { release = resolve; });
+  const storage = { ...fixture.storage, async get(...args: Parameters<LocalDocumentStorage['get']>) {
+    const result = await fixture.storage.get(...args);
+    if (args[2] === first.id) { reading(); await blocked; }
+    return result;
+  } };
+  const { setup, unmount } = mount<LibraryState>(t, Library, fixture, storage); await idle(setup);
+  const stale = setup.useFile(setup.entries.find(entry => entry.id === first.id)!, 'open'); await started;
+  await setup.useFile(setup.entries.find(entry => entry.id === latest.id)!, 'open');
+  assert.equal(setup.previewDocument?.id, latest.id);
+  assert.equal(setup.previewUrl, '', 'PDFs must go to the shared viewer without creating a native object URL');
+  assert.equal(await setup.previewDocument!.blob.text(), await pdf().text());
+  release(); await stale;
+  assert.equal(setup.previewDocument?.id, latest.id, 'An earlier file read cannot replace the newest preview');
+  setup.previewPage = 2; setup.clearPreview();
+  assert.equal(setup.previewDocument, null); assert.equal(setup.previewPage, 1);
+  await setup.useFile(setup.entries.find(entry => entry.id === latest.id)!, 'open');
+  assert.equal((setup.previewDocument as LocalDocument | null)?.id, latest.id); assert.equal(setup.previewPage, 1);
+  unmount(); assert.equal(setup.previewDocument, null);
+});
+
+test('closing, leaving the library or changing accounts prevents a delayed attachment from reopening', async t => {
+  for (const invalidate of ['close', 'inactive', 'account'] as const) await t.test(invalidate, async child => {
+    const fixture = createAttachmentFixture(), repo = new LocalDocumentRepository(attachmentAccount, fixture.storage);
+    const saved = await repo.addDocument(pdf(), 'Private attachment', 'Local document from the current account.');
+    let release!: () => void, reading!: () => void;
+    const started = new Promise<void>(resolve => { reading = resolve; }), blocked = new Promise<void>(resolve => { release = resolve; });
+    const storage = { ...fixture.storage, async get(...args: Parameters<LocalDocumentStorage['get']>) {
+      const result = await fixture.storage.get(...args); if (args[2] === saved.id) { reading(); await blocked; } return result;
+    } };
+    const { setup, setProps, switchAccount } = mount<LibraryState>(child, Library, fixture, storage); await idle(setup);
+    const pending = setup.useFile(setup.entries[0]!, 'open'); await started;
+    if (invalidate === 'close') setup.clearPreview();
+    else if (invalidate === 'inactive') setProps({ active: false });
+    else switchAccount('90000000-0000-4000-8000-000000000092');
+    await nextTick(); release(); await pending; await idle(setup);
+    assert.equal(setup.previewDocument, null); assert.equal(setup.previewUrl, ''); assert.equal(setup.error, '');
+  });
+});
+
 test('switching accounts during a local save does not publish metadata to the next account', async t => {
   const fixture = createAttachmentFixture(); let blockWrites = false;
   let release!: () => void; const blocked = new Promise<void>(resolve => { release = resolve; });
@@ -171,7 +224,7 @@ test('attachment changes during PDF composition invalidate the pending preview b
   const { setup } = mount<ApplicationState>(t, Application, fixture, storage); await started;
   await repo.removeDocument(saved.id); window.dispatchEvent(new Event('cv-local-documents-updated')); release();
   await idle(setup);
-  assert.equal(setup.composition, null); assert.equal(setup.previewUrl, '');
+  assert.equal(setup.composition, null); assert.equal(setup.previewPage, 1);
   assert.equal(setup.manifest.items.length, 1, 'the manifest keeps the missing attachment reference');
   assert.equal(setup.libraryOptions.length, 0);
 });
@@ -183,10 +236,6 @@ async function renderedPdf(width = 595.28) {
 
 test('ready packages preview automatically only in the active review, and update after order and readiness changes', async t => {
   const fixture = createAttachmentFixture(); const generated = await renderedPdf(); let calls = 0;
-  const created: string[] = [], revoked: string[] = [];
-  const createUrl = URL.createObjectURL.bind(URL), revokeUrl = URL.revokeObjectURL.bind(URL);
-  t.mock.method(URL, 'createObjectURL', (blob: Blob) => { const url = createUrl(blob); created.push(url); return url; });
-  t.mock.method(URL, 'revokeObjectURL', (url: string) => { revoked.push(url); revokeUrl(url); });
   const { setup, setProps, unmount } = mount<ApplicationState>(t, Application, fixture, fixture.storage, {
     active: true, mode: 'prepare', cvReady: true, letterReady: true,
     getCvPdf: async () => { calls++; return generated; }, getLetterPdf: async () => generated,
@@ -195,18 +244,19 @@ test('ready packages preview automatically only in the active review, and update
   setProps({ mode: 'review', active: false }); await idle(setup); assert.equal(calls, 0);
   setProps({ active: true }); await idle(setup);
   assert.equal(calls, 1); assert.equal(setup.composition?.pageCount, 2); assert.ok(setup.composition);
-  assert.match(setup.previewUrl, /^blob:/); assert.deepEqual(created, [setup.previewUrl]);
-  const firstUrl = setup.previewUrl;
+  assert.equal(setup.previewPage, 1);
+  setup.previewPage = 2;
+  const firstBlob = setup.composition!.blob;
   const originalOrder = setup.composition!.documents.map(item => item.itemId);
   setup.moveItem(0, 1); await idle(setup);
   assert.equal(calls, 2); assert.deepEqual(setup.composition!.documents.map(item => item.itemId), originalOrder.reverse());
-  assert.notEqual(setup.previewUrl, firstUrl); assert.deepEqual(revoked, [firstUrl]);
+  assert.notEqual(setup.composition!.blob, firstBlob); assert.equal(setup.previewPage, 1, 'A rebuilt package resets page navigation');
+  setup.previewPage = 2;
   setProps({ exportReady: false }); await idle(setup);
-  assert.equal(setup.previewUrl, ''); assert.equal(setup.composition, null); assert.equal(calls, 2);
-  assert.deepEqual(revoked, created, 'Invalidating the package must release its previous PDF URL');
+  assert.equal(setup.previewPage, 1); assert.equal(setup.composition, null); assert.equal(calls, 2);
   setProps({ exportReady: true }); await idle(setup); assert.equal(calls, 3); assert.ok(setup.composition);
-  assert.match(setup.previewUrl, /^blob:/); assert.equal(created.length, 3);
-  unmount(); assert.deepEqual(revoked, created, 'Unmounting must release the final PDF URL');
+  assert.equal(setup.previewPage, 1);
+  unmount(); assert.equal(setup.composition, null, 'Unmounting must clear the composed document');
 });
 
 test('edits during automatic PDF rendering discard stale results and render the newest revision', async t => {
@@ -220,7 +270,7 @@ test('edits during automatic PDF rendering discard stale results and render the 
   });
   await started; setProps({ letterRevision: 'new revision' }); await nextTick(); release(); await idle(setup);
   assert.equal(calls, 2); assert.ok(setup.composition); assert.equal(setup.error, '');
-  assert.match(setup.previewUrl, /^blob:/);
+  assert.equal(setup.previewPage, 1);
   const output = await PDFDocument.load(await setup.composition!.blob.arrayBuffer());
   assert.ok(output.getPages().every(page => page.getWidth() === 500));
 });
@@ -232,7 +282,7 @@ test('a failed automatic preview stops retrying and can recover with a single ex
     getCvPdf: async () => { calls++; if (fail) throw new Error('Synthetic PDF render failure'); return generated; },
   });
   await idle(setup); assert.equal(calls, 1); assert.equal(setup.previewFailed, true); assert.equal(setup.composition, null);
-  assert.equal(setup.previewUrl, '');
+  assert.equal(setup.previewPage, 1);
   assert.match(setup.error, /Synthetic PDF render failure/);
   await idle(setup); assert.equal(calls, 1, 'A failed PDF must not cause an automatic retry loop');
   fail = false; await setup.buildPreview(); await idle(setup);

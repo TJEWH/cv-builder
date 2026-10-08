@@ -1,4 +1,5 @@
 import type { Font } from 'fontkit';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { createPdfRenderTask } from './composables/pdfRenderTask';
 
 export type RenderTask = ReturnType<typeof createPdfRenderTask>;
@@ -8,6 +9,9 @@ export interface PageSlice {
   contentWidth: number; leftOffset: number; topOffset: number;
 }
 export interface PreviewPage extends PageSlice { svg: string }
+/** A page in an existing PDF, rendered only when the shared preview displays it. */
+export interface PdfPreviewPage { pdf: PDFDocumentProxy; pageNumber: number }
+export type DocumentPreviewPage = PreviewPage | PdfPreviewPage;
 export interface FontDescriptor { family: string; size: number; weight: number; style: string }
 export interface TextMetricsRecord { width: number; actualBoundingBoxAscent?: number; actualBoundingBoxDescent?: number }
 /** Canvas overloads are captured reflectively; their heterogeneous argument list

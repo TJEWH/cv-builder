@@ -3,12 +3,13 @@ import vue from '@vitejs/plugin-vue';
 import { fileURLToPath } from 'node:url';
 import responsivePdfRenderer from '../../build/responsivePdfRenderer';
 import vectorFontDecompression from '../../build/vectorFontDecompression';
+import pdfPreviewAssets from '../../build/pdfPreviewAssets';
 
 // Deliberately independent of the app's .env and production Supabase configuration.
 export default defineConfig({
   root: fileURLToPath(new URL('../..', import.meta.url)), base: '/cv-builder/', envDir: false, envPrefix: [],
   define: { __SUPABASE_CONFIGURATION__: JSON.stringify({ status: 'missing' }) },
-  plugins: [vue(), responsivePdfRenderer(), vectorFontDecompression()],
+  plugins: [vue(), responsivePdfRenderer(), vectorFontDecompression(), pdfPreviewAssets()],
   server: { host: '127.0.0.1', port: 5177, strictPort: true, headers: {
     'Content-Security-Policy': "connect-src 'self' ws://127.0.0.1:5177; img-src 'self' data: blob:; font-src 'self' data: blob:; form-action 'none'",
   } },

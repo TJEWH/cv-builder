@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { faCloud, faCloudArrowUp, faLaptop, faTriangleExclamation, faPen } from '@fortawesome/free-solid-svg-icons';
 import PreviewDialog from './PreviewDialog.vue';
-import type { AttachmentMetadata, LocalDocumentMetadata } from '../documentTypes';
+import FullDocumentPreview from './FullDocumentPreview.vue';
+import type { AttachmentMetadata, LocalDocument, LocalDocumentMetadata } from '../documentTypes';
 import { LocalDocumentRepository, safeDocumentFilename, type LocalDocumentStorage } from '../composables/localDocuments';
 import { createAttachmentMetadataRepository } from '../composables/attachmentMetadata';
+import { usePdfBlobPreview } from '../composables/usePdfBlobPreview';
 
 const props = withDefaults(defineProps<{ userId: string; lang?: string; client?: SupabaseClient | null; active?: boolean; storage?: LocalDocumentStorage }>(), { active: true, client: null });
 const emit = defineEmits<{ changed: [] }>();
@@ -38,9 +40,15 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const dirty = ref(false);
 const editingEntry = computed(() => entries.value.find((entry) => entry.id === editingId.value));
 const attachmentForm = ref<HTMLFormElement | null>(null);
+const previewDocument = shallowRef<LocalDocument | null>(null);
 const previewUrl = ref('');
-const previewName = ref('');
-const previewType = ref('');
+const previewName = computed(() => previewDocument.value?.name || '');
+const previewPage = ref(1);
+const previewPdfOpen = computed(() => props.active && previewDocument.value?.mimeType === 'application/pdf');
+const { pages: previewPages, loading: previewLoading, error: previewError, retry: retryPreview } = usePdfBlobPreview(
+  () => previewPdfOpen.value ? previewDocument.value!.blob : null,
+);
+let previewGeneration = 0;
 let generation = 0;
 let disposed = false;
 const repository = () => new LocalDocumentRepository(props.userId, props.storage);
@@ -48,8 +56,11 @@ const cloudRepository = () => { const owner = props.userId; return props.client 
 const current = (token: number) => token === generation && !disposed;
 function message(reason: unknown) { return reason instanceof Error ? reason.message : text('The operation failed. Please retry.', 'Der Vorgang ist fehlgeschlagen. Bitte erneut versuchen.'); }
 function clearPreview() {
+  previewGeneration++;
+  previewDocument.value = null;
+  previewPage.value = 1;
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value);
-  previewUrl.value = ''; previewName.value = ''; previewType.value = '';
+  previewUrl.value = '';
 }
 function changed() { emit('changed'); window.dispatchEvent(new Event('cv-local-documents-updated')); }
 function resetForm() {
@@ -93,7 +104,7 @@ watch(() => [props.userId, props.client], () => {
   generation++; busy.value = false; localDocuments.value = []; sharedDocuments.value = []; resetForm(); clearPreview(); notice.value = '';
   void load();
 }, { immediate: true });
-watch(() => props.active, (active) => { if (active) void load(); });
+watch(() => props.active, (active) => { if (active) void load(); else clearPreview(); });
 function refreshIfActive() { if (props.active && !busy.value) void load(); }
 onMounted(() => { window.addEventListener('focus', refreshIfActive); window.addEventListener('cv-local-documents-updated', refreshIfActive); });
 onBeforeUnmount(() => { disposed = true; generation++; clearPreview(); window.removeEventListener('focus', refreshIfActive); window.removeEventListener('cv-local-documents-updated', refreshIfActive); });
@@ -140,19 +151,27 @@ function download(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = safeDocumentFilename(filename); anchor.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+function downloadDocument(document: LocalDocument) {
+  const extension = document.mimeType === 'application/pdf' ? 'pdf' : document.mimeType === 'image/png' ? 'png' : 'jpg';
+  const matchingExtension = new RegExp(`\\.${extension === 'jpg' ? 'jpe?g' : extension}$`, 'i');
+  download(document.blob, matchingExtension.test(document.name) ? document.name : `${document.name}.${extension}`);
+}
+function downloadPreview() { if (previewDocument.value) downloadDocument(previewDocument.value); }
 async function useFile(entry: Entry, action: 'open' | 'download') {
   const token = generation; error.value = '';
+  if (action === 'open') { clearPreview(); if (!props.active) return; }
+  const previewToken = previewGeneration;
+  const valid = () => current(token) && (action !== 'open' || (previewToken === previewGeneration && props.active));
   try {
     const document = await repository().getDocument(entry.id);
-    if (!current(token)) return;
+    if (!valid()) return;
     if (!document) throw new Error(text('This file is missing on this device. Edit the attachment to add it.', 'Diese Datei fehlt auf diesem Gerät. Zum Hinzufügen den Anhang bearbeiten.'));
-    if (action === 'download') {
-      const extension = document.mimeType === 'application/pdf' ? 'pdf' : document.mimeType === 'image/png' ? 'png' : 'jpg';
-      const matchingExtension = new RegExp(`\\.${extension === 'jpg' ? 'jpe?g' : extension}$`, 'i');
-      download(document.blob, matchingExtension.test(document.name) ? document.name : `${document.name}.${extension}`);
+    if (action === 'download') downloadDocument(document);
+    else {
+      if (document.mimeType !== 'application/pdf') previewUrl.value = URL.createObjectURL(document.blob);
+      previewDocument.value = document;
     }
-    else { clearPreview(); previewName.value = document.name; previewType.value = document.mimeType; previewUrl.value = URL.createObjectURL(document.blob); }
-  } catch (reason) { if (current(token)) error.value = message(reason); }
+  } catch (reason) { if (valid()) error.value = message(reason); }
 }
 async function remove(entry: Entry) {
   if (!window.confirm(text(`Delete “${entry.name}” and its shared name and description? Applications using it will show a missing attachment. Back up the file first if needed.`, `„${entry.name}“ samt geteiltem Namen und Beschreibung löschen? Bewerbungen, die diesen Anhang verwenden, zeigen dann eine fehlende Datei an. Bei Bedarf vorher sichern.`))) return;
@@ -225,7 +244,10 @@ async function importBackup(event: Event) {
       </form>
 
     </div>
-    <PreviewDialog :model-value="!!previewUrl" :title="previewName" :lang="lang" @update:model-value="(open) => { if (!open) clearPreview(); }"><iframe v-if="previewType === 'application/pdf'" class="attachment-preview" :src="previewUrl" :title="previewName" /><img v-else class="attachment-image" :src="previewUrl" :alt="previewName" /></PreviewDialog>
+    <FullDocumentPreview :model-value="previewPdfOpen" v-model:page="previewPage" :pages="previewPages" :is-updating="previewLoading" :title="previewName" :lang="lang || 'en'" :error="previewError" @update:model-value="(open) => { if (!open) clearPreview(); }" @download="downloadPreview">
+      <template v-if="previewError" #header><button class="btn" type="button" @click="retryPreview">{{ text('Retry preview', 'Vorschau erneut versuchen') }}</button></template>
+    </FullDocumentPreview>
+    <PreviewDialog :model-value="!!previewUrl" :title="previewName" :lang="lang" @update:model-value="(open) => { if (!open) clearPreview(); }"><img v-if="previewUrl" class="attachment-image" :src="previewUrl" :alt="previewName" /></PreviewDialog>
   </section>
 </template>
 
@@ -235,6 +257,6 @@ async function importBackup(event: Event) {
 .local-attachments .privacy-note{margin-bottom:14px;padding:10px 12px;background:#102c28;border-left:3px solid #67c8a6}.attachments-scroll{min-height:0;overflow:auto;overscroll-behavior:contain;padding-right:4px}.library-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13px;margin-bottom:14px}
 .local-attachments :is(button,input,textarea,.file-button){font:inherit;border:1px solid #28534e;border-radius:7px;background:#0b1b25;color:#d1fae5;padding:9px 12px;box-sizing:border-box}.local-attachments button,.file-button{font-size:12px;cursor:pointer;min-height:38px}.local-attachments button:hover:not(:disabled){background:#14352e}.local-attachments button:disabled{opacity:.5;cursor:not-allowed}.local-attachments :is(button,input,textarea):focus-visible{outline:2px solid #67c8a6;outline-offset:2px}.local-attachments .primary{background:#185b4c;border-color:#67c8a6}
 .attachment-form{display:grid;gap:16px;padding:18px;background:#091f25;border:1px solid #28534e;border-radius:8px;margin:0 0 20px;max-width:760px}.attachment-form h3,.attachment-copy h3{font:600 15px/1.4 system-ui;margin:0;color:#d1fae5;text-transform:none;letter-spacing:0}.attachment-form label{display:grid;gap:7px;font:600 12px/1.4 system-ui;color:#d1fae5}.attachment-form :is(input,textarea){font:400 13px/1.5 system-ui;min-width:0;width:100%}.attachment-form textarea{resize:vertical}.attachment-form small{font-weight:400;color:#a6c1b9;line-height:1.5}
-.attachment-list{padding:0;margin:0;list-style:none}.attachment-list li{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:18px 0;border-bottom:1px solid #28534e}.attachment-copy{min-width:0}.attachment-copy h3{overflow-wrap:anywhere}.local-attachments .attachment-description{white-space:pre-wrap;overflow-wrap:anywhere;margin:7px 0}.attachment-copy small{display:block;font-size:11px;color:#a6c1b9;line-height:1.5;margin-top:4px}.local-attachments .missing{color:#f2c6a7}.actions{display:flex;gap:7px;flex-wrap:wrap}.attachment-list .actions{flex-shrink:0;flex-wrap:nowrap}.attachment-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap}.attachment-status{display:flex;gap:12px;margin-top:8px;color:#9be8c7}.attachment-status [role=img]{display:inline-flex;align-items:center;justify-content:center;min-width:20px;min-height:24px}.local-attachments .error,.local-attachments .notice{padding:10px 12px;margin-bottom:14px;border-radius:7px;background:#3a1720;color:#fecaca;white-space:pre-line}.local-attachments .notice{background:#10382c;color:#b5e3cb}.local-attachments .empty{padding:20px 0}.backup-actions{flex-shrink:0;justify-content:flex-end}.backup-actions .file-button{display:inline-flex;align-items:center;white-space:nowrap}.local-attachments .add-attachment-row{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin:0 0 16px;min-height:54px;padding:8px;border:0;border-top:1px dashed #2a6a60;border-bottom:1px dashed #2a6a60;border-radius:0;background:transparent;color:#9be8c7;font:inherit}.local-attachments .add-attachment-row:hover:not(:disabled){border-color:#27f3a2;background:rgba(16,185,129,.1)}.file-button input{position:absolute;width:1px;height:1px;opacity:0}.attachment-preview{display:block;width:100%;height:100%;border:0;background:white}.attachment-image{display:block;width:100%;height:100%;object-fit:contain}.file-button:focus-within{outline:2px solid #67c8a6;outline-offset:2px}
+.attachment-list{padding:0;margin:0;list-style:none}.attachment-list li{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:18px 0;border-bottom:1px solid #28534e}.attachment-copy{min-width:0}.attachment-copy h3{overflow-wrap:anywhere}.local-attachments .attachment-description{white-space:pre-wrap;overflow-wrap:anywhere;margin:7px 0}.attachment-copy small{display:block;font-size:11px;color:#a6c1b9;line-height:1.5;margin-top:4px}.local-attachments .missing{color:#f2c6a7}.actions{display:flex;gap:7px;flex-wrap:wrap}.attachment-list .actions{flex-shrink:0;flex-wrap:nowrap}.attachment-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap}.attachment-status{display:flex;gap:12px;margin-top:8px;color:#9be8c7}.attachment-status [role=img]{display:inline-flex;align-items:center;justify-content:center;min-width:20px;min-height:24px}.local-attachments .error,.local-attachments .notice{padding:10px 12px;margin-bottom:14px;border-radius:7px;background:#3a1720;color:#fecaca;white-space:pre-line}.local-attachments .notice{background:#10382c;color:#b5e3cb}.local-attachments .empty{padding:20px 0}.backup-actions{flex-shrink:0;justify-content:flex-end}.backup-actions .file-button{display:inline-flex;align-items:center;white-space:nowrap}.local-attachments .add-attachment-row{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin:0 0 16px;min-height:54px;padding:8px;border:0;border-top:1px dashed #2a6a60;border-bottom:1px dashed #2a6a60;border-radius:0;background:transparent;color:#9be8c7;font:inherit}.local-attachments .add-attachment-row:hover:not(:disabled){border-color:#27f3a2;background:rgba(16,185,129,.1)}.file-button input{position:absolute;width:1px;height:1px;opacity:0}.attachment-image{display:block;width:100%;height:100%;object-fit:contain}.file-button:focus-within{outline:2px solid #67c8a6;outline-offset:2px}
 @media(max-width:850px){.attachment-list li{flex-direction:column}.attachment-list .actions{max-width:none}}@media(max-width:700px){.attachment-actions button{min-width:44px}.attachment-actions button span{display:none}.backup-actions{width:100%;justify-content:flex-end}.backup-actions button,.backup-actions .file-button{font-size:11px;padding:8px}.attachments-heading{flex-direction:column;gap:10px}.attachment-form{padding:12px}.attachments-scroll{padding-right:0}}
 </style>

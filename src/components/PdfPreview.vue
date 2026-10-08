@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import type { PropType } from 'vue';
-import type { PreviewPage } from '../pdfTypes';
-import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue';
+import type { DocumentPreviewPage } from '../pdfTypes';
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue';
 import { makeT } from '../i18n/dict.ts';
 import { scopePreviewSvgIds } from '../composables/previewSvgIds';
+const PdfCanvasPage = defineAsyncComponent(() => import('./PdfCanvasPage.vue'));
 
 const props = defineProps({
-  pages: { type: Array as PropType<PreviewPage[]>, default: () => [] },
+  pages: { type: Array as PropType<DocumentPreviewPage[]>, default: () => [] },
   page: { type: Number, default: 1 },
   isUpdating: { type: Boolean, default: false },
   lang: { type: String, required: true },
@@ -20,7 +21,17 @@ const t = makeT(langRef);
 const totalPages = computed(() => props.pages.length);
 const currentPage = computed(() => Math.min(Math.max(props.page, 1), Math.max(totalPages.value, 1)));
 const svgScope = useId();
-const currentPageData = computed(() => scopePreviewSvgIds(props.pages[currentPage.value - 1]?.svg || '', svgScope));
+const currentPageData = computed(() => props.pages[currentPage.value - 1]);
+const currentPdfPage = computed(() => {
+  const source = currentPageData.value;
+  return source && 'pdf' in source ? source : null;
+});
+const currentSvg = computed(() => {
+  const source = currentPageData.value;
+  return source && 'svg' in source ? scopePreviewSvgIds(source.svg, svgScope) : '';
+});
+const pageRatio = ref(210 / 297);
+function updatePageSize({ width, height }: { width: number; height: number }) { pageRatio.value = width / height; }
 
 const TRACKPAD_SWIPE_THRESHOLD = 72;
 const TOUCH_SWIPE_THRESHOLD = 48;
@@ -31,9 +42,10 @@ const stageElement = ref<HTMLElement | null>(null);
 const pageElement = ref<HTMLElement | null>(null);
 const zoom = ref(1);
 const offset = ref({ x: 0, y: 0 });
-const pageStyle = computed(() => props.pinchZoom
-  ? { transform: `translate(${offset.value.x}px, ${offset.value.y}px) scale(${zoom.value})` }
-  : undefined);
+const pageStyle = computed(() => ({
+  '--pdf-page-ratio': pageRatio.value,
+  ...(props.pinchZoom ? { transform: `translate(${offset.value.x}px, ${offset.value.y}px) scale(${zoom.value})` } : {}),
+}));
 let pinch: { ids: number[]; distance: number; scale: number; anchorX: number; anchorY: number } | null = null;
 let pan: { id: number; x: number; y: number; offsetX: number; offsetY: number } | null = null;
 let consumedTouch = false;
@@ -185,6 +197,7 @@ function handleTrackpadSlide(event: WheelEvent) {
 }
 
 watch([currentPage, () => props.pinchZoom], resetZoom);
+watch(currentPageData, () => { resetZoom(); pageRatio.value = 210 / 297; });
 onMounted(() => {
   if (typeof ResizeObserver === 'undefined' || !stageElement.value) return;
   resizeObserver = new ResizeObserver(resetZoom);
@@ -209,12 +222,21 @@ onBeforeUnmount(() => {
   >
     <div ref="stageElement" class="pdf-preview__stage">
       <div
-        v-if="currentPageData"
+        v-if="currentPdfPage"
         class="pdf-preview__page"
         ref="pageElement"
         :style="pageStyle"
         :aria-label="`${t('pdfPage')} ${currentPage}`"
-        v-html="currentPageData"
+      >
+        <PdfCanvasPage :source="currentPdfPage" :lang="lang" :scale="zoom" @size="updatePageSize" @navigate="emit('update:page', $event)" />
+      </div>
+      <div
+        v-else-if="currentSvg"
+        class="pdf-preview__page"
+        ref="pageElement"
+        :style="pageStyle"
+        :aria-label="`${t('pdfPage')} ${currentPage}`"
+        v-html="currentSvg"
       />
       <div v-else class="pdf-preview__empty" role="status">{{ t('previewLoading') }}</div>
       <div v-if="isUpdating" class="pdf-preview__status" role="status">

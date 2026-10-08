@@ -11,7 +11,7 @@ const root = document.querySelector<HTMLElement>('#workspace')!;
 const status = document.querySelector<HTMLElement>('#test-status')!;
 const results = document.querySelector<HTMLOListElement>('#test-results')!;
 const runButton = document.querySelector<HTMLButtonElement>('#run-tests')!;
-// Capture the real URL-to-Blob association without requiring the test host to render native PDFs.
+// Keep the download URL associated with its original PDF bytes for export verification.
 const previewBlobs = new Map<string, Blob>();
 const createObjectURL = URL.createObjectURL.bind(URL), revokeObjectURL = URL.revokeObjectURL.bind(URL);
 URL.createObjectURL = value => { const url = createObjectURL(value); if (value instanceof Blob) previewBlobs.set(url, value); return url; };
@@ -19,17 +19,17 @@ URL.revokeObjectURL = url => { previewBlobs.delete(url); revokeObjectURL(url); }
 const applicationId = '10000000-0000-4000-8000-000000000090';
 const view = ref<'library' | 'prepare' | 'review'>('library');
 let app: App | undefined, fixture = createAttachmentFixture();
-let library: { loading: boolean; busy: boolean; error: string }, documents: typeof library & { composition: { blob: Blob } | null };
+let library: { loading: boolean; busy: boolean; error: string; previewError: string }, documents: typeof library & { composition: { blob: Blob } | null; previewBusy: boolean; previewLoading: boolean; previewPage: number };
 const assert: (condition: unknown, message: string) => asserts condition = (condition, message) => { if (!condition) throw new Error(message); };
-async function pdf(width: number, secret: string) {
+async function pdf(width: number, secret: string, pageCount = 1) {
   const output = await PDFDocument.create(), font = await output.embedFont(StandardFonts.Helvetica);
-  output.addPage([width, 600]).drawText(secret, { x: 20, y: 500, font, size: 12 });
+  for (let page = 1; page <= pageCount; page++) output.addPage([width, 600]).drawText(pageCount > 1 ? `${secret} page ${page}` : secret, { x: 20, y: 500, font, size: 12 });
   return new Blob([new Uint8Array(await output.save())], { type: 'application/pdf' });
 }
 async function settle() {
   await nextTick();
   const deadline = performance.now() + 20000;
-  while (library?.loading || library?.busy || documents?.loading || documents?.busy) {
+  while (library?.loading || library?.busy || documents?.loading || documents?.busy || documents?.previewBusy) {
     if (performance.now() > deadline) throw new Error('Attachment operation timed out.');
     await new Promise(resolve => setTimeout(resolve, 20)); await nextTick();
   }
@@ -86,23 +86,49 @@ async function select(id: string) {
   const remainingControl = current().querySelector<HTMLSelectElement>('select[aria-label="Choose an existing document"]');
   assert(!remainingControl || remainingControl.value === '', 'Attachment picker did not reset after automatically adding the selection');
 }
-const rawPreviewUrl = (url: string) => url.split('#')[0]!;
-async function renderedPreview(selector = '.package-inline-pdf') {
+async function renderedPreview(pageNumber = 1, expectedText = '', fullscreen = false) {
   const deadline = performance.now() + 20000;
   for (;;) {
-    const viewer = current().querySelector<HTMLIFrameElement>(`iframe${selector}`);
-    if (viewer?.src.startsWith('blob:') && documents.composition) return viewer;
-    assert(!documents.error, documents.error);
-    if (performance.now() > deadline) throw new Error('Native PDF preview did not receive the composed PDF');
+    const viewer = fullscreen ? document.querySelector<HTMLElement>('.document-full-preview[open]') : current().querySelector<HTMLElement>('.package-inline-pdf');
+    const page = viewer?.querySelector<HTMLElement>(`.pdf-canvas-page[data-page-number="${pageNumber}"][data-rendered="true"]`);
+    const canvas = page?.querySelector('canvas');
+    if (canvas?.width && canvas.height && page?.querySelector('.textLayer')?.textContent?.includes(expectedText) && (view.value === 'library' || documents.composition)) {
+      const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+      let ink = false;
+      for (let index = 0; index < pixels.length; index += 4) {
+        if (pixels[index + 3]! > 0 && Math.min(pixels[index]!, pixels[index + 1]!, pixels[index + 2]!) < 240) { ink = true; break; }
+      }
+      assert(ink, 'PDF canvas contains no rendered document content');
+      return viewer!;
+    }
+    const state = view.value === 'library' ? library : documents;
+    assert(!state.error && !state.previewError, state.error || state.previewError);
+    if (performance.now() > deadline) throw new Error(`Shared PDF preview did not render page ${pageNumber}: ${expectedText}`);
     await new Promise(resolve => setTimeout(resolve, 20));
   }
+}
+async function turnPage(viewer: ParentNode, direction: 'next' | 'previous') {
+  const button = viewer.querySelector<HTMLButtonElement>(`.pdf-pagination__button--${direction}`);
+  assert(button && !button.disabled, `Missing or disabled ${direction} page control`);
+  button.click(); await settle();
+}
+async function downloadPdf(parent: ParentNode = current()) {
+  let downloaded: Blob | undefined;
+  const anchorClick = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function () {
+    if (this.download.endsWith('.pdf')) downloaded = previewBlobs.get(this.href);
+    else anchorClick.call(this);
+  };
+  try { await click('Download PDF', parent); } finally { HTMLAnchorElement.prototype.click = anchorClick; }
+  assert(downloaded, 'Download did not use the local PDF bytes');
+  return new Uint8Array(await downloaded.arrayBuffer());
 }
 runButton.addEventListener('click', async () => {
   runButton.disabled = true; results.replaceChildren(); status.textContent = 'Running'; document.body.dataset.result = 'running';
   const stage = (text: string) => { const item = document.createElement('li'); item.textContent = `PASS: ${text}`; results.append(item); };
   try {
     await mount();
-    const transcript = await pdf(510, 'PRIVATE_TRANSCRIPT_CONTENT_83'), recommendation = await pdf(610, 'PRIVATE_RECOMMENDATION_CONTENT_97');
+    const transcript = await pdf(510, 'PRIVATE_TRANSCRIPT_CONTENT_83', 2), recommendation = await pdf(610, 'PRIVATE_RECOMMENDATION_CONTENT_97');
     await add(transcript, 'PRIVATE-original-transcript.pdf', 'Transcript of records', 'Course list and grades for my engineering degree.');
     await add(recommendation, 'PRIVATE-original-recommendation.pdf', 'Letter of recommendation', 'Academic recommendation describing my research work.');
     assert(fixture.rows.length === 2, 'Manual metadata was not saved to Supabase');
@@ -112,6 +138,20 @@ runButton.addEventListener('click', async () => {
     const first = fixture.rows.find(row => row.name === 'Transcript of records')!, second = fixture.rows.find(row => row.name === 'Letter of recommendation')!;
     assert(await (await local.getDocument(first.id))!.blob.text() === await transcript.text(), 'Saving metadata changed the original file');
     stage('Manual names/descriptions sync; file bytes and filenames remain local');
+    const transcriptRow = [...current().querySelectorAll('.attachment-list li')].find(row => row.querySelector('h3')?.textContent === 'Transcript of records')!;
+    await click('Open', transcriptRow);
+    const localFull = await renderedPreview(1, 'PRIVATE_TRANSCRIPT_CONTENT_83 page 1', true);
+    assert(localFull.getAttribute('aria-label') === 'Transcript of records', 'Local preview lost its attachment title');
+    assert(!document.querySelector('iframe') && localFull.querySelectorAll('button').length === 4, 'Local PDFs must use the shared fullscreen viewer with only back, download and page controls');
+    await turnPage(localFull, 'next'); await renderedPreview(2, 'PRIVATE_TRANSCRIPT_CONTENT_83 page 2', true);
+    const originalBytes = new Uint8Array(await transcript.arrayBuffer()), localDownload = await downloadPdf(localFull);
+    assert(localDownload.length === originalBytes.length && localDownload.every((byte, index) => byte === originalBytes[index]), 'The local preview changed the downloaded attachment bytes');
+    await click('Back to builder', localFull);
+    assert(!document.querySelector('.document-full-preview[open]'), 'Back did not close the local attachment preview');
+    await click('Open', transcriptRow); const reopened = await renderedPreview(1, 'PRIVATE_TRANSCRIPT_CONTENT_83 page 1', true);
+    await click('Back to builder', reopened);
+    assert(await (await local.getDocument(first.id))!.blob.text() === await transcript.text(), 'Viewing or downloading changed the stored original attachment');
+    stage('Local PDF Open reuses fullscreen preview, navigates pages, reopens at page one and downloads unchanged originals');
     await click('Application preparation', root);
     assert(!current().querySelector('input[accept*="application/pdf"]'), 'Application preparation still has an independent upload form');
     await select(first.id); await select(second.id);
@@ -123,49 +163,56 @@ runButton.addEventListener('click', async () => {
     for (const removed of ['Preview complete PDF', 'Manage attachments in CV Studio', 'Refresh attachments', 'Supporting documents & export', 'Package order', 'Frozen package archive']) {
       assert(!current().textContent?.includes(removed), `Redundant PDF review control remains: ${removed}`);
     }
-    const inline = await renderedPreview();
-    assert(inline.getBoundingClientRect().height > 0, 'Native inline PDF preview is hidden');
-    assert(!current().querySelector('.simple-pdf-viewer'), 'Custom PDF viewer is still mounted');
+    const inline = await renderedPreview(1, 'Synthetic accepted generated document.');
+    assert(inline.classList.contains('document-inline-preview') && inline.getBoundingClientRect().height > 0, 'Shared inline PDF preview is hidden or was not reused');
+    assert(!current().querySelector('iframe, .simple-pdf-viewer'), 'PDF review still mounts the native or separate custom viewer');
+    assert(!inline.querySelector('.document-inline-preview__actions'), 'Inline PDF preview has duplicate open/download actions');
     assert(documents.composition?.blob, 'Composed PDF bytes missing');
-    assert(new URL(inline.src).hash === '#toolbar=0&navpanes=0', 'Native PDF preview must request hidden viewer tools');
-    const previewBlob = previewBlobs.get(rawPreviewUrl(inline.src));
-    assert(previewBlob, 'Native preview URL has no live PDF blob');
-    const previewBytes = await previewBlob.arrayBuffer();
     const compositionBytes = new Uint8Array(await documents.composition.blob.arrayBuffer());
-    assert(previewBytes.byteLength === compositionBytes.length && new Uint8Array(previewBytes).every((byte, index) => byte === compositionBytes[index]), 'Native preview URL does not contain the composed PDF');
-    const composed = await PDFDocument.load(previewBytes);
-    assert(composed.getPageCount() === 4 && composed.getPages().every(page => page.getWidth() === 400 && page.getHeight() === 600), 'Attachment pages did not match CV and letter size');
+    const composed = await PDFDocument.load(compositionBytes);
+    assert(composed.getPageCount() === 5 && composed.getPages().every(page => page.getWidth() === 400 && page.getHeight() === 600), 'Attachment pages did not match CV and letter size');
     const actions = current().querySelector<HTMLElement>('.package-preview-actions');
     assert(actions?.querySelector('.page-map-summary summary')?.textContent?.trim() === 'Document order', 'Document order must appear in the PDF footer');
     const openPreview = [...actions!.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Open preview');
     assert(openPreview, 'Open preview must appear in the PDF footer');
     assert(actions!.getBoundingClientRect().top >= inline.getBoundingClientRect().bottom - 1, 'Document order and Open preview must sit below the package PDF');
-    const originalBlob = documents.composition.blob;
-    const originalUrl = inline.src;
-    await click('↑', current().querySelectorAll('.package-items li')[3]!);
-    const reordered = await renderedPreview();
-    assert(documents.composition?.blob !== originalBlob, 'Reordering did not automatically update the preview');
-    assert(reordered.src !== originalUrl, 'Reordering retained the stale PDF URL');
-    assert(!previewBlobs.has(rawPreviewUrl(originalUrl)), 'Reordering did not release the old PDF URL');
+    await turnPage(inline, 'next'); await renderedPreview(2, 'Synthetic accepted generated document.');
+    await turnPage(inline, 'next'); await renderedPreview(3, 'PRIVATE_TRANSCRIPT_CONTENT_83');
+    await turnPage(inline, 'next'); await renderedPreview(4, 'PRIVATE_TRANSCRIPT_CONTENT_83 page 2');
+    await turnPage(inline, 'next'); await renderedPreview(5, 'PRIVATE_RECOMMENDATION_CONTENT_97');
+    stage('Shared inline viewer renders generated PDFs and local attachments with selectable text and page navigation');
     await click('Open preview');
-    const full = await renderedPreview('.package-full-pdf');
-    assert(full.src === reordered.src, 'Expanded preview must use the same composed PDF URL');
-    assert(full.getBoundingClientRect().height > 0, 'Expanded native PDF preview is hidden');
-    await click('Close preview'); await renderedPreview();
-    await click('Download PDF'); assert((await local.listArchives(applicationId)).length === 0, 'Downloading unexpectedly created a frozen archive');
-    stage('Package bytes, native PDF URLs and controls below the preview stay in sync');
+    const full = await renderedPreview(5, 'PRIVATE_RECOMMENDATION_CONTENT_97', true);
+    assert(full.getBoundingClientRect().height > 0 && !full.querySelector('iframe'), 'Expanded shared PDF preview is hidden or uses a native frame');
+    assert(full.querySelectorAll('button').length === 4 && !full.querySelector('input, select, textarea'), 'Package preview must expose only back, download and page controls');
+    await turnPage(full, 'previous'); await renderedPreview(4, 'PRIVATE_TRANSCRIPT_CONTENT_83 page 2', true);
+    await click('Back to builder', full); await renderedPreview(4, 'PRIVATE_TRANSCRIPT_CONTENT_83 page 2');
+    assert(!document.querySelector('.document-full-preview[open]'), 'Back did not close the expanded preview');
+    const originalBlob = documents.composition.blob;
+    await click('↑', current().querySelectorAll('.package-items li')[3]!);
+    const reorderedInline = await renderedPreview(1, 'Synthetic accepted generated document.');
+    assert(documents.composition?.blob !== originalBlob && documents.previewPage === 1, 'Reordering did not replace the PDF and reset its page');
+    await turnPage(reorderedInline, 'next'); await renderedPreview(2, 'Synthetic accepted generated document.');
+    await turnPage(reorderedInline, 'next'); await renderedPreview(3, 'PRIVATE_RECOMMENDATION_CONTENT_97');
+    await turnPage(reorderedInline, 'next'); await renderedPreview(4, 'PRIVATE_TRANSCRIPT_CONTENT_83');
+    await turnPage(reorderedInline, 'next'); await renderedPreview(5, 'PRIVATE_TRANSCRIPT_CONTENT_83 page 2');
+    const expectedDownload = new Uint8Array(await documents.composition.blob.arrayBuffer());
+    const downloaded = await downloadPdf();
+    assert(downloaded.length === expectedDownload.length && downloaded.every((byte, index) => byte === expectedDownload[index]), 'PDF rendering changed the downloaded package bytes');
+    assert((await local.listArchives(applicationId)).length === 0, 'Downloading unexpectedly created a frozen archive');
+    stage('Fullscreen shares page selection; reordering replaces the preview and download retains the composed PDF bytes');
     const backup = await local.exportBackup();
     await local.removeDocument(first.id); window.dispatchEvent(new Event('cv-local-documents-updated')); await settle();
     assert(current().textContent?.includes('unavailable on this device'), 'Missing selected file was not reported');
     const downloadButton = [...current().querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Download PDF');
     assert(downloadButton?.disabled && !documents.composition, 'Missing file did not block package export');
-    assert(!current().querySelector('.package-inline-pdf'), 'Missing file retained the stale PDF iframe');
+    assert(!current().querySelector('.package-inline-pdf'), 'Missing file retained the stale PDF page');
     await click('CV Studio · Local attachments', root);
     assert(current().querySelector('[role="img"][aria-label="File missing on this device"]') && fixture.rows.length === 2, 'Missing local file incorrectly removed its cloud metadata');
     stage('Missing files remain explicit and block export while metadata stays available');
     await local.importBackup(backup); window.dispatchEvent(new Event('cv-local-documents-updated')); await settle();
     await click('PDF review', root); assert(documents.composition, 'Restored files did not restore the automatic preview'); await renderedPreview();
-    status.textContent = '4/4 attachment checks passed'; document.body.dataset.result = 'passed';
+    status.textContent = '6/6 attachment checks passed'; document.body.dataset.result = 'passed';
   } catch (reason) {
     const item = document.createElement('li'); item.dataset.result = 'fail'; item.textContent = `FAIL: ${reason instanceof Error ? reason.message : String(reason)}`; results.append(item);
     status.textContent = 'Attachment workflow failed'; document.body.dataset.result = 'failed';

@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import responsivePdfRenderer from './build/responsivePdfRenderer.ts';
 import vectorFontDecompression from './build/vectorFontDecompression.ts';
+import pdfPreviewAssets from './build/pdfPreviewAssets.ts';
 import { parseSupabaseConfiguration } from './src/lib/supabaseConfig.ts';
 
 export default defineConfig(({ mode }) => {
@@ -12,7 +13,7 @@ export default defineConfig(({ mode }) => {
     mode === 'development',
   );
   return {
-    plugins: [responsivePdfRenderer(), vectorFontDecompression(), vue()],
+    plugins: [responsivePdfRenderer(), vectorFontDecompression(), pdfPreviewAssets(), vue()],
     // Explicitly allowlist validated public configuration; never inline privileged keys.
     envPrefix: [],
     define: { __SUPABASE_CONFIGURATION__: JSON.stringify(configuration) },

@@ -1,20 +1,21 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { PreviewPage } from '../pdfTypes';
+import type { DocumentPreviewPage } from '../pdfTypes';
 import { makeT } from '../i18n/dict';
 import PdfPreview from './PdfPreview.vue';
 import PdfPagination from './PdfPagination.vue';
 
 const props = withDefaults(defineProps<{
-  pages: PreviewPage[]; page: number; isUpdating?: boolean; lang: string;
+  pages: DocumentPreviewPage[]; page: number; isUpdating?: boolean; lang: string;
   downloading?: boolean; downloadDisabled?: boolean; title?: string; hideActions?: boolean;
+  showOnMobile?: boolean;
 }>(), { isUpdating: false, downloading: false, downloadDisabled: false, title: '' });
 const emit = defineEmits<{ 'update:page': [value: number]; open: []; download: [] }>();
 const t = makeT(computed(() => props.lang));
 </script>
 
 <template>
-  <aside class="document-inline-preview" :class="{ 'document-inline-preview--no-actions': hideActions && !$slots.header }" :aria-label="title || t('liveCvPreview')">
+  <aside class="document-inline-preview" :class="{ 'document-inline-preview--no-actions': hideActions && !$slots.header, 'document-inline-preview--mobile': showOnMobile }" :aria-label="title || t('liveCvPreview')">
     <div v-if="!hideActions || $slots.header" class="document-inline-preview__header">
       <slot name="header" />
       <div v-if="!hideActions" class="document-inline-preview__actions">
@@ -43,5 +44,5 @@ const t = makeT(computed(() => props.lang));
 .document-inline-preview :deep(.pdf-preview__stage){display:block;min-height:0;overflow:visible;border-radius:0;background:transparent}
 .document-inline-preview :deep(.pdf-preview__page){width:100%;height:auto;max-width:794px;box-shadow:none}
 .document-inline-preview__pagination{min-width:0;width:min(100%,794px);margin:10px auto 0}
-@media(max-width:760px),(max-width:1180px) and (max-height:600px){.document-inline-preview{height:auto;display:block}.document-inline-preview__viewport{display:none}}
+@media(max-width:760px),(max-width:1180px) and (max-height:600px){.document-inline-preview{height:auto;display:block}.document-inline-preview__viewport{display:none}.document-inline-preview--mobile .document-inline-preview__viewport{display:block}}
 </style>

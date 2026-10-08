@@ -172,7 +172,7 @@ async function proposalReviewFlow() {
   await until(() => {
     const problem = root.querySelector('.application-documents [role="alert"]');
     if (problem) throw new Error(problem.textContent || 'Automatic package preview failed');
-    return root.querySelector<HTMLIFrameElement>('iframe.package-inline-pdf')?.src.startsWith('blob:') && !button('Download PDF').disabled;
+    return root.querySelector('.package-inline-pdf .pdf-canvas-page[data-rendered="true"] canvas') && !button('Download PDF').disabled;
   }, 'approved application automatically displays its complete PDF');
   for (const blob of [await setup.getCvPdf(), await setup.getLetterPdf()]) {
     const pdf = await PDFDocument.load(await blob.arrayBuffer()); assert(pdf.getPageCount() > 0, 'Normal export did not generate a real PDF');

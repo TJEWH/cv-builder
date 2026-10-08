@@ -12,7 +12,8 @@ const { descriptor } = parse(readFileSync(filename, 'utf8'));
 const compiled = compileScript(descriptor, { id: 'pdf-preview-gestures', inlineTemplate: true });
 const code = ts.transpileModule(compiled.content, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const exports: { default?: Component } = {};
-new Function('require', 'exports', code)(createRequire(filename), exports);
+const requireComponent = createRequire(filename);
+new Function('require', 'exports', code)((path: string) => path.endsWith('.vue') ? { default: {} } : requireComponent(path), exports);
 
 type HostNode = { tag?: string; props: Record<string, unknown> };
 type TouchPoint = { identifier: number; clientX: number; clientY: number };
