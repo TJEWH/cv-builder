@@ -416,7 +416,7 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
   <section class="section-group backup-manager">
     <div class="group-panel__scroll-body">
       <Teleport defer :to="selectorTarget || 'body'" :disabled="!selectorTarget">
-        <div v-show="selectorVisible" class="backup-manager__actions" :class="{ 'backup-manager__actions--docked': !!selectorTarget }">
+        <div v-show="selectorVisible" class="backup-manager__actions" :class="{ 'backup-manager__actions--docked': !!selectorTarget, 'backup-manager__actions--sidebar': selectorTarget.startsWith('#desktop-sidebar-') }">
           <select :class="{ 'variant-selector--docked': !!selectorTarget }" :value="currentId" :aria-label="t('versions')" @change="onConfigurationChange">
             <option v-if="!currentId" value="" disabled>{{ t('noSavedVersion') }}</option>
             <option v-for="config in configs" :key="config.id" :value="config.id">{{ config.parentId ? `${configs.find(item => item.id === config.parentId)?.name} / ` : '' }}{{ config.name }}</option>
@@ -433,7 +433,7 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
       </form>
 
       <div class="backup-manager__language">
-        <span>{{ t('language') }}</span>
+        <h3>{{ t('language') }}</h3>
         <button class="backup-manager__language-toggle" type="button" :class="{ 'is-on': lang === 'en' }" :aria-label="t('language')" :aria-pressed="lang === 'en'" @click="emit('toggle-language')">
           <span class="backup-manager__language-track"><span>DE</span><span>EN</span><span class="backup-manager__language-thumb"></span></span>
         </button>
@@ -475,9 +475,11 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
 .backup-manager__actions--docked { flex: 1; min-width: 0; flex-wrap: nowrap; }
 .backup-manager__actions--docked select { max-width: 420px; }
 .backup-manager__actions--docked .btn { flex-shrink: 0; min-height: 40px; }
+.backup-manager__actions--sidebar { display: grid; grid-template-columns: minmax(0, 1fr); flex: none; width: 100%; }
+.backup-manager__actions--sidebar select, .backup-manager__actions--sidebar .btn { width: 100%; max-width: none; }
 .backup-manager__save-as input { flex: 1 1 220px; width: auto; }
 .backup-manager__file-input { display: none; }
-.backup-manager__json-group { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid #ffffff26; }
+.backup-manager__json-group { display: grid; gap: 8px; padding-top: 20px; }
 .backup-manager__json-group h3 { margin: 0; font-size: 14px; color: #9be8c7; letter-spacing: .4px; }
 .backup-manager__hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .backup-manager__privacy-option { display: flex; align-items: center; gap: 8px; color: #d1fae5; font-size: 13px; cursor: pointer; }

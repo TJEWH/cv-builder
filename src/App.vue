@@ -26,6 +26,9 @@ import LetterTemplates from './components/LetterTemplates.vue';
 import LocalAttachments from './components/LocalAttachments.vue';
 import AppToaster from './components/AppToaster.vue';
 import { useToasts, useToastWatch } from './composables/useToasts';
+import { provideDesktopSidebar } from './composables/desktopSidebar';
+import DesktopSidebar from './components/DesktopSidebar.vue';
+import DesktopSidebarPortal from './components/DesktopSidebarPortal.vue';
 
 const state = reactive<CvState>(createEmptyDocument());
 const { user: cloudUser, client: supabaseClient } = useSupabaseAuth();
@@ -38,6 +41,7 @@ const previewMode = ref(false);
 const fullPreviewView = ref('pdf');
 const mobileViewport = window.matchMedia('(max-width: 760px)');
 const isMobile = ref(mobileViewport.matches);
+provideDesktopSidebar(computed(() => !isMobile.value));
 function syncMobileViewport() {
   isMobile.value = mobileViewport.matches;
 }
@@ -624,6 +628,9 @@ function selectBuilderGroup(group: string) {
     </FullDocumentPreview>
 
     <section v-show="!previewMode" class="builder-shell">
+      <DesktopSidebar v-show="!isMobile" :lang="lang">
+        <template #header><SupabaseAuth v-if="!isMobile" :lang="lang === 'de' ? 'de' : 'en'" /></template>
+      </DesktopSidebar>
       <header v-if="!isMobile" class="builder-topbar">
         <nav class="builder-topbar__tabs" role="tablist" :aria-label="t('content')">
           <button
@@ -643,18 +650,16 @@ function selectBuilderGroup(group: string) {
           </button>
         </nav>
 
-        <div class="builder-topbar__utilities">
-          <SupabaseAuth class="builder-topbar__auth" :lang="lang === 'de' ? 'de' : 'en'" />
-        </div>
       </header>
 
-
+      <DesktopSidebarPortal area="subtabs" :active="!isCloudTab">
       <div v-show="!isCloudTab" class="cv-studio-navigation">
         <nav class="cv-studio-subtabs" aria-label="CV Studio sections">
           <button v-for="group in builderGroups" :key="group.key" class="btn" :class="{ 'is-active': activeBuilderGroup === group.key }" :aria-pressed="activeBuilderGroup === group.key" :disabled="groupDisabled(group.key)" type="button" @click="selectBuilderGroup(group.key)"><font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" /><span>{{ isMobile && group.key === 'templates' ? (lang === 'de' ? 'Vorlagen' : 'Templates') : group.label }}</span></button>
           <button v-if="isMobile && studioHasPreview" class="btn cv-studio-open-preview" type="button" :aria-label="t('openPreview')" :title="t('openPreview')" :disabled="isEmptyDocument" @click="openFullPreview"><font-awesome-icon :icon="['fas', 'eye']" aria-hidden="true" /></button>
         </nav>
       </div>
+      </DesktopSidebarPortal>
       <section v-if="isCloudTab && !cloudUser" class="workspace-sign-in"><h1>{{ activeWorkspace === 'opportunities' ? (lang === 'de' ? 'Stellenangebote entdecken' : 'Discover opportunities') : (lang === 'de' ? 'Bewerbungen vorbereiten' : 'Prepare applications') }}</h1><p class="app-hint">{{ lang === 'de' ? 'Melde dich bei Supabase an, um auf deinen Bewerbungsbereich zuzugreifen. Das CV-Studio ist auch ohne Anmeldung verfügbar.' : 'Sign in to Supabase to access your application workspace. CV Studio remains available without an account.' }}</p></section>
 
       <JobWorkspace
@@ -664,6 +669,7 @@ function selectBuilderGroup(group: string) {
         :client="supabaseClient"
         :user-id="cloudUser.id"
         :tab="cloudTab"
+        :active="isCloudTab"
         :lang="lang"
         :configurations="selectableConfigurations"
         :selected-id="selectedConfigurationId"
@@ -674,13 +680,15 @@ function selectBuilderGroup(group: string) {
         @edit-variant="openStudioVariant"
       />
 
-      <footer v-show="!isCloudTab && studioHasPreview && (!isMobile || ['versions', 'content'].includes(activeBuilderGroup))" class="studio-bottom-bar" :aria-label="lang === 'de' ? 'CV-Studio-Aktionen' : 'CV Studio actions'">
+      <footer v-show="isMobile && !isCloudTab && studioHasPreview && ['versions', 'content'].includes(activeBuilderGroup)" class="studio-bottom-bar" :aria-label="lang === 'de' ? 'CV-Studio-Aktionen' : 'CV Studio actions'">
         <div id="cv-studio-tools" class="studio-bottom-bar__tools" />
-        <div v-if="!isMobile" class="studio-bottom-bar__preview">
+      </footer>
+      <DesktopSidebarPortal area="minor" :active="!isCloudTab && studioHasPreview">
+        <div v-show="!isMobile && !isCloudTab && studioHasPreview" class="studio-sidebar-preview">
           <button class="btn" type="button" :disabled="isEmptyDocument" @click="openFullPreview">{{ t('openPreview') }}</button>
           <button class="btn btn--primary" type="button" :disabled="isStudioPreviewExporting || isEmptyDocument" @click="exportStudioPreview"><font-awesome-icon v-if="isStudioPreviewExporting" :icon="['fas', 'spinner']" spin />{{ t(isStudioPreviewExporting ? 'exportingPdf' : 'downloadPdf') }}</button>
         </div>
-      </footer>
+      </DesktopSidebarPortal>
 
       <section v-show="!isCloudTab" id="builder-group-cv-studio" class="builder-layout" :class="{ 'builder-layout--library': !studioHasPreview }">
         <div class="builder-layout__controls">
@@ -692,8 +700,8 @@ function selectBuilderGroup(group: string) {
               class="builder-group-panel"
               :state="state"
               :lang="lang"
-              selector-target="#cv-studio-tools"
-              :selector-visible="activeBuilderGroup === 'versions'"
+              :selector-target="isMobile ? '#cv-studio-tools' : '#desktop-sidebar-major'"
+              :selector-visible="!isCloudTab && activeBuilderGroup === 'versions'"
               :selected-id="selectedConfigurationId"
               :on-save="scheduleStateSave"
               :on-load="mergeIn"
@@ -706,7 +714,7 @@ function selectBuilderGroup(group: string) {
             />
           </Transition>
           <Transition name="builder-group">
-            <FormBuilder v-show="activeBuilderGroup === 'content' && !isEmptyDocument" id="builder-group-content" ref="formBuilder" class="builder-group-panel" toolbar-target="#cv-studio-tools" :toolbar-visible="activeBuilderGroup === 'content' && !isEmptyDocument" :state="state" :configurations="selectableConfigurations" :selected-id="selectedConfigurationId" :read-version="readSectionVersion" :save-version="saveSectionVersion" @section-save-status="sectionSaveStatus = $event" />
+            <FormBuilder v-show="activeBuilderGroup === 'content' && !isEmptyDocument" id="builder-group-content" ref="formBuilder" class="builder-group-panel" :toolbar-target="isMobile ? '#cv-studio-tools' : '#desktop-sidebar-major'" :toolbar-visible="!isCloudTab && activeBuilderGroup === 'content' && !isEmptyDocument" :state="state" :configurations="selectableConfigurations" :selected-id="selectedConfigurationId" :read-version="readSectionVersion" :save-version="saveSectionVersion" @section-save-status="sectionSaveStatus = $event" />
           </Transition>
           <Transition name="builder-group">
             <DesignPanel
@@ -715,6 +723,7 @@ function selectBuilderGroup(group: string) {
               class="builder-group-panel"
               v-model="state.design"
               :lang="lang"
+              :sidebar-active="!isCloudTab && activeBuilderGroup === 'design' && !isEmptyDocument"
             />
           </Transition>
           <Transition name="builder-group">
@@ -726,8 +735,8 @@ function selectBuilderGroup(group: string) {
               :lang="lang"
             />
           </Transition>
-          <LetterTemplates v-show="activeBuilderGroup === 'templates'" class="builder-group-panel studio-templates" :user-id="cloudUser?.id || 'local'" :lang="lang" />
-          <LocalAttachments v-show="activeBuilderGroup === 'attachments'" class="builder-group-panel studio-attachments" :user-id="cloudUser?.id || ''" :client="supabaseClient" :lang="lang" :active="!isCloudTab && activeBuilderGroup === 'attachments'" />
+          <LetterTemplates v-show="activeBuilderGroup === 'templates'" class="builder-group-panel studio-templates" :user-id="cloudUser?.id || 'local'" :lang="lang" :sidebar-active="!isCloudTab && activeBuilderGroup === 'templates'" />
+          <LocalAttachments v-show="activeBuilderGroup === 'attachments'" class="builder-group-panel studio-attachments" :user-id="cloudUser?.id || ''" :client="supabaseClient" :lang="lang" :active="!isCloudTab && activeBuilderGroup === 'attachments'" :sidebar-active="!isCloudTab && activeBuilderGroup === 'attachments'" />
         </div>
 
         <InlineDocumentPreview v-if="!isMobile && studioHasPreview" class="studio-inline-preview" hide-actions v-model:page="studioPreviewPage" :pages="studioPreviewPages" :is-updating="isStudioPreviewRendering" :lang="lang" :downloading="isStudioPreviewExporting" :title="t(isPrivacyStudioPreview ? 'privacyPreview' : 'liveCvPreview')" @open="openFullPreview" @download="exportStudioPreview">
@@ -806,7 +815,6 @@ body,
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(76px, 1fr);
-  gap: 8px;
   min-width: 0;
 }
 
@@ -817,9 +825,8 @@ body,
   gap: 6px;
   min-height: var(--topbar-tab-height, 66px);
   padding: 8px;
-  border: 1px solid #134e4a;
-  border-radius: 9px;
-  background: #06141f;
+  border: none;
+  background: none;
   color: #9bb3ad;
   cursor: pointer;
   font: inherit;
@@ -832,16 +839,9 @@ body,
 .builder-topbar__tab:hover,
 .builder-topbar__tab:focus-visible { border-color: #2a6a60; background: #0a1c26; color: #d1fae5; }
 .builder-topbar__tab:focus-visible { outline: 2px solid #9be8c7; outline-offset: 2px; }
-.builder-topbar__tab.is-active { border-color: #27f3a2; background: rgba(16, 185, 129, .16); color: #d1fae5; box-shadow: inset 0 0 0 1px rgba(39, 243, 162, .18); }
+.builder-topbar__tab.is-active { background: rgba(16, 185, 129, .16); color: #d1fae5; }
 .builder-topbar__tab:active { transform: translateY(1px); }
 .builder-topbar__tab:disabled { opacity: .4; cursor: not-allowed; border-color: transparent; background: transparent; color: #94a3b8; box-shadow: none; transform: none; }
-
-.builder-topbar__utilities {
-  display: grid;
-  justify-self: start;
-}
-
-.builder-topbar__auth { grid-column: 1 / -1; }
 
 .builder-layout {
   display: grid;
@@ -922,13 +922,12 @@ body,
 }
 .builder-group-enter-from, .builder-group-leave-to { opacity: 0; }
 
-.builder-layout__controls .builder-group-panel { padding: 20px; box-sizing: border-box; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+.builder-layout__controls .builder-group-panel { padding: 16px; box-sizing: border-box; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
 .builder-layout__controls .builder-group-panel > .content-panel { padding: 0; background: transparent; border: 0; border-radius: 0; }
 .studio-bottom-bar { position: fixed; inset-inline: 0; bottom: 0; z-index: 30; display: flex; align-items: center; gap: 20px; min-height: 66px; padding: 12px max(20px, calc((100vw - 1484px) / 2)); box-sizing: border-box; border-top: 1px solid #24504e; background: #06141f; box-shadow: 0 -6px 20px #0003; }
 .studio-bottom-bar__tools { display: flex; align-items: center; flex: 1; min-width: 0; }
-.studio-bottom-bar__preview { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; }
-.studio-bottom-bar__preview .btn { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; }
-@media (min-width: 761px) { .builder-layout:not(.builder-layout--library) { margin-bottom: 66px; } }
+.studio-sidebar-preview { display: flex; flex-direction: column; gap: 8px; }
+.studio-sidebar-preview .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; width: 100%; }
 
 @media (min-width: 761px) and (max-height: 600px) {
   .builder-topbar { --topbar-tab-height: 42px; }
@@ -994,4 +993,25 @@ body,
 
 }
 
+@media (min-width: 761px) {
+  .cv-builder-app { padding: 0; }
+  .builder-shell { --topbar-tab-height: 66px; display: grid; grid-template-columns: 20% minmax(0, 1fr); grid-template-rows: var(--topbar-tab-height) minmax(0, 1fr); gap: 0; width: 100%; max-width: none; }
+  .builder-shell > .desktop-sidebar { grid-column: 1; grid-row: 1 / 3; }
+  .builder-shell > .builder-topbar { grid-column: 2; grid-row: 1; display: block; min-width: 0}
+  .builder-topbar__tabs { height: 100%; }
+  .builder-shell > .builder-layout, .builder-shell > .jobs-workspace, .builder-shell > .workspace-sign-in { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; margin-bottom: 0; }
+  .builder-layout:not(.builder-layout--library) { grid-template-columns: minmax(0, 1fr) minmax(280px, 34%); grid-template-rows: minmax(0, 1fr); gap: 0; padding-right: 16px; }
+  .builder-layout__controls .builder-group-panel { padding: 16px; }
+  .studio-inline-preview { width: 100%; min-width: 0; max-width: none; }
+  .desktop-sidebar .cv-studio-subtabs { display: flex; flex-direction: column; gap: 5px; margin: 0; }
+  .desktop-sidebar .cv-studio-subtabs .btn { justify-content: flex-start; }
+  .workspace-sign-in { margin: 20px 16px; align-self: start; }
+}
+@media (min-width: 761px) and (max-height: 600px) {
+  .builder-shell { --topbar-tab-height: 42px; }
+}
+@media (min-width: 761px) and (max-width: 1050px) {
+  .builder-layout:not(.builder-layout--library) { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(220px, 38vh); }
+  .studio-inline-preview { width: min(100%, 520px); justify-self: center; }
+}
 </style>

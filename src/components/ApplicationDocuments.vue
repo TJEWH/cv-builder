@@ -10,6 +10,8 @@ import { createAttachmentMetadataRepository } from '../composables/attachmentMet
 import { composeApplicationPackage, packageItemProblem } from '../composables/applicationPackage';
 import { usePdfBlobPreview } from '../composables/usePdfBlobPreview';
 import { useToastWatch } from '../composables/useToasts';
+import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
+import { useDesktopSidebar } from '../composables/desktopSidebar';
 
 const props = withDefaults(defineProps<{
   applicationId: string;
@@ -28,6 +30,7 @@ const props = withDefaults(defineProps<{
   storage?: LocalDocumentStorage;
 }>(), { mode: 'review', cvReady: undefined, exportReady: true, client: null, active: true });
 const emit = defineEmits<{ readiness: [value: { included: number; missing: number }] }>();
+const desktopSidebar = useDesktopSidebar();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const documents = ref<LocalDocumentMetadata[]>([]);
 const sharedDocuments = ref<AttachmentMetadata[]>([]);
@@ -211,7 +214,7 @@ useToastWatch(() => previewError.value, () => ({
       <div class="documents-controls">
     <p v-if="loading" role="status">{{ text('Loading local documents…', 'Lokale Dokumente werden geladen…') }}</p>
         <template v-if="!loading && !loadFailed">
-        <slot />
+        <slot v-if="mode !== 'review'" />
         <section v-show="mode !== 'tracking'" class="document-section">
           <ol class="package-items">
             <li v-for="(item, index) in manifest.items" :key="item.id" :class="{ excluded: !item.included, missing: problems.some((problem) => problem.id === item.id) }">
@@ -224,7 +227,9 @@ useToastWatch(() => previewError.value, () => ({
           <p v-if="!includedCount" class="app-hint muted">{{ text('Include at least one document to create a package.', 'Mindestens ein Dokument für die Zusammenstellung auswählen.') }}</p>
           <div v-if="libraryOptions.length" class="library-picker"><select v-model="selectedLibraryId" :disabled="busy" :aria-label="text('Choose an existing document', 'Vorhandenes Dokument auswählen')" @change="attachLibraryDocument"><option value="">{{ text('From local attachment library…', 'Aus lokaler Anhangsbibliothek…') }}</option><option v-for="document in libraryOptions" :key="document.id" :value="document.id" :disabled="!availableIds.has(document.id) || !document.description?.trim()">{{ document.name }}{{ !availableIds.has(document.id) ? text(' — file missing on this device', ' — Datei fehlt auf diesem Gerät') : !document.description?.trim() ? text(' — description needed in CV Studio', ' — Beschreibung im CV-Studio ergänzen') : '' }}</option></select></div>
           <p v-if="!library.length" class="app-hint muted">{{ text('Add a named attachment with a description in CV Studio, then select it here.', 'Einen benannten Anhang mit Beschreibung im CV-Studio hinzufügen und dann hier auswählen.') }}</p>
-          <div v-if="mode === 'review'" class="package-actions"><button type="button" :disabled="busy || !composition" @click="downloadPackage">{{ text('Download PDF', 'PDF herunterladen') }}</button></div>
+          <DesktopSidebarPortal v-if="mode === 'review'" area="major" :active="active">
+            <div class="package-actions" :class="{ 'package-actions--sidebar': desktopSidebar }"><button type="button" :disabled="busy || !composition" @click="downloadPackage">{{ text('Download PDF', 'PDF herunterladen') }}</button></div>
+          </DesktopSidebarPortal>
         </section>
         <details v-if="mode === 'tracking'" class="document-section">
           <summary>{{ text('Local backup', 'Lokales Backup') }}</summary>
@@ -239,9 +244,12 @@ useToastWatch(() => previewError.value, () => ({
         <div v-else class="preview-empty" role="status"><span aria-hidden="true">▤</span><p :class="{ 'app-hint': !previewBusy }">{{ previewBusy ? text('Updating PDF preview…', 'PDF-Vorschau wird aktualisiert…') : previewFailed || previewError ? text('The PDF preview could not be created.', 'Die PDF-Vorschau konnte nicht erstellt werden.') : text('The complete PDF appears automatically once the selected documents are ready.', 'Das gesamte PDF erscheint automatisch, sobald die ausgewählten Unterlagen bereit sind.') }}</p><button v-if="previewFailed || previewError" type="button" :disabled="!canBuild" @click="previewError ? retryPreview() : buildPreview()">{{ text('Retry preview', 'Vorschau erneut versuchen') }}</button></div>
         <div class="package-preview-actions">
           <details v-if="composition" class="page-map-summary"><summary>{{ text('Document order', 'Dokumentreihenfolge') }}</summary><ul class="page-map"><li v-for="document in composition.documents" :key="document.itemId">{{ document.label }} <span>{{ text('p.', 'S.') }} {{ document.firstPage }}<template v-if="document.pageCount > 1">–{{ document.firstPage + document.pageCount - 1 }}</template></span></li></ul></details>
-          <button type="button" :disabled="!previewPages.length || !!previewError" @click="expanded = true">{{ text('Open preview', 'Vorschau öffnen') }}</button>
+          <DesktopSidebarPortal area="minor" :active="active && mode === 'review'">
+            <button type="button" :disabled="!previewPages.length || !!previewError" @click="expanded = true">{{ text('Open preview', 'Vorschau öffnen') }}</button>
+          </DesktopSidebarPortal>
         </div>
       </section>
+      <section v-if="mode === 'review' && $slots.default" class="application-checklist"><slot /></section>
     <FullDocumentPreview v-model="expanded" v-model:page="previewPage" :pages="previewPages" :is-updating="previewBusy || previewLoading" :title="text('Complete application PDF', 'Vollständige Bewerbungsunterlagen als PDF')" :lang="lang" :error="previewError" :download-disabled="busy || !composition" @download="downloadPackage" />
   </section>
 </template>
@@ -257,6 +265,7 @@ h3,h4,p { margin:0; } h3 { color:inherit; font-size:1.2rem; } h4 { color:inherit
 .package-preview { display:flex; flex-direction:column; min-height:0; overflow:visible; gap:10px; }
 .package-preview > :not(.package-inline-pdf):not(.preview-empty) { flex-shrink:0; }
 .document-section { min-width:0; }
+.application-checklist { grid-column:1 / -1; min-width:0; }
 .documents-controls > details.document-section { padding-top:16px; border-top:1px solid #28534e; }
 summary { font-weight:650; cursor:pointer; }
 button,.file-button,select { font:inherit; font-size:.84rem; border-radius:7px; border:1px solid #28534e; padding:8px 11px; background:#06141f; color:#d1fae5; cursor:pointer; }
@@ -281,6 +290,8 @@ input[type="checkbox"] { accent-color:#67c8a6; width:16px; height:16px; flex-shr
 .item-problem { flex-basis:100%; color:#f2c6a7; line-height:1.45; }
 .attachment-description { flex-basis:100%; color:#a6c1b9; white-space:pre-wrap; overflow-wrap:anywhere; font-size:.82rem; line-height:1.5; }
 .package-actions,.backup-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:18px; }
+.package-actions--sidebar { margin-top:0; }
+.package-actions--sidebar button { width:100%; }
 .library-picker { display:flex; gap:7px; margin-top:10px; } select { min-width:0; flex:1; }
 .page-map { list-style:none; padding:0; margin:14px 0; }
 .package-inline-pdf { width:100%; height:auto; flex:none; overflow:visible; }

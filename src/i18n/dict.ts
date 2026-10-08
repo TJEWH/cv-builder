@@ -20,7 +20,6 @@ export const dict: Record<string, Record<Language, string>> = {
     privacy:            {de: 'Privat', en: 'Privacy'},
     anonymizationHelp:  {de: 'Sichtbarer Text wird geteilt. Kontaktdaten werden durch Beispieldaten pseudonymisiert; ausgeschlossene Inhalte werden nicht geteilt. Sichtbare Arbeitgeber, Orte und Links können weiterhin identifizieren. Dies garantiert keine vollständige Anonymität. Die Originale bleiben lokal erhalten.', en: 'Visible text is shared. Contact details are pseudonymized with sample data; excluded content is not shared. Visible employers, locations and links can still identify you. This does not guarantee full anonymity. Originals remain unchanged locally.'},
     confidentialMarkerHelp: {de: 'Für eine präzise wortweise Maskierung in Textfeldern markiere Text mit !!vertrauliches Wort!!.', en: 'For precise word-level masking in text fields, mark text with !!sensitive word!!.'},
-    contactAlwaysAnonymized: {de: 'Pseudonymisiert — durch Beispieldaten ersetzt', en: 'Pseudonymized — replaced with sample data'},
     downloadAnonymizedPdf: {de: 'Datenschutzgefiltertes PDF herunterladen', en: 'Download privacy-filtered PDF'},
     exportingAnonymizedPdf: {de: 'Datenschutzgefiltertes PDF wird erstellt...', en: 'Exporting privacy-filtered PDF...'},
     showAnonymizedPreview: {de: 'Datenschutzvorschau anzeigen', en: 'Show privacy preview'},

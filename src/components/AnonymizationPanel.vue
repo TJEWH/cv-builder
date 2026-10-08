@@ -61,14 +61,15 @@ function setExcluded(key: keyof CvState['anonymization'], id: string, shouldExcl
 <template>
   <section class="section-group editor-panel anonymization-panel">
     <div class="editor-panel__body">
-      <p class="app-hint">{{ t('anonymizationHelp') }}</p>
-      <p class="app-hint">{{ t('confidentialMarkerHelp') }}</p>
+      <p class="app-hint">
+        <span>{{ t('anonymizationHelp')}}</span><br><br>
+        <span>{{ t('confidentialMarkerHelp')}}</span>
+      </p>
 
       <label class="anonymization-panel__row anonymization-panel__contact">
         <input type="checkbox" checked disabled>
         <span>{{ t('headerTitle') }}</span>
       </label>
-      <p class="app-hint">{{ t('contactAlwaysAnonymized') }}</p>
 
       <div class="anonymization-panel__columns">
         <section class="anonymization-panel__column">

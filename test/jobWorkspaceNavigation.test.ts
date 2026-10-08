@@ -20,7 +20,7 @@ const renderer = createRenderer<object, object>({
   parentNode: () => null, nextSibling: () => null,
 });
 
-function mount(t: TestContext, options: { restoredOpportunityId?: string } = {}) {
+function mount(t: TestContext, options: { restoredOpportunityId?: string; active?: boolean } = {}) {
   const storage = new Map<string, string>();
   if (options.restoredOpportunityId) storage.set('CV_SELECTED_OPPORTUNITY:account-one', options.restoredOpportunityId);
   let unmount = () => {};
@@ -60,13 +60,13 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string } = {})
   new Function('require', 'exports', code)((path: string) => path.endsWith('.vue') ? { default: {} }
     : path === '../composables/useJobWorkspace' ? { useJobWorkspace: () => workspace } : requireFromComponent(path), exports);
   const component = { ...exports.default, render: () => null };
-  const props = reactive({ client: null, userId: 'account-one', tab: 'opportunities' as 'opportunities' | 'applications', lang: 'en', configurations: [], selectedId: '', readVersion: () => null });
+  const props = reactive({ client: null, userId: 'account-one', tab: 'opportunities' as 'opportunities' | 'applications', lang: 'en', configurations: [], selectedId: '', readVersion: () => null, ...(options.active === undefined ? {} : { active: options.active }) });
   let mounted: unknown;
   const app = renderer.createApp({ render: () => h(component, { ...props, ref: (value: unknown) => { mounted = value; }, onNavigate: (tab: typeof props.tab) => { props.tab = tab; } }) });
   app.mount({});
   unmount = () => app.unmount();
   const setup = (mounted as { $: { setupState: {
-    query: string; statusFilter: string; reviewFilter: string; hideWithApplication: boolean; sortBy: string; deadlineFilter: 'current' | 'past'; now: Date;
+    query: string; statusFilter: string; reviewFilter: string; hideWithApplication: boolean; hideNotInterested: boolean; sortBy: string; deadlineFilter: 'current' | 'past'; now: Date;
     recencyById: Map<string, 'new' | 'updated' | null>; unseenById: Map<string, 'new' | 'updated' | null>;
     fitScoreById: Map<string, number | undefined>; fitTone(score: number | undefined): string | undefined; fitLabel(score: number | undefined): string;
     filteredOpportunities: Opportunity[]; filteredApplications: Application[]; selectedOpportunity?: Opportunity; showingDetail: boolean; editingApplication?: Application;
@@ -75,8 +75,17 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string } = {})
     openOpportunity(id: string): void; closeOpportunity(): void; closeApplication(): void; startApplication(item: Opportunity): Promise<void>;
     requestDetailRemoval(item: Application): Promise<void>; cancelRemoval(): void; confirmRemoval(item: Application): Promise<void>;
   } } }).$.setupState;
-  return { setup, props, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, created: () => created };
+  const componentProps = (mounted as { $props: { active: boolean } }).$props;
+  return { setup, props, componentProps, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, created: () => created };
 }
+
+test('standalone workspaces activate sidebar controls by default while accepting explicit inactivity', async (t) => {
+  const { props, componentProps } = mount(t);
+  assert.equal(componentProps.active, true);
+  props.active = false;
+  await nextTick();
+  assert.equal(componentProps.active, false);
+});
 
 test('strong-interest reviews remain filterable for current and past opportunities regardless of score', (t) => {
   const { setup, props, opportunity, opportunities, reviews } = mount(t);
@@ -89,6 +98,30 @@ test('strong-interest reviews remain filterable for current and past opportuniti
   assert.deepEqual(setup.filteredOpportunities.map(item => item.id), [past.id]);
   reviews.value[1].state = 'interested';
   assert.equal(setup.filteredOpportunities.length, 0);
+});
+
+test('hide not interesting is an independent checkbox that combines with review and application filters', (t) => {
+  const { setup, props, opportunity, opportunities, reviews, applications, application } = mount(t);
+  const ignored = normalizeOpportunity({ id: 'ignored', title: 'Ignored opportunity', deadline: null });
+  opportunities.value.push(ignored);
+  reviews.value = [
+    { user_id: props.userId, opportunity_id: opportunity.id, state: 'strong_interest', reviewed_updated_at: null, created_at: '', updated_at: '' },
+    { user_id: props.userId, opportunity_id: ignored.id, state: 'not_interested', reviewed_updated_at: null, created_at: '', updated_at: '' },
+  ];
+  assert.equal(setup.reviewFilter, 'all');
+  assert.equal(setup.hideNotInterested, true);
+  assert.deepEqual(setup.filteredOpportunities.map(item => item.id), [opportunity.id]);
+  setup.hideNotInterested = false;
+  assert.equal(setup.filteredOpportunities.length, 2);
+  setup.reviewFilter = 'not_interested';
+  assert.deepEqual(setup.filteredOpportunities.map(item => item.id), [ignored.id]);
+  applications.value = [{ ...application, opportunity_id: ignored.id }];
+  assert.equal(setup.filteredOpportunities.length, 0);
+  setup.hideWithApplication = false;
+  assert.deepEqual(setup.filteredOpportunities.map(item => item.id), [ignored.id]);
+  setup.hideNotInterested = true;
+  assert.equal(setup.filteredOpportunities.length, 0);
+  assert.equal(setup.reviewFilter, 'not_interested', 'the checkbox preserves the chosen review filter');
 });
 
 test('application search matches server codes and full IDs, including applications without a code', async (t) => {
@@ -124,7 +157,8 @@ test('opportunity detail preserves filters and stays open after its review remov
   await nextTick();
   assert.equal(setup.showingDetail, false);
   assert.equal(setup.query, 'Robotics');
-  assert.equal(setup.reviewFilter, 'active');
+  assert.equal(setup.reviewFilter, 'all');
+  assert.equal(setup.hideNotInterested, true);
   assert.equal(storage.has('CV_SELECTED_OPPORTUNITY:account-one'), false);
 });
 
@@ -180,6 +214,7 @@ test('deadline options show mutually exclusive current and past opportunities an
   assert.deepEqual(ids(), ['unknown']);
   setup.query = '';
   setup.reviewFilter = 'all';
+  setup.hideNotInterested = false;
   setup.hideWithApplication = false;
   assert.deepEqual(ids(), ['applied', 'exact', 'future', 'invalid', 'not-interested', 'unknown']);
   setup.now = new Date('2026-10-06T12:00:00.001Z');

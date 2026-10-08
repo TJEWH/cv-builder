@@ -1,5 +1,5 @@
 /** Development-only visual fixture; never imported by the production app. No network or auth. */
-import { createApp, defineComponent, h, ref } from 'vue';
+import { createApp, defineComponent, h, onBeforeUnmount, ref } from 'vue';
 import PrimeVue from 'primevue/config';
 import Aura from '@primeuix/themes/aura';
 import InputText from 'primevue/inputtext';
@@ -21,6 +21,8 @@ import { faGithub, faLinkedin } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import JobWorkspace from '../../src/components/JobWorkspace.vue';
 import AppToaster from '../../src/components/AppToaster.vue';
+import DesktopSidebar from '../../src/components/DesktopSidebar.vue';
+import { provideDesktopSidebar } from '../../src/composables/desktopSidebar';
 import { createSampleDocument } from '../../src/composables/builtinConfigurations';
 import { DRAFTING_IDENTITY_PLACEHOLDERS } from '../../src/composables/cloudDrafting';
 import { createLetterRepository, DEFAULT_LETTER_TEMPLATES } from '../../src/composables/motivationLetters';
@@ -249,6 +251,12 @@ library.add(
 );
 const Fixture = defineComponent({
   setup() {
+    const viewport = window.matchMedia('(min-width: 761px)');
+    const desktop = ref(viewport.matches);
+    const resize = () => { desktop.value = viewport.matches; };
+    viewport.addEventListener('change', resize);
+    onBeforeUnmount(() => viewport.removeEventListener('change', resize));
+    provideDesktopSidebar(desktop);
     const tab = ref<'opportunities' | 'applications'>('opportunities');
     const lang = ref('en');
     const draftStatus = ref('');
@@ -283,8 +291,9 @@ const Fixture = defineComponent({
       });
       draftStatus.value = error ? String(error) : 'Synthetic draft returned. Use “Refresh cloud drafts” in the letter tab.';
     }
-    return () => h('main', { class: 'browser-workspace-fixture', style: 'display:grid;grid-template-rows:auto minmax(0,1fr);height:100dvh;overflow:hidden;padding:16px;max-width:1440px;margin:auto' }, [
+    return () => h('main', { class: ['browser-workspace-fixture', { 'has-desktop-sidebar': desktop.value }], style: 'display:grid;grid-template-rows:auto minmax(0,1fr);height:100dvh;overflow:hidden;padding:16px;max-width:1440px;margin:auto' }, [
       h(AppToaster, { lang: lang.value }),
+      h(DesktopSidebar, { lang: lang.value, style: desktop.value ? '' : 'display:none' }, { header: () => h('span', { style: 'display:grid;place-items:center' }, 'Synthetic account') }),
       h('header', { class: 'fixture-toolbar', style: 'display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 16px;color:#9be8c7' }, [
         h('strong', 'Browser fixture · In-memory data only'),
         ...(['opportunities', 'applications'] as const).map((value) => h('button', { class: 'btn', onClick: () => { tab.value = value; } }, value)),

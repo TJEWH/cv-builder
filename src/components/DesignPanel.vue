@@ -8,12 +8,16 @@ import { BODY_FONTS, HEADING_FONTS, FontImportError, fontOptions, importWebFont,
 import DesignControlFields from './DesignControlFields.vue';
 import { designControlRows, type DesignControl, type FavoriteLink } from '../composables/designControls';
 import { useToasts } from '../composables/useToasts';
+import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
+import { useDesktopSidebar } from '../composables/desktopSidebar';
 
 const props = defineProps({
   modelValue: { type: Object as PropType<CvDesign>, required: true },
   lang: { type: String, required: true },
+  sidebarActive: { type: Boolean, default: true },
 });
 const emit = defineEmits<{ 'update:modelValue': [design: CvDesign] }>();
+const desktopSidebar = useDesktopSidebar();
 
 const design = computed({
   get: () => new Proxy(props.modelValue, {
@@ -173,13 +177,15 @@ function toggleSection(key: string) {
   <section class="section-group editor-panel design-panel">
     <div class="design-panel__scroll-body">
       <section class="design-favorites">
-      <div class="design-favorites__header">
+      <DesktopSidebarPortal area="major" :active="sidebarActive">
+      <div class="design-favorites__header" :class="{ 'design-favorites__header--sidebar': desktopSidebar && sidebarActive }">
         <span><font-awesome-icon :icon="['fas', 'heart']" aria-hidden="true" /> {{ t('designFavorites') }}</span>
         <button class="mini design-favorites__toggle" type="button" :class="{ 'is-active': favoritesMode }" :aria-pressed="favoritesMode" @click="favoritesMode = !favoritesMode">
           <font-awesome-icon :icon="['fas', favoritesMode ? 'check' : 'sliders']" aria-hidden="true" />
           {{ favoritesMode ? t('designDone') : t('designCustomize') }}
         </button>
       </div>
+      </DesktopSidebarPortal>
 
       <div v-if="favoritesMode" class="design-favorites__picker" :aria-label="t('designChooseFavoriteControls')">
         <label v-for="option in availableDesignControls" :key="option.key">
@@ -232,6 +238,8 @@ function toggleSection(key: string) {
 .design-favorites__header span { display: inline-flex; align-items: center; gap: 7px; }
 .design-favorites__header .svg-inline--fa { color: #fb7185; }
 .design-favorites__toggle { display: inline-flex; align-items: center; gap: 6px; }
+.design-favorites__header--sidebar { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+.design-favorites__header--sidebar .design-favorites__toggle { width: 100%; min-height: 40px; justify-content: flex-start; }
 .design-favorites__toggle.is-active { border-color: #27f3a2; background: rgba(16, 185, 129, .16); color: #d1fae5; }
 .design-favorites__picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 7px 12px; padding-top: 10px; border-top: 1px solid #134e4a; }
 .design-favorites__picker label { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }

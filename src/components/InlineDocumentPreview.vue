@@ -34,7 +34,7 @@ const t = makeT(computed(() => props.lang));
 </template>
 
 <style scoped>
-.document-inline-preview{display:grid;grid-template-rows:auto minmax(0,1fr);gap:10px;min-width:0;min-height:0;height:100%;overflow:hidden;background:transparent}
+.document-inline-preview{display:grid;min-width:0;min-height:0;height:100%;overflow:hidden;background:transparent;margin-top:16px;}
 .document-inline-preview--no-actions{grid-template-rows:minmax(0,1fr);gap:0}
 .document-inline-preview__header{display:grid;gap:10px;min-width:0}
 .document-inline-preview__actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:min(100%,794px);justify-self:center}

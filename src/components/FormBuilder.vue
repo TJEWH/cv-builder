@@ -552,7 +552,7 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
       <CopyCvSection :state="props.state" :configurations="configurations" :read-version="readVersion" />
       </div>
       <Teleport defer :to="toolbarTarget || 'body'" :disabled="!toolbarTarget">
-        <div v-show="toolbarVisible" class="content-mode-toolbar" :class="{ 'content-mode-toolbar--docked': !!toolbarTarget }" role="group" :aria-label="t('contentTools')">
+        <div v-show="toolbarVisible" class="content-mode-toolbar" :class="{ 'content-mode-toolbar--docked': !!toolbarTarget, 'content-mode-toolbar--sidebar': toolbarTarget.startsWith('#desktop-sidebar-') }" role="group" :aria-label="t('contentTools')">
           <div class="panel-header-action content-mode-actions content-mode-actions--left">
             <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': todosMode }" :aria-pressed="todosMode" @click="todosMode = !todosMode"><font-awesome-icon :icon="['fas', 'check']" aria-hidden="true" />{{ t('todos') }}</button>
             <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': configMode }" :aria-pressed="configMode" @click="toggleConfigMode"><font-awesome-icon :icon="['fas', 'sliders']" aria-hidden="true" />{{ t('config') }}</button>
@@ -581,6 +581,8 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
 .content-mode-toolbar { display: flex; flex: none; justify-content: center; flex-wrap: wrap; gap: 6px; margin-top: auto; padding: 10px; border-top: 1px solid #134e4a; border-radius: 0 0 6px 6px; background: #06141f; }
 .content-mode-toolbar--docked { justify-content: flex-start; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .content-mode-toolbar--docked button { min-height: 40px; }
+.content-mode-toolbar--sidebar { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+.content-mode-toolbar--sidebar button { justify-content: flex-start; width: 100%; }
 .content-mode-actions { display: contents; }
 .content-reorder-toggle.is-active { color: #d1fae5; background: #17664f; border-color: #34d399; }
 .content-reorder-toggle:disabled { border-color: #18332e; background: #0b2520; color: #52736b; cursor: not-allowed; opacity: .65; }

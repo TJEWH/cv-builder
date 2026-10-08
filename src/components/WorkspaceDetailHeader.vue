@@ -1,5 +1,8 @@
 <script setup lang="ts">
-defineProps<{ title: string; subtitle?: string; backLabel: string; status?: string }>();
+import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
+import { useDesktopSidebar } from '../composables/desktopSidebar';
+defineProps<{ title: string; subtitle?: string; backLabel: string; status?: string; sidebarActive?: boolean }>();
+const desktopSidebar = useDesktopSidebar();
 const emit = defineEmits<{ back: [] }>();
 </script>
 
@@ -7,8 +10,12 @@ const emit = defineEmits<{ back: [] }>();
   <header class="workspace-detail-header">
     <div class="workspace-detail-header__main">
       <div class="workspace-detail-header__controls">
-        <button class="btn workspace-detail-header__back" type="button" :aria-label="backLabel" @click="emit('back')"><span aria-hidden="true">←</span><span class="workspace-detail-header__back-label">{{ backLabel }}</span></button>
-        <div v-if="$slots.actions" class="workspace-detail-header__actions"><slot name="actions" /></div>
+        <DesktopSidebarPortal area="subtabs" :active="sidebarActive === true">
+          <button class="btn workspace-detail-header__back" :class="{ 'workspace-detail-header__back--sidebar': sidebarActive && desktopSidebar }" type="button" :aria-label="backLabel" @click="emit('back')"><span aria-hidden="true">←</span><span class="workspace-detail-header__back-label">{{ backLabel }}</span></button>
+        </DesktopSidebarPortal>
+        <DesktopSidebarPortal area="major" :active="sidebarActive === true">
+          <div v-if="$slots.actions" class="workspace-detail-header__actions" :class="{ 'workspace-detail-header__actions--sidebar': sidebarActive && desktopSidebar }"><slot name="actions" /></div>
+        </DesktopSidebarPortal>
       </div>
       <div class="workspace-detail-header__title"><h1>{{ title }}</h1><p v-if="subtitle">{{ subtitle }}</p></div>
       <span v-if="status" class="workspace-detail-header__status">{{ status }}</span>
@@ -24,6 +31,9 @@ const emit = defineEmits<{ back: [] }>();
 .workspace-detail-header__controls { display: contents; }
 .workspace-detail-header__back { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; order: 0; }
 .workspace-detail-header__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; margin-left: auto; order: 3; }
+.workspace-detail-header__actions--sidebar { display: grid; width: 100%; margin: 0; gap: 16px; }
+.workspace-detail-header__actions--sidebar :deep(> *) { width: 100%; }
+.workspace-detail-header__back--sidebar { justify-content: flex-start; width: 100%; }
 .workspace-detail-header__title { flex: 1 1 240px; min-width: 0; order: 1; }
 .workspace-detail-header__title h1 { margin: 0; font-size: 24px; line-height: 1.25; overflow-wrap: anywhere; }
 .workspace-detail-header__title p { margin: 5px 0 0; color: #a6c1b9; font-size: 13px; overflow-wrap: anywhere; }

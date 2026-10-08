@@ -16,13 +16,18 @@ import ApplicationIdentifier from './ApplicationIdentifier.vue';
 import WorkspaceDetailHeader from './WorkspaceDetailHeader.vue';
 import { removeApplicationCv } from '../composables/applicationCv';
 import { useToastWatch } from '../composables/useToasts';
+import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
+import { useDesktopSidebar } from '../composables/desktopSidebar';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   client: SupabaseClient | null; userId: string; tab: 'opportunities' | 'applications'; lang: string;
   configurations: SavedConfiguration[]; selectedId: string; readVersion: (id: string) => CvState | null;
   createSubvariant?: (parentId: string, name: string, state: CvState) => string | null;
   projectId?: string;
-}>();
+  active?: boolean;
+}>(), { active: true });
+const desktopSidebar = useDesktopSidebar();
+const sidebarActive = computed(() => desktopSidebar.value && props.active !== false);
 const emit = defineEmits<{ navigate: [tab: 'opportunities' | 'applications']; 'save-career-variant': [name: string, state: CvState]; 'edit-variant': [id: string] }>();
 const { opportunities, applications, reviews, loading, saving, error, createApplication,
   updateApplication, setApplicationChecklistItem, removeApplication, setOpportunityReview, markOpportunityReviewed, refreshApplicationContext } = useJobWorkspace(props.client, () => props.userId);
@@ -30,7 +35,8 @@ const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const queries = reactive({ opportunities: '', applications: '' });
 const query = computed({ get: () => queries[props.tab], set: (value: string) => { queries[props.tab] = value; } });
 const statusFilter = ref('');
-const reviewFilter = ref('active');
+const reviewFilter = ref('all');
+const hideNotInterested = ref(true);
 const deadlineFilter = ref<'current' | 'past'>('current');
 const opportunityFiltersOpen = ref(false);
 const hideWithApplication = ref(true);
@@ -77,7 +83,8 @@ const filteredOpportunities = computed(() => {
   const needle = query.value.toLocaleLowerCase().trim();
   return opportunities.value.filter((item) => (isOpportunityDeadlinePassed(item.details, now.value) === (deadlineFilter.value === 'past'))
     && (!hideWithApplication.value || !applicationByOpportunity.value.has(item.id))
-    && (reviewFilter.value === 'all' || (reviewFilter.value === 'active' ? reviewState(item.id) !== 'not_interested' : reviewState(item.id) === reviewFilter.value))
+    && (!hideNotInterested.value || reviewState(item.id) !== 'not_interested')
+    && (reviewFilter.value === 'all' || reviewState(item.id) === reviewFilter.value)
     && (!needle || [item.title, item.university, item.country, ...item.topics].join(' ').toLocaleLowerCase().includes(needle)))
     .toSorted((a, b) => sortBy.value === 'personal_fit' ? (fitScoreById.value.get(b.id) ?? -1) - (fitScoreById.value.get(a.id) ?? -1)
       : sortBy.value === 'title' ? a.title.localeCompare(b.title)
@@ -169,8 +176,8 @@ async function changeReview(item: Opportunity, event: Event) {
   const target = event.target as HTMLSelectElement;
   const result = await setOpportunityReview(item.id, target.value as OpportunityReviewState);
   if (!result) target.value = reviewState(item.id);
-  else notice.value = result.state === 'not_interested' && reviewFilter.value === 'active'
-    ? text('Marked as not interesting. Choose “All review states” to show it again.', 'Als nicht interessant markiert. Unter „Alle Bewertungen“ wieder sichtbar.')
+  else notice.value = result.state === 'not_interested' && hideNotInterested.value
+    ? text('Marked as not interesting. Uncheck “Hide not interesting” to show it again.', 'Als nicht interessant markiert. Deaktiviere „Nicht interessante ausblenden“, um sie wieder anzuzeigen.')
     : text('Your review state was saved.', 'Deine Bewertung wurde gespeichert.');
 }
 function openApplication(application: Application) {
@@ -247,7 +254,7 @@ async function showRemovedOpportunity(id: string) {
   const opportunity = id && opportunityById.value.get(id);
   emit('navigate', 'opportunities');
   await nextTick();
-  query.value = ''; reviewFilter.value = 'active';
+  query.value = ''; reviewFilter.value = 'all'; hideNotInterested.value = true;
   if (opportunity) {
     deadlineFilter.value = isOpportunityDeadlinePassed(opportunity.details, now.value) ? 'past' : 'current';
     openOpportunity(opportunity.id);
@@ -272,18 +279,22 @@ useToastWatch(() => notice.value, () => {
 
 <template>
   <section :id="`builder-group-${tab}`" class="jobs-workspace" :aria-label="tab === 'opportunities' ? text('Opportunities', 'Stellenangebote') : text('Applications', 'Bewerbungen')">
-    <div v-show="!showingDetail" class="jobs-toolbar">
+    <DesktopSidebarPortal area="major" :active="props.active !== false && !showingDetail">
+    <div v-show="!showingDetail" class="jobs-toolbar jobs-sidebar-controls" :class="{ 'jobs-toolbar--sidebar': sidebarActive }">
       <label class="jobs-search"><span>{{ text('Search', 'Suchen') }}</span><input v-model="query" type="search" :placeholder="tab === 'applications' ? text('Title, institution or application ID…', 'Titel, Einrichtung oder Bewerbungs-ID…') : text('Title, institution or country…', 'Titel, Einrichtung oder Land…')" /></label>
       <button v-if="tab === 'opportunities'" class="btn jobs-filter-toggle" type="button" :aria-expanded="opportunityFiltersOpen" aria-controls="opportunity-filters" @click="opportunityFiltersOpen = !opportunityFiltersOpen">{{ text('Filters', 'Filter') }}</button>
       <div v-if="tab === 'opportunities'" id="opportunity-filters" class="jobs-opportunity-filters" :class="{ 'is-open': opportunityFiltersOpen }">
-        <label>{{ text('Review state', 'Bewertung') }}<select v-model="reviewFilter"><option value="active">{{ text('Hide not interesting', 'Nicht interessante ausblenden') }}</option><option value="all">{{ text('All review states', 'Alle Bewertungen') }}</option><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
+        <label>{{ text('Review state', 'Bewertung') }}<select v-model="reviewFilter"><option value="all">{{ text('All review states', 'Alle Bewertungen') }}</option><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
         <label>{{ text('Opportunities', 'Stellenangebote') }}<select v-model="deadlineFilter"><option value="current">{{ text('Current opportunities', 'Aktuelle Stellenangebote') }}</option><option value="past">{{ text('Past opportunities', 'Abgelaufene Stellenangebote') }}</option></select></label>
         <label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="sortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option><option value="personal_fit">{{ text('Personal fit: high to low', 'Persönliche Passung: absteigend') }}</option></select></label>
-        <div class="jobs-filter-checks"><label class="jobs-check"><input v-model="hideWithApplication" type="checkbox" /> {{ text('Hide applications', 'Stellen mit Bewerbungen ausblenden') }}</label></div>
+        <DesktopSidebarPortal area="minor" :active="props.active !== false && !showingDetail">
+          <div class="jobs-filter-checks jobs-sidebar-controls"><label class="jobs-check"><input v-model="hideWithApplication" type="checkbox" /> {{ text('Hide applications', 'Stellen mit Bewerbungen ausblenden') }}</label><label class="jobs-check"><input v-model="hideNotInterested" type="checkbox" /> {{ text('Hide not interesting', 'Nicht interessante ausblenden') }}</label></div>
+        </DesktopSidebarPortal>
       </div>
       <template v-else><label>{{ text('Status', 'Status') }}<select v-model="statusFilter"><option value="">{{ text('All statuses', 'Alle Status') }}</option><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label><label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="applicationSortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option></select></label></template>
       <span class="jobs-count">{{ tab === 'opportunities' ? filteredOpportunities.length : filteredApplications.length }} {{ text('results', 'Ergebnisse') }}</span>
     </div>
+    </DesktopSidebarPortal>
     <div v-show="!showingDetail" ref="tableScroll" class="jobs-table-scroll" tabindex="0" :aria-label="text('Scrollable results table', 'Scrollbare Ergebnistabelle')">
       <table v-if="tab === 'opportunities'" class="jobs-opportunities-table">
         <colgroup><col style="width: 27%" /><col style="width: 10%" /><col style="width: 12%" /><col style="width: 17%" /><col style="width: 15%" /><col style="width: 19%" /></colgroup>
@@ -311,8 +322,8 @@ useToastWatch(() => notice.value, () => {
         </template><tr v-if="!filteredApplications.length"><td colspan="4" class="jobs-empty"><p :class="{ 'app-hint': !loading }">{{ loading ? text('Loading applications…', 'Bewerbungen werden geladen…') : text('No matching applications. Create one from an opportunity.', 'Keine passenden Bewerbungen. Lege eine aus einem Stellenangebot an.') }}</p><button class="btn" type="button" @click="emit('navigate', 'opportunities')">{{ text('Browse opportunities', 'Stellenangebote ansehen') }}</button></td></tr></tbody>
       </table>
     </div>
-    <section v-if="selectedOpportunity" v-show="tab === 'opportunities'" ref="opportunityDetail" class="opportunity-detail" :aria-label="selectedOpportunity.title" tabindex="-1">
-      <WorkspaceDetailHeader class="opportunity-detail__header" :title="selectedOpportunity.title" :subtitle="selectedOpportunity.university || undefined" :back-label="text('All opportunities', 'Alle Stellenangebote')" @back="closeOpportunity">
+    <section v-if="selectedOpportunity" v-show="tab === 'opportunities'" ref="opportunityDetail" class="opportunity-detail" :class="{ 'opportunity-detail--sidebar': sidebarActive }" :aria-label="selectedOpportunity.title" tabindex="-1">
+      <WorkspaceDetailHeader class="opportunity-detail__header" :class="{ 'opportunity-detail__header--sidebar': sidebarActive }" :sidebar-active="props.active !== false && tab === 'opportunities'" :title="selectedOpportunity.title" :subtitle="selectedOpportunity.university || undefined" :back-label="text('All opportunities', 'Alle Stellenangebote')" @back="closeOpportunity">
         <template #metadata>
           <span v-if="selectedOpportunity.country" class="opportunity-detail__country" :title="selectedOpportunity.country">{{ selectedOpportunity.country }}</span>
           <span class="opportunity-detail__deadline" :class="{ 'jobs-expired': isOpportunityDeadlinePassed(selectedOpportunity.details, now) }" :title="`${text('Deadline', 'Frist')}: ${formatOpportunityDeadline(selectedOpportunity.details, lang)}`" :aria-label="`${text('Deadline', 'Frist')}: ${formatOpportunityDeadline(selectedOpportunity.details, lang)}`"><span class="opportunity-detail__deadline-label">{{ text('Deadline', 'Frist') }}: </span>{{ formatOpportunityDeadline(selectedOpportunity.details, lang) }}</span>
@@ -322,13 +333,13 @@ useToastWatch(() => notice.value, () => {
           <ApplicationIdentifier :application="applicationByOpportunity.get(selectedOpportunity.id)!" :lang="lang" />
         </template>
         <template #actions>
-          <label class="jobs-detail-state"><span class="jobs-action-label">{{ text('Your review', 'Deine Bewertung') }}</span><select :aria-label="text('Your review', 'Deine Bewertung')" :value="reviewState(selectedOpportunity.id)" :disabled="saving" @change="changeReview(selectedOpportunity, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
+          <label class="jobs-detail-state jobs-sidebar-controls"><span class="jobs-action-label">{{ text('Your review', 'Deine Bewertung') }}</span><select :aria-label="text('Your review', 'Deine Bewertung')" :value="reviewState(selectedOpportunity.id)" :disabled="saving" @change="changeReview(selectedOpportunity, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
           <button class="btn btn--success jobs-detail-action" type="button" :disabled="saving" @click="startApplication(selectedOpportunity)"><span class="jobs-action-desktop">{{ applicationByOpportunity.has(selectedOpportunity.id) ? text('Open application', 'Bewerbung öffnen') : text('Create application', 'Bewerbung anlegen') }}</span><span class="jobs-action-mobile">{{ applicationByOpportunity.has(selectedOpportunity.id) ? text('Open', 'Öffnen') : text('Apply', 'Bewerben') }}</span></button>
         </template>
       </WorkspaceDetailHeader>
       <div class="opportunity-detail__body"><OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity.details" :lang="lang" /></div>
     </section>
-    <ApplicationWorkspace v-if="editingApplication" v-show="tab === 'applications'" :active="tab === 'applications'" :checklist-saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-subvariant="createSubvariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
+    <ApplicationWorkspace v-if="editingApplication" v-show="tab === 'applications'" :active="props.active !== false && tab === 'applications'" :checklist-saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-subvariant="createSubvariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
       <template #preparation-actions>
         <button class="btn btn--danger jobs-remove-application" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(editingApplication)}`" @click="requestDetailRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button>
       </template>
@@ -388,18 +399,18 @@ useToastWatch(() => notice.value, () => {
 .jobs-heading h1 { margin: 4px 0 8px; font-size: 27px; letter-spacing: -.6px; }
 .jobs-heading p { margin: 0 0 12px; color: #9bb3ad; line-height: 1.55; }
 .jobs-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 16px; margin: 14px 0 18px; }
-.jobs-workspace label { display: grid; gap: 8px; font-size: 12px; }
+.jobs-workspace label, .jobs-sidebar-controls label, label.jobs-sidebar-controls { display: grid; gap: 8px; font-size: 12px; }
 .jobs-search { flex: 1; min-width: 200px; max-width: 450px; }
-.jobs-toolbar .jobs-check { display: flex; align-items: center; }
+.jobs-toolbar .jobs-check, .jobs-filter-checks .jobs-check { display: flex; align-items: center; }
 .jobs-filter-checks { display: grid; gap: 2px; }
 .jobs-opportunity-filters { display: contents; }
 .jobs-filter-toggle { display: none; }
 .jobs-count { margin-left: auto; color: #9bb3ad; font-size: 12px; padding-bottom: 10px; }
-.jobs-workspace input, .jobs-workspace select, .jobs-workspace textarea { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid #29524e; border-radius: 7px; background: #0b1b25; color: #e3f7ef; font: inherit; color-scheme: dark; }
-.jobs-workspace input[type=checkbox] { width: auto; }
-.jobs-workspace :is(button, input, select, textarea, summary, a):focus-visible { outline: 2px solid #6ee7b7; outline-offset: 3px; }
-.jobs-workspace button:disabled { opacity: .5; cursor: not-allowed; }
-.jobs-table-scroll { overflow-x: auto; border: 1px solid #173c3e; border-radius: 9px; }
+.jobs-workspace input, .jobs-workspace select, .jobs-workspace textarea, .jobs-sidebar-controls :is(input, select, textarea) { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid #29524e; border-radius: 7px; background: #0b1b25; color: #e3f7ef; font: inherit; color-scheme: dark; }
+.jobs-workspace input[type=checkbox], .jobs-sidebar-controls input[type=checkbox] { flex-shrink: 0; width: auto; }
+.jobs-workspace :is(button, input, select, textarea, summary, a):focus-visible, .jobs-sidebar-controls :is(button, input, select, textarea):focus-visible { outline: 2px solid #6ee7b7; outline-offset: 3px; }
+.jobs-workspace button:disabled, .jobs-sidebar-controls button:disabled { opacity: .5; cursor: not-allowed; }
+.jobs-table-scroll { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
 .jobs-opportunities-table, .jobs-applications-table { table-layout: fixed; min-width: 960px; }
 .jobs-workspace td { min-width: 0; max-width: none; overflow-wrap: anywhere; }
@@ -451,7 +462,6 @@ tr.is-expanded { background: #0b242b; }
 .jobs-upload-preview summary { color: #a0e7ca; cursor: pointer; }
 .jobs-upload-preview pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #041016; font: 11px/1.5 monospace; }
 @media (max-width: 1000px) {
-  .jobs-table-scroll { border: 0; border-radius: 0; }
   .jobs-opportunities-table, .jobs-applications-table { display: block; table-layout: auto; min-width: 0; }
   table colgroup { display: none; }
   table thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -473,11 +483,15 @@ tr.is-expanded { background: #0b242b; }
   .jobs-removal-confirm p { min-width: 0; flex-basis: 100%; }
 }
 @media (min-width: 761px) {
-  .opportunity-detail { margin-bottom: 40px; }
-  .opportunity-detail__header :deep(.workspace-detail-header__controls) { position: fixed; inset-inline: 0; bottom: 0; z-index: 30; display: flex; align-items: center; gap: 20px; min-height: 66px; padding: 12px max(20px, calc((100vw - 1484px) / 2)); box-sizing: border-box; border-top: 1px solid #24504e; background: #06141f; box-shadow: 0 -6px 20px #0003; }
+  .opportunity-detail:not(.opportunity-detail--sidebar) { margin-bottom: 40px; }
+  .opportunity-detail__header:not(.opportunity-detail__header--sidebar) :deep(.workspace-detail-header__controls) { position: fixed; inset-inline: 0; bottom: 0; z-index: 30; display: flex; align-items: center; gap: 20px; min-height: 66px; padding: 12px max(20px, calc((100vw - 1484px) / 2)); box-sizing: border-box; border-top: 1px solid #24504e; background: #06141f; box-shadow: 0 -6px 20px #0003; }
   .opportunity-detail__header :deep(.workspace-detail-header__back) { gap: 8px; font-size: 13px; }
   .opportunity-detail__header :deep(.workspace-detail-header__actions) { flex: 1; justify-content: flex-end; gap: 20px; }
   .opportunity-detail__header .jobs-detail-action { font-size: 13px; }
+  .jobs-toolbar--sidebar { display: grid; align-items: stretch; gap: 16px; margin: 0; }
+  .jobs-toolbar--sidebar .jobs-search { min-width: 0; max-width: none; }
+  .jobs-toolbar--sidebar .jobs-count { margin-left: 0; padding: 0; }
+  .jobs-filter-checks { gap: 12px; }
 }
 @media (min-width: 761px) and (max-height: 600px) {
   .jobs-workspace { padding: 10px; }

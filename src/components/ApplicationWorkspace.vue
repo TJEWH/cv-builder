@@ -28,15 +28,18 @@ import RefinementAnnotations from './RefinementAnnotations.vue';
 import RefinementPreviewStatus from './RefinementPreviewStatus.vue';
 import { annotationViews, annotationReferenceChanged, annotationFeedback, validateAnnotationReview } from '../composables/refinementAnnotations';
 import { useToastWatch } from '../composables/useToasts';
+import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
+import { useDesktopSidebar } from '../composables/desktopSidebar';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   projectId?: string; active?: boolean; checklistSaving?: boolean;
   application: Application; client: SupabaseClient | null; userId: string; lang: string;
   configurations: SavedConfiguration[]; readVersion: (id: string) => CvState | null;
   publishCv: (state: CvState) => Promise<Application | null>;
   createSubvariant?: (sourceId: string, name: string, state: CvState) => string | null;
-}>();
+}>(), { active: true });
 const emit = defineEmits<{ close: []; 'edit-variant': [id: string]; toggleChecklist: [key: string, completed: boolean] }>();
+const desktopSidebar = useDesktopSidebar();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const storageKey = 'CV_REFINEMENT:1:' + encodeURIComponent(props.userId) + ':' + props.application.id;
@@ -719,7 +722,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 </script>
 
 <template>
-  <section class="application-workspace">
+  <section class="application-workspace" :class="{ 'application-workspace--sidebar': desktopSidebar }">
     <WorkspaceDetailHeader class="application-header" :title="String(application.context_json.title || text('Application', 'Bewerbung'))" :subtitle="String(application.context_json.institution || application.context_json.university || '')" :back-label="text('All applications', 'Alle Bewerbungen')" :status="application.status" @back="emit('close')">
       <template v-if="$slots.actions" #actions><slot name="actions" /></template>
       <template #metadata><ApplicationIdentifier :application="application" :lang="lang" /><span>{{ text('Deadline', 'Bewerbungsfrist') }}: {{ formatOpportunityDeadline(application.context_json, lang) }}</span></template>
@@ -742,10 +745,13 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
           </section>
         </div>
         <details open class="disclosure-row"><summary>{{ text('Tender context & requirements', 'Ausschreibung & Anforderungen') }}</summary><slot name="preparation"><OpportunityContext :context="application.context_json" :lang="lang" :default-open-groups="['requirements', 'documents']" /></slot></details>
-        <div v-if="$slots['preparation-actions']" class="preparation-actions"><slot name="preparation-actions" /></div>
+        <DesktopSidebarPortal v-if="$slots['preparation-actions']" area="minor" :active="active !== false && tab === 'preparation'">
+          <div class="preparation-actions" :class="{ 'preparation-actions--sidebar': desktopSidebar }"><slot name="preparation-actions" /></div>
+        </DesktopSidebarPortal>
       </section>
       <section v-show="tab === 'refinement'" class="refinement-stage">
-        <div class="refinement-toolbar">
+        <DesktopSidebarPortal area="major" :active="active !== false && tab === 'refinement'">
+        <div class="refinement-toolbar" :class="{ 'refinement-toolbar--sidebar': desktopSidebar }">
           <label>{{ text('Refinement scope', 'Umfang der Überarbeitung') }}<select v-model="feedbackScope" :disabled="busy"><option value="cv">CV</option><option value="letter">{{ text('Motivation letter', 'Motivationsschreiben') }}</option></select></label>
           <div class="action-row">
             <button class="primary" type="button" :disabled="busy || reviewActive || !preparedSource || !!saveError || publicationStatus === 'current' || (cvApproved && feedbackScope !== 'letter') || (letterApproved && feedbackScope !== 'cv')" @click="publishSources">{{ text('Sync Snapshot', 'Sync Snapshot') }}</button>
@@ -757,6 +763,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
             </div>
           </div>
         </div>
+        </DesktopSidebarPortal>
         <div class="refinement-controls">
           <p v-if="!record || !letter" class="app-hint">{{ text('Select both templates in Preparation to begin. Existing proposals remain available below.', 'Zum Start beide Vorlagen in Vorbereitung auswählen. Bestehende Vorschläge bleiben unten verfügbar.') }}</p>
           <p v-if="preparedSource && feedbackScope !== 'cv' && !preparedSource.request.letter.text.trim()" class="app-hint hint initial-letter-notice">{{ text('Initial letter draft: the source letter is empty. ChatGPT should create the first draft from the published CV, opportunity and template.', 'Erster Briefentwurf: Der Quellbrief ist leer. ChatGPT soll anhand des veröffentlichten CVs, der Ausschreibung und der Vorlage einen ersten Entwurf erstellen.') }}</p>
@@ -808,12 +815,14 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
         <slot name="tracking" />
       </section>
     </div>
-    <footer class="workflow-navigation">
+    <DesktopSidebarPortal area="subtabs" :active="active !== false">
+    <footer class="workflow-navigation" :class="{ 'workflow-navigation--sidebar': desktopSidebar }">
       <button class="workflow-back" type="button" @click="emit('close')"><span aria-hidden="true">←</span>{{ text('All applications', 'Alle Bewerbungen') }}</button>
       <nav class="workspace-subtabs" :aria-label="text('Application stages', 'Bewerbungsphasen')">
         <button v-for="(stage, index) in stages" :key="stage" type="button" :class="{ 'is-active': tab === stage }" :aria-pressed="tab === stage" @click="tab = stage"><span class="stage-number">{{ index + 1 }}</span>{{ ({ preparation: text('Preparation', 'Vorbereitung'), refinement: text('Refinement', 'Überarbeitung'), review: text('PDF review', 'PDF-Prüfung'), tracking: text('Tracking', 'Verlauf') })[stage] }}</button>
       </nav>
     </footer>
+    </DesktopSidebarPortal>
   </section>
 </template>
 
@@ -835,4 +844,18 @@ h3{font-size:16px;margin:0 0 14px}p{line-height:1.6;font-size:13px}button,input,
 @media(max-width:900px){.preparation-grid{grid-template-columns:1fr;gap:0}.refinement-stage{grid-template-columns:minmax(0,1fr) minmax(270px,38%);gap:12px}.stage-heading{flex-direction:column}}
 @media(max-width:760px){.application-workspace{--mobile-application-tabs-height:48px;padding-bottom:var(--mobile-application-tabs-height)}.workspace-subtabs{position:fixed;inset-inline:0;bottom:var(--mobile-tabs-height,76px);z-index:36;height:48px;margin:0;padding:4px 8px;overflow-x:auto;flex-wrap:nowrap;background:#06141f;border-top:1px solid #24504e}.workspace-subtabs button{font-size:12px;white-space:nowrap;padding:7px;gap:4px}.stage-number{display:none}.workflow-body{padding:8px}.workflow-body--refinement{overflow:auto}.refinement-stage{display:flex;flex-direction:column;gap:10px;overflow:visible;flex:0 0 auto}.refinement-controls{flex:0 0 auto;overflow:visible}.refinement-preview{flex:0 0 auto}.refinement-preview>.document-preview,.refinement-preview>.letter-preview{flex:0 0 auto}.refinement-preview :deep(.document-inline-preview){min-height:0}.refinement-preview :deep(.document-inline-preview__viewport){display:block;max-height:60vh}.stage-heading{gap:10px}.stage-heading h2{font-size:20px}.workflow-card{padding:14px}.workflow-body input,.workflow-body textarea,.workflow-body select{font-size:16px}.workflow-body p{font-size:15px}.workflow-body--review{overflow:auto}.workflow-body--review :deep(.application-documents){min-height:430px;flex:1 0 auto}.review-heading details{max-height:180px}.tracking-stage{gap:12px}}
 @media(min-width:761px){.refinement-stage{grid-template-rows:auto minmax(0,1fr);row-gap:12px}.refinement-toolbar{grid-column:1;grid-row:1;margin-right:8px}.refinement-controls{grid-column:1;grid-row:2}.refinement-preview{grid-column:2;grid-row:1 / 3}}
+.application-workspace--sidebar{margin-bottom:0}
+.application-workspace--sidebar .refinement-stage{grid-template-rows:minmax(0,1fr)}
+.application-workspace--sidebar .refinement-controls{grid-row:1}
+.application-workspace--sidebar .refinement-preview{grid-row:1}
+.workflow-navigation--sidebar{position:static;display:flex;flex-direction:column;align-items:stretch;gap:8px;min-height:0;padding:0;border:0;background:transparent;box-shadow:none}
+.workflow-navigation--sidebar .workspace-subtabs{flex-direction:column;gap:6px}
+.workflow-navigation--sidebar .workspace-subtabs button{justify-content:flex-start;width:100%}
+.workflow-navigation--sidebar .workflow-back{display:flex;width:100%}
+.preparation-actions--sidebar{display:flex;padding:0;border:0}
+.preparation-actions--sidebar :deep(button){width:100%}
+.refinement-toolbar--sidebar{position:static;padding:0;margin:0;border:0;background:transparent}
+.refinement-toolbar--sidebar .action-row{display:flex;flex-direction:column;align-items:stretch;gap:8px}
+.refinement-toolbar--sidebar .action-row button{width:100%;text-align:left}
+.refinement-toolbar--sidebar .refinement-approval{margin:0}
 </style>

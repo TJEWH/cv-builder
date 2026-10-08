@@ -14,7 +14,7 @@ const compiled = compileScript(parse(readFileSync(filename, 'utf8')).descriptor,
 const code = ts.transpileModule(compiled.content, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const exports: { default?: Component } = {};
 const requireComponent = createRequire(filename);
-new Function('require', 'exports', code)((path: string) => path.endsWith('/useToasts') ? { useToasts, useToastWatch } : requireComponent(path), exports);
+new Function('require', 'exports', code)((path: string) => path.endsWith('.vue') ? { default: {} } : path.endsWith('/useToasts') ? { useToasts, useToastWatch } : requireComponent(path), exports);
 const renderer = createRenderer<object, object>({
   createElement: () => ({}), createText: () => ({}), createComment: () => ({}),
   insert() {}, remove() {}, setText() {}, setElementText() {}, patchProp() {}, parentNode: () => null, nextSibling: () => null,

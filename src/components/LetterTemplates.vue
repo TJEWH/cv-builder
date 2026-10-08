@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { debounce } from '../composables/useStorage';
 import type { LetterTemplate } from '../letterTypes';
 import { createLetterRepository, DEFAULT_LETTER_TEMPLATES, DEFAULT_QUESTION_GUIDANCE, LETTER_TEMPLATE_CONTEXT_MAX_LENGTH } from '../composables/motivationLetters';
 import { useToasts, useToastWatch } from '../composables/useToasts';
+import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
+import { useDesktopSidebar } from '../composables/desktopSidebar';
 
-const props = defineProps<{ userId: string; lang?: string }>();
+const props = withDefaults(defineProps<{ userId: string; lang?: string; sidebarActive?: boolean }>(), { sidebarActive: true });
+const desktopSidebar = useDesktopSidebar();
+const sidebarControlsVisible = computed(() => desktopSidebar.value && props.sidebarActive);
 const emit = defineEmits<{ changed: [] }>();
 const templates = ref<LetterTemplate[]>([]);
 const selectedId = ref('');
@@ -140,8 +144,9 @@ async function importLibrary(event: Event) {
     <div class="template-heading">
       <p class="app-hint">{{ text('Reusable structure, research interests and drafting guidance. Each application inherits fonts, colors and margins from its assigned CV.', 'Wiederverwendbare Struktur, Forschungsinteressen und Entwurfshinweise. Schriftarten, Farben und Ränder folgen dem zugewiesenen Lebenslauf.') }}</p>
     </div>
-    <div class="template-layout">
-      <aside :aria-label="text('Letter template library', 'Briefvorlagenbibliothek')">
+    <div class="template-layout" :class="{ 'template-layout--sidebar': sidebarControlsVisible }">
+      <DesktopSidebarPortal area="major" :active="sidebarActive">
+      <aside class="template-library-controls" :aria-label="text('Letter template library', 'Briefvorlagenbibliothek')">
         <button type="button" @click="create">{{ text('New template', 'Neue Vorlage') }}</button>
         <label>{{ text('Template', 'Vorlage') }}<select :value="selectedId" @change="selectFromInput">
           <option v-if="!selectedId" value="" disabled>{{ text('New template', 'Neue Vorlage') }}</option>
@@ -153,6 +158,7 @@ async function importLibrary(event: Event) {
         <div class="template-library-actions"><button type="button" @click="download">{{ text('Export library', 'Bibliothek exportieren') }}</button><button type="button" @click="importInput?.click()">{{ text('Import library', 'Bibliothek importieren') }}</button></div>
         <input ref="importInput" hidden type="file" accept=".json,application/json" @change="importLibrary" />
       </aside>
+      </DesktopSidebarPortal>
       <form v-if="form" class="template-form" @submit.prevent="flushSave" @focusout="flushSave">
         <p v-if="validationError" class="app-hint" role="alert">{{ validationError }}</p>
         <label>{{ text('Template name', 'Vorlagenname') }}<input v-model="form.name" required maxlength="120" /></label>
@@ -176,19 +182,20 @@ async function importLibrary(event: Event) {
 .letter-templates{display:flex;flex-direction:column;min-width:0;min-height:0;height:100%;box-sizing:border-box;overflow:hidden;padding:0;color:#d1fae5;background:transparent;font-family:var(--font-ui,system-ui)}
 .template-heading{display:flex;flex:0 0 auto;justify-content:space-between;gap:20px;align-items:start;margin-bottom:20px}
 .letter-templates h2{font:700 22px/1.3 system-ui;text-transform:none;letter-spacing:0;margin:0 0 8px;color:#d1fae5}
-.letter-templates p{margin:0;color:#a6c1b9;font-size:13px;line-height:1.6}
+.letter-templates p,.template-library-controls p{margin:0;color:#a6c1b9;font-size:13px;line-height:1.6}
 .field-description{font-size:12px;font-weight:400;color:#a6c1b9;line-height:1.5}
-.letter-templates :is(button,input,select,textarea){font:inherit;border:1px solid #28534e;border-radius:7px;background:#0b1b25;color:#d1fae5;padding:10px 12px}
+.letter-templates :is(button,input,select,textarea),.template-library-controls :is(button,input,select){font:inherit;border:1px solid #28534e;border-radius:7px;background:#0b1b25;color:#d1fae5;padding:10px 12px}
 button{cursor:pointer;font-size:13px;font-weight:600}
 button:hover:not(:disabled){background:#14352e}
 button:disabled{opacity:.55;cursor:default}
 .template-layout{display:grid;flex:1 1 auto;min-height:0;min-width:0;overflow:hidden;grid-template-columns:minmax(180px,240px) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:24px}
+.template-layout--sidebar{grid-template-columns:minmax(0,1fr)}
 aside{min-width:0;align-self:start;display:grid;gap:12px}
-.letter-templates .template-selection-details{font-size:11px}
+.template-library-controls .template-selection-details{font-size:11px}
 .template-library-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .template-library-actions button{font-size:11px;padding:8px}
 .template-form{display:grid;align-content:start;gap:18px;min-height:0;min-width:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;}
-.letter-templates label{display:grid;gap:7px;font:600 12px/1.4 system-ui;color:#d1fae5}
+.letter-templates label,.template-library-controls label{display:grid;gap:7px;font:600 12px/1.4 system-ui;color:#d1fae5}
 input,select,textarea{font:400 13px/1.5 system-ui;min-width:0;width:100%;box-sizing:border-box}
 textarea{resize:vertical}
 .template-form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
