@@ -242,7 +242,7 @@ onBeforeUnmount(() => { disposed = true; generation++; clearPreview(); window.re
 <style scoped>
 .application-documents.documents-mode-prepare,.application-documents.documents-mode-tracking{display:block;overflow:visible;flex:none;padding-bottom:20px}.documents-mode-prepare .documents-controls,.documents-mode-tracking .documents-controls{overflow:visible}
 
-.application-documents { display:grid; flex:1 1 auto; grid-template-columns:minmax(0,1fr) 360px; align-items:start; align-content:start; gap:20px; min-width:0; min-height:0; overflow:visible; color:#d1fae5; background:transparent; padding:0; color-scheme:dark; }
+.application-documents { display:grid; flex:1 1 auto; grid-template-columns:minmax(0,1fr) minmax(360px,30%); align-items:start; align-content:start; gap:20px; min-width:0; min-height:0; overflow:visible; color:#d1fae5; background:transparent; padding:0; color-scheme:dark; }
 h3,h4,p { margin:0; } h3 { color:inherit; font-size:1.2rem; } h4 { color:inherit; font-size:1rem; margin-bottom:10px; }
 .muted { color:#a6c1b9; font-size:.88rem; line-height:1.5; margin-top:7px; }
 .documents-controls { display:flex; flex-direction:column; min-width:0; min-height:0; overflow:visible; padding-right:4px; }
