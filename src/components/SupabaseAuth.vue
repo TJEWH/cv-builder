@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue';
 import { useSupabaseAuth } from '../composables/useSupabaseAuth';
+import { useToasts, useToastWatch } from '../composables/useToasts';
 
 const props = defineProps<{ lang: 'de' | 'en'; bottomBar?: boolean }>();
 const { user, ready, busy, error, configuration, signIn, signOut, clearError } = useSupabaseAuth();
+const { notify } = useToasts();
 const panel = ref<HTMLDetailsElement | null>(null);
 const email = ref('');
 const password = ref('');
@@ -47,14 +49,21 @@ async function submit() {
   // Credentials are passed directly to Auth and removed from component state immediately.
   const attempt = signIn(email.value, password.value);
   password.value = '';
-  if (await attempt) close();
+  if (await attempt) {
+    close();
+    notify({ message: props.lang === 'de' ? 'Bei Supabase angemeldet.' : 'Signed in to Supabase.', tone: 'success' });
+  }
 }
 
 async function logout() {
   password.value = '';
-  if (await signOut()) close();
+  if (await signOut()) {
+    close();
+    notify({ message: props.lang === 'de' ? 'Bei Supabase abgemeldet.' : 'Signed out of Supabase.', tone: 'success' });
+  }
 }
 
+useToastWatch(() => error.value ? copy.value[error.value] : '', { key: 'supabase-auth-error', tone: 'error' });
 watch(user, (value) => { if (value) { email.value = ''; password.value = ''; } });
 onBeforeUnmount(() => { password.value = ''; });
 </script>
@@ -70,7 +79,7 @@ onBeforeUnmount(() => { password.value = ''; });
         <h2 :id="`${id}-title`">{{ user ? copy.account : copy.title }}</h2>
         <button type="button" class="supabase-auth__close" :aria-label="copy.close" @click="close">×</button>
       </div>
-      <p v-if="configuration.status !== 'ready'" role="status">{{ copy[configuration.status] }}</p>
+      <p v-if="configuration.status !== 'ready'" class="app-hint">{{ copy[configuration.status] }}</p>
       <template v-else>
         <template v-if="user">
           <p class="supabase-auth__email">{{ user.email }}</p>
@@ -78,16 +87,15 @@ onBeforeUnmount(() => { password.value = ''; });
         </template>
         <p v-else-if="!ready" role="status">{{ copy.checking }}</p>
         <form v-else class="supabase-auth__form" @submit.prevent="submit">
-          <p>{{ copy.help }}</p>
+          <p class="app-hint">{{ copy.help }}</p>
           <label :for="`${id}-email`">{{ copy.email }}</label>
           <input :id="`${id}-email`" v-model="email" type="email" name="email" autocomplete="username" autocapitalize="none" spellcheck="false" required :disabled="busy" @input="clearError" />
           <label :for="`${id}-password`">{{ copy.password }}</label>
           <input :id="`${id}-password`" v-model="password" type="password" name="password" autocomplete="current-password" required :disabled="busy" @input="clearError" />
           <button type="submit" class="btn btn--success" :disabled="busy || !email.trim() || !password">{{ busy ? copy.working : copy.login }}</button>
         </form>
-        <p v-if="error" class="supabase-auth__error" role="alert">{{ copy[error] }}</p>
-        <p class="supabase-auth__hint">{{ copy.session }}</p>
-        <p class="supabase-auth__hint">{{ copy.privacy }}</p>
+        <p class="app-hint supabase-auth__hint">{{ copy.session }}</p>
+        <p class="app-hint supabase-auth__hint">{{ copy.privacy }}</p>
       </template>
     </section>
   </details>
@@ -110,7 +118,6 @@ onBeforeUnmount(() => { password.value = ''; });
 .supabase-auth__form .btn { margin-top: 5px; }
 .supabase-auth__email { overflow-wrap: anywhere; }
 .supabase-auth__panel .supabase-auth__hint { color: #91aaa5; font-size: 11px; }
-.supabase-auth__panel .supabase-auth__error { color: #fca5a5; }
 .supabase-auth .btn:disabled { opacity: .55; cursor: not-allowed; }
 @media (min-width: 761px) and (max-height: 600px) {
   .supabase-auth:not(.supabase-auth--bottom) .supabase-auth__label { display: none; }

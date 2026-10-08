@@ -2,10 +2,12 @@
 import { computed, ref } from 'vue';
 import type { CvState, SavedConfiguration } from '../types';
 import { cloneCv, copyCvSection } from '../composables/applicationCv';
+import { useToastWatch } from '../composables/useToasts';
 const props = defineProps<{ state: CvState; configurations: SavedConfiguration[]; readVersion: (id: string) => CvState | null | undefined }>();
 const sourceId = ref('');
 const section = ref('about');
 const error = ref('');
+useToastWatch(() => error.value, { tone: 'error' });
 const undo = ref<{ state: CvState; section: string } | null>(null);
 const source = computed(() => sourceId.value ? props.readVersion(sourceId.value) : null);
 const sections = computed(() => source.value ? [
@@ -33,7 +35,6 @@ function undoCopy() { if (undo.value) Object.assign(props.state, copyCvSection(p
       <button class="btn" type="button" :disabled="!source" @click="copy">{{ state.lang === 'de' ? 'In dieses Dokument kopieren' : 'Copy into this document' }}</button>
       <button v-if="undo" class="btn" type="button" @click="undoCopy">{{ state.lang === 'de' ? 'Rückgängig' : 'Undo copy' }}</button>
     </div>
-    <p v-if="error" role="alert">{{ error }}</p>
   </details>
 </template>
 <style scoped>

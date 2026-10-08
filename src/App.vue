@@ -24,6 +24,8 @@ import JobWorkspace from './components/JobWorkspace.vue';
 import { useSupabaseAuth } from './composables/useSupabaseAuth';
 import LetterTemplates from './components/LetterTemplates.vue';
 import LocalAttachments from './components/LocalAttachments.vue';
+import AppToaster from './components/AppToaster.vue';
+import { useToasts, useToastWatch } from './composables/useToasts';
 
 const state = reactive<CvState>(createEmptyDocument());
 const { user: cloudUser, client: supabaseClient } = useSupabaseAuth();
@@ -51,6 +53,7 @@ const isAnonymizedPreviewRendering = ref(false);
 const anonymizedPdfRenderSource = ref<HTMLElement | null>(null);
 const fullPreviewVariant = ref('normal');
 const t = makeT(lang);
+const { notify } = useToasts();
 type Workspace = 'opportunities' | 'cv-studio' | 'applications';
 const activeWorkspace = ref<Workspace>('cv-studio');
 const activeBuilderGroup = ref('content');
@@ -133,18 +136,37 @@ const saveStatusLabel = computed(() => {
   }).format(lastSavedAt.value);
   return `${label} ${time}`;
 });
+let saveToastTimer: ReturnType<typeof setTimeout> | undefined;
+watch(combinedSaveStatus, (status, previous) => {
+  clearTimeout(saveToastTimer);
+  if (status === 'error') {
+    notify({ key: 'cv-autosave', message: t('saveFailed'), tone: 'error', action: {
+      label: lang.value === 'de' ? 'Erneut speichern' : 'Retry save', run: retryStateSave,
+    } });
+  } else if (status === 'saved' && previous !== 'saved') {
+    saveToastTimer = setTimeout(() => notify({ key: 'cv-autosave', message: saveStatusLabel.value, tone: 'success', duration: 3000 }), 1500);
+  }
+}, { flush: 'sync' });
+onBeforeUnmount(() => clearTimeout(saveToastTimer));
 
-function persistState() {
+function persistState(): boolean {
   try {
     const versionSaveResult = backupManager.value?.saveCurrent?.();
     const saved = typeof versionSaveResult === 'boolean'
       ? versionSaveResult
       : saveLocal(state);
     handleConfigurationSaveResult(saved);
+    return saved;
   } catch (error) {
     console.warn('Failed to save CV state', error);
     saveStatus.value = 'error';
+    return false;
   }
+}
+function retryStateSave(): boolean {
+  const sectionsSaved = formBuilder.value?.flushSectionSaves() !== false;
+  const stateSaved = persistState();
+  return sectionsSaved && stateSaved && combinedSaveStatus.value === 'saved';
 }
 
 const saveDebounced = debounce(persistState, 250);
@@ -206,6 +228,7 @@ const anonymizedExportRenderSlot = createPreviewRenderSlot();
 const isExporting = ref(false);
 const isAnonymizedExporting = ref(false);
 const pdfExportError = ref('');
+useToastWatch(() => pdfExportError.value, { tone: 'error' });
 let previewRenderVersion = 0;
 let anonymizedSourceVersion = 0;
 let anonymizedPreviewRenderVersion = 0;
@@ -585,10 +608,7 @@ function selectBuilderGroup(group: string) {
 
 <template>
   <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode, 'is-cloud-workspace': isCloudTab, 'has-mobile-context-row': !isCloudTab || !!cloudUser, 'has-mobile-studio-tools': !isCloudTab && ['versions', 'content'].includes(activeBuilderGroup) }" @focusout="onPreviewInputBlur" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
-    <div v-if="pdfExportError" class="pdf-export-error" role="alert">
-      <span>{{ pdfExportError }}</span>
-      <button class="mini" type="button" :aria-label="t('close')" @click="pdfExportError = ''">×</button>
-    </div>
+    <AppToaster :lang="lang" />
     <div ref="pdfRenderSource" class="pdf-render-source" aria-hidden="true">
       <CvPreview :state="state" export-source />
     </div>
@@ -634,9 +654,8 @@ function selectBuilderGroup(group: string) {
           <button v-for="group in builderGroups" :key="group.key" class="btn" :class="{ 'is-active': activeBuilderGroup === group.key }" :aria-pressed="activeBuilderGroup === group.key" :disabled="groupDisabled(group.key)" type="button" @click="selectBuilderGroup(group.key)"><font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" /><span>{{ isMobile && group.key === 'templates' ? (lang === 'de' ? 'Vorlagen' : 'Templates') : group.label }}</span></button>
           <button v-if="isMobile && studioHasPreview" class="btn cv-studio-open-preview" type="button" :aria-label="t('openPreview')" :title="t('openPreview')" :disabled="isEmptyDocument" @click="openFullPreview"><font-awesome-icon :icon="['fas', 'eye']" aria-hidden="true" /></button>
         </nav>
-        <output class="cv-save-announcement" aria-live="polite" aria-atomic="true">{{ saveStatusLabel }}</output>
       </div>
-      <section v-if="isCloudTab && !cloudUser" class="workspace-sign-in"><h1>{{ activeWorkspace === 'opportunities' ? (lang === 'de' ? 'Stellenangebote entdecken' : 'Discover opportunities') : (lang === 'de' ? 'Bewerbungen vorbereiten' : 'Prepare applications') }}</h1><p>{{ lang === 'de' ? 'Melde dich bei Supabase an, um auf deinen Bewerbungsbereich zuzugreifen. Das CV-Studio ist auch ohne Anmeldung verfügbar.' : 'Sign in to Supabase to access your application workspace. CV Studio remains available without an account.' }}</p></section>
+      <section v-if="isCloudTab && !cloudUser" class="workspace-sign-in"><h1>{{ activeWorkspace === 'opportunities' ? (lang === 'de' ? 'Stellenangebote entdecken' : 'Discover opportunities') : (lang === 'de' ? 'Bewerbungen vorbereiten' : 'Prepare applications') }}</h1><p class="app-hint">{{ lang === 'de' ? 'Melde dich bei Supabase an, um auf deinen Bewerbungsbereich zuzugreifen. Das CV-Studio ist auch ohne Anmeldung verfügbar.' : 'Sign in to Supabase to access your application workspace. CV Studio remains available without an account.' }}</p></section>
 
       <JobWorkspace
         v-if="cloudUser"
@@ -724,24 +743,6 @@ function selectBuilderGroup(group: string) {
 </template>
 
 <style>
-.pdf-export-error {
-  position: fixed;
-  z-index: 10000;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: min(560px, calc(100vw - 32px));
-  padding: 12px 16px;
-  border: 1px solid #a94444;
-  border-radius: 8px;
-  background: #311b23;
-  color: #fee2e2;
-  font: 14px/1.4 system-ui, sans-serif;
-}
-.pdf-export-error .mini { flex: 0 0 auto; margin-left: auto; }
 
 html,
 body,
@@ -793,7 +794,6 @@ body,
 .cv-studio-subtabs .svg-inline--fa { flex: none; }
 .cv-studio-subtabs .is-active { border-color: #67c8a6; background: #185b4c; }
 .cv-studio-open-preview { flex: 0 0 auto; white-space: nowrap; }
-.cv-save-announcement { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .workspace-sign-in { padding: 30px; border: 1px solid #24504e; border-radius: 12px; color: #cbe5da; background: #06141f; }
 
 .builder-topbar {
@@ -990,7 +990,6 @@ body,
   .mobile-bottom-tabs .builder-topbar__tab { min-width: 0; min-height: 0; padding: 4px 2px; gap: 5px; font-size: 10px; border: none; }
   .mobile-bottom-tabs .builder-topbar__tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .mobile-bottom-auth { min-width: 0; height: 100%; }
-  .pdf-export-error { bottom: calc(var(--mobile-tabs-height) + var(--mobile-context-row-space) + 12px); }
 
 
 }

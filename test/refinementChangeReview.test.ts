@@ -135,12 +135,14 @@ test('unsupported content remains a manual-review comment without an acceptance 
 
 test('legacy replacements are explicitly labelled and German review labels remain accessible', async (t) => {
   const { props, root, change } = mount(t);
+  const legacyHint = () => required(root, item => item.tag === 'p' && /^(Legacy text suggestions|Frühere Textvorschläge)/.test(content(item)));
   props.legacy = true;
   await nextTick();
-  assert.match(content(required(root, item => hasClass(item, 'warning'))), /Legacy text suggestions.*not validated structural operations/);
+  assert.match(content(legacyHint()), /Legacy text suggestions.*not validated structural operations/);
+  assert.ok(hasClass(legacyHint(), 'app-hint'));
   props.lang = 'de'; await nextTick();
   assert.equal(required(root, item => item.tag === 'section').props['aria-label'], 'Prüfung der CV-Änderungen');
-  assert.match(content(required(root, item => hasClass(item, 'warning'))), /Frühere Textvorschläge.*keine validierten strukturellen Operationen/);
+  assert.match(content(legacyHint()), /Frühere Textvorschläge.*keine validierten strukturellen Operationen/);
   assert.ok(content(required(change('change-1'), item => item.tag === 'label')).includes('Einbeziehen change-1'));
   assert.equal(content(required(change('change-1'), item => hasClass(item, 'badge'))), 'Vorgeschlagen');
 });

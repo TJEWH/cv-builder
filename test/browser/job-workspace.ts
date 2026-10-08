@@ -20,6 +20,7 @@ import {
 import { faGithub, faLinkedin } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import JobWorkspace from '../../src/components/JobWorkspace.vue';
+import AppToaster from '../../src/components/AppToaster.vue';
 import { createSampleDocument } from '../../src/composables/builtinConfigurations';
 import { DRAFTING_IDENTITY_PLACEHOLDERS } from '../../src/composables/cloudDrafting';
 import { createLetterRepository, DEFAULT_LETTER_TEMPLATES } from '../../src/composables/motivationLetters';
@@ -283,6 +284,7 @@ const Fixture = defineComponent({
       draftStatus.value = error ? String(error) : 'Synthetic draft returned. Use “Refresh cloud drafts” in the letter tab.';
     }
     return () => h('main', { class: 'browser-workspace-fixture', style: 'display:grid;grid-template-rows:auto minmax(0,1fr);height:100dvh;overflow:hidden;padding:16px;max-width:1440px;margin:auto' }, [
+      h(AppToaster, { lang: lang.value }),
       h('header', { class: 'fixture-toolbar', style: 'display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 16px;color:#9be8c7' }, [
         h('strong', 'Browser fixture · In-memory data only'),
         ...(['opportunities', 'applications'] as const).map((value) => h('button', { class: 'btn', onClick: () => { tab.value = value; } }, value)),

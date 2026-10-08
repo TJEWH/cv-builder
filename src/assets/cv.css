@@ -23,6 +23,7 @@ body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f1
 .btn--danger{border-color:#ef4444;color:#fee2e2}
 .btn:hover{filter:brightness(1.05)}
 .note{align-self:center;color:#94a3b8}
+.app-hint.app-hint{padding:10px 12px;border:0;border-left:3px solid #67c8a6;border-radius:0;background:#102c28;color:#b9d6cc;line-height:1.6;overflow-wrap:anywhere;text-align:left;align-self:stretch}
 
 .workbench{
     display: flex;

@@ -61,14 +61,14 @@ function setExcluded(key: keyof CvState['anonymization'], id: string, shouldExcl
 <template>
   <section class="section-group editor-panel anonymization-panel">
     <div class="editor-panel__body">
-      <p class="anonymization-panel__help">{{ t('anonymizationHelp') }}</p>
-      <p class="anonymization-panel__marker-help">{{ t('confidentialMarkerHelp') }}</p>
+      <p class="app-hint">{{ t('anonymizationHelp') }}</p>
+      <p class="app-hint">{{ t('confidentialMarkerHelp') }}</p>
 
       <label class="anonymization-panel__row anonymization-panel__contact">
         <input type="checkbox" checked disabled>
         <span>{{ t('headerTitle') }}</span>
-        <small>{{ t('contactAlwaysAnonymized') }}</small>
       </label>
+      <p class="app-hint">{{ t('contactAlwaysAnonymized') }}</p>
 
       <div class="anonymization-panel__columns">
         <section class="anonymization-panel__column">
@@ -109,8 +109,6 @@ function setExcluded(key: keyof CvState['anonymization'], id: string, shouldExcl
 
 <style scoped>
 .anonymization-panel > .editor-panel__body { align-content: start; }
-.anonymization-panel__help, .anonymization-panel__marker-help { margin: 0; color: #cbd5e1; font-size: 12px; }
-.anonymization-panel__marker-help { color: var(--muted); }
 .anonymization-panel__columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .anonymization-panel__column { display: grid; align-content: start; gap: 5px; margin-top: 12px; }
 .anonymization-panel__column h4 { margin: 0; color: #9be8c7; font-size: 10pt; text-transform: uppercase; letter-spacing: .5px; }
@@ -118,7 +116,6 @@ function setExcluded(key: keyof CvState['anonymization'], id: string, shouldExcl
 .anonymization-panel__items { display: grid; gap: 3px; margin-left: 24px; }
 .anonymization-panel__row { display: flex; align-items: center; gap: 8px; color: #d1fae5; cursor: pointer; }
 .anonymization-panel__row input { width: 16px; height: 16px; accent-color: #27f3a2; cursor: pointer; }
-.anonymization-panel__row small { color: var(--muted); font-size: 11px; }
 .anonymization-panel__item { color: #9be8c7; font-size: 12px; }
 .anonymization-panel__row.disabled { cursor: not-allowed; opacity: .55; }
 .anonymization-panel__row.disabled input, .anonymization-panel__contact input { cursor: not-allowed; }

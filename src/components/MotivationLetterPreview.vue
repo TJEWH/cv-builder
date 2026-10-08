@@ -5,6 +5,7 @@ import type { LetterContent } from '../letterTypes';
 import { resolveDesign } from '../defaults';
 import { applyCvDesign } from '../composables/useCvDesign';
 import { useDocumentPdfPreview } from '../composables/useDocumentPdfPreview';
+import { useToastWatch } from '../composables/useToasts';
 import { resolveLetterContent, unresolvedLetterPlaceholders } from '../composables/motivationLetters';
 import CvContact from './CvContact.vue';
 import InlineDocumentPreview from './InlineDocumentPreview.vue';
@@ -40,6 +41,7 @@ const { pages, page: previewPage, busy, error, getPdfBlob: renderPdfBlob } = use
   source: element, options: () => ({ margin: margins.value }),
   signature: () => [props.cvState, props.content], active: () => props.active,
 });
+useToastWatch(() => error.value, { tone: 'error' });
 watch(() => props.active, (active) => { if (!active) expanded.value = false; });
 async function getPdfBlob(): Promise<Blob> {
   if (!props.cvState) throw new Error('Assign a CV before exporting the motivation letter.');
@@ -53,7 +55,7 @@ defineExpose({ getPdfBlob, getRenderElement: () => page.value, open: () => { exp
 <template>
   <div class="letter-preview">
     <InlineDocumentPreview :hide-actions="hideActions" :pages="pages" v-model:page="previewPage" :is-updating="busy" :lang="previewLang" :title="title" :download-disabled="downloadDisabled" :downloading="downloading" @open="expanded = true" @download="emit('download')">
-      <template #header><slot /><p v-if="error" class="letter-preview__error" role="alert">{{ error }}</p></template>
+      <template v-if="$slots.default" #header><slot /></template>
     </InlineDocumentPreview>
     <FullDocumentPreview v-model="expanded" v-model:page="previewPage" :pages="pages" :is-updating="busy" :lang="previewLang" :title="title" :error="downloadError || error" :download-disabled="downloadDisabled" :downloading="downloading" @download="emit('download')">
       <template v-if="$slots.default" #header><slot /></template>
@@ -79,7 +81,6 @@ defineExpose({ getPdfBlob, getRenderElement: () => page.value, open: () => { exp
 <style scoped>
 .letter-preview{min-width:0;min-height:0;height:100%;overflow:hidden}
 .letter-preview__source{position:fixed;left:-20000px;top:0;width:210mm;pointer-events:none}
-.letter-preview__error{margin:0;color:#fecaca;font-size:12px;overflow-wrap:anywhere}
 @media(max-width:760px),(max-width:1180px) and (max-height:600px){.letter-preview{height:auto;flex:0 0 auto}}
 .motivation-letter{font:var(--paragraph-size)/1.55 var(--font-body);color:var(--ink);background:white;overflow-wrap:anywhere}
 .letter-header{display:flex;justify-content:space-between;gap:10mm;padding:4mm 5mm;margin-bottom:8mm;border-radius:3mm;background:var(--accent-soft);break-inside:avoid}

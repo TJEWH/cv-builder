@@ -56,7 +56,6 @@ onBeforeUnmount(() => mobileViewport.removeEventListener('change', syncViewport)
             </button>
           </div>
         </div>
-        <p v-if="error" class="document-full-preview__error" role="alert">{{ error }}</p>
         <div class="document-full-preview__content" :class="{ 'document-full-preview__content--with-header': !!$slots.header }">
           <div v-if="$slots.header" class="document-full-preview__header"><slot name="header" /></div>
           <div class="document-full-preview__viewport">
@@ -84,7 +83,6 @@ onBeforeUnmount(() => mobileViewport.removeEventListener('change', syncViewport)
 .document-full-preview__actions{right:20px;display:flex;flex-direction:column;gap:8px;align-items:stretch}
 .document-full-preview__actions select{min-height:36px;font:inherit;color:#d1fae5;background:#0b1b25;border:1px solid #28534e;border-radius:7px;padding:6px 10px}
 .document-full-preview__actions .btn{display:flex;justify-content:center;align-items:center;gap:8px}
-.document-full-preview__error{position:fixed;z-index:35;left:50%;bottom:64px;transform:translateX(-50%);width:min(560px,calc(100vw - 32px));box-sizing:border-box;padding:10px 12px;margin:0;border:1px solid #733844;border-radius:8px;background:#3a1720;color:#fecaca;font:13px/1.4 system-ui;overflow-wrap:anywhere}
 .document-full-preview--pdf{padding-block:0;overflow:hidden}
 .document-full-preview--pdf .document-full-preview__content{width:100%;height:100%;min-height:0;margin:0;overflow:hidden}
 .document-full-preview--pdf .document-full-preview__content--with-header{padding-top:84px;box-sizing:border-box}

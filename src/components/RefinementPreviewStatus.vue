@@ -5,8 +5,8 @@ const emit = defineEmits<{ 'update:modelValue': [value: 'original' | 'proposed']
 
 <template>
   <div class="refinement-preview-status">
-    <p role="status">{{ label }}<br /><small>{{ reference }}</small></p>
-    <p v-if="outdated" class="refinement-preview-status__outdated">{{ lang === 'de' ? 'Veraltet — Übernahme gesperrt. Vorschau aus dem exakten gespeicherten Snapshot.' : 'Outdated — acceptance blocked. Preview uses the exact saved snapshot.' }}</p>
+    <p class="app-hint" role="status">{{ label }}<br /><small>{{ reference }}</small></p>
+    <p v-if="outdated" class="app-hint refinement-preview-status__outdated">{{ lang === 'de' ? 'Veraltet — Übernahme gesperrt. Vorschau aus dem exakten gespeicherten Snapshot.' : 'Outdated — acceptance blocked. Preview uses the exact saved snapshot.' }}</p>
     <div class="refinement-preview-status__comparison" :aria-label="lang === 'de' ? 'Vorschlag vergleichen' : 'Compare proposal'">
       <button type="button" :aria-pressed="modelValue === 'original'" @click="emit('update:modelValue', 'original')">Original</button>
       <button type="button" :aria-pressed="modelValue === 'proposed'" @click="emit('update:modelValue', 'proposed')">{{ lang === 'de' ? 'Vorschlag' : 'Proposed' }}</button>

@@ -24,13 +24,13 @@ const runs = computed(() => props.requests.map(row => ({ row, metadata: refineme
 <template>
   <section class="refinement-history" :aria-label="text('Refinement runs', 'Überarbeitungsrunden')">
     <div class="current-run">
-      <p role="status"><strong>{{ text('Current request', 'Aktuelle Anfrage') }}:</strong> {{ state }}</p>
+      <p class="app-hint" role="status"><strong>{{ text('Current request', 'Aktuelle Anfrage') }}:</strong> {{ state }}</p>
       <label v-if="available.length">{{ text('Available proposals', 'Verfügbare Vorschläge') }}<select :value="activeId" :disabled="busy" @change="emit('select', ($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ text('Select a proposal', 'Vorschlag auswählen') }}</option><option v-for="proposal in available" :key="proposal.id" :value="proposal.id">{{ date(proposal.created_at) }} · {{ proposal.id }}{{ proposal.request_id !== currentRequestId ? text(' · Older run', ' · Frühere Runde') : '' }}</option></select></label>
-      <p v-if="activeId">{{ reviewActive ? accepted ? text('Accepted selection', 'Angenommene Auswahl') : text('Active proposal — not yet accepted', 'Aktiver Vorschlag — noch nicht angenommen') : text('Preview closed — showing working documents', 'Vorschau geschlossen — Arbeitsfassungen werden angezeigt') }}</p>
+      <p v-if="activeId" class="app-hint">{{ reviewActive ? accepted ? text('Accepted selection', 'Angenommene Auswahl') : text('Active proposal — not yet accepted', 'Aktiver Vorschlag — noch nicht angenommen') : text('Preview closed — showing working documents', 'Vorschau geschlossen — Arbeitsfassungen werden angezeigt') }}</p>
     </div>
     <details class="disclosure-row run-details" :open="open" @toggle="emit('details', ($event.target as HTMLDetailsElement).open)">
       <summary>{{ text('History / Details', 'Verlauf / Details') }}</summary>
-      <p>{{ text('Historical metadata comes from saved records. Missing versions remain unknown.', 'Historische Metadaten stammen aus gespeicherten Datensätzen. Fehlende Versionen bleiben unbekannt.') }}</p>
+      <p class="app-hint">{{ text('Historical metadata comes from saved records. Missing versions remain unknown.', 'Historische Metadaten stammen aus gespeicherten Datensätzen. Fehlende Versionen bleiben unbekannt.') }}</p>
       <details v-for="run in runs" :key="run.row.id" class="disclosure-row history-run">
         <summary>{{ date(run.row.created_at) }} · {{ run.row.request_json.scope }} · {{ run.proposals.length }} {{ text('proposals', 'Vorschläge') }}{{ run.row.id === currentRequestId ? text(' · Current', ' · Aktuell') : '' }}</summary>
         <dl>

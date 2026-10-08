@@ -4,12 +4,14 @@ import type { PDFPageProxy, RenderTask, TextLayer } from 'pdfjs-dist';
 import type { PdfPreviewPage } from '../pdfTypes';
 import { loadPdfJs, retainPdfPage } from '../composables/pdfJs';
 import { makeT } from '../i18n/dict';
+import { useToastWatch } from '../composables/useToasts';
 
 const props = withDefaults(defineProps<{ source: PdfPreviewPage; lang: string; scale?: number }>(), { scale: 1 });
 const emit = defineEmits<{
   'update:loading': [value: boolean]; error: [message: string]; navigate: [page: number]; size: [value: { width: number; height: number }];
 }>();
 const t = makeT(computed(() => props.lang));
+const failureMessage = computed(() => props.lang === 'de' ? 'Die PDF-Seite konnte nicht angezeigt werden.' : 'This PDF page could not be displayed.');
 const root = ref<HTMLElement | null>(null);
 const canvasHost = ref<HTMLElement | null>(null);
 const textHost = ref<HTMLElement | null>(null);
@@ -31,6 +33,10 @@ let pendingRender: Promise<unknown> | undefined;
 let shownCanvas: HTMLCanvasElement | null = null;
 let previousWidth = 0;
 let previousPixelRatio = 0;
+useToastWatch(() => failed.value ? failureMessage.value : '', () => ({ tone: 'error', action: {
+  label: props.lang === 'de' ? 'Erneut versuchen' : 'Try again',
+  run: () => { if (mounted) schedule(true); },
+} }));
 
 function releaseCanvas(canvas: HTMLCanvasElement | null) {
   if (!canvas) return;
@@ -203,7 +209,7 @@ onBeforeUnmount(() => {
       <a v-for="link in links" :key="link.id" :href="link.href" :style="link.style" :aria-label="link.label" :title="link.label" :target="link.page === undefined ? '_blank' : undefined" rel="noopener noreferrer" @click="activateLink($event, link)" />
     </div>
     <div v-if="failed" class="pdf-canvas-page__status" role="alert">
-      <span>{{ lang === 'de' ? 'Die PDF-Seite konnte nicht angezeigt werden.' : 'This PDF page could not be displayed.' }}</span>
+      <span class="app-hint">{{ failureMessage }}</span>
       <button type="button" class="btn" @click="schedule(true)">{{ lang === 'de' ? 'Erneut versuchen' : 'Try again' }}</button>
     </div>
     <div v-else-if="loading" class="pdf-canvas-page__status" role="status">{{ t('previewLoading') }}</div>

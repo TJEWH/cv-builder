@@ -15,6 +15,7 @@ import ApplicationWorkspace from './ApplicationWorkspace.vue';
 import ApplicationIdentifier from './ApplicationIdentifier.vue';
 import WorkspaceDetailHeader from './WorkspaceDetailHeader.vue';
 import { removeApplicationCv } from '../composables/applicationCv';
+import { useToastWatch } from '../composables/useToasts';
 
 const props = defineProps<{
   client: SupabaseClient | null; userId: string; tab: 'opportunities' | 'applications'; lang: string;
@@ -164,6 +165,7 @@ function closeOpportunity() {
   if (id) focusResult('opportunities', id);
 }
 async function changeReview(item: Opportunity, event: Event) {
+  notice.value = '';
   const target = event.target as HTMLSelectElement;
   const result = await setOpportunityReview(item.id, target.value as OpportunityReviewState);
   if (!result) target.value = reviewState(item.id);
@@ -178,6 +180,7 @@ function openApplication(application: Application) {
 }
 watch(editingApplication, (application, previous) => { if (application && !previous) openApplication(application); });
 function closeApplication() {
+  formError.value = '';
   if (hasUnsavedChanges.value) { formError.value = text('Save your notes before leaving this application.', 'Speichere deine Notizen, bevor du diese Bewerbung verlässt.'); return; }
   const id = editingId.value;
   editingId.value = null;
@@ -185,6 +188,7 @@ function closeApplication() {
 }
 function toggleApplication(application: Application) {
   if (saving.value) return;
+  formError.value = '';
   if (hasUnsavedChanges.value) { formError.value = text('Save your changes before closing or switching applications.', 'Speichere deine Änderungen, bevor du die Bewerbung schließt oder wechselst.'); return; }
   if (editingId.value !== application.id) {
     openApplication(application);
@@ -193,6 +197,7 @@ function toggleApplication(application: Application) {
   editingId.value = null;
 }
 async function startApplication(item: Opportunity) {
+  notice.value = '';
   const existing = applicationByOpportunity.value.get(item.id);
   const application = existing || await createApplication({ opportunityId: item.id });
   if (!application) return;
@@ -203,6 +208,7 @@ async function startApplication(item: Opportunity) {
 }
 async function saveApplication() {
   if (!editingId.value || saving.value) return;
+  notice.value = ''; formError.value = '';
   const id = editingId.value;
   const result = await updateApplication(id, { notes: form.notes });
   if (!result) { formError.value = error.value || text('Could not save.', 'Speichern fehlgeschlagen.'); return; }
@@ -210,6 +216,7 @@ async function saveApplication() {
   notice.value = text('Application saved.', 'Bewerbung gespeichert.');
 }
 async function changeApplicationStatus(item: Application, event: Event) {
+  notice.value = '';
   const target = event.target as HTMLSelectElement;
   const result = await updateApplication(item.id, { status: target.value as Application['status'] });
   if (!result) target.value = item.status;
@@ -219,6 +226,7 @@ async function changeChecklist(item: Application, key: string, completed: boolea
   await setApplicationChecklistItem(item.id, key, completed);
 }
 async function confirmRemoval(item: Application) {
+  notice.value = '';
   if (!await removeApplication(item.id)) return;
   cancelRemoval();
   if (editingId.value === item.id) editingId.value = null;
@@ -235,8 +243,7 @@ function cancelRemoval() {
   removingId.value = null;
   removalDialog.value?.close();
 }
-async function showRemovedOpportunity() {
-  const id = removedOpportunityId.value;
+async function showRemovedOpportunity(id: string) {
   const opportunity = id && opportunityById.value.get(id);
   emit('navigate', 'opportunities');
   await nextTick();
@@ -248,16 +255,23 @@ async function showRemovedOpportunity() {
 }
 async function refreshResearch() {
   if (!editingId.value || saving.value || hasUnsavedChanges.value) return;
+  notice.value = '';
   const result = await refreshApplicationContext(editingId.value);
   if (!result) return;
   openApplication(result);
   notice.value = text('Research context refreshed from the opportunity. Your CV and application progress are preserved.', 'Forschungskontext aus dem Stellenangebot aktualisiert. CV und Bewerbungsfortschritt bleiben erhalten.');
 }
+useToastWatch(() => error.value, { tone: 'error' });
+useToastWatch(() => formError.value !== error.value ? formError.value : '', { tone: 'error' });
+useToastWatch(() => notice.value, () => {
+  const id = removedOpportunityId.value;
+  const removed = notice.value === text('Application removed. The opportunity is available again.', 'Bewerbung entfernt. Die Stelle ist wieder verfügbar.');
+  return { tone: 'success', action: id && removed ? { label: text('View opportunity', 'Stelle ansehen'), run: () => showRemovedOpportunity(id) } : undefined };
+});
 </script>
 
 <template>
   <section :id="`builder-group-${tab}`" class="jobs-workspace" :aria-label="tab === 'opportunities' ? text('Opportunities', 'Stellenangebote') : text('Applications', 'Bewerbungen')">
-    <p v-if="error" class="jobs-error" role="alert">{{ error }}</p><p v-if="notice" class="jobs-notice" role="status">{{ notice }} <button v-if="removedOpportunityId" class="btn" type="button" @click="showRemovedOpportunity">{{ text('View opportunity', 'Stelle ansehen') }}</button></p>
     <div v-show="!showingDetail" class="jobs-toolbar">
       <label class="jobs-search"><span>{{ text('Search', 'Suchen') }}</span><input v-model="query" type="search" :placeholder="tab === 'applications' ? text('Title, institution or application ID…', 'Titel, Einrichtung oder Bewerbungs-ID…') : text('Title, institution or country…', 'Titel, Einrichtung oder Land…')" /></label>
       <button v-if="tab === 'opportunities'" class="btn jobs-filter-toggle" type="button" :aria-expanded="opportunityFiltersOpen" aria-controls="opportunity-filters" @click="opportunityFiltersOpen = !opportunityFiltersOpen">{{ text('Filters', 'Filter') }}</button>
@@ -283,7 +297,7 @@ async function refreshResearch() {
             <td class="jobs-topics jobs-cell-wide" :data-label="text('Topics', 'Themen')">{{ item.topics.join(' · ') || '—' }}</td><td class="jobs-cell-state" :data-label="text('Your review', 'Deine Bewertung')" @click.stop><select class="jobs-review-select" :aria-label="`${text('Review state for', 'Bewertung für')} ${item.title}`" :value="reviewState(item.id)" :disabled="saving" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></td>
             <td class="jobs-cell-actions"><div class="jobs-row-actions" @click.stop><button class="btn btn--success" type="button" :disabled="saving" @click="startApplication(item)">{{ applicationByOpportunity.has(item.id) ? text('Open application', 'Bewerbung öffnen') : text('Create application', 'Bewerbung anlegen') }}</button></div></td>
           </tr>
-        </template></tbody><tbody v-if="!filteredOpportunities.length"><tr><td colspan="6" class="jobs-empty">{{ loading ? text('Loading opportunities…', 'Stellenangebote werden geladen…') : text('No matching opportunities. Adjust the deadline, application, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewerbungs-, Bewertungs- oder Suchfilter.') }}</td></tr></tbody>
+        </template></tbody><tbody v-if="!filteredOpportunities.length"><tr><td colspan="6" class="jobs-empty"><p :class="{ 'app-hint': !loading }">{{ loading ? text('Loading opportunities…', 'Stellenangebote werden geladen…') : text('No matching opportunities. Adjust the deadline, application, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewerbungs-, Bewertungs- oder Suchfilter.') }}</p></td></tr></tbody>
       </table>
       <table v-else class="jobs-applications-table">
         <colgroup><col style="width: 34%" /><col style="width: 18%" /><col style="width: 30%" /><col style="width: 18%" /></colgroup>
@@ -294,7 +308,7 @@ async function refreshResearch() {
             <td class="jobs-cell-state" :data-label="text('Status', 'Status')" @click.stop><span class="jobs-badge">{{ statusLabel(item.status) }}</span></td>
           </tr>
 
-        </template><tr v-if="!filteredApplications.length"><td colspan="4" class="jobs-empty">{{ loading ? text('Loading applications…', 'Bewerbungen werden geladen…') : text('No matching applications. Create one from an opportunity.', 'Keine passenden Bewerbungen. Lege eine aus einem Stellenangebot an.') }}<button class="btn" type="button" @click="emit('navigate', 'opportunities')">{{ text('Browse opportunities', 'Stellenangebote ansehen') }}</button></td></tr></tbody>
+        </template><tr v-if="!filteredApplications.length"><td colspan="4" class="jobs-empty"><p :class="{ 'app-hint': !loading }">{{ loading ? text('Loading applications…', 'Bewerbungen werden geladen…') : text('No matching applications. Create one from an opportunity.', 'Keine passenden Bewerbungen. Lege eine aus einem Stellenangebot an.') }}</p><button class="btn" type="button" @click="emit('navigate', 'opportunities')">{{ text('Browse opportunities', 'Stellenangebote ansehen') }}</button></td></tr></tbody>
       </table>
     </div>
     <section v-if="selectedOpportunity" v-show="tab === 'opportunities'" ref="opportunityDetail" class="opportunity-detail" :aria-label="selectedOpportunity.title" tabindex="-1">
@@ -326,7 +340,7 @@ async function refreshResearch() {
         <label class="jobs-detail-state"><span class="jobs-action-label">{{ text('Status', 'Status') }}</span><select :aria-label="`${text('Status for', 'Status für')} ${contextTitle(editingApplication)}`" :value="editingApplication.status" :disabled="saving || hasUnsavedChanges" @change="changeApplicationStatus(editingApplication, $event)"><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label>
         <section class="application-status-history" :aria-label="text('Status history', 'Statusverlauf')">
           <h3>{{ text('Status history', 'Statusverlauf') }}</h3>
-          <p v-if="statusHistory.some(entry => !entry.changedAt)" class="jobs-subline">{{ text('Earlier status changes and their times were not recorded.', 'Frühere Statusänderungen und ihre Zeitpunkte wurden nicht erfasst.') }}</p>
+          <p v-if="statusHistory.some(entry => !entry.changedAt)" class="app-hint jobs-subline">{{ text('Earlier status changes and their times were not recorded.', 'Frühere Statusänderungen und ihre Zeitpunkte wurden nicht erfasst.') }}</p>
           <ol><li v-for="(entry, index) in statusHistory" :key="index" :aria-current="index === statusHistory.length - 1 ? 'step' : undefined">
             <strong>{{ statusLabel(entry.status) }}</strong><span v-if="index === statusHistory.length - 1" class="jobs-badge">{{ text('Current', 'Aktuell') }}</span>
             <time v-if="entry.changedAt" :datetime="entry.changedAt">{{ timestampLabel(entry.changedAt) }}</time><span v-else class="jobs-subline">{{ text('Time not recorded', 'Zeitpunkt nicht erfasst') }}</span>
@@ -336,15 +350,14 @@ async function refreshResearch() {
               <div class="application-fields">
                 <label class="application-notes">{{ text('Notes', 'Notizen') }}<textarea v-model="form.notes" rows="3" maxlength="20000" :disabled="saving" /></label>
               </div>
-              <p v-if="formError" class="jobs-error" role="alert">{{ formError }}</p><div class="jobs-form-footer"><span>{{ hasUnsavedChanges ? text('Unsaved changes', 'Ungespeicherte Änderungen') : text('All changes saved', 'Alle Änderungen gespeichert') }}</span><button class="btn btn--success" type="submit" :disabled="saving || !hasUnsavedChanges">{{ saving ? text('Saving…', 'Speichert…') : text('Save changes', 'Änderungen speichern') }}</button></div>
+              <div class="jobs-form-footer"><button class="btn btn--success" type="submit" :disabled="saving || !hasUnsavedChanges">{{ saving ? text('Saving…', 'Speichert…') : text('Save changes', 'Änderungen speichern') }}</button></div>
             </form>
 
       </template>
     </ApplicationWorkspace>
     <dialog ref="removalDialog" class="jobs-removal-dialog" :aria-label="text('Remove application', 'Bewerbung entfernen')" @cancel="removingId = null">
       <div v-if="editingApplication && removingId === editingApplication.id" class="jobs-removal-confirm">
-        <p>{{ text('Remove this application? Its notes, checklist progress and saved drafts will be deleted. Your CV versions remain available.', 'Bewerbung entfernen? Notizen, Checklistenfortschritt und gespeicherte Entwürfe werden gelöscht. Deine CV-Versionen bleiben erhalten.') }}</p>
-        <p v-if="error" class="jobs-error" role="alert">{{ error }}</p>
+        <p class="app-hint">{{ text('Remove this application? Its notes, checklist progress and saved drafts will be deleted. Your CV versions remain available.', 'Bewerbung entfernen? Notizen, Checklistenfortschritt und gespeicherte Entwürfe werden gelöscht. Deine CV-Versionen bleiben erhalten.') }}</p>
         <div class="jobs-row-actions"><button class="btn" type="button" autofocus :disabled="saving" @click="cancelRemoval">{{ text('Cancel', 'Abbrechen') }}</button><button class="btn btn--danger" type="button" :disabled="saving" @click="confirmRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button></div>
       </div>
     </dialog>
@@ -374,7 +387,7 @@ async function refreshResearch() {
 .jobs-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .jobs-heading h1 { margin: 4px 0 8px; font-size: 27px; letter-spacing: -.6px; }
 .jobs-heading p { margin: 0 0 12px; color: #9bb3ad; line-height: 1.55; }
-.jobs-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 16px; margin: 0 0 18px; }
+.jobs-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 16px; margin: 14px 0 18px; }
 .jobs-workspace label { display: grid; gap: 8px; font-size: 12px; }
 .jobs-search { flex: 1; min-width: 200px; max-width: 450px; }
 .jobs-toolbar .jobs-check { display: flex; align-items: center; }
@@ -413,8 +426,6 @@ td a { color: #8be9bf; overflow-wrap: anywhere; }
 .jobs-expired { color: #dfbc8a; }
 .jobs-empty { padding: 45px 20px; text-align: center; color: #94afa6; }
 .jobs-empty .btn { display: block; margin: 16px auto 0; }
-.jobs-error { padding: 10px 12px; color: #fecaca; background: #381f28; border-radius: 7px; font-size: 12px; }
-.jobs-notice { color: #86efac; font-size: 13px; }
 .jobs-opportunity-badges { display: flex; flex-wrap: wrap; gap: 6px; }
 .jobs-badge--new { background: #153e57; color: #b9e5ff; }
 .jobs-badge--updated { background: #49351c; color: #ffe0a0; }
@@ -436,8 +447,7 @@ tr.is-expanded { background: #0b242b; }
 .application-inline-form { display: grid; gap: 14px; padding: 0; background: transparent; border: 0; border-radius: 0; }
 .application-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .application-notes { grid-column: 1 / -1; }
-.jobs-form-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.jobs-form-footer > span { font-size: 11px; color: #91afa4; }
+.jobs-form-footer { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
 .jobs-upload-preview summary { color: #a0e7ca; cursor: pointer; }
 .jobs-upload-preview pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #041016; font: 11px/1.5 monospace; }
 @media (max-width: 1000px) {

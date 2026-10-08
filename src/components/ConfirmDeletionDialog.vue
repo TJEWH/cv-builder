@@ -29,7 +29,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown));
     <div v-if="visible" class="confirmation-backdrop" @click.self="cancel">
       <section class="confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-confirmation-title" aria-describedby="delete-confirmation-message">
         <h3 id="delete-confirmation-title">{{ title }}</h3>
-        <p id="delete-confirmation-message">{{ message }}</p>
+        <p id="delete-confirmation-message" class="app-hint">{{ message }}</p>
         <div class="confirmation-dialog__actions">
           <button ref="cancelButton" class="btn" type="button" @click="cancel">{{ cancelLabel }}</button>
           <button class="btn btn--danger" type="button" @click="$emit('confirm')">{{ confirmLabel }}</button>

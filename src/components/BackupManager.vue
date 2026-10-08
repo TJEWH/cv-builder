@@ -7,6 +7,7 @@ import { STORAGE_KEY } from '../composables/useStorage';
 import { builtinConfigurations, createEmptyDocument, createSampleDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID } from '../composables/builtinConfigurations';
 import { createNormalizedContentState } from '../composables/contentLayout';
 import { normalizeVariantIndex, subvariantParent } from '../composables/careerVariants';
+import { useToasts, useToastWatch } from '../composables/useToasts';
 import {
   MAX_CV_JSON_FILE_BYTES,
   createCvContentJson, createCvConfigJson,
@@ -39,6 +40,14 @@ const configs = ref<SavedConfiguration[]>([]);
 const newName = ref('');
 const backupMsg = ref('');
 const relationError = ref('');
+const { notify } = useToasts();
+function showBackupMessage(key: string) {
+  backupMsg.value = key;
+  const failed = /Failed|Invalid|TooLarge/.test(key);
+  const warning = key === 'versionMissingName' || key === 'versionImportTargetChanged';
+  notify({ message: t(key), tone: failed ? 'error' : warning ? 'warning' : 'success' });
+}
+useToastWatch(() => relationError.value, { tone: 'error' });
 const contentFileInput = ref<HTMLInputElement | null>(null);
 const configFileInput = ref<HTMLInputElement | null>(null);
 const isImporting = ref(false);
@@ -148,11 +157,12 @@ function saveConfig(id: string, name: string, { announce = true, data = snapshot
     const activeIdSaved = !activate || setCurrentId(id);
     refreshConfigs();
     if (!activeIdSaved) throw new Error('Active configuration could not be written');
-    if (announce) backupMsg.value = 'saved';
+    if (announce) showBackupMessage('saved');
     return true;
   } catch (error) {
     console.warn('Failed to save configuration', error);
-    backupMsg.value = 'versionSaveFailed';
+    if (announce) showBackupMessage('versionSaveFailed');
+    else backupMsg.value = 'versionSaveFailed';
     return false;
   }
 }
@@ -183,7 +193,7 @@ function saveVersion(id: string, data: CvState) {
 function saveAs() {
   const name = newName.value.trim();
   if (!name) {
-    backupMsg.value = 'versionMissingName';
+    showBackupMessage('versionMissingName');
     return;
   }
 
@@ -195,7 +205,7 @@ function saveAs() {
     emit('save-result', saved);
   } catch (error) {
     console.warn('Failed to save configuration copy', error);
-    backupMsg.value = 'versionSaveFailed';
+    showBackupMessage('versionSaveFailed');
     emit('save-result', false);
   }
 }
@@ -209,13 +219,13 @@ function selectConfiguration(id: string) {
     // Switch the save destination before changing state so the first
     // post-load autosave cannot target the configuration we just left.
     if (!setCurrentId(id)) {
-      backupMsg.value = 'versionSaveFailed';
+      showBackupMessage('versionSaveFailed');
       emit('save-result', false);
       return false;
     }
     props.onLoad(data);
     props.onSave();
-    backupMsg.value = 'versionLoaded';
+    showBackupMessage('versionLoaded');
     return true;
   } catch (error) {
     console.warn('Failed to load configuration', error);
@@ -275,11 +285,11 @@ function deleteCurrent() {
     const activeSaved = writeStorage(localActiveKey, EMPTY_DOCUMENT_ID);
     clearDeletedVersion(id);
     if (!sessionRemoved || !indexSaved || !activeSaved) throw new Error('Configuration cleanup failed');
-    backupMsg.value = 'versionDeleted';
+    showBackupMessage('versionDeleted');
     emit('save-result', true);
   } catch (error) {
     console.warn('Failed to delete configuration', error);
-    backupMsg.value = 'versionSaveFailed';
+    showBackupMessage('versionSaveFailed');
     emit('save-result', false);
   }
 }
@@ -300,10 +310,10 @@ function exportJson(kind: CvJsonKind) {
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    backupMsg.value = 'versionExported';
+    showBackupMessage('versionExported');
   } catch (error) {
     console.warn('Failed to export JSON configuration', error);
-    backupMsg.value = 'versionInvalidFile';
+    showBackupMessage('versionInvalidFile');
   }
 }
 
@@ -318,7 +328,7 @@ async function importJson(event: Event, kind: CvJsonKind) {
   if (!file || isImporting.value) return;
 
   if (file.size > MAX_CV_JSON_FILE_BYTES) {
-    backupMsg.value = 'versionFileTooLarge';
+    showBackupMessage('versionFileTooLarge');
     return;
   }
 
@@ -332,7 +342,7 @@ async function importJson(event: Event, kind: CvJsonKind) {
       ? { kind: 'content' as const, data: parseCvContentJson(text) }
       : { kind: 'config' as const, data: parseCvConfigJson(text) };
     if (currentId.value !== targetId) {
-      backupMsg.value = 'versionImportTargetChanged';
+      showBackupMessage('versionImportTargetChanged');
       return;
     }
     const confirmation = kind === 'config' ? 'versionConfirmImportConfig'
@@ -345,16 +355,16 @@ async function importJson(event: Event, kind: CvJsonKind) {
     // The empty template is immutable. Imports there become an editable draft;
     // named versions keep their identity and autosave the replaced portion.
     if (isEmptyDocument.value && !setCurrentId('')) {
-      backupMsg.value = 'versionSaveFailed';
+      showBackupMessage('versionSaveFailed');
       emit('save-result', false);
       return;
     }
     props.onLoad(data);
     props.onSave();
-    backupMsg.value = kind === 'content' ? 'versionContentImported' : 'versionConfigImported';
+    showBackupMessage(kind === 'content' ? 'versionContentImported' : 'versionConfigImported');
   } catch (error) {
     console.warn('Failed to import JSON configuration', error);
-    backupMsg.value = kind === 'content' ? 'versionInvalidContentFile' : 'versionInvalidConfigFile';
+    showBackupMessage(kind === 'content' ? 'versionInvalidContentFile' : 'versionInvalidConfigFile');
   } finally {
     isImporting.value = false;
   }
@@ -415,8 +425,7 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
         </div>
       </Teleport>
 
-      <p class="backup-manager__hint" aria-live="polite">{{ isEmptyDocument ? t('versionEmptyHint') : t('versionSaveAsHint') }}</p>
-      <p v-if="relationError" role="alert">{{ relationError }}</p>
+      <p class="backup-manager__hint app-hint">{{ isEmptyDocument ? t('versionEmptyHint') : t('versionSaveAsHint') }}</p>
       <form class="backup-manager__save-as" @submit.prevent="saveAs">
         <input v-model="newName" :placeholder="t('versionNewName')" :aria-label="t('versionNewName')" />
         <button type="submit" class="btn btn--success" :disabled="!newName.trim()">{{ t('versionSaveAs') }}</button>
@@ -432,7 +441,7 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
 
       <div class="backup-manager__json-group">
         <h3>{{ t('versionContentJson') }}</h3>
-        <p class="backup-manager__hint">{{ t('versionContentJsonHelp') }}</p>
+        <p class="backup-manager__hint app-hint">{{ t('versionContentJsonHelp') }}</p>
         <div class="backup-manager__file-actions">
           <input ref="contentFileInput" class="backup-manager__file-input" type="file" accept="application/json,.json" @change="importJson($event, 'content')" />
           <button type="button" class="btn" @click="exportJson('content')">{{ t('versionExportContent') }}</button>
@@ -442,12 +451,12 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
           <input v-model="bypassPrivacyProxy" type="checkbox" :disabled="isImporting" aria-describedby="content-json-privacy-help content-json-text-limit" />
           <span>{{ t('versionBypassPrivacy') }}</span>
         </label>
-        <p id="content-json-privacy-help" class="backup-manager__hint">{{ t(bypassPrivacyProxy ? 'versionBypassPrivacyHelp' : 'versionRespectPrivacyHelp') }}</p>
-        <p v-if="!bypassPrivacyProxy" id="content-json-text-limit" class="backup-manager__hint">{{ t('versionInlinePrivacyLimit') }}</p>
+        <p id="content-json-privacy-help" class="backup-manager__hint app-hint">{{ t(bypassPrivacyProxy ? 'versionBypassPrivacyHelp' : 'versionRespectPrivacyHelp') }}</p>
+        <p v-if="!bypassPrivacyProxy" id="content-json-text-limit" class="backup-manager__hint app-hint">{{ t('versionInlinePrivacyLimit') }}</p>
       </div>
       <div class="backup-manager__json-group">
         <h3>{{ t('versionConfigJson') }}</h3>
-        <p class="backup-manager__hint">{{ t('versionConfigJsonHelp') }}</p>
+        <p class="backup-manager__hint app-hint">{{ t('versionConfigJsonHelp') }}</p>
         <div class="backup-manager__file-actions">
           <input ref="configFileInput" class="backup-manager__file-input" type="file" accept="application/json,.json" @change="importJson($event, 'config')" />
           <button type="button" class="btn" @click="exportJson('config')">{{ t('versionExportConfig') }}</button>

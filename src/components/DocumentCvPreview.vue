@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import type { CvState } from '../types';
 import { designNumber, resolveDesign } from '../defaults';
 import { useDocumentPdfPreview } from '../composables/useDocumentPdfPreview';
+import { useToastWatch } from '../composables/useToasts';
 import { createAnonymizedState } from '../composables/anonymization';
 import CvPreview from './CvPreview.vue';
 import InlineDocumentPreview from './InlineDocumentPreview.vue';
@@ -37,6 +38,7 @@ const { pages, page, busy, downloading, error, getPdfBlob: renderPdfBlob, downlo
 });
 // Never leave a private page visible beneath a newly selected privacy mode.
 watch(activePrivacy, () => { pages.value = []; page.value = 1; });
+useToastWatch(() => error.value, { tone: 'error' });
 watch(() => props.active, (active) => { if (!active) expanded.value = false; });
 function open() { mode.value = props.privacy ? 'anonymized' : 'normal'; expanded.value = true; }
 async function getPdfBlob() { if (props.downloadDisabled) throw new Error('Accept or discard the temporary review before exporting.'); return renderPdfBlob(() => element(false)); }
@@ -47,7 +49,7 @@ defineExpose({ getPdfBlob, download, open });
 <template>
   <div class="document-preview">
     <InlineDocumentPreview :hide-actions="hideActions" :pages="pages" v-model:page="page" :is-updating="busy" :lang="state.lang" :downloading="downloading" :download-disabled="downloadDisabled" :title="state.lang === 'de' ? 'Bewerbungs-CV' : 'Application CV'" @open="open" @download="download">
-      <template #header><slot /><p v-if="error" class="document-preview__error" role="alert">{{ error }}</p></template>
+      <template v-if="$slots.default" #header><slot /></template>
     </InlineDocumentPreview>
     <FullDocumentPreview v-model="expanded" v-model:mode="mode" v-model:page="page" :pages="pages" :is-updating="busy" :lang="state.lang" :modes="modes" :downloading="downloading" :download-disabled="downloadDisabled" :error="error" :title="state.lang === 'de' ? 'Bewerbungs-CV' : 'Application CV'" @download="download">
       <template v-if="$slots.default" #header><slot /></template>
@@ -60,7 +62,6 @@ defineExpose({ getPdfBlob, download, open });
 
 <style scoped>
 .document-preview{min-width:0;min-height:0;height:100%;overflow:hidden}
-.document-preview__error{margin:0;color:#fecaca;font-size:12px;overflow-wrap:anywhere}
 .document-preview__source{position:fixed;left:-20000px;top:0;width:210mm;pointer-events:none}
 @media(max-width:760px),(max-width:1180px) and (max-height:600px){.document-preview{height:auto;flex:0 0 auto}}
 </style>

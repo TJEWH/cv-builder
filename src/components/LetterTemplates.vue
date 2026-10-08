@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { debounce } from '../composables/useStorage';
 import type { LetterTemplate } from '../letterTypes';
 import { createLetterRepository, DEFAULT_LETTER_TEMPLATES, DEFAULT_QUESTION_GUIDANCE, LETTER_TEMPLATE_CONTEXT_MAX_LENGTH } from '../composables/motivationLetters';
+import { useToasts, useToastWatch } from '../composables/useToasts';
 
 const props = defineProps<{ userId: string; lang?: string }>();
 const emit = defineEmits<{ changed: [] }>();
@@ -12,12 +13,19 @@ const defaultId = ref('');
 const form = ref<LetterTemplate | null>(null);
 const message = ref('');
 const error = ref('');
+const validationError = ref('');
 const importInput = ref<HTMLInputElement | null>(null);
 const saveStatus = ref<'saved' | 'saving' | 'error'>('saved');
 let editingOwner = props.userId;
 let replacingForm = false;
 let dirty = false;
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
+const { notify } = useToasts();
+useToastWatch(() => message.value, { tone: 'success' });
+useToastWatch(() => error.value, { tone: 'error' });
+const announceSaved = debounce(() => {
+  notify({ message: text('All changes saved locally', 'Alle Änderungen lokal gespeichert'), tone: 'success', key: 'letter-template-autosave' });
+}, 1500);
 const applicantNamePlaceholder = '{{APPLICANT_NAME}}';
 const repository = () => createLetterRepository(localStorage, editingOwner);
 function select(id: string) {
@@ -40,7 +48,7 @@ function reload() {
   catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); }
 }
 function replaceForm(value: LetterTemplate | null) {
-  replacingForm = true; form.value = value; replacingForm = false;
+  replacingForm = true; form.value = value; validationError.value = ''; replacingForm = false;
 }
 function create() {
   if (!flushSave()) return;
@@ -60,8 +68,13 @@ function setDefault() {
 }
 function save(): boolean {
   if (!form.value || !dirty) return true;
+  if (!form.value.name.trim() || !form.value.structure.trim() || !form.value.tone.trim()) {
+    validationError.value = text('Enter a template name, structure and tone to save your changes.', 'Zum Speichern Vorlagenname, Struktur und Tonalität eingeben.');
+    saveStatus.value = 'error';
+    return false;
+  }
+  validationError.value = '';
   try {
-    if (!form.value.name.trim() || !form.value.structure.trim() || !form.value.tone.trim()) throw new Error(text('Enter a template name, structure and tone to save your changes.', 'Zum Speichern Vorlagenname, Struktur und Tonalität eingeben.'));
     error.value = '';
     const saved = repository().saveTemplate(form.value);
     dirty = false;
@@ -72,6 +85,7 @@ function save(): boolean {
     templates.value = repository().listTemplates();
     defaultId.value = repository().defaultTemplate()?.id || '';
     saveStatus.value = 'saved';
+    announceSaved();
     emit('changed'); window.dispatchEvent(new Event('cv-letter-templates-updated'));
     return true;
   } catch (cause) {
@@ -84,18 +98,20 @@ const saveLater = debounce(save, 250);
 function flushSave() { saveLater.cancel(); return save(); }
 watch(form, () => {
   if (replacingForm) return;
+  announceSaved.cancel();
   dirty = true; saveStatus.value = 'saving'; message.value = '';
   saveLater();
 }, { deep: true, flush: 'sync' });
 watch(() => props.userId, (id) => {
   const saved = flushSave();
+  announceSaved.cancel();
   editingOwner = id; dirty = false; selectedId.value = ''; message.value = '';
   replaceForm(null);
   if (saved) { error.value = ''; saveStatus.value = 'saved'; }
   reload();
 }, { immediate: true });
 onMounted(() => window.addEventListener('pagehide', flushSave));
-onBeforeUnmount(() => { flushSave(); window.removeEventListener('pagehide', flushSave); });
+onBeforeUnmount(() => { flushSave(); announceSaved.cancel(); window.removeEventListener('pagehide', flushSave); });
 function download() {
   if (!flushSave()) return;
   try {
@@ -122,10 +138,8 @@ async function importLibrary(event: Event) {
 <template>
   <section class="letter-templates">
     <div class="template-heading">
-      <p>{{ text('Reusable structure, research interests and drafting guidance. Each application inherits fonts, colors and margins from its assigned CV.', 'Wiederverwendbare Struktur, Forschungsinteressen und Entwurfshinweise. Schriftarten, Farben und Ränder folgen dem zugewiesenen Lebenslauf.') }}</p>
+      <p class="app-hint">{{ text('Reusable structure, research interests and drafting guidance. Each application inherits fonts, colors and margins from its assigned CV.', 'Wiederverwendbare Struktur, Forschungsinteressen und Entwurfshinweise. Schriftarten, Farben und Ränder folgen dem zugewiesenen Lebenslauf.') }}</p>
     </div>
-    <p v-if="error" role="alert" class="template-error">{{ error }}</p>
-    <p v-if="message" role="status" class="template-notice">{{ message }}</p>
     <div class="template-layout">
       <aside :aria-label="text('Letter template library', 'Briefvorlagenbibliothek')">
         <button type="button" @click="create">{{ text('New template', 'Neue Vorlage') }}</button>
@@ -135,24 +149,24 @@ async function importLibrary(event: Event) {
         </select></label>
         <p v-if="form" class="template-selection-details">{{ text('Revision', 'Revision') }} {{ form.revision }} · {{ form.maxWords }} {{ text('words', 'Wörter') }}</p>
         <button type="button" :disabled="!selectedId || selectedId === defaultId" @click="setDefault">{{ selectedId && selectedId === defaultId ? text('Default letter', 'Standardbrief') : text('Set as default letter', 'Als Standardbrief festlegen') }}</button>
-        <p class="template-selection-details">{{ text('The default is selected automatically for new applications on this device.', 'Der Standardbrief wird auf diesem Gerät automatisch für neue Bewerbungen ausgewählt.') }}</p>
-        <output class="template-save-status" aria-live="polite">{{ saveStatus === 'saving' ? text('Saving…', 'Speichern…') : saveStatus === 'error' ? text('Changes not saved', 'Änderungen nicht gespeichert') : text('All changes saved locally', 'Alle Änderungen lokal gespeichert') }}</output>
+        <p class="template-selection-details app-hint">{{ text('The default is selected automatically for new applications on this device.', 'Der Standardbrief wird auf diesem Gerät automatisch für neue Bewerbungen ausgewählt.') }}</p>
         <div class="template-library-actions"><button type="button" @click="download">{{ text('Export library', 'Bibliothek exportieren') }}</button><button type="button" @click="importInput?.click()">{{ text('Import library', 'Bibliothek importieren') }}</button></div>
         <input ref="importInput" hidden type="file" accept=".json,application/json" @change="importLibrary" />
       </aside>
       <form v-if="form" class="template-form" @submit.prevent="flushSave" @focusout="flushSave">
+        <p v-if="validationError" class="app-hint" role="alert">{{ validationError }}</p>
         <label>{{ text('Template name', 'Vorlagenname') }}<input v-model="form.name" required maxlength="120" /></label>
         <div class="template-form-row"><label>{{ text('Default language', 'Standardsprache') }}<select v-model="form.language"><option value="en">English</option><option value="de">Deutsch</option></select></label><label>{{ text('Target words', 'Zielwortzahl') }}<input v-model.number="form.maxWords" type="number" min="50" max="2000" required /></label></div>
-        <label>{{ text('Subject instructions', 'Hinweise zum Betreff') }}<textarea v-model="form.subjectInstructions" rows="3" maxlength="1000" /><span class="field-description">{{ text('Describe how to name the position and include a tender reference when available.', 'Beschreiben Sie, wie die Stelle benannt und eine vorhandene Ausschreibungsreferenz aufgenommen werden soll.') }}</span></label>
-        <label>{{ text('Salutation instructions', 'Hinweise zur Anrede') }}<textarea v-model="form.salutationInstructions" rows="3" maxlength="1000" /><span class="field-description">{{ text('Describe how to choose the recipient from the tender and how to greet them if no contact is named.', 'Beschreiben Sie, wie der Empfänger aus der Ausschreibung gewählt und ohne genannten Kontakt angesprochen werden soll.') }}</span></label>
+        <label>{{ text('Subject instructions', 'Hinweise zum Betreff') }}<textarea v-model="form.subjectInstructions" rows="3" maxlength="1000" /><span class="field-description app-hint">{{ text('Describe how to name the position and include a tender reference when available.', 'Beschreiben Sie, wie die Stelle benannt und eine vorhandene Ausschreibungsreferenz aufgenommen werden soll.') }}</span></label>
+        <label>{{ text('Salutation instructions', 'Hinweise zur Anrede') }}<textarea v-model="form.salutationInstructions" rows="3" maxlength="1000" /><span class="field-description app-hint">{{ text('Describe how to choose the recipient from the tender and how to greet them if no contact is named.', 'Beschreiben Sie, wie der Empfänger aus der Ausschreibung gewählt und ohne genannten Kontakt angesprochen werden soll.') }}</span></label>
         <label>{{ text('Structure and sections', 'Struktur und Abschnitte') }}<textarea v-model="form.structure" rows="8" required maxlength="16000" /></label>
-        <label>{{ text('Closing instructions', 'Hinweise zum Abschluss') }}<textarea v-model="form.closingInstructions" rows="3" maxlength="1000" /><span class="field-description">{{ text(`Describe the closing invitation, sign-off and signature. Use ${applicantNamePlaceholder} for the private name.`, `Beschreiben Sie die abschließende Einladung, Grußformel und Unterschrift. Verwenden Sie ${applicantNamePlaceholder} für den privaten Namen.`) }}</span></label>
+        <label>{{ text('Closing instructions', 'Hinweise zum Abschluss') }}<textarea v-model="form.closingInstructions" rows="3" maxlength="1000" /><span class="field-description app-hint">{{ text(`Describe the closing invitation, sign-off and signature. Use ${applicantNamePlaceholder} for the private name.`, `Beschreiben Sie die abschließende Einladung, Grußformel und Unterschrift. Verwenden Sie ${applicantNamePlaceholder} für den privaten Namen.`) }}</span></label>
         <label>{{ text('Tone and writing guidance', 'Tonalität und Schreibhinweise') }}<textarea v-model="form.tone" rows="4" maxlength="1000" required /></label>
-        <label>{{ text('Main research interests (optional)', 'Zentrale Forschungsinteressen (optional)') }}<textarea v-model="form.researchInterests" rows="5" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span class="field-description">{{ text('Describe the research topics and questions that genuinely interest you, including interests not yet reflected in your CV. They enrich the motivation alongside your experience and the opportunity. Use the relevant interests selectively; the letter need not cover them all. Interests do not establish prior experience or qualifications.', 'Beschreiben Sie Forschungsthemen und Fragestellungen, die Sie wirklich interessieren, auch wenn sie noch nicht im Lebenslauf erscheinen. Sie ergänzen Ihre Erfahrungen und die Ausschreibung als Grundlage der Motivation. Relevante Interessen werden gezielt ausgewählt; der Brief muss nicht alle abdecken. Interessen sind kein Nachweis für Vorerfahrung oder Qualifikationen.') }}</span></label>
-        <label>{{ text('Questions and context to ask for (optional)', 'Rückfragen und gewünschter Kontext (optional)') }}<textarea v-model="form.questionGuidance" rows="6" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span class="field-description">{{ text('Explain when a question would improve a draft or refinement and what context to ask for. For example, ask about required or beneficial qualifications without CV evidence, then request a relevant example or an honest learning interest. Questions should add value, avoid repeating answered questions and never assume missing experience.', 'Beschreiben Sie, wann eine Rückfrage einen Entwurf oder eine Überarbeitung verbessert und welcher Kontext erfragt werden soll. Zum Beispiel: nach geforderten oder vorteilhaften Qualifikationen ohne Lebenslaufnachweis fragen und um ein relevantes Beispiel oder ehrliches Lerninteresse bitten. Fragen sollen einen Mehrwert bieten, beantwortete Fragen nicht wiederholen und fehlende Erfahrung nicht unterstellen.') }}</span></label>
+        <label>{{ text('Main research interests (optional)', 'Zentrale Forschungsinteressen (optional)') }}<textarea v-model="form.researchInterests" rows="5" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span class="field-description app-hint">{{ text('Describe the research topics and questions that genuinely interest you, including interests not yet reflected in your CV. They enrich the motivation alongside your experience and the opportunity. Use the relevant interests selectively; the letter need not cover them all. Interests do not establish prior experience or qualifications.', 'Beschreiben Sie Forschungsthemen und Fragestellungen, die Sie wirklich interessieren, auch wenn sie noch nicht im Lebenslauf erscheinen. Sie ergänzen Ihre Erfahrungen und die Ausschreibung als Grundlage der Motivation. Relevante Interessen werden gezielt ausgewählt; der Brief muss nicht alle abdecken. Interessen sind kein Nachweis für Vorerfahrung oder Qualifikationen.') }}</span></label>
+        <label>{{ text('Questions and context to ask for (optional)', 'Rückfragen und gewünschter Kontext (optional)') }}<textarea v-model="form.questionGuidance" rows="6" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span class="field-description app-hint">{{ text('Explain when a question would improve a draft or refinement and what context to ask for. For example, ask about required or beneficial qualifications without CV evidence, then request a relevant example or an honest learning interest. Questions should add value, avoid repeating answered questions and never assume missing experience.', 'Beschreiben Sie, wann eine Rückfrage einen Entwurf oder eine Überarbeitung verbessert und welcher Kontext erfragt werden soll. Zum Beispiel: nach geforderten oder vorteilhaften Qualifikationen ohne Lebenslaufnachweis fragen und um ein relevantes Beispiel oder ehrliches Lerninteresse bitten. Fragen sollen einen Mehrwert bieten, beantwortete Fragen nicht wiederholen und fehlende Erfahrung nicht unterstellen.') }}</span></label>
         <button class="template-guidance-example" type="button" @click="form.questionGuidance = DEFAULT_QUESTION_GUIDANCE">{{ text('Use missing-requirements question example', 'Beispielfragen zu fehlenden Anforderungsnachweisen verwenden') }}</button>
-        <label>{{ text('Example letter (optional)', 'Beispielbrief (optional)') }}<textarea v-model="form.exampleText" rows="8" maxlength="20000" /><span class="field-description">{{ text('Use an earlier letter to guide wording, style and structure. Its claims are not evidence about the applicant. Mark confidential details before sharing.', 'Ein früherer Brief kann Wortwahl, Stil und Struktur vorgeben. Seine Aussagen sind keine Nachweise über die bewerbende Person. Markieren Sie vertrauliche Details vor dem Teilen.') }}</span></label>
-        <p class="template-hint">{{ text('Templates stay on this device until included in an explicitly published drafting context.', 'Vorlagen bleiben auf diesem Gerät, bis sie ausdrücklich in einem Entwurfskontext veröffentlicht werden.') }}</p>
+        <label>{{ text('Example letter (optional)', 'Beispielbrief (optional)') }}<textarea v-model="form.exampleText" rows="8" maxlength="20000" /><span class="field-description app-hint">{{ text('Use an earlier letter to guide wording, style and structure. Its claims are not evidence about the applicant. Mark confidential details before sharing.', 'Ein früherer Brief kann Wortwahl, Stil und Struktur vorgeben. Seine Aussagen sind keine Nachweise über die bewerbende Person. Markieren Sie vertrauliche Details vor dem Teilen.') }}</span></label>
+        <p class="template-hint app-hint">{{ text('Templates stay on this device until included in an explicitly published drafting context.', 'Vorlagen bleiben auf diesem Gerät, bis sie ausdrücklich in einem Entwurfskontext veröffentlicht werden.') }}</p>
       </form>
     </div>
   </section>
@@ -178,9 +192,6 @@ aside{min-width:0;align-self:start;display:grid;gap:12px}
 input,select,textarea{font:400 13px/1.5 system-ui;min-width:0;width:100%;box-sizing:border-box}
 textarea{resize:vertical}
 .template-form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.template-save-status{font-size:12px;color:#a6c1b9}
 .template-hint{font-size:12px}
-.letter-templates .template-error,.letter-templates .template-notice{flex:0 0 auto;padding:12px;margin-bottom:16px;border-radius:7px;background:#3a1720;color:#fecaca}
-.letter-templates .template-notice{background:#10382c;color:#b5e3cb}
 @media(max-width:700px){.template-layout{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr);gap:18px}.template-heading{flex-direction:column;gap:10px;margin-bottom:14px}.template-form-row{grid-template-columns:1fr}.template-library-actions{margin-top:0}.template-form{max-width:none}}
 </style>

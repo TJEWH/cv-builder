@@ -11,13 +11,15 @@ import type { CvState, CvJsonKind, SavedConfiguration } from '../src/types';
 import { createCvContentJson, createCvConfigJson, cvContent, cvConfig, MAX_CV_JSON_FILE_BYTES } from '../src/composables/cvJsonBackup';
 import { createEmptyDocument, createSampleDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID } from '../src/composables/builtinConfigurations';
 import { createNormalizedContentState } from '../src/composables/contentLayout';
+import { useToasts, useToastWatch } from '../src/composables/useToasts';
 
 const filename = new URL('../src/components/BackupManager.vue', import.meta.url);
 const { descriptor } = parse(readFileSync(filename, 'utf8'));
 const compiled = compileScript(descriptor, { id: 'backup-manager-test' });
 const code = ts.transpileModule(compiled.content, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const exports: { default?: Component } = {};
-new Function('require', 'exports', code)(createRequire(filename), exports);
+const requireComponent = createRequire(filename);
+new Function('require', 'exports', code)((path: string) => path.endsWith('/useToasts') ? { useToasts, useToastWatch } : requireComponent(path), exports);
 const component = { ...exports.default, render: () => null };
 const renderer = createRenderer<object, object>({
   createElement: () => ({}), createText: () => ({}), createComment: () => ({}),
@@ -151,7 +153,8 @@ function savedVersionFixture(t: TestContext) {
   const app = renderer.createApp({ render: () => h(component, { ...props, ref: (value: unknown) => { mounted = value; } }) });
   app.mount({});
   const instance = mounted as {
-    saveCurrent(): boolean; saveVersion(id: string, data: CvState): boolean;
+    saveCurrent(options?: { announce?: boolean }): boolean; saveVersion(id: string, data: CvState): boolean;
+    saveAsDocument(name: string, data: CvState): boolean;
     createSubvariant(sourceId: string, name: string, data: CvState): string | null;
     restoreActiveConfig(): CvState | null;
     $: { setupState: {
@@ -163,6 +166,28 @@ function savedVersionFixture(t: TestContext) {
   t.after(() => app.unmount());
   return { storage, props, instance, setup: instance.$.setupState, deleted, global };
 }
+
+test('silent saves leave failure notifications to their caller while explicit saves announce once', (t) => {
+  const { instance, setup } = savedVersionFixture(t);
+  const notifications = useToasts();
+  notifications.clear();
+  t.after(() => notifications.clear());
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(localStorage, 'setItem', () => { throw new Error('Storage full'); });
+
+  assert.equal(instance.saveCurrent(), false);
+  assert.equal(setup.backupMsg, 'versionSaveFailed', 'the failure remains available to the caller');
+  assert.equal(notifications.toasts.value.length, 0, 'App owns active-document autosave feedback');
+  assert.equal(instance.saveVersion('other', createEmptyDocument()), false);
+  assert.equal(notifications.toasts.value.length, 0, 'App also owns section autosave feedback');
+  assert.equal(instance.saveAsDocument('New career variant', createSampleDocument()), false);
+  assert.equal(notifications.toasts.value.length, 0, 'the career-variant caller reports its own failure');
+
+  assert.equal(instance.saveCurrent({ announce: true }), false);
+  assert.equal(notifications.toasts.value.length, 1);
+  assert.equal(notifications.toasts.value[0]?.tone, 'error');
+  assert.ok(notifications.toasts.value[0]?.message);
+});
 
 test('subvariants retain their parent through autosave and their parent cannot be deleted first', async (t) => {
   const { storage, instance, setup, props } = savedVersionFixture(t);

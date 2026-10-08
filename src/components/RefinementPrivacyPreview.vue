@@ -29,7 +29,7 @@ const typeLabel = (type: PrivacyContextType) => ({ person: text('Person', 'Perso
 <template>
   <section class="privacy-review" :aria-label="text('Privacy preview', 'Datenschutzvorschau')">
     <h4>{{ text('Privacy preview', 'Datenschutzvorschau') }}</h4>
-    <dl class="privacy-statuses">
+    <dl class="privacy-statuses app-hint">
       <dt>{{ text('Visible', 'Sichtbar') }}</dt><dd>{{ text('Ordinary text is shared as shown, including unmasked employers, locations and links.', 'Normaler Text wird wie angezeigt geteilt, einschließlich unmaskierter Arbeitgeber, Orte und Links.') }}</dd>
       <dt class="pseudonymized">{{ text('Pseudonymized', 'Pseudonymisiert') }}</dt><dd>{{ text('Highlighted placeholders replace protected values. Replacing contact details does not make the document fully anonymous.', 'Hervorgehobene Platzhalter ersetzen geschützte Werte. Ersetzte Kontaktdaten machen das Dokument nicht vollständig anonym.') }}</dd>
       <dt>{{ text('Not shared', 'Nicht geteilt') }}</dt><dd>{{ text('Private originals, local reconstruction mappings, and hidden or privacy-excluded CV content stay on this device.', 'Private Originale, lokale Wiederherstellungszuordnungen sowie ausgeblendete oder ausgeschlossene CV-Inhalte bleiben auf diesem Gerät.') }}</dd>
@@ -45,12 +45,12 @@ const typeLabel = (type: PrivacyContextType) => ({ person: text('Person', 'Perso
     <details class="disclosure-row"><summary>{{ text('Outgoing saved feedback', 'Ausgehendes gespeichertes Feedback') }} ({{ request.feedback.length }})</summary><article v-for="item in request.feedback" :key="item.id"><strong>{{ item.scope }} · {{ item.createdAt }}</strong><PrivacyTextPreview :value="item.text" :lang="lang" /></article></details>
     <details v-if="targets.length || request.privacyLegend?.length" class="disclosure-row privacy-contexts">
       <summary>{{ text('Approved context descriptions (optional)', 'Freigegebene Kontextbeschreibungen (optional)') }}</summary>
-      <p>{{ text('Enter general context yourself, then approve it for sharing. No description is generated from private data. Tokens remain the reference; descriptions never replace originals or mappings.', 'Allgemeinen Kontext selbst eingeben und zum Teilen freigeben. Beschreibungen werden nicht aus privaten Daten erzeugt. Tokens bleiben die Referenz; Beschreibungen ersetzen weder Originale noch Zuordnungen.') }}</p>
+      <p class="app-hint">{{ text('Enter general context yourself, then approve it for sharing. No description is generated from private data. Tokens remain the reference; descriptions never replace originals or mappings.', 'Allgemeinen Kontext selbst eingeben und zum Teilen freigeben. Beschreibungen werden nicht aus privaten Daten erzeugt. Tokens bleiben die Referenz; Beschreibungen ersetzen weder Originale noch Zuordnungen.') }}</p>
       <article v-for="target in targets" :key="target.sourceKey" class="privacy-context">
         <strong>{{ target.label }}</strong> · <code>{{ target.token }}</code>
         <label>{{ text('Type', 'Typ') }}<select v-model="draft(target).type"><option v-for="type in PRIVACY_CONTEXT_TYPES" :key="type" :value="type">{{ typeLabel(type) }}</option></select></label>
         <label>{{ text('Approved context description', 'Freigegebene Kontextbeschreibung') }}<textarea v-model="draft(target).description" rows="2" :maxlength="PRIVACY_DESCRIPTION_LIMIT" :placeholder="text('e.g. Engineering company specializing in sensor technology', 'z. B. Ingenieurunternehmen mit Schwerpunkt Sensortechnik')" /></label>
-        <p class="context-status">{{ approved(target.token) ? text('Included after approval:', 'Nach Freigabe enthalten:') : text('No description shared.', 'Keine Beschreibung geteilt.') }} {{ approved(target.token)?.description }}</p>
+        <p class="app-hint">{{ approved(target.token) ? text('Included after approval:', 'Nach Freigabe enthalten:') : text('No description shared.', 'Keine Beschreibung geteilt.') }} {{ approved(target.token)?.description }}</p>
         <button type="button" :disabled="!draft(target).description.trim()" @click="emit('approve', target.sourceKey, draft(target).type, draft(target).description)">{{ text('Approve & include', 'Freigeben & aufnehmen') }}</button>
         <button v-if="approved(target.token)" type="button" @click="emit('remove', target.sourceKey)">{{ text('Remove description', 'Beschreibung entfernen') }}</button>
       </article>
@@ -60,6 +60,6 @@ const typeLabel = (type: PrivacyContextType) => ({ person: text('Person', 'Perso
 </template>
 
 <style scoped>
-.privacy-review{margin-top:12px;font-size:13px;line-height:1.5}h4{margin:0 0 8px}.privacy-statuses{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 14px}dt{font-weight:600}dd{margin:0;color:#b4ccc3}.pseudonymized,code{color:#e5f5ac}article{margin:12px 0}.privacy-context{border:1px solid #34534d;border-radius:8px;padding:12px}label{display:grid;gap:5px;margin-top:10px}select,textarea{box-sizing:border-box;width:100%;padding:8px;color:inherit;background:#0c1f27;border:1px solid #3c5f56;border-radius:5px;font:inherit}textarea{resize:vertical}button{margin:5px 8px 0 0;border:1px solid #447565;border-radius:5px;background:#173c30;color:#d9e8e3;padding:7px 10px;cursor:pointer}button:disabled{opacity:.5;cursor:default}.context-status{color:#b4ccc3;font-size:12px;overflow-wrap:anywhere}
+.privacy-review{margin-top:12px;font-size:13px;line-height:1.5}h4{margin:0 0 8px}.privacy-statuses{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 14px}dt{font-weight:600}dd{margin:0;color:#b4ccc3}.pseudonymized,code{color:#e5f5ac}article{margin:12px 0}.privacy-context{border:1px solid #34534d;border-radius:8px;padding:12px}label{display:grid;gap:5px;margin-top:10px}select,textarea{box-sizing:border-box;width:100%;padding:8px;color:inherit;background:#0c1f27;border:1px solid #3c5f56;border-radius:5px;font:inherit}textarea{resize:vertical}button{margin:5px 8px 0 0;border:1px solid #447565;border-radius:5px;background:#173c30;color:#d9e8e3;padding:7px 10px;cursor:pointer}button:disabled{opacity:.5;cursor:default}
 @media(max-width:600px){.privacy-statuses{grid-template-columns:1fr;gap:3px}.privacy-statuses dd{margin-bottom:9px}}
 </style>

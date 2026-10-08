@@ -7,6 +7,7 @@ import { makeT } from '../i18n/dict';
 import { BODY_FONTS, HEADING_FONTS, FontImportError, fontOptions, importWebFont, storeCustomFont } from '../composables/webFonts';
 import DesignControlFields from './DesignControlFields.vue';
 import { designControlRows, type DesignControl, type FavoriteLink } from '../composables/designControls';
+import { useToasts } from '../composables/useToasts';
 
 const props = defineProps({
   modelValue: { type: Object as PropType<CvDesign>, required: true },
@@ -30,6 +31,15 @@ const fontName = ref('');
 const isImportingFont = ref(false);
 const importedFont = ref<CustomFont>();
 const fontImportError = ref<FontImportError>();
+const { notify } = useToasts();
+watch(importedFont, (font) => {
+  if (font) notify({ message: `${t('fontImportSuccess')} ${font.name} (${font.source === 'bunny' ? 'Bunny Fonts' : 'Google Fonts'}). ${t('fontImportSelect')}`, tone: 'success' });
+}, { flush: 'sync' });
+watch(fontImportError, (error) => {
+  if (!error) return;
+  const source = error.source ? ` (${error.source === 'bunny' ? 'Bunny Fonts' : 'Google Fonts'}${error.status && error.status >= 400 ? `, HTTP ${error.status}` : ''})` : '';
+  notify({ message: `${t(`fontImportError_${error.code}`)}${source}`, tone: 'error' });
+}, { flush: 'sync' });
 let fontImportController: AbortController | undefined;
 function resetFontImport() {
   fontImportController?.abort();
@@ -184,7 +194,7 @@ function toggleSection(key: string) {
           <DesignControlFields :model-value="design" :entries="row.entries" :lang="lang" />
         </section>
       </div>
-      <p v-else class="design-favorites__empty">{{ t('designChooseControlsToKeepYourMostUsedDesignSettingsHere') }}</p>
+      <p v-else class="design-favorites__empty app-hint">{{ t('designChooseControlsToKeepYourMostUsedDesignSettingsHere') }}</p>
       </section>
 
       <div class="editor-panel__body">
@@ -196,19 +206,17 @@ function toggleSection(key: string) {
         </h4>
         <div :id="`design-section-${section.key}`" class="editor-subsection__body">
           <DesignControlFields :model-value="design" :entries="section.entries" :lang="lang" />
-          <p v-if="section.key === 'header'" class="spacing-hint">{{ t('designWithASeparatorHeaderPaddingIsAboveTheLineAndMarginIsBelowIt') }}</p>
-          <p v-if="section.key === 'sidebar'" class="spacing-hint">{{ t('designFitContentLetsTheBodyUseTheFullWidthBelowTheSidebar') }}</p>
+          <p v-if="section.key === 'header'" class="spacing-hint app-hint">{{ t('designWithASeparatorHeaderPaddingIsAboveTheLineAndMarginIsBelowIt') }}</p>
+          <p v-if="section.key === 'sidebar'" class="spacing-hint app-hint">{{ t('designFitContentLetsTheBodyUseTheFullWidthBelowTheSidebar') }}</p>
           <template v-if="section.key === 'typography'">
           <div class="font-import subsection-row" @click.stop>
             <label>{{ t('fontSource') }}<select v-model="fontSource" :disabled="isImportingFont"><option value="bunny">Bunny Fonts</option><option value="google">Google Fonts</option></select></label>
             <label>{{ t('customFontName') }}<input v-model="fontName" :disabled="isImportingFont" maxlength="100" placeholder="Open Sans" @keydown.enter.prevent="importFont"></label>
             <button class="mini font-import-button" type="button" :disabled="isImportingFont" @click="importFont">{{ t(isImportingFont ? 'importingFont' : 'importFont') }}</button>
           </div>
-          <p class="note">{{ t('customFontHelp') }}</p>
-          <p v-if="importedFont" class="font-import-success" role="status">{{ t('fontImportSuccess') }} {{ importedFont.name }} ({{ importedFont.source === 'bunny' ? 'Bunny Fonts' : 'Google Fonts' }}). {{ t('fontImportSelect') }}</p>
-          <p v-if="fontImportError" class="font-import-error" role="alert">{{ t(`fontImportError_${fontImportError.code}`) }}<template v-if="fontImportError.source"> ({{ fontImportError.source === 'bunny' ? 'Bunny Fonts' : 'Google Fonts' }}<template v-if="fontImportError.status && fontImportError.status >= 400">, HTTP {{ fontImportError.status }}</template>)</template></p>
-          <p v-if="fontImportError?.code === 'network' && fontImportError.source === 'google'" class="note">{{ t('googleFontErrorHelp') }}</p>
-          <p class="note">{{ t('webfontHelp') }}</p>
+          <p class="note app-hint">{{ t('customFontHelp') }}</p>
+          <p v-if="fontImportError?.code === 'network' && fontImportError.source === 'google'" class="note app-hint">{{ t('googleFontErrorHelp') }}</p>
+          <p class="note app-hint">{{ t('webfontHelp') }}</p>
           </template>
         </div>
       </section>
@@ -243,8 +251,6 @@ function toggleSection(key: string) {
 .subsection-row { margin-top: 8px; }
 .font-import { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 8px; }
 .font-import-button { min-height: 34px; padding-inline: 12px; }
-.font-import-success { color: #9be8c7; font-size: 12px; }
-.font-import-error { color: #fda4af; font-size: 12px; }
 @media (max-width: 640px) { .font-import { grid-template-columns: 1fr; } }
 .spacing-hint { margin: 6px 0 0; color: var(--muted); font-size: 9pt; }
 @media (max-width: 640px) { .design-favorites { margin-inline: 0; } .design-favorites__picker, .design-favorites__controls, .design-favorites__paired-controls { grid-template-columns: 1fr; } .design-favorites__control--linked { grid-column: auto; } }
