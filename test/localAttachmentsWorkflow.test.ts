@@ -6,7 +6,7 @@ import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
 import { createRenderer, h, nextTick, ref, type Component } from 'vue';
 import { PDFDocument } from 'pdf-lib';
-import type { ApplicationPackageManifest, AttachmentMetadata, LocalDocumentMetadata } from '../src/documentTypes';
+import type { ApplicationPackageManifest, AttachmentMetadata, LocalDocumentMetadata, PackageCompositionResult } from '../src/documentTypes';
 import { LocalDocumentRepository, type LocalDocumentStorage } from '../src/composables/localDocuments';
 import { attachmentAccount, createAttachmentFixture } from './attachmentFixture';
 
@@ -32,30 +32,35 @@ interface LibraryState {
 interface ApplicationState {
   loading: boolean; busy: boolean; error: string; selectedLibraryId: string; canAttach: boolean;
   manifest: ApplicationPackageManifest; libraryOptions: Entry[];
-  composition: unknown; previewUrl: string; buildPreview(): Promise<void>;
+  composition: PackageCompositionResult | null; previewUrl: string; previewBusy: boolean; previewFailed: boolean; buildPreview(): Promise<void>;
+  moveItem(index: number, direction: number): void;
   attachLibraryDocument(): void; removeItem(id: string): void; load(): Promise<void>;
 }
 const pdf = () => new File(['%PDF-1.4\nSynthetic document bytes.'], 'PRIVATE-original-file-name.pdf', { type: 'application/pdf' });
 function fileEvent(file: File) { return { target: { files: [file], value: file.name } } as unknown as Event; }
-async function idle(setup: { loading: boolean; busy: boolean }) {
-  for (let i = 0; i < 30; i++) { await nextTick(); await new Promise<void>(resolve => setImmediate(resolve)); if (!setup.loading && !setup.busy) return; }
+async function idle(setup: { loading: boolean; busy: boolean; previewBusy?: boolean }) {
+  for (let i = 0; i < 1000; i++) { await nextTick(); await new Promise<void>(resolve => setTimeout(resolve, 5)); if (!setup.loading && !setup.busy && !setup.previewBusy) return; }
   assert.fail('Attachment component did not become idle.');
 }
-function mount<T extends LibraryState | ApplicationState>(t: TestContext, view: Component, fixture = createAttachmentFixture(), storage: LocalDocumentStorage = fixture.storage) {
+function mount<T extends LibraryState | ApplicationState>(t: TestContext, view: Component, fixture = createAttachmentFixture(), storage: LocalDocumentStorage = fixture.storage, overrides: Record<string, unknown> = {}) {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
   const target = new EventTarget(); Object.assign(target, { confirm: () => true, setTimeout: () => 1 });
   Object.defineProperty(globalThis, 'window', { configurable: true, value: target });
   const owner = ref(attachmentAccount); let mounted: unknown;
+  const props = ref(overrides);
   const app = renderer.createApp({ render: () => h(view, {
     userId: owner.value, client: fixture.client, storage, lang: 'en', applicationId: 'synthetic-application',
     cvState: null, letterReady: false, getCvPdf: async () => pdf(), getLetterPdf: async () => pdf(),
+    ...props.value,
     ref: (value: unknown) => { mounted = value; },
   }) });
+  let isMounted = true;
+  const unmount = () => { if (isMounted) { app.unmount(); isMounted = false; } };
   app.mount({}); t.after(() => {
-    try { app.unmount(); }
+    try { unmount(); }
     finally { if (previous) Object.defineProperty(globalThis, 'window', previous); else Reflect.deleteProperty(globalThis, 'window'); }
   });
-  return { fixture, setup: (mounted as { $: { setupState: T } }).$.setupState, switchAccount(value: string) { fixture.setOwner(value); owner.value = value; } };
+  return { fixture, unmount, setup: (mounted as { $: { setupState: T } }).$.setupState, setProps(value: Record<string, unknown>) { props.value = { ...props.value, ...value }; }, switchAccount(value: string) { fixture.setOwner(value); owner.value = value; } };
 }
 
 test('attachment creation requires manual metadata, never derives it from the filename, and uploads only those fields', async t => {
@@ -163,11 +168,73 @@ test('attachment changes during PDF composition invalidate the pending preview b
   const storage = { ...fixture.storage, async get(...args: Parameters<LocalDocumentStorage['get']>) {
     const result = await fixture.storage.get(...args); if (args[1] === 'documents') { reading(); await blocked; } return result;
   } };
-  const { setup } = mount<ApplicationState>(t, Application, fixture, storage); await idle(setup);
-  const building = setup.buildPreview(); await started;
+  const { setup } = mount<ApplicationState>(t, Application, fixture, storage); await started;
   await repo.removeDocument(saved.id); window.dispatchEvent(new Event('cv-local-documents-updated')); release();
-  await building; await idle(setup);
+  await idle(setup);
   assert.equal(setup.composition, null); assert.equal(setup.previewUrl, '');
   assert.equal(setup.manifest.items.length, 1, 'the manifest keeps the missing attachment reference');
   assert.equal(setup.libraryOptions.length, 0);
+});
+
+async function renderedPdf(width = 595.28) {
+  const output = await PDFDocument.create(); output.addPage([width, 841.89]);
+  return new Blob([new Uint8Array(await output.save())], { type: 'application/pdf' });
+}
+
+test('ready packages preview automatically only in the active review, and update after order and readiness changes', async t => {
+  const fixture = createAttachmentFixture(); const generated = await renderedPdf(); let calls = 0;
+  const created: string[] = [], revoked: string[] = [];
+  const createUrl = URL.createObjectURL.bind(URL), revokeUrl = URL.revokeObjectURL.bind(URL);
+  t.mock.method(URL, 'createObjectURL', (blob: Blob) => { const url = createUrl(blob); created.push(url); return url; });
+  t.mock.method(URL, 'revokeObjectURL', (url: string) => { revoked.push(url); revokeUrl(url); });
+  const { setup, setProps, unmount } = mount<ApplicationState>(t, Application, fixture, fixture.storage, {
+    active: true, mode: 'prepare', cvReady: true, letterReady: true,
+    getCvPdf: async () => { calls++; return generated; }, getLetterPdf: async () => generated,
+  });
+  await idle(setup); assert.equal(calls, 0); assert.equal(Boolean(setup.composition), false);
+  setProps({ mode: 'review', active: false }); await idle(setup); assert.equal(calls, 0);
+  setProps({ active: true }); await idle(setup);
+  assert.equal(calls, 1); assert.equal(setup.composition?.pageCount, 2); assert.ok(setup.composition);
+  assert.match(setup.previewUrl, /^blob:/); assert.deepEqual(created, [setup.previewUrl]);
+  const firstUrl = setup.previewUrl;
+  const originalOrder = setup.composition!.documents.map(item => item.itemId);
+  setup.moveItem(0, 1); await idle(setup);
+  assert.equal(calls, 2); assert.deepEqual(setup.composition!.documents.map(item => item.itemId), originalOrder.reverse());
+  assert.notEqual(setup.previewUrl, firstUrl); assert.deepEqual(revoked, [firstUrl]);
+  setProps({ exportReady: false }); await idle(setup);
+  assert.equal(setup.previewUrl, ''); assert.equal(setup.composition, null); assert.equal(calls, 2);
+  assert.deepEqual(revoked, created, 'Invalidating the package must release its previous PDF URL');
+  setProps({ exportReady: true }); await idle(setup); assert.equal(calls, 3); assert.ok(setup.composition);
+  assert.match(setup.previewUrl, /^blob:/); assert.equal(created.length, 3);
+  unmount(); assert.deepEqual(revoked, created, 'Unmounting must release the final PDF URL');
+});
+
+test('edits during automatic PDF rendering discard stale results and render the newest revision', async t => {
+  const fixture = createAttachmentFixture(); const [oldPdf, newPdf] = await Promise.all([renderedPdf(300), renderedPdf(500)]);
+  let release!: () => void, reading!: () => void, calls = 0;
+  const started = new Promise<void>(resolve => { reading = resolve; });
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const { setup, setProps } = mount<ApplicationState>(t, Application, fixture, fixture.storage, {
+    cvReady: true, letterReady: true, getLetterPdf: async () => newPdf,
+    getCvPdf: async () => { calls++; if (calls === 1) { reading(); await blocked; return oldPdf; } return newPdf; },
+  });
+  await started; setProps({ letterRevision: 'new revision' }); await nextTick(); release(); await idle(setup);
+  assert.equal(calls, 2); assert.ok(setup.composition); assert.equal(setup.error, '');
+  assert.match(setup.previewUrl, /^blob:/);
+  const output = await PDFDocument.load(await setup.composition!.blob.arrayBuffer());
+  assert.ok(output.getPages().every(page => page.getWidth() === 500));
+});
+
+test('a failed automatic preview stops retrying and can recover with a single explicit retry', async t => {
+  const fixture = createAttachmentFixture(); const generated = await renderedPdf(); let calls = 0, fail = true;
+  const { setup } = mount<ApplicationState>(t, Application, fixture, fixture.storage, {
+    cvReady: true, letterReady: true, getLetterPdf: async () => generated,
+    getCvPdf: async () => { calls++; if (fail) throw new Error('Synthetic PDF render failure'); return generated; },
+  });
+  await idle(setup); assert.equal(calls, 1); assert.equal(setup.previewFailed, true); assert.equal(setup.composition, null);
+  assert.equal(setup.previewUrl, '');
+  assert.match(setup.error, /Synthetic PDF render failure/);
+  await idle(setup); assert.equal(calls, 1, 'A failed PDF must not cause an automatic retry loop');
+  fail = false; await setup.buildPreview(); await idle(setup);
+  assert.equal(calls, 2); assert.equal(setup.previewFailed, false); assert.equal(setup.error, ''); assert.ok(setup.composition);
 });

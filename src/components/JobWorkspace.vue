@@ -22,7 +22,7 @@ const props = defineProps<{
   createSubvariant?: (parentId: string, name: string, state: CvState) => string | null;
   projectId?: string;
 }>();
-const emit = defineEmits<{ navigate: [tab: 'opportunities' | 'applications']; 'save-career-variant': [name: string, state: CvState]; 'edit-variant': [id: string]; 'open-attachments': [] }>();
+const emit = defineEmits<{ navigate: [tab: 'opportunities' | 'applications']; 'save-career-variant': [name: string, state: CvState]; 'edit-variant': [id: string] }>();
 const { opportunities, applications, reviews, loading, saving, error, createApplication,
   updateApplication, setApplicationChecklistItem, removeApplication, setOpportunityReview, markOpportunityReviewed, refreshApplicationContext } = useJobWorkspace(props.client, () => props.userId);
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
@@ -314,7 +314,7 @@ async function refreshResearch() {
       </WorkspaceDetailHeader>
       <div class="opportunity-detail__body"><OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity.details" :lang="lang" /></div>
     </section>
-    <ApplicationWorkspace v-if="editingApplication" v-show="tab === 'applications'" :active="tab === 'applications'" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-subvariant="createSubvariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)" @open-attachments="emit('open-attachments')">
+    <ApplicationWorkspace v-if="editingApplication" v-show="tab === 'applications'" :active="tab === 'applications'" :checklist-saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-subvariant="createSubvariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
       <template #preparation-actions>
         <button class="btn btn--danger jobs-remove-application" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(editingApplication)}`" @click="requestDetailRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button>
       </template>

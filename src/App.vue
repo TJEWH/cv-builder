@@ -580,10 +580,6 @@ function selectBuilderGroup(group: string) {
   activeBuilderGroup.value = group;
   previewMode.value = false;
 }
-function openAttachmentLibrary() {
-  selectWorkspace('cv-studio');
-  if (activeWorkspace.value === 'cv-studio') selectBuilderGroup('attachments');
-}
 
 </script>
 
@@ -657,7 +653,6 @@ function openAttachmentLibrary() {
         @navigate="selectBuilderGroup"
         @save-career-variant="saveCareerVariant"
         @edit-variant="openStudioVariant"
-        @open-attachments="openAttachmentLibrary"
       />
 
       <footer v-show="!isCloudTab && studioHasPreview && (!isMobile || ['versions', 'content'].includes(activeBuilderGroup))" class="studio-bottom-bar" :aria-label="lang === 'de' ? 'CV-Studio-Aktionen' : 'CV Studio actions'">
@@ -843,7 +838,7 @@ body,
 
 .builder-topbar__utilities {
   display: grid;
-  justify-self: end;
+  justify-self: start;
 }
 
 .builder-topbar__auth { grid-column: 1 / -1; }

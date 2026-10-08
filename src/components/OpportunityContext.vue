@@ -2,11 +2,11 @@
 import { computed, defineComponent, h, useId } from 'vue';
 import type { PropType, VNode } from 'vue';
 import { buildOpportunityGroups, checklistKeys } from '../composables/opportunityContext';
-import type { OpportunityContextNode } from '../composables/opportunityContext';
+import type { OpportunityContextNode, OpportunityContextGroupId } from '../composables/opportunityContext';
 
-const props = defineProps<{ context: Record<string, unknown>; lang: string; checklist?: boolean; completedKeys?: string[]; saving?: boolean; defaultOpenGroups?: string[] }>();
+const props = defineProps<{ context: Record<string, unknown>; lang: string; checklist?: boolean; completedKeys?: string[]; saving?: boolean; defaultOpenGroups?: string[]; onlyGroups?: OpportunityContextGroupId[] }>();
 const emit = defineEmits<{ toggleChecklist: [key: string, completed: boolean] }>();
-const groups = computed(() => buildOpportunityGroups(props.context, props.lang));
+const groups = computed(() => buildOpportunityGroups(props.context, props.lang).filter(group => !props.onlyGroups || props.onlyGroups.includes(group.id)));
 const completed = computed(() => new Set(props.completedKeys || []));
 function progress(nodes: OpportunityContextNode[]) {
   const keys = checklistKeys(nodes);

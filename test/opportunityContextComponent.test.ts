@@ -15,7 +15,7 @@ const exports: { default?: Component } = {};
 new Function('require', 'exports', code)(createRequire(filename), exports);
 
 type HostNode = { tag?: string; text?: string; props: Record<string, unknown>; parent?: HostNode; children: HostNode[] };
-function mountContext() {
+function mountContext(onlyGroups?: ['documents']) {
   const nodes: HostNode[] = [];
   const createNode = (tag?: string, text?: string): HostNode => {
     const node: HostNode = { tag, text, props: {}, children: [] };
@@ -32,7 +32,7 @@ function mountContext() {
   });
   const context = { requirements: ['Relevant MSc', { requirement: 'Programming', details: ['Python', 'C++'], url: 'https://example.org/requirements' }], required_documents: ['CV', 'https://example.org/transcript-template'] };
   const changes: { key: string; completed: boolean }[] = [];
-  const props = reactive({ context, lang: 'en', checklist: true, completedKeys: [] as string[], saving: false });
+  const props = reactive({ context, lang: 'en', checklist: true, completedKeys: [] as string[], saving: false, onlyGroups });
   const app = renderer.createApp({ render: () => h('main', [
     h(exports.default!, { ...props, onToggleChecklist: (key: string, completed: boolean) => changes.push({ key, completed }) }),
     h(exports.default!, { ...props }),
@@ -75,4 +75,18 @@ test('checklist labels identify their own inputs across repeated contexts and pr
   await nextTick();
   assert.equal(mscInput.props.checked, true);
   assert.equal(mscInput.props.disabled, true);
+});
+
+test('PDF review shows only application documents and shares their saved checklist identities', async t => {
+  const context = mountContext(['documents']); t.after(context.unmount);
+  const inputs = context.nodes.filter(node => node.tag === 'input');
+  assert.equal(inputs.length, 4, 'Two document entries appear in each displayed context');
+  assert.ok(!context.nodes.some(node => node.tag === 'label' && node.text === 'Relevant MSc'));
+  const label = context.nodes.find(node => node.tag === 'label' && node.text === 'CV')!;
+  const input = inputs.find(node => node.props.id === label.props.for)!;
+  (input.props.onChange as (event: unknown) => void)({ target: { checked: true } });
+  const key = context.changes[0].key;
+  assert.match(key, /required_documents/);
+  context.props.completedKeys = [key]; await nextTick();
+  assert.equal(inputs.filter(node => node.props.checked).length, 2, 'Both views reflect the same saved document confirmation');
 });

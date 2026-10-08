@@ -1,4 +1,5 @@
 import type { ApplicationPackageItem, ApplicationPackageManifest, LocalDocument, PackageCompositionResult } from '../documentTypes';
+import type { PDFPage } from 'pdf-lib';
 
 export interface ApplicationPackageSources {
   cvReady: boolean;
@@ -16,7 +17,7 @@ export function packageItemProblem(item: ApplicationPackageItem, availableDocume
   return null;
 }
 
-/** Copy original PDF page content, retaining text/vectors. Images become centered A4 pages. */
+/** Retain PDF text/vectors and fit attachments to the generated document's page size. */
 export async function composeApplicationPackage(manifest: ApplicationPackageManifest, sources: ApplicationPackageSources): Promise<PackageCompositionResult> {
   const included = manifest.items.filter((item) => item.included);
   if (!included.length) throw new Error('Include at least one document in the application package.');
@@ -35,11 +36,14 @@ export async function composeApplicationPackage(manifest: ApplicationPackageMani
       resolved.push({ item, blob: document.blob, mimeType: document.mimeType });
     }
   }
-  const { PDFDocument, PDFDict, PDFName, PageSizes } = await import('pdf-lib');
+  const { PDFDocument, PDFDict, PDFName, PageSizes, pushGraphicsState, popGraphicsState, rectangle, clip, endPath } = await import('pdf-lib');
   const output = await PDFDocument.create();
   output.setTitle('Application documents');
   output.setCreator('CV Builder');
   const documents: PackageCompositionResult['documents'] = [];
+  const attachmentPages: PDFPage[] = [];
+  let cvSize: [number, number] | undefined;
+  let letterSize: [number, number] | undefined;
   for (const { item, blob, mimeType } of resolved) {
     const firstPage = output.getPageCount() + 1;
     try {
@@ -54,19 +58,52 @@ export async function composeApplicationPackage(manifest: ApplicationPackageMani
         if (form.getFields().length) form.flatten();
         const pages = await output.copyPages(source, source.getPageIndices());
         for (const page of pages) output.addPage(page);
+        if (item.kind === 'attachment') attachmentPages.push(...pages);
+        else {
+          const first = pages[0]!;
+          const size: [number, number] = [first.getWidth(), first.getHeight()];
+          if (item.kind === 'cv') cvSize = size;
+          else letterSize = size;
+        }
       } else if (mimeType === 'image/png' || mimeType === 'image/jpeg') {
         const image = mimeType === 'image/png' ? await output.embedPng(bytes) : await output.embedJpg(bytes);
         const page = output.addPage(PageSizes.A4);
-        const scale = Math.min((page.getWidth() - 48) / image.width, (page.getHeight() - 48) / image.height);
+        const scale = Math.min(page.getWidth() / image.width, page.getHeight() / image.height);
         const width = image.width * scale;
         const height = image.height * scale;
         page.drawImage(image, { x: (page.getWidth() - width) / 2, y: (page.getHeight() - height) / 2, width, height });
+        attachmentPages.push(page);
       } else throw new Error('Unsupported document format.');
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'The document could not be read.';
       throw new Error(`Could not include “${item.label}”. ${detail} Password-protected or damaged PDFs must be replaced with a readable copy.`);
     }
     documents.push({ itemId: item.id, label: item.label, firstPage, pageCount: output.getPageCount() - firstPage + 1 });
+  }
+  const [width, height] = cvSize ?? letterSize ?? PageSizes.A4;
+  for (const page of attachmentPages) {
+    const crop = page.getCropBox();
+    const rotated = Math.abs(page.getRotation().angle % 180) === 90;
+    const targetWidth = rotated ? height : width;
+    const targetHeight = rotated ? width : height;
+    const scale = Math.min(targetWidth / crop.width, targetHeight / crop.height);
+    // Keep the original crop when adding space around a page, without rasterizing
+    // its contents or losing links and flattened form appearances.
+    page.node.normalize();
+    page.node.wrapContentStreams(
+      output.context.register(output.context.contentStream([pushGraphicsState(), rectangle(crop.x, crop.y, crop.width, crop.height), clip(), endPath()])),
+      output.context.register(output.context.contentStream([popGraphicsState()])),
+    );
+    page.scaleContent(scale, scale);
+    page.scaleAnnotations(scale, scale);
+    const x = crop.x * scale - (targetWidth - crop.width * scale) / 2;
+    const y = crop.y * scale - (targetHeight - crop.height * scale) / 2;
+    page.setMediaBox(x, y, targetWidth, targetHeight);
+    page.setCropBox(x, y, targetWidth, targetHeight);
+    page.setBleedBox(x, y, targetWidth, targetHeight);
+    page.setTrimBox(x, y, targetWidth, targetHeight);
+    page.setArtBox(x, y, targetWidth, targetHeight);
+    page.node.set(PDFName.of('UserUnit'), output.context.obj(1));
   }
   const bytes = await output.save();
   return { blob: new Blob([new Uint8Array(bytes)], { type: 'application/pdf' }), pageCount: output.getPageCount(), documents };

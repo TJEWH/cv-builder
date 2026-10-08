@@ -58,7 +58,7 @@ async function mount(reload = false) {
   Object.defineProperty(window, 'sessionStorage', { configurable: true, value: fixture.storage });
   copiedPrompt = '';
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copiedPrompt = value; } } });
-  app = createApp({ render: () => h(ApplicationWorkspace as Component, { ...fixture.props, ref: (instance: unknown) => {
+  app = createApp({ render: () => h(ApplicationWorkspace as Component, { ...fixture.props, active: true, ref: (instance: unknown) => {
     if (instance) setup = (instance as { $: { setupState: Workspace } }).$.setupState;
   } }) });
   app.mount(root); await settle();
@@ -169,6 +169,11 @@ async function proposalReviewFlow() {
   await click('Preview selected changes'); assert(!surface('cv').textContent?.includes('Download PDF'), 'Refinement must hide download actions');
   await click('3PDF review');
   assert(!setup.reviewActive && same(setup.previewCvState, setup.record!.state) && same(setup.previewLetterContent!.body, 'Original working letter.'), 'Normal export retained proposed content');
+  await until(() => {
+    const problem = root.querySelector('.application-documents [role="alert"]');
+    if (problem) throw new Error(problem.textContent || 'Automatic package preview failed');
+    return root.querySelector<HTMLIFrameElement>('iframe.package-inline-pdf')?.src.startsWith('blob:') && !button('Download PDF').disabled;
+  }, 'approved application automatically displays its complete PDF');
   for (const blob of [await setup.getCvPdf(), await setup.getLetterPdf()]) {
     const pdf = await PDFDocument.load(await blob.arrayBuffer()); assert(pdf.getPageCount() > 0, 'Normal export did not generate a real PDF');
   }

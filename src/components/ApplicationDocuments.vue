@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vu
 import type { SupabaseClient } from '@supabase/supabase-js';
 import PreviewDialog from './PreviewDialog.vue';
 import type { CvState } from '../types';
-import type { ApplicationPackageManifest, AttachmentMetadata, LocalDocumentMetadata, LocalPackageArchive, PackageCompositionResult } from '../documentTypes';
+import type { ApplicationPackageManifest, AttachmentMetadata, LocalDocumentMetadata, PackageCompositionResult } from '../documentTypes';
 import { defaultPackageManifest, LocalDocumentRepository, newLocalId, safeDocumentFilename, type LocalDocumentStorage } from '../composables/localDocuments';
 import { createAttachmentMetadataRepository } from '../composables/attachmentMetadata';
 import { composeApplicationPackage, packageItemProblem } from '../composables/applicationPackage';
@@ -24,11 +24,10 @@ const props = withDefaults(defineProps<{
   active?: boolean;
   storage?: LocalDocumentStorage;
 }>(), { mode: 'review', cvReady: undefined, exportReady: true, client: null, active: true });
-const emit = defineEmits<{ readiness: [value: { included: number; missing: number }]; openLibrary: [] }>();
+const emit = defineEmits<{ readiness: [value: { included: number; missing: number }] }>();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const documents = ref<LocalDocumentMetadata[]>([]);
 const sharedDocuments = ref<AttachmentMetadata[]>([]);
-const archives = ref<LocalPackageArchive[]>([]);
 const manifest = shallowRef<ApplicationPackageManifest>(defaultPackageManifest(props.applicationId));
 const loading = ref(true);
 const loadFailed = ref(false);
@@ -36,11 +35,15 @@ const busy = ref(false);
 const error = ref('');
 const notice = ref('');
 const previewUrl = ref('');
+const previewSrc = computed(() => previewUrl.value ? `${previewUrl.value}#toolbar=0&navpanes=0` : '');
+const previewBusy = ref(false);
+const previewFailed = ref(false);
 const expanded = ref(false);
 const composition = ref<PackageCompositionResult | null>(null);
 const selectedLibraryId = ref('');
 let generation = 0;
-let previewGeneration = 0;
+const previewGeneration = ref(0);
+let attemptedPreview = -1;
 let disposed = false;
 let reloadPending = false;
 const repository = computed(() => new LocalDocumentRepository(props.userId, props.storage));
@@ -56,11 +59,12 @@ const library = computed(() => {
 const libraryOptions = computed(() => library.value.filter((document) => !manifest.value.items.some((item) => item.documentId === document.id)));
 const selectedLibraryDocument = computed(() => libraryOptions.value.find(({ id }) => id === selectedLibraryId.value));
 const canAttach = computed(() => !!selectedLibraryDocument.value?.description?.trim() && availableIds.value.has(selectedLibraryId.value));
-const canBuild = computed(() => !loading.value && !busy.value && props.exportReady && !!includedCount.value && !problems.value.length);
+const canBuild = computed(() => props.active && props.mode === 'review' && !loading.value && !loadFailed.value && !busy.value && !previewBusy.value && props.exportReady && !!includedCount.value && !problems.value.length);
 
 function clearPreview() {
   expanded.value = false;
-  previewGeneration++;
+  previewGeneration.value++;
+  previewFailed.value = false;
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value);
   previewUrl.value = '';
   composition.value = null;
@@ -79,11 +83,11 @@ async function load() {
   const owner = props.userId;
   const cloud = props.client && owner ? createAttachmentMetadataRepository(props.client, () => owner) : null;
   loading.value = true; loadFailed.value = false; busy.value = false; error.value = ''; notice.value = ''; selectedLibraryId.value = '';
-  documents.value = []; sharedDocuments.value = []; archives.value = []; manifest.value = defaultPackageManifest(applicationId); clearPreview();
+  documents.value = []; sharedDocuments.value = []; manifest.value = defaultPackageManifest(applicationId); clearPreview();
   try {
-    const [nextDocuments, nextManifest, nextArchives, remote] = await Promise.all([repo.listDocuments(), repo.getManifest(applicationId), repo.listArchives(applicationId), cloud ? cloud.list().then((value) => ({ value, error: '' })).catch(() => ({ value: [], error: text('Shared attachment descriptions could not be loaded. Local files remain available; refresh to retry.', 'Geteilte Anhangsbeschreibungen konnten nicht geladen werden. Lokale Dateien bleiben verfügbar; zum Wiederholen aktualisieren.') })) : Promise.resolve({ value: [], error: '' })]);
+    const [nextDocuments, nextManifest, remote] = await Promise.all([repo.listDocuments(), repo.getManifest(applicationId), cloud ? cloud.list().then((value) => ({ value, error: '' })).catch(() => ({ value: [], error: text('Shared attachment descriptions could not be loaded. Local files remain available. Reopen PDF review to retry.', 'Geteilte Anhangsbeschreibungen konnten nicht geladen werden. Lokale Dateien bleiben verfügbar. Zum Wiederholen die PDF-Prüfung erneut öffnen.') })) : Promise.resolve({ value: [], error: '' })]);
     if (token !== generation || disposed) return;
-    documents.value = nextDocuments; sharedDocuments.value = remote.value; manifest.value = nextManifest; archives.value = nextArchives; error.value = remote.error;
+    documents.value = nextDocuments; sharedDocuments.value = remote.value; manifest.value = nextManifest; error.value = remote.error;
   } catch (reason) { if (token === generation && !disposed) { loadFailed.value = true; reportError(reason); } }
   finally { if (token === generation && !disposed) { loading.value = false; flushPendingRefresh(); } }
 }
@@ -125,7 +129,7 @@ function moveItem(index: number, direction: number) {
 function removeItem(id: string) { void updateManifest({ ...manifest.value, items: manifest.value.items.filter((item) => item.id !== id) }); }
 function attachLibraryDocument() {
   const document = selectedLibraryDocument.value;
-  if (!document || !canAttach.value) return;
+  if (busy.value || loading.value || loadFailed.value || !document || !canAttach.value) return;
   void updateManifest({ ...manifest.value, items: [...manifest.value.items, { id: newLocalId(), kind: 'attachment', documentId: document.id, label: document.name, included: true }] });
   selectedLibraryId.value = '';
 }
@@ -139,33 +143,35 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 async function buildPreview() {
   if (!canBuild.value) return;
-  await perform(async (repo, _applicationId, token) => {
-    clearPreview();
-    const previewToken = previewGeneration;
-    const result = await composeApplicationPackage(structuredClone(manifest.value), { cvReady: cvAvailable.value, letterReady: props.letterReady, getCvPdf: props.getCvPdf, getLetterPdf: props.getLetterPdf, getDocument: (id) => repo.getDocument(id) });
-    if (!current(token)) return;
-    if (previewToken !== previewGeneration) { notice.value = text('Documents changed while creating the preview. Preview the package again to include the latest edits.', 'Die Dokumente wurden während der Vorschauerstellung geändert. Die Vorschau erneut erstellen, um die Änderungen einzuschließen.'); return; }
-    composition.value = result;
-    previewUrl.value = URL.createObjectURL(result.blob);
-  });
+  const previewToken = previewGeneration.value;
+  attemptedPreview = previewToken;
+  previewBusy.value = true;
+  previewFailed.value = false;
+  try {
+    await perform(async (repo, _applicationId, token) => {
+      try {
+        const result = await composeApplicationPackage(structuredClone(manifest.value), { cvReady: cvAvailable.value, letterReady: props.letterReady, getCvPdf: props.getCvPdf, getLetterPdf: props.getLetterPdf, getDocument: (id) => repo.getDocument(id) });
+        if (!current(token) || previewToken !== previewGeneration.value) return;
+        const url = URL.createObjectURL(result.blob);
+        if (previewUrl.value) URL.revokeObjectURL(previewUrl.value);
+        previewUrl.value = url;
+        composition.value = result;
+      } catch (reason) {
+        if (!current(token) || previewToken !== previewGeneration.value) return;
+        previewFailed.value = true;
+        throw reason;
+      }
+    });
+  } finally { previewBusy.value = false; }
 }
-async function deleteArchive(archive: LocalPackageArchive) {
-  if (!window.confirm(text('Delete this archived PDF from this device? Download a copy or backup first if you need to keep it.', 'Dieses archivierte PDF von diesem Gerät löschen? Bei Bedarf vorher eine Kopie oder ein Backup herunterladen.'))) return;
-  await perform(async (repo, _applicationId, token) => {
-    await repo.removeArchive(archive.id);
-    if (current(token)) archives.value = archives.value.filter(({ id }) => id !== archive.id);
-  });
-}
-async function downloadPackage() {
+// Retry changed inputs after an in-flight render finishes, but never loop on a failed PDF.
+watch([canBuild, previewGeneration], () => {
+  if (canBuild.value && attemptedPreview !== previewGeneration.value) void buildPreview();
+}, { flush: 'post' });
+function downloadPackage() {
   const result = composition.value;
-  if (!result) return;
-  await perform(async (repo, applicationId, token) => {
-    const archive = await repo.archivePackage(applicationId, result.blob, result.pageCount, manifest.value.items.filter(({ included }) => included));
-    if (!current(token)) return;
-    archives.value.unshift(archive);
-    downloadBlob(result.blob, archive.name);
-    notice.value = text('Downloaded. A frozen copy is saved on this device.', 'Heruntergeladen. Eine unveränderliche Kopie ist auf diesem Gerät gespeichert.');
-  });
+  if (!result || busy.value) return;
+  downloadBlob(result.blob, `application-${props.applicationId}-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 async function exportBackup() {
   await perform(async (repo, _applicationId, token) => {
@@ -180,9 +186,9 @@ async function importBackup(event: Event) {
   if (!window.confirm(text('Restore documents and package arrangements from this backup? Matching records will be replaced. Other files remain available.', 'Dokumente und Zusammenstellungen aus diesem Backup wiederherstellen? Übereinstimmende Einträge werden ersetzt. Andere Dateien bleiben verfügbar.'))) return;
   await perform(async (repo, applicationId, token) => {
     const restored = await repo.importBackup(file);
-    const [nextDocuments, nextManifest, nextArchives] = await Promise.all([repo.listDocuments(), repo.getManifest(applicationId), repo.listArchives(applicationId)]);
+    const [nextDocuments, nextManifest] = await Promise.all([repo.listDocuments(), repo.getManifest(applicationId)]);
     if (!current(token)) return;
-    documents.value = nextDocuments; manifest.value = nextManifest; archives.value = nextArchives; clearPreview();
+    documents.value = nextDocuments; manifest.value = nextManifest; clearPreview();
     notice.value = text(`Restored ${restored.documents} documents and ${restored.packages} package arrangements.`, `${restored.documents} Dokumente und ${restored.packages} Zusammenstellungen wiederhergestellt.`);
   });
 }
@@ -192,18 +198,13 @@ onBeforeUnmount(() => { disposed = true; generation++; clearPreview(); window.re
 <template>
   <section :class="['application-documents', 'documents-mode-' + mode]" :aria-label="text('Documents and export', 'Dokumente und Export')">
       <div class="documents-controls">
-    <header class="documents-header">
-      <div><h3>{{ mode === 'tracking' ? text('Package archive', 'PDF-Archiv') : mode === 'prepare' ? text('Local attachments', 'Lokale Anhänge') : text('Supporting documents & export', 'Zusätzliche Unterlagen & Export') }}</h3><p>{{ mode === 'prepare' ? text('Select reusable attachments from CV Studio for this application. Files stay on this device.', 'Wiederverwendbare Anhänge aus dem CV-Studio für diese Bewerbung auswählen. Dateien bleiben auf diesem Gerät.') : text('Arrange the complete application package. Supporting files stay on this device.', 'Vollständige Bewerbungsunterlagen zusammenstellen. Zusätzliche Dateien bleiben auf diesem Gerät.') }}</p></div>
-      <span class="local-badge">{{ text('Local files only', 'Dateien nur lokal') }}</span>
-    </header>
     <p v-if="loading" role="status">{{ text('Loading local documents…', 'Lokale Dokumente werden geladen…') }}</p>
     <p v-if="error" role="alert" class="message error">{{ error }}</p>
     <p v-if="notice" role="status" class="message notice">{{ notice }}</p>
     <button v-if="loadFailed" type="button" @click="load">{{ text('Retry local storage', 'Lokalen Speicher erneut öffnen') }}</button>
         <template v-if="!loading && !loadFailed">
+        <slot />
         <section v-show="mode !== 'tracking'" class="document-section">
-          <h4>{{ text('Package order', 'Reihenfolge') }}</h4>
-          <p class="muted">{{ text('Select documents to include, then arrange their order.', 'Gewünschte Dokumente auswählen und ihre Reihenfolge festlegen.') }}</p>
           <ol class="package-items">
             <li v-for="(item, index) in manifest.items" :key="item.id" :class="{ excluded: !item.included, missing: problems.some((problem) => problem.id === item.id) }">
               <div class="package-item-main"><input :id="`package-${item.id}`" type="checkbox" :checked="item.included" :disabled="busy" @change="toggleItem(item.id, ($event.target as HTMLInputElement).checked)" /><label :for="`package-${item.id}`">{{ itemLabel(item) }}</label></div>
@@ -213,11 +214,9 @@ onBeforeUnmount(() => { disposed = true; generation++; clearPreview(); window.re
             </li>
           </ol>
           <p v-if="!includedCount" class="muted">{{ text('Include at least one document to create a package.', 'Mindestens ein Dokument für die Zusammenstellung auswählen.') }}</p>
-          <div class="library-actions"><button type="button" :disabled="busy" @click="emit('openLibrary')">{{ text('Manage attachments in CV Studio', 'Anhänge im CV-Studio verwalten') }}</button><button type="button" :disabled="busy || loading" @click="load">{{ text('Refresh attachments', 'Anhänge aktualisieren') }}</button></div>
-          <div v-if="libraryOptions.length" class="library-picker"><select v-model="selectedLibraryId" :disabled="busy" :aria-label="text('Choose an existing document', 'Vorhandenes Dokument auswählen')"><option value="">{{ text('From local attachment library…', 'Aus lokaler Anhangsbibliothek…') }}</option><option v-for="document in libraryOptions" :key="document.id" :value="document.id" :disabled="!availableIds.has(document.id) || !document.description?.trim()">{{ document.name }}{{ !availableIds.has(document.id) ? text(' — file missing on this device', ' — Datei fehlt auf diesem Gerät') : !document.description?.trim() ? text(' — description needed in CV Studio', ' — Beschreibung im CV-Studio ergänzen') : '' }}</option></select><button type="button" :disabled="busy || !canAttach" @click="attachLibraryDocument">{{ text('Add', 'Hinzufügen') }}</button></div>
-          <p v-if="selectedLibraryDocument" class="attachment-description selected-description">{{ selectedLibraryDocument.description }}</p>
+          <div v-if="libraryOptions.length" class="library-picker"><select v-model="selectedLibraryId" :disabled="busy" :aria-label="text('Choose an existing document', 'Vorhandenes Dokument auswählen')" @change="attachLibraryDocument"><option value="">{{ text('From local attachment library…', 'Aus lokaler Anhangsbibliothek…') }}</option><option v-for="document in libraryOptions" :key="document.id" :value="document.id" :disabled="!availableIds.has(document.id) || !document.description?.trim()">{{ document.name }}{{ !availableIds.has(document.id) ? text(' — file missing on this device', ' — Datei fehlt auf diesem Gerät') : !document.description?.trim() ? text(' — description needed in CV Studio', ' — Beschreibung im CV-Studio ergänzen') : '' }}</option></select></div>
           <p v-if="!library.length" class="muted">{{ text('Add a named attachment with a description in CV Studio, then select it here.', 'Einen benannten Anhang mit Beschreibung im CV-Studio hinzufügen und dann hier auswählen.') }}</p>
-          <div v-if="mode === 'review'" class="package-actions"><button type="button" class="primary" :disabled="!canBuild" @click="buildPreview">{{ busy ? text('Working…', 'Wird bearbeitet…') : text('Preview complete PDF', 'Gesamtes PDF ansehen') }}</button><button type="button" :disabled="busy || !composition" @click="downloadPackage">{{ text('Download & archive', 'Herunterladen & archivieren') }}</button></div>
+          <div v-if="mode === 'review'" class="package-actions"><button type="button" :disabled="busy || !composition" @click="downloadPackage">{{ text('Download PDF', 'PDF herunterladen') }}</button></div>
         </section>
         <details v-if="mode === 'tracking'" class="document-section">
           <summary>{{ text('Local backup', 'Lokales Backup') }}</summary>
@@ -225,34 +224,30 @@ onBeforeUnmount(() => { disposed = true; generation++; clearPreview(); window.re
           <div class="backup-actions"><button type="button" :disabled="busy" @click="exportBackup">{{ text('Back up files & packages', 'Dateien & Zusammenstellungen sichern') }}</button><label class="file-button secondary" :class="{ disabled: busy }">{{ text('Restore backup', 'Backup wiederherstellen') }}<input type="file" accept="application/json,.json" :disabled="busy" @change="importBackup" /></label></div>
           <p class="muted">{{ text('This backup includes local attachments, package order, and archived PDFs. Back up your editable CVs separately in CV Studio.', 'Dieses Backup enthält lokale Anhänge, die Reihenfolge und archivierte PDFs. Bearbeitbare Lebensläufe separat im CV-Studio sichern.') }}</p>
         </details>
-        <details v-if="archives.length" :open="mode === 'tracking'" class="document-section"><summary>{{ text('Frozen package archive', 'Archivierte Zusammenstellungen') }} ({{ archives.length }})</summary><p class="muted">{{ text('These PDF copies preserve exactly what you downloaded, even after later edits.', 'Diese PDF-Kopien bewahren die heruntergeladene Fassung auch nach späteren Änderungen.') }}</p><ul class="archive-list"><li v-for="archive in archives" :key="archive.id"><span>{{ new Date(archive.createdAt).toLocaleString(lang === 'de' ? 'de-DE' : 'en-GB') }} · {{ archive.pageCount }} {{ text('pages', 'Seiten') }}</span><div class="item-actions"><button type="button" :disabled="busy" @click="downloadBlob(archive.blob, archive.name)">{{ text('Download copy', 'Kopie laden') }}</button><button type="button" :disabled="busy" @click="deleteArchive(archive)">{{ text('Delete', 'Löschen') }}</button></div></li></ul></details>
         </template>
       </div>
       <section v-show="mode === 'review'" class="package-preview document-section" :aria-label="text('Complete PDF preview', 'Vorschau des gesamten PDFs')">
-        <div class="preview-heading"><h4>{{ text('Complete package', 'Gesamte Zusammenstellung') }}</h4><span v-if="composition">{{ composition.pageCount }} {{ text('pages', 'Seiten') }}</span></div>
-        <button type="button" :disabled="!previewUrl" @click="expanded = true">{{ text('Open preview', 'Vorschau öffnen') }}</button>
-        <template v-if="composition && previewUrl">
-          <details class="page-map-summary"><summary>{{ text('Document order', 'Dokumentreihenfolge') }}</summary><ul class="page-map"><li v-for="document in composition.documents" :key="document.itemId">{{ document.label }} <span>{{ text('p.', 'S.') }} {{ document.firstPage }}<template v-if="document.pageCount > 1">–{{ document.firstPage + document.pageCount - 1 }}</template></span></li></ul></details>
-          <iframe class="package-inline-pdf" :src="previewUrl" :title="text('Complete application PDF', 'Vollständige Bewerbungsunterlagen als PDF')" />
-        </template>
-        <div v-else class="preview-empty"><span aria-hidden="true">▤</span><p>{{ text('Prepare the documents, then preview the assembled PDF before downloading.', 'Unterlagen vorbereiten und das zusammengesetzte PDF vor dem Herunterladen prüfen.') }}</p></div>
+        <iframe v-if="composition && previewUrl" class="package-inline-pdf" :src="previewSrc" :title="text('Complete application PDF', 'Vollständige Bewerbungsunterlagen als PDF')" />
+        <div v-else class="preview-empty" role="status"><span aria-hidden="true">▤</span><p>{{ previewBusy ? text('Updating PDF preview…', 'PDF-Vorschau wird aktualisiert…') : previewFailed ? text('The PDF preview could not be created.', 'Die PDF-Vorschau konnte nicht erstellt werden.') : text('The complete PDF appears automatically once the selected documents are ready.', 'Das gesamte PDF erscheint automatisch, sobald die ausgewählten Unterlagen bereit sind.') }}</p><button v-if="previewFailed" type="button" :disabled="!canBuild" @click="buildPreview">{{ text('Retry preview', 'Vorschau erneut versuchen') }}</button></div>
+        <div class="package-preview-actions">
+          <details v-if="composition" class="page-map-summary"><summary>{{ text('Document order', 'Dokumentreihenfolge') }}</summary><ul class="page-map"><li v-for="document in composition.documents" :key="document.itemId">{{ document.label }} <span>{{ text('p.', 'S.') }} {{ document.firstPage }}<template v-if="document.pageCount > 1">–{{ document.firstPage + document.pageCount - 1 }}</template></span></li></ul></details>
+          <button type="button" :disabled="!previewUrl" @click="expanded = true">{{ text('Open preview', 'Vorschau öffnen') }}</button>
+        </div>
       </section>
-    <PreviewDialog v-model="expanded" :title="text('Complete application PDF', 'Vollständige Bewerbungsunterlagen als PDF')" :lang="lang"><iframe v-if="previewUrl" class="package-full-pdf" :src="previewUrl" :title="text('Complete application PDF', 'Vollständige Bewerbungsunterlagen als PDF')" /></PreviewDialog>
+    <PreviewDialog v-model="expanded" :title="text('Complete application PDF', 'Vollständige Bewerbungsunterlagen als PDF')" :lang="lang"><iframe v-if="previewUrl" class="package-full-pdf" :src="previewSrc" :title="text('Complete application PDF', 'Vollständige Bewerbungsunterlagen als PDF')" /></PreviewDialog>
   </section>
 </template>
 
 <style scoped>
-.application-documents.documents-mode-prepare,.application-documents.documents-mode-tracking{display:block;overflow:visible;flex:none;padding-bottom:20px}.documents-mode-prepare .documents-controls,.documents-mode-tracking .documents-controls{overflow:visible}.documents-mode-prepare .documents-header,.documents-mode-tracking .documents-header{margin-top:12px}
+.application-documents.documents-mode-prepare,.application-documents.documents-mode-tracking{display:block;overflow:visible;flex:none;padding-bottom:20px}.documents-mode-prepare .documents-controls,.documents-mode-tracking .documents-controls{overflow:visible}
 
-.application-documents { display:grid; flex:1 1 auto; grid-template-columns:minmax(0,1fr) 360px; gap:20px; min-width:0; min-height:0; overflow:hidden; color:#d1fae5; background:transparent; padding:0; color-scheme:dark; }
-.documents-header,.preview-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:20px; }
+.application-documents { display:grid; flex:1 1 auto; grid-template-columns:minmax(0,1fr) 360px; align-items:start; align-content:start; gap:20px; min-width:0; min-height:0; overflow:visible; color:#d1fae5; background:transparent; padding:0; color-scheme:dark; }
 h3,h4,p { margin:0; } h3 { color:inherit; font-size:1.2rem; } h4 { color:inherit; font-size:1rem; margin-bottom:10px; }
-.documents-header p,.muted { color:#a6c1b9; font-size:.88rem; line-height:1.5; margin-top:7px; }
-.local-badge { flex-shrink:0; color:#9ee6c7; font-size:.75rem; }
-.documents-controls { display:flex; flex-direction:column; gap:20px; min-width:0; min-height:0; overflow:auto; overscroll-behavior:contain; padding-right:4px; }
+.muted { color:#a6c1b9; font-size:.88rem; line-height:1.5; margin-top:7px; }
+.documents-controls { display:flex; flex-direction:column; min-width:0; min-height:0; overflow:visible; padding-right:4px; }
 .documents-controls > * { flex-shrink:0; }
-.package-preview { display:flex; flex-direction:column; min-height:0; overflow:hidden; gap:10px; }
-.package-preview > :not(iframe):not(.preview-empty) { flex-shrink:0; }
+.package-preview { display:flex; flex-direction:column; min-height:0; overflow:visible; gap:10px; }
+.package-preview > :not(.package-inline-pdf):not(.preview-empty) { flex-shrink:0; }
 .document-section { min-width:0; }
 .documents-controls > details.document-section { padding-top:16px; border-top:1px solid #28534e; }
 summary { font-weight:650; cursor:pointer; }
@@ -277,30 +272,25 @@ input[type="checkbox"] { accent-color:#67c8a6; width:16px; height:16px; flex-shr
 .item-actions button { padding:4px 8px; min-width:36px; min-height:36px; }
 .item-problem { flex-basis:100%; color:#f2c6a7; line-height:1.45; }
 .attachment-description { flex-basis:100%; color:#a6c1b9; white-space:pre-wrap; overflow-wrap:anywhere; font-size:.82rem; line-height:1.5; }
-.selected-description { margin-top:10px; }
-.library-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
 .package-actions,.backup-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:18px; }
 .library-picker { display:flex; gap:7px; margin-top:10px; } select { min-width:0; flex:1; }
-.library-list,.archive-list,.page-map { list-style:none; padding:0; margin:14px 0; }
-.library-list li,.archive-list li { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:12px 0; border-bottom:1px solid #28534e; font-size:.83rem; }
-.library-list strong { font-weight:550; overflow-wrap:anywhere; } .library-list small { display:block; color:#a6c1b9; margin-top:3px; }
+.page-map { list-style:none; padding:0; margin:14px 0; }
 .message { padding:10px 0; margin-bottom:16px; white-space:pre-line; font-size:.9rem; line-height:1.5; }
 .error { color:#fecaca; } .notice { color:#9ee6c7; }
-.preview-heading { margin-bottom:6px; } .preview-heading span { font-size:.82rem; color:#a6c1b9; white-space:nowrap; }
-.package-inline-pdf { width:100%; flex:1 1 auto; min-height:0; border:0; background:#fff; color-scheme:light; }
+.package-inline-pdf { display:block; width:100%; height:65vh; flex:none; min-height:360px; border:0; background:#fff; color-scheme:light; }
 .package-full-pdf { display:block; width:100%; height:100%; border:0; background:#fff; color-scheme:light; }
-.page-map-summary { max-height:35%; overflow:auto; }
+.package-preview-actions { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.package-preview-actions > button { flex-shrink:0; margin-left:auto; }
+.page-map-summary { flex:1; min-width:0; }
 .package-preview a { font-size:.84rem; color:#9ee6c7; }
 .page-map li { display:flex; justify-content:space-between; gap:15px; font-size:.82rem; padding:5px 0; } .page-map span { flex-shrink:0; color:#a6c1b9; }
-.preview-empty { flex:1 1 auto; min-height:0; overflow:auto; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; max-width:300px; margin:auto; }
+.preview-empty { flex:none; height:65vh; min-height:360px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; max-width:300px; margin:auto; }
 .preview-empty > span { font-size:46px; color:#528674; margin-bottom:16px; }
 .preview-empty p { color:#a6c1b9; font-size:.9rem; line-height:1.6; }
-@media(max-width:1180px) { .application-documents { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(0,1fr) minmax(240px,42%); } }
-@media(max-width:760px), (max-width:1180px) and (max-height:600px) { .application-documents { grid-template-rows:minmax(0,1fr) auto; gap:10px; } .documents-header { flex-direction:column; gap:10px; } .library-list li { align-items:flex-start; flex-direction:column; } .package-inline-pdf,.page-map-summary,.preview-empty { display:none; } .package-preview { flex-direction:row; flex-wrap:wrap; align-items:center; justify-content:space-between; } .preview-heading { margin:0; } .preview-heading h4 { margin:0; font-size:.85rem; } }
-@media(max-width:760px) {
-  .documents-controls { padding-right:0; }
-  .documents-header { gap:8px; margin-bottom:0; }
-  .documents-header h3 { font-size:18px; }
-  .archive-list li { align-items:flex-start; flex-direction:column; }
+@media(max-width:1180px) { .application-documents { grid-template-columns:minmax(0,1fr); grid-template-rows:auto auto; } }
+@media(max-width:760px), (max-width:1180px) and (max-height:600px) {
+  .application-documents { display:flex; flex-direction:column; align-items:stretch; gap:20px; }
+  .documents-controls { flex:none; overflow:visible; padding-right:0; }
+  .package-preview { flex:none; }
 }
 </style>

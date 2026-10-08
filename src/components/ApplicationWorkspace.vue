@@ -29,13 +29,13 @@ import RefinementPreviewStatus from './RefinementPreviewStatus.vue';
 import { annotationViews, annotationReferenceChanged, annotationFeedback, validateAnnotationReview } from '../composables/refinementAnnotations';
 
 const props = defineProps<{
-  projectId?: string; active?: boolean;
+  projectId?: string; active?: boolean; checklistSaving?: boolean;
   application: Application; client: SupabaseClient | null; userId: string; lang: string;
   configurations: SavedConfiguration[]; readVersion: (id: string) => CvState | null;
   publishCv: (state: CvState) => Promise<Application | null>;
   createSubvariant?: (sourceId: string, name: string, state: CvState) => string | null;
 }>();
-const emit = defineEmits<{ close: []; 'edit-variant': [id: string]; 'open-attachments': [] }>();
+const emit = defineEmits<{ close: []; 'edit-variant': [id: string]; toggleChecklist: [key: string, completed: boolean] }>();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const storageKey = 'CV_REFINEMENT:1:' + encodeURIComponent(props.userId) + ':' + props.application.id;
@@ -788,7 +788,9 @@ function downloadBlob(blob: Blob, filename: string) {
           </MotivationLetterPreview>
         </div>
       </section>
-      <ApplicationDocuments v-show="tab === 'review'" :client="client" :active="active !== false && tab === 'review'" @open-library="emit('open-attachments')" mode="review" :application-id="application.id" :user-id="userId" :lang="lang" :cv-state="record?.state || null" :cv-ready="cvApproved" :export-ready="cvApproved && letterApproved" :get-cv-pdf="getCvPdf" :get-letter-pdf="getLetterPdf" :letter-ready="letterApproved" :letter-revision="letterRevision" @readiness="documentReadiness = $event" />
+      <ApplicationDocuments v-show="tab === 'review'" :client="client" :active="active !== false && tab === 'review'" mode="review" :application-id="application.id" :user-id="userId" :lang="lang" :cv-state="record?.state || null" :cv-ready="cvApproved" :export-ready="cvApproved && letterApproved" :get-cv-pdf="getCvPdf" :get-letter-pdf="getLetterPdf" :letter-ready="letterApproved" :letter-revision="letterRevision" @readiness="documentReadiness = $event">
+        <OpportunityContext :context="application.context_json" :lang="lang" :only-groups="['documents']" checklist :completed-keys="application.completed_checklist_keys || []" :saving="checklistSaving" @toggle-checklist="(key, completed) => emit('toggleChecklist', key, completed)" />
+      </ApplicationDocuments>
       <section v-show="tab === 'tracking'" class="tracking-stage">
         <slot name="tracking" />
       </section>

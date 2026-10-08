@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PDFDict, PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
+import { degrees, PDFArray, PDFDict, PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
 import { composeApplicationPackage, packageItemProblem } from '../src/composables/applicationPackage';
 import { defaultPackageManifest, LocalDocumentRepository, safeDocumentFilename } from '../src/composables/localDocuments';
 import type { LocalDocumentStorage, LocalDocumentWrite } from '../src/composables/localDocuments';
@@ -31,7 +31,7 @@ function attachment(id: string, blob: Blob): LocalDocument {
   return { id, name: 'Certificate.pdf', mimeType: 'application/pdf', size: blob.size, createdAt: new Date().toISOString(), blob };
 }
 
-test('package composition follows the manifest order, preserves PDF page geometry and text resources, and skips excluded inputs', async () => {
+test('composition follows manifest order, fits attachments to CV size, preserves generated pages and text, and skips excluded inputs', async () => {
   const [cv, letter, certificate] = await Promise.all([pdf([410, 420]), pdf([510]), pdf([610])]);
   const manifest: ApplicationPackageManifest = { ...defaultPackageManifest('application'), items: [
     { id: 'certificate', kind: 'attachment', documentId: 'doc-1', label: 'Certificate', included: true },
@@ -46,11 +46,39 @@ test('package composition follows the manifest order, preserves PDF page geometr
     getDocument: async (id) => id === 'doc-1' ? attachment(id, certificate) : undefined,
   });
   const composed = await PDFDocument.load(await result.blob.arrayBuffer());
-  assert.deepEqual(composed.getPages().map((page) => page.getWidth()), [610, 410, 420]);
+  assert.deepEqual(composed.getPages().map((page) => page.getWidth()), [410, 410, 420]);
   assert.equal(result.pageCount, 3);
   assert.equal(letterCalls, 0);
   assert.deepEqual(result.documents.map(({ firstPage, pageCount }) => [firstPage, pageCount]), [[1, 1], [2, 2]]);
   for (const page of composed.getPages()) assert.ok(page.node.Resources()?.get(PDFName.of('Font')), 'Original vector/text resources must remain, without rasterizing PDF pages');
+});
+
+test('small cropped and rotated attachments grow to document size with centered content and scaled links', async () => {
+  const source = await PDFDocument.create();
+  const page = source.addPage([200, 300]);
+  page.drawText('Small certificate', { x: 25, y: 60, size: 8 });
+  page.setCropBox(20, 40, 100, 200);
+  page.setRotation(degrees(90));
+  page.node.set(PDFName.of('Annots'), source.context.obj([source.context.register(source.context.obj({
+    Type: 'Annot', Subtype: 'Link', Rect: [25, 60, 80, 70], A: { S: 'URI', URI: 'https://example.com' },
+  }))]));
+  const small = new Blob([new Uint8Array(await source.save())], { type: 'application/pdf' });
+  const manifest: ApplicationPackageManifest = { ...defaultPackageManifest('application'), items: [
+    { id: 'scan', kind: 'attachment', documentId: 'scan', label: 'Scan', included: true },
+    { id: 'letter', kind: 'letter', label: 'Letter', included: true },
+  ] };
+  const result = await composeApplicationPackage(manifest, {
+    cvReady: false, letterReady: true, getCvPdf: async () => { throw new Error('Excluded CV should not render'); },
+    getLetterPdf: async () => pdf([400]), getDocument: async () => attachment('scan', small),
+  });
+  const output = await PDFDocument.load(await result.blob.arrayBuffer());
+  const fitted = output.getPage(0);
+  assert.equal(fitted.getRotation().angle, 90);
+  assert.deepEqual(fitted.getSize(), { width: 600, height: 400 }, 'Rotated page displays at the same 400 × 600 size as the letter');
+  assert.deepEqual(fitted.getCropBox(), { x: -160, y: 80, width: 600, height: 400 });
+  const link = fitted.node.Annots()!.lookup(0, PDFDict);
+  assert.deepEqual(link.lookup(PDFName.of('Rect'), PDFArray).asArray().map(value => Number(value.toString())), [50, 120, 160, 140]);
+  assert.ok(fitted.node.Resources()?.get(PDFName.of('Font')));
 });
 
 test('included missing files, unavailable CVs and unfinalized letters fail explicitly instead of emitting partial packages', async () => {
