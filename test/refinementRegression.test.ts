@@ -17,7 +17,7 @@ test('publishing existing and empty letters preserves exactly the approved sourc
   assert.match(first.letter.text, /My approved existing draft/, 'an initial-draft request never clears the older frozen source');
 });
 
-for (const scope of ['cv', 'letter', 'both'] as const) test(`${scope} proposals immediately update the scoped previews and react to selection/comparison without persistence`, async t => {
+for (const scope of ['cv', 'letter', 'both'] as const) test(`${scope} temporary proposal comparisons stay read-only before reloading the current proposal`, async t => {
   const fixture = mount(t, createPrivateRefinementCv()), setup = await prepare(fixture, 'base', { scope });
   const cv = cloneCv(setup.record!.state), letter = JSON.parse(JSON.stringify(setup.letter!.working)), before = documents(setup);
   const first = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'First proposed letter.' });
@@ -42,7 +42,17 @@ for (const scope of ['cv', 'letter', 'both'] as const) test(`${scope} proposals 
   setup.selectReviewProposal(next.id); assert.deepEqual(setup.previewCvState, cv);
   assert.equal(setup.previewLetterContent?.body, scope === 'cv' ? letter.body : 'Second proposed letter.');
   assert.equal(documents(setup), before);
-  const reopened = fixture.reopen(); await idle(reopened); assert.deepEqual(JSON.parse(documents(reopened)), JSON.parse(before), 'reloading must not persist either preview');
+  const reopened = fixture.reopen(); await idle(reopened);
+  if (scope === 'letter') {
+    assert.equal(reopened.error, '');
+    assert.equal(reopened.letter!.working.body, 'Second proposed letter.', 'reloading applies the newest compatible current proposal');
+    assert.deepEqual(reopened.record!.state, cv, 'letter loading preserves the private CV');
+    assert.ok(reopened.localRequests[next.request_id].acceptances?.some(receipt => receipt.proposalId === next.id));
+    assert.ok(reopened.letter!.revisions.some(revision => JSON.stringify(revision.content) === JSON.stringify(letter)), 'the pre-proposal working letter remains recoverable');
+    const applied = documents(reopened);
+    const again = fixture.reopen(); await idle(again);
+    assert.deepEqual(JSON.parse(documents(again)), JSON.parse(applied), 'reloading an applied proposal is idempotent');
+  } else assert.deepEqual(JSON.parse(documents(reopened)), JSON.parse(before), 'an empty CV candidate or incompatible combined request cannot change the saved documents');
 });
 
 test('synthetic CV workflow keeps different secrets and linked omissions attached through selective acceptance and reload', async t => {

@@ -33,7 +33,7 @@ interface WorkspaceSetup {
   currentPublishedRequest: RefinementRequestRow | null; publishedSource: RefinementRequestRow | null;
   publicationStatus: 'unpublished' | 'current' | 'outdated' | 'unverifiable';
   selectCv(id: string): Promise<void>; selectLetterTemplate(id: string): Promise<void>; saveSetup(): Promise<void>;
-  publishSources(): Promise<void>; checkProposals(): Promise<void>; openProposal(): void;
+  publishSources(): Promise<void>; checkProposals(): Promise<void>; syncRefinement(): Promise<void>; openProposal(): void;
   acceptSelectedChanges(): Promise<void>; toggleProposedChange(id: string, included: boolean): void; toggleProposedLetter(included: boolean): void; discardReview(): void;
   selectedChangeIds: string[]; includeProposedLetter: boolean; reviewActive: boolean; previewCvState: CvState | null;
   tab: 'preparation' | 'refinement' | 'review' | 'tracking'; reviewComparison: 'original' | 'proposed'; proposalSourceOutdated: boolean;
@@ -775,7 +775,7 @@ test('loaded structured changes immediately preview without accepting, and each 
   assert.ok(setup.proposalChanges.filter(change => accepted.includes(change.id)).every(change => change.status === 'accepted'));
 });
 
-test('closing or reopening a temporary review never accepts it and newer manual corrections block application', async (t) => {
+test('closing or reopening a temporary review stays read-only and manual corrections block application after reload', async (t) => {
   const fixture = mount(t);
   let setup = fixture.setup;
   await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
@@ -785,11 +785,16 @@ test('closing or reopening a temporary review never accepts it and newer manual 
   setup.discardReview();
   assert.equal(setup.reviewActive, false);
   assert.deepEqual(setup.previewCvState, setup.record?.state);
-  setup = fixture.reopen(); await idle(setup);
-  assert.equal(setup.reviewActive, true, 'reopening automatically previews the loaded proposal');
+  setup.openProposal();
+  assert.equal(setup.reviewActive, true);
   assert.deepEqual(JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter })), JSON.parse(original));
   assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'cv_decisions').length, 0);
-  setup.discardReview(); setup.record!.state.about.text = 'New manual correction supersedes the request.'; await nextTick(); setup.openProposal();
+  setup.discardReview(); setup.record!.state.about.text = 'New manual correction supersedes the request.'; await nextTick();
+  const corrected = JSON.stringify({ record: setup.record, letter: setup.letter });
+  setup = fixture.reopen(); await idle(setup);
+  assert.deepEqual(JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter })), JSON.parse(corrected), 'automatic application on reload preserves newer manual corrections');
+  assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'cv_decisions').length, 0);
+  setup.openProposal();
   assert.ok(setup.temporaryReview.result, 'an old proposal remains viewable against its frozen source');
   assert.match(setup.reviewAcceptanceError, /changed after this request/);
   await setup.acceptSelectedChanges();
@@ -837,7 +842,10 @@ test('answering and resolving annotations persists across reload without changin
   const fixture = mount(t); let setup = fixture.setup;
   await idle(setup); await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research'); setup.updateLetter('Working letter.'); await setup.publishSources();
-  fixture.cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
+  fixture.cloud.seedProposal(setup.requests[0].id); await setup.syncRefinement(); await idle(setup);
+  assert.equal(setup.error, '');
+  const reviewsBefore = fixture.database.application_refinement_reviews.length;
+  assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'cv_decisions').length, 1);
   const before = JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter, cv: setup.previewCvState, previewLetter: setup.previewLetterContent }));
   assert.equal(setup.proposalAnnotations[0].status, 'open');
   assert.equal(await setup.saveAnnotation('annotation-1', 'resolved', 'Used controlled experiments with !!private lab!!.', null), true);
@@ -848,7 +856,8 @@ test('answering and resolving annotations persists across reload without changin
   assert.equal(setup.proposalAnnotations[0].status, 'resolved');
   assert.equal(setup.proposalAnnotations[0].response, 'Used controlled experiments with {{CONFIDENTIAL}}.');
   assert.deepEqual(JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter })), { record: before.record, letter: before.letter });
-  assert.equal(fixture.database.application_refinement_reviews.length, 2);
+  assert.equal(fixture.database.application_refinement_reviews.length, reviewsBefore + 2);
+  assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'cv_decisions').length, 1, 'reloading annotation feedback does not apply the same proposal again');
 });
 
 test('only resolved answers enter feedback automatically, retaining references in subsequent requests', async (t) => {
@@ -889,7 +898,7 @@ test('stale annotation updates and failed saves preserve documents and do not cl
   await setup.selectLetterTemplate('research'); await setup.publishSources(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
   await setup.saveAnnotation('annotation-1', 'resolved', 'First answer.', null);
   const before = JSON.stringify({ record: setup.record, letter: setup.letter });
-  assert.equal(await setup.saveAnnotation('annotation-1', 'dismissed', 'Stale answer.', null), false);
+  assert.equal(await setup.saveAnnotation('annotation-1', 'ignored', 'Stale answer.', null), false);
   assert.match(setup.error, /changed elsewhere/);
   const rpc = props.client.rpc;
   props.client.rpc = (async () => ({ data: null, error: new Error('Offline') })) as unknown as typeof rpc;

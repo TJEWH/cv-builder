@@ -183,7 +183,7 @@ Initial status is `open`, with no response. The signed-in browser uses the exist
 {"proposalId":"<UUID>","annotationId":"annotation-1","status":"resolved","response":"Used controlled experiments.","previousReviewId":null}
 ```
 
-Status may be `open`, `resolved` or `dismissed`. Response is null or nonempty text up to 12,000 UTF-16 units. The browser scrubs known identity and confidential markers before saving. Later updates must supply the last annotation review UUID as `previousReviewId`. The state-row lock serializes these checks; stale updates fail without changing documents. Identical review UUID/payload retries return the original receipt. Historical proposals remain answerable, and opening them projects the latest status from existing reviews. Unsaved component responses survive a failed save or a conflicting refresh until the user explicitly loads the saved annotation.
+Status may be `open`, `resolved` or `ignored`. Response is null or nonempty text up to 12,000 UTF-16 units. The browser scrubs known identity and confidential markers before saving. Later updates must supply the last annotation review UUID as `previousReviewId`. The state-row lock serializes these checks; stale updates fail without changing documents. Identical review UUID/payload retries return the original receipt. Historical proposals remain answerable, and opening them projects the latest status from existing reviews. Unsaved component responses survive a failed save or a conflicting refresh until the user explicitly loads the saved annotation.
 
 “Included as feedback” is a separate, explicit action. Open or answered annotations can append an ordinary `feedback` review with its existing `text`/`scope`, plus:
 

@@ -21,7 +21,7 @@ for (const imported of [true, false]) test(`${imported ? 'imported' : 'connected
   setup.letter!.templateSnapshot!.researchInterests = 'Reliable robot sensing and reproducible calibration, inspired by !!E2E North Lab!!.';
   setup.letter!.templateSnapshot!.questionGuidance = 'Ask about undocumented robot calibration experience when a required or beneficial qualification is relevant to the letter.';
   await setup.publishSources(); assert.equal(setup.error, '');
-  const source = setup.requests[0], before = documents(setup);
+  const source = setup.requests[0];
   assert.match(source.request_json.letter.template.researchInterests!, /Reliable robot sensing/);
   assert.doesNotMatch(JSON.stringify(source.request_json), /E2E North Lab/);
   assert.match(source.request_json.letter.template.questionGuidance!, /undocumented robot calibration/);
@@ -33,7 +33,10 @@ for (const imported of [true, false]) test(`${imported ? 'imported' : 'connected
     fixture.database.application_refinement_proposals[0].proposal_json = payload;
     await setup.checkProposals();
   }
-  const previewBefore = JSON.stringify(setup.previewLetterContent), savedCloud = JSON.stringify(fixture.database);
+  await setup.syncRefinement(); await idle(setup); assert.equal(setup.error, '');
+  assert.equal(setup.letter!.working.body, 'A proposed motivation letter based on documented evidence.');
+  const proposalId = setup.selectedProposalId;
+  const before = documents(setup), previewBefore = JSON.stringify(setup.previewLetterContent), savedCloud = JSON.stringify(fixture.database);
   assert.equal(await setup.saveAnnotation('annotation-1', 'resolved', response, null), true);
   assert.equal(setup.error, '');
   assert.equal(setup.proposalAnnotations[0].status, 'resolved');
@@ -53,6 +56,7 @@ for (const imported of [true, false]) test(`${imported ? 'imported' : 'connected
   assert.equal(!!shared.annotation, !imported, 'local-only proposal references never become cloud foreign keys');
   assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'feedback').length, 1);
   setup = fixture.reopen(); await idle(setup);
+  if (imported) setup.selectReviewProposal(proposalId);
   assert.equal(setup.proposalAnnotations[0].status, 'resolved');
   assert.equal(setup.proposalAnnotations[0].included, true);
   assert.equal(setup.feedbackHistory().length, 1, 'refresh and reload do not duplicate locally associated cloud feedback');
@@ -80,7 +84,7 @@ test('imported annotation answers reject stale updates and roll back failed loca
   const firstReview = setup.proposalAnnotations[0].reviewId;
   assert.equal(await setup.saveAnnotation('annotation-1', 'resolved', 'Confirmed calibration experience.', firstReview), true);
   assert.equal(setup.proposalAnnotations[0].reviewId, firstReview, 'an unchanged answer is idempotent');
-  assert.equal(await setup.saveAnnotation('annotation-1', 'dismissed', 'An obsolete answer.', null), false);
+  assert.equal(await setup.saveAnnotation('annotation-1', 'ignored', 'An obsolete answer.', null), false);
   assert.match(setup.error, /changed elsewhere/);
   assert.equal(setup.proposalAnnotations[0].status, 'resolved');
   assert.equal(await setup.saveAnnotation('annotation-1', 'open', 'More precise calibration example.', firstReview), true);
@@ -96,6 +100,8 @@ for (const imported of [false, true]) test(`${imported ? 'historical local' : 'c
   else {
     fixture.cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
   }
+  await setup.syncRefinement(); await idle(setup); assert.equal(setup.error, '');
+  const proposalId = setup.selectedProposalId;
   const before = documents(setup), rpc = fixture.cloud.client.rpc.bind(fixture.cloud.client);
   let fail = true;
   fixture.cloud.client.rpc = (async (name: string, args: Record<string, unknown>) => {
@@ -107,6 +113,7 @@ for (const imported of [false, true]) test(`${imported ? 'historical local' : 'c
   assert.equal(setup.proposalAnnotations[0].status, 'resolved');
   assert.equal(setup.proposalAnnotations[0].included, false);
   setup = fixture.reopen(); await idle(setup);
+  if (imported) setup.selectReviewProposal(proposalId);
   const reference = setup.proposalAnnotations[0].reviewId;
   assert.equal(await setup.saveAnnotation('annotation-1', 'resolved', 'Confirmed calibration experience.', reference), true);
   assert.equal(await setup.saveAnnotation('annotation-1', 'resolved', 'Confirmed calibration experience.', reference), true);
@@ -118,22 +125,22 @@ for (const imported of [false, true]) test(`${imported ? 'historical local' : 'c
   assert.deepEqual(JSON.parse(documents(setup)), JSON.parse(before));
 });
 
-for (const previouslyResolved of [false, true]) test(`dismissed comments ${previouslyResolved ? 'cancel their earlier feedback' : 'never enter feedback'}`, async t => {
+for (const previouslyResolved of [false, true]) test(`ignored comments ${previouslyResolved ? 'cancel their earlier feedback' : 'never enter feedback'}`, async t => {
   const fixture = mount(t); let setup = await prepare(fixture, 'base', { scope: 'letter' });
-  fixture.cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
+  fixture.cloud.seedProposal(setup.requests[0].id); await setup.syncRefinement(); await idle(setup); assert.equal(setup.error, '');
   const before = documents(setup), request = setup.requests[0];
   if (previouslyResolved) assert.equal(await setup.saveAnnotation('annotation-1', 'resolved', 'Earlier response that must be ignored.', null), true);
   const reviewId = setup.proposalAnnotations[0].reviewId;
-  assert.equal(await setup.saveAnnotation('annotation-1', 'dismissed', 'Earlier response that must be ignored.', reviewId), true);
+  assert.equal(await setup.saveAnnotation('annotation-1', 'ignored', 'Earlier response that must be ignored.', reviewId), true);
   assert.equal(setup.proposalAnnotations[0].included, false);
   assert.equal(setup.feedbackHistory().length, previouslyResolved ? 2 : 0);
   if (previouslyResolved) {
-    assert.match(setup.feedbackHistory().at(-1)!.text, /Status: dismissed.*Ignore this annotation/s);
+    assert.match(setup.feedbackHistory().at(-1)!.text, /Status: ignored.*Ignore this annotation/s);
     assert.doesNotMatch(setup.feedbackHistory().at(-1)!.text, /Earlier response/);
   }
   setup = fixture.reopen(); await idle(setup); setup.discardReview(); await setup.publishSources();
   assert.equal(setup.error, '');
-  assert.equal(setup.proposalAnnotations[0].status, 'dismissed');
+  assert.equal(setup.proposalAnnotations[0].status, 'ignored');
   assert.equal(setup.requests[0].request_json.feedback.length, previouslyResolved ? 2 : 0);
   assert.equal(request.request_json.feedback.length, 0, 'older published requests remain immutable');
   assert.deepEqual(JSON.parse(documents(setup)), JSON.parse(before));

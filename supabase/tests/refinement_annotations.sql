@@ -82,10 +82,10 @@ begin
   if public.save_refinement_review(app_a,request_a,'feedback',saved_feedback,feedback_review)<>receipt then raise exception 'FAIL: feedback retry'; end if;
   begin perform public.save_refinement_review(app_a,request_a,'feedback',saved_feedback||'{"scope":"letter"}',gen_random_uuid()); raise exception 'FAIL: annotation scope'; exception when invalid_parameter_value then null; end;
   begin perform public.save_refinement_review(app_a,request_a,'feedback',jsonb_set(saved_feedback,'{annotation,reviewId}','null'),gen_random_uuid()); raise exception 'FAIL: stale feedback reference'; exception when serialization_failure then null; end;
-  -- Resolved/dismissed annotations without answers cannot become follow-up feedback.
+  -- Resolved/ignored annotations without answers cannot become follow-up feedback.
   candidate:=gen_random_uuid();
-  perform public.save_refinement_review(app_a,request_a,'annotation',jsonb_build_object('proposalId',proposal_a,'annotationId','annotation-2','status','dismissed','response',null,'previousReviewId',null),candidate);
-  begin perform public.save_refinement_review(app_a,request_a,'feedback',jsonb_build_object('text','Excluded note','scope','letter','annotation',jsonb_build_object('proposalId',proposal_a,'annotationId','annotation-2','reviewId',candidate)),gen_random_uuid()); raise exception 'FAIL: unanswered dismissed feedback'; exception when invalid_parameter_value then null; end;
+  perform public.save_refinement_review(app_a,request_a,'annotation',jsonb_build_object('proposalId',proposal_a,'annotationId','annotation-2','status','ignored','response',null,'previousReviewId',null),candidate);
+  begin perform public.save_refinement_review(app_a,request_a,'feedback',jsonb_build_object('text','Excluded note','scope','letter','annotation',jsonb_build_object('proposalId',proposal_a,'annotationId','annotation-2','reviewId',candidate)),gen_random_uuid()); raise exception 'FAIL: unanswered ignored feedback'; exception when invalid_parameter_value then null; end;
   select jsonb_agg(jsonb_build_object('id',id,'text',payload->'text','scope',payload->'scope','createdAt',created_at,'annotation',payload->'annotation') order by created_at,id)
     into saved_feedback from public.application_refinement_reviews where application_id=app_a and kind='feedback';
   request:=jsonb_set(request||jsonb_build_object('requestId',request_b,'feedback',saved_feedback),'{cv,requestId}',to_jsonb(request_b));

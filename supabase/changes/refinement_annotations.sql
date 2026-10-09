@@ -141,7 +141,7 @@ begin
   end if;
   if new.kind='annotation' then
     if not public.refinement_exact_keys(new.payload,array['proposalId','annotationId','status','response','previousReviewId'])
-      or coalesce(new.payload->>'status','') not in ('open','resolved','dismissed')
+      or coalesce(new.payload->>'status','') not in ('open','resolved','ignored')
       or (new.payload->'response'<>'null'::jsonb and (jsonb_typeof(new.payload->'response') is distinct from 'string' or btrim(new.payload->>'response')='' or public.refinement_utf16_length(new.payload->>'response')>12000))
       or translate(coalesce(new.payload->>'response',''),E'\t\n\r','')~'[[:cntrl:]]'
       or new.payload is distinct from public.job_drafting_redact_samples(new.payload) or new.payload::text like '%!!%' then

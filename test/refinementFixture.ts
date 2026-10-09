@@ -115,7 +115,7 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
             || !same([...accepted, ...rejected].sort(), [...available].sort())) throw new Error('CV decisions must partition the proposal changes.');
           if (accepted.length && (state.approvals_json as Row).cv) throw new Error('Reopen the approved CV before accepting changes.');
         } else if (kind === 'annotation') {
-          if (!['open', 'resolved', 'dismissed'].includes(String(payload.status))) throw new Error('Invalid annotation status.');
+          if (!['open', 'resolved', 'ignored'].includes(String(payload.status))) throw new Error('Invalid annotation status.');
         } else if (kind !== 'feedback') {
           if (Number(payload.expectedRevision) !== state.revision) throw new Error('Refinement review is stale.');
           if (args.p_request_id !== null && args.p_request_id !== state.current_request_id) throw new Error('This request is stale; review the current documents.');

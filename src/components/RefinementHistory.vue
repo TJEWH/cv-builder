@@ -1,35 +1,26 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { LocalRefinementRequest, RefinementProposalRow, RefinementRequestRow } from '../refinementTypes';
-import { refinementRunMetadata, visibleRefinementProposals } from '../composables/refinementHistory';
+import { refinementRunMetadata } from '../composables/refinementHistory';
 import RefinementPrivacyPreview from './RefinementPrivacyPreview.vue';
 const props = defineProps<{
   requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; localRequests: Record<string, LocalRefinementRequest>;
   currentRequestId: string | null; activeId: string; reviewActive: boolean; accepted: boolean;
+  canReset?: boolean;
   publicationStatus: 'unpublished' | 'current' | 'outdated' | 'unverifiable'; lang: string; busy: boolean; open: boolean;
 }>();
-const emit = defineEmits<{ select: [id: string]; details: [open: boolean]; exportRequest: [id: string]; exportProposal: [id: string] }>();
+const emit = defineEmits<{ reset: []; select: [id: string]; details: [open: boolean]; exportRequest: [id: string]; exportProposal: [id: string] }>();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const unknown = () => text('Unknown', 'Unbekannt');
 const date = (value?: string | null) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString(props.lang === 'de' ? 'de-DE' : 'en-GB') : unknown();
-const current = computed(() => props.requests.find(row => row.id === props.currentRequestId));
-const available = computed(() => visibleRefinementProposals(props.proposals, props.currentRequestId, props.activeId));
-const state = computed(() => !current.value ? props.currentRequestId ? text('Request unavailable', 'Anfrage nicht verfügbar') : text('Not published', 'Nicht veröffentlicht')
-  : props.publicationStatus === 'outdated' ? text('Sources changed — publish a new round', 'Quellen geändert — neue Runde veröffentlichen')
-  : props.publicationStatus === 'unverifiable' ? text('Local sources unavailable', 'Lokale Quellen nicht verfügbar')
-  : props.proposals.some(row => row.request_id === current.value!.id) ? text('Proposals available', 'Vorschläge verfügbar') : text('Published — waiting for a proposal', 'Veröffentlicht — Vorschlag ausstehend'));
 const runs = computed(() => props.requests.map(row => ({ row, metadata: refinementRunMetadata(row, props.localRequests[row.id]), proposals: props.proposals.filter(proposal => proposal.request_id === row.id) })));
 </script>
 
 <template>
   <section class="refinement-history" :aria-label="text('Refinement runs', 'Überarbeitungsrunden')">
-    <div class="current-run">
-      <p class="app-hint" role="status"><strong>{{ text('Current request', 'Aktuelle Anfrage') }}:</strong> {{ state }}</p>
-      <label v-if="available.length">{{ text('Available proposals', 'Verfügbare Vorschläge') }}<select :value="activeId" :disabled="busy" @change="emit('select', ($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ text('Select a proposal', 'Vorschlag auswählen') }}</option><option v-for="proposal in available" :key="proposal.id" :value="proposal.id">{{ date(proposal.created_at) }} · {{ proposal.id }}{{ proposal.request_id !== currentRequestId ? text(' · Older run', ' · Frühere Runde') : '' }}</option></select></label>
-      <p v-if="activeId" class="app-hint">{{ reviewActive ? accepted ? text('Accepted selection', 'Angenommene Auswahl') : text('Active proposal — not yet accepted', 'Aktiver Vorschlag — noch nicht angenommen') : text('Preview closed — showing working documents', 'Vorschau geschlossen — Arbeitsfassungen werden angezeigt') }}</p>
-    </div>
     <details class="disclosure-row run-details" :open="open" @toggle="emit('details', ($event.target as HTMLDetailsElement).open)">
       <summary>{{ text('History / Details', 'Verlauf / Details') }}</summary>
+      <button type="button" :disabled="busy || !canReset" @click="emit('reset')">{{ text('Reset to original state', 'Ursprünglichen Stand wiederherstellen') }}</button>
       <p class="app-hint">{{ text('Historical metadata comes from saved records. Missing versions remain unknown.', 'Historische Metadaten stammen aus gespeicherten Datensätzen. Fehlende Versionen bleiben unbekannt.') }}</p>
       <details v-for="run in runs" :key="run.row.id" class="disclosure-row history-run">
         <summary>{{ date(run.row.created_at) }} · {{ run.row.request_json.scope }} · {{ run.proposals.length }} {{ text('proposals', 'Vorschläge') }}{{ run.row.id === currentRequestId ? text(' · Current', ' · Aktuell') : '' }}</summary>

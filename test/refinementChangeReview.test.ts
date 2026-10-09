@@ -101,7 +101,7 @@ test('checkbox toggles emit preview selection only and never accept or mutate a 
   assert.equal(accepted(), 0);
   assert.deepEqual(JSON.parse(JSON.stringify(props.changes)), before.changes);
   assert.deepEqual([...props.selected], before.selected, 'selection state is controlled by the parent');
-  assert.ok(content(root).includes('Only “Accept selection” records included changes as accepted'));
+  assert.doesNotMatch(content(root), /Accept selection/, 'change details must not describe a removed acceptance action');
   assert.equal(content(required(change('change-1'), item => hasClass(item, 'badge'))), 'Proposed');
   props.selected = ['change-2'];
   await nextTick();

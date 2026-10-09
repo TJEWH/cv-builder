@@ -343,10 +343,6 @@ useToastWatch(() => notice.value, () => {
       <template #preparation-actions>
         <button class="btn btn--danger jobs-remove-application" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(editingApplication)}`" @click="requestDetailRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button>
       </template>
-      <template #preparation>
-            <div class="jobs-review-toolbar"><h2>{{ text('Application workspace', 'Bewerbung bearbeiten') }}</h2><span>{{ text('Context saved', 'Kontext gespeichert') }}: {{ dateLabel(editingApplication.context_captured_at) }}</span><button class="btn" type="button" :disabled="saving || hasUnsavedChanges" @click="refreshResearch">{{ text('Refresh research', 'Forschung aktualisieren') }}</button></div>
-            <OpportunityContext :context="editingApplication.context_json" :lang="lang" :default-open-groups="['requirements', 'documents']" checklist :completed-keys="editingApplication.completed_checklist_keys || []" :saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" />
-      </template>
       <template #tracking>
         <label class="jobs-detail-state"><span class="jobs-action-label">{{ text('Status', 'Status') }}</span><select :aria-label="`${text('Status for', 'Status für')} ${contextTitle(editingApplication)}`" :value="editingApplication.status" :disabled="saving || hasUnsavedChanges" @change="changeApplicationStatus(editingApplication, $event)"><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label>
         <section class="application-status-history" :aria-label="text('Status history', 'Statusverlauf')">

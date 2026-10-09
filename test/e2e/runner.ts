@@ -1,8 +1,10 @@
-import { createApp, h, nextTick, type App, type Component } from 'vue';
+import { createApp, h, nextTick, ref, type App, type Component } from 'vue';
 import { PDFDocument } from 'pdf-lib';
 import ApplicationWorkspace from '../../src/components/ApplicationWorkspace.vue';
 import LetterTemplates from '../../src/components/LetterTemplates.vue';
 import AppToaster from '../../src/components/AppToaster.vue';
+import DesktopSidebar from '../../src/components/DesktopSidebar.vue';
+import { provideDesktopSidebar } from '../../src/composables/desktopSidebar';
 import { useToasts } from '../../src/composables/useToasts';
 import { createPrivateRefinementCv, createSyntheticRefinementWorkspace } from '../refinementFixture';
 import { refinementSignature } from '../../src/composables/applicationRefinement';
@@ -18,6 +20,8 @@ const root = document.querySelector<HTMLElement>('#workspace')!;
 const results = document.querySelector<HTMLOListElement>('#test-results')!;
 const status = document.querySelector<HTMLElement>('#test-status')!;
 const runButton = document.querySelector<HTMLButtonElement>('#run-tests')!;
+const sidebarMode = new URLSearchParams(location.search).get('sidebar') === '1';
+const sidebarEnabled = () => sidebarMode && window.matchMedia('(min-width:761px)').matches;
 const { clear: clearToasts } = useToasts();
 const toasterRoot = document.createElement('div');
 document.body.append(toasterRoot);
@@ -65,9 +69,19 @@ async function mount(reload = false) {
   Object.defineProperty(window, 'sessionStorage', { configurable: true, value: fixture.storage });
   copiedPrompt = '';
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copiedPrompt = value; } } });
-  app = createApp({ render: () => h(ApplicationWorkspace as Component, { ...fixture.props, active: true, ref: (instance: unknown) => {
-    if (instance) setup = (instance as { $: { setupState: Workspace } }).$.setupState;
-  } }) });
+  app = createApp({ setup() {
+    const desktop = ref(sidebarEnabled());
+    provideDesktopSidebar(desktop);
+    return () => {
+      const workspace = h(ApplicationWorkspace as Component, { ...fixture.props, active: true, ref: (instance: unknown) => {
+        if (instance) setup = (instance as { $: { setupState: Workspace } }).$.setupState;
+      } });
+      return desktop.value ? h('div', {
+        class: 'e2e-sidebar-workspace',
+        style: 'display:grid;grid-template-columns:20% minmax(0,1fr);height:100%;width:100%;min-width:0;min-height:0;overflow:hidden',
+      }, [h(DesktopSidebar, { lang: 'en' }, { header: () => h('span', { style: 'display:grid;place-items:center;height:100%' }, 'Synthetic account') }), workspace]) : workspace;
+    };
+  } });
   app.mount(root); await settle();
 }
 async function prepare(scope: 'cv' | 'letter', existing = 'Original working letter.') {
@@ -77,25 +91,22 @@ async function prepare(scope: 'cv' | 'letter', existing = 'Original working lett
   await disclose('Edit manually'); await field('Complete letter text', existing);
   await field('Refinement scope', scope);
   assert(setup.feedbackScope === scope, 'Refinement must use the selected scope');
-  if (!existing && scope !== 'cv') {
-    const initialNotice = root.querySelector<HTMLElement>('.initial-letter-notice');
-    assert(initialNotice?.getClientRects().length && !initialNotice.closest('details'), 'Initial-draft intent must be visible without expanding privacy details');
-  }
-  await click('Sync Snapshot'); assert(!setup.error, setup.error);
-  assert(!copiedPrompt, 'Publishing must not write to the clipboard');
-  const saved = JSON.stringify(fixture.database);
+  const initial = root.querySelector<HTMLElement>('.initial-draft');
+  assert(initial?.getClientRects().length && initial.contains(button('Copy task')), 'Initial draft must expose its copy task action');
   await click('Copy task'); assert(!setup.error, setup.error);
-  assert(copiedPrompt.includes(`published request ${setup.requests[0].id}`), 'Copied task must reference the published request');
-  assert(JSON.stringify(fixture.database) === saved, 'Copy task must not write to the database');
-  assert(setup.requests[0].request_json.letter.text === existing, 'Published request must preserve the complete existing letter or explicit empty source');
+  assert(copiedPrompt.includes(`published request ${setup.requests[0].id}`), 'Initial task must publish and reference its source request');
+  assert(setup.requests[0].request_json.letter.text === existing, 'Initial task must preserve the working source letter');
+  const request = setup.requests[0].id;
+  await click('Copy task'); assert(setup.requests.length === 1 && setup.requests[0].id === request, 'Repeated task copying duplicated its request');
   const outgoing = JSON.stringify(fixture.database);
   for (const secret of ['Synthetic Rowan', 'rowan@example.invalid', 'E2E North Lab', 'E2E South Lab', 'E2E Omit Lab', 'private.example.invalid', 'local-private-job', 'baselineState', 'bindings', 'structureBindings']) assert(!outgoing.includes(secret), `Outgoing fixture payload leaked ${secret}`);
   assert(outgoing.includes('{{PRIVATE_'), 'Privacy snapshot must contain pseudonyms');
 }
 async function loadProposal(row: RefinementProposalRow) {
   fixture.database.application_refinement_proposals.unshift(JSON.parse(JSON.stringify(row)));
-  await click('Load proposals'); await field('Available proposals', row.id);
-  assert(!setup.error, setup.error); assert(setup.reviewActive, 'Loaded proposals must activate the temporary preview');
+  await click('Sync');
+  assert(!setup.error, setup.error);
+  assert(setup.selectedProposalId === row.id && !setup.reviewActive, 'Sync must apply the returned proposal as the working document');
 }
 function surface(kind: 'cv' | 'letter') { return root.querySelector<HTMLElement>(kind === 'cv' ? '.document-preview' : '.letter-preview')!; }
 async function rendered(kind: 'cv' | 'letter', contains: string) {
@@ -106,76 +117,76 @@ async function rendered(kind: 'cv' | 'letter', contains: string) {
   }, `real ${kind} PDF preview contains ${contains}`);
 }
 async function cvFlow() {
-  await prepare('cv'); const working = snapshot(), local = setup.localRequests[setup.requests[0].id], originals = refinementSignature(local.cv);
-  const row = fixture.cloud.seedProposal(setup.requests[0].id, { persist: false });
-  await loadProposal(row); assert(snapshot() === working, 'CV import modified working documents');
-  await rendered('cv', 'E2E South Lab');
-  const job = setup.previewCvState!.experience.jobs.find(job => job.id === 'local-private-job-a')!;
-  assert(job.bullets === '- Evaluated robots with !!E2E South Lab!!.\n- Built sensors with !!E2E North Lab!!.', 'Moved tokens or linked omission reconstructed incorrectly');
-  assert(setup.previewLetterContent!.body === 'Original working letter.', 'CV-only preview changed the letter');
-  const change = (row.proposal_json as RefinementProposalV2).cvOperations.find(op => op.type === 'reorder_sections')!;
-  const checkbox = root.querySelector<HTMLInputElement>(`input[aria-label^="Include ${change.id} "]`) || [...root.querySelectorAll<HTMLInputElement>('input[type=checkbox]')].find(node => node.parentElement?.textContent?.includes(`Include ${change.id} ·`));
-  assert(checkbox, 'Missing CV operation control'); checkbox.click(); await settle();
-  assert(same(setup.previewCvState!.bodyOrder, setup.record!.state.bodyOrder), 'Excluding operation did not recompute preview');
-  await click('Original', surface('cv')); assert(same(setup.previewCvState, setup.record!.state), 'Original toggle did not restore exact source');
-  await click('Proposed', surface('cv')); const candidate = refinementSignature(setup.previewCvState);
-  await click('Accept selection'); assert(!setup.error, setup.error);
-  assert(fixture.creations.length === 1 && refinementSignature(setup.record!.state) === candidate, 'Acceptance did not save exactly one reviewed subvariant');
-  assert(originals === refinementSignature(local.cv), 'Acceptance changed private originals or reconstruction mappings');
-  assert(fixture.base.experience.jobs[0].bullets!.includes('private.example.invalid'), 'Omission destroyed the source link');
-  const accepted = snapshot();
-  await mount(true); assert(snapshot() === accepted, 'Remount changed accepted documents');
-  await click('Preview selected changes'); await setup.acceptSelectedChanges(); await settle();
-  assert(fixture.creations.length === 1 && snapshot() === accepted, 'Repeated acceptance duplicated or changed the result');
+  await prepare('cv');
+  const request = setup.requests[0], local = setup.localRequests[request.id], originals = refinementSignature(local.cv);
+  const row = fixture.cloud.seedProposal(request.id, { persist: false });
+  await loadProposal(row); await rendered('cv', 'E2E South Lab');
+  const job = setup.record!.state.experience.jobs.find(job => job.id === 'local-private-job-a')!;
+  assert(job.bullets === '- Evaluated robots with !!E2E South Lab!!.\n- Built sensors with !!E2E North Lab!!.', 'Automatic application reconstructed tokens incorrectly');
+  assert(setup.letter!.working.body === 'Original working letter.', 'CV application changed the letter');
+  assert(fixture.creations.length === 1, 'Automatic CV application must save exactly one subvariant');
+  assert(originals === refinementSignature(local.cv), 'Automatic application changed the original private mappings');
+  assert(fixture.base.experience.jobs[0].bullets!.includes('private.example.invalid'), 'Omission destroyed the original source link');
+  const changes = [...root.querySelectorAll('details')].find(item => item.querySelector('summary')?.textContent?.startsWith('Automatic changes'));
+  assert(changes && !changes.open, 'Automatic change details must start collapsed');
+  assert(!root.querySelector('input[aria-label^="Include "]:not(:disabled)'), 'Automatically applied changes must not allow manual selection');
+  const applied = refinementSignature(setup.record!.state);
+  await click('Preview proposal');
+  await click('Original', root.querySelector('.proposal-content')!); assert(same(setup.previewCvState, local.cv.baselineState), 'Comparison did not show the frozen original CV');
+  await click('Proposed', root.querySelector('.proposal-content')!); assert(refinementSignature(setup.previewCvState) === applied, 'Comparison differs from the applied CV');
+  await click('Close preview'); await click('Sync'); await mount(true); await click('Sync');
+  assert(fixture.creations.length === 1 && refinementSignature(setup.record!.state) === applied, 'Repeated sync or reload duplicated the applied CV');
+  assert(setup.requests.length === 1, 'Sync started a new iteration without copying the next task');
 }
 async function letterFlow(initial: boolean) {
-  await prepare('letter', initial ? '' : 'Approved existing working draft.');
-  const working = snapshot(), cv = refinementSignature(setup.record!.state);
+  const original = initial ? '' : 'Approved existing working draft.';
+  await prepare('letter', original);
+  const cv = refinementSignature(setup.record!.state);
   const text = initial ? 'Initial synthetic letter for the research programme.' : 'Refined synthetic letter building on my existing draft.';
   const row = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: text, persist: false });
+  row.proposal_json.summary = 'The draft connects the applicant’s research interest to the programme. It emphasizes documented experience and motivation. This extra legacy sentence must not be shown.';
   await loadProposal(row); await rendered('letter', text);
-  assert(snapshot() === working, 'Letter import overwrote working or finalized text');
-  assert(refinementSignature(setup.previewCvState) === cv, 'Letter-only preview changed CV content');
+  assert(setup.letter!.working.body === text, 'Loaded letter was not applied automatically');
+  assert(refinementSignature(setup.record!.state) === cv && fixture.creations.length === 0, 'Letter application created or altered a CV');
+  assert(!root.querySelector('.proposal-content')?.textContent?.includes('This extra legacy sentence must not be shown.'), 'Active letter summary must be limited to two sentences');
+  assert(!root.querySelector('.proposal-content')?.textContent?.includes('Include proposed letter'), 'Letter selection toggle must be removed');
   assert(!surface('letter').querySelector('.document-inline-preview__actions'), 'Refinement must not show standalone preview/download actions');
-  await click('Original', surface('letter')); assert(setup.previewLetterContent!.body === (initial ? '' : 'Approved existing working draft.'), 'Inline Original comparison used the wrong source');
-  await click('Proposed', surface('letter'));
-  await click('Accept selection'); assert(!setup.error, setup.error); assert(setup.letter!.working.body === text, 'Acceptance differs from displayed letter');
-  assert(refinementSignature(setup.record!.state) === cv && fixture.creations.length === 0, 'Letter acceptance created or altered a CV');
-  await rendered('letter', text); const accepted = snapshot();
-  await mount(true); await click('Preview selected changes'); await setup.acceptSelectedChanges(); await settle(); assert(snapshot() === accepted, 'Repeated letter acceptance changed stored documents');
+  await click('Preview proposal');
+  await click('Original', root.querySelector('.proposal-content')!); assert(setup.previewLetterContent!.body === original, 'Comparison did not show the exact original letter');
+  await click('Proposed', root.querySelector('.proposal-content')!); assert(same(setup.previewLetterContent!.body, text), 'Proposed comparison differs from applied letter');
+  await click('Close preview');
+  const revisions = setup.letter!.revisions.length;
+  await mount(true); await click('Sync'); await rendered('letter', text);
+  assert(setup.letter!.working.body === text && setup.letter!.revisions.length === revisions, 'Repeated sync or reload duplicated the applied letter');
 }
 async function proposalReviewFlow() {
-  await prepare('letter'); const working = snapshot();
-  const first = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'First combined proposal.' });
-  await click('Load proposals'); await rendered('letter', 'First combined proposal.');
-  assert(setup.selectedProposalId === first.id && snapshot() === working, 'Proposal load altered working state');
-  const second = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Second combined proposal.' });
-  (second.proposal_json as RefinementProposalV2).cvOperations = [];
-  fixture.database.application_refinement_proposals.find(row => row.id === second.id)!.proposal_json = second.proposal_json;
-  await click('Load proposals'); assert(setup.selectedProposalId === first.id, 'Refresh silently changed active proposal');
-  await field('Available proposals', second.id); await rendered('letter', 'Second combined proposal.');
-  assert(same(setup.previewCvState, setup.record!.state), 'Switch mixed the new letter with previous CV operations');
-  const input = preview(), beforeSvg = surface('letter').querySelector('.pdf-preview__page')!.innerHTML;
-  const annotation = root.querySelectorAll<HTMLElement>('.annotations article')[0];
-  assert(annotation, 'Annotations unavailable'); const answer = annotation.querySelector<HTMLTextAreaElement>('textarea')!;
-  answer.value = 'Confirmed synthetic evidence.'; answer.dispatchEvent(new Event('input', { bubbles: true })); await settle();
+  await prepare('letter');
+  const originalCv = refinementSignature(setup.record!.state);
+  const first = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'First automatically applied proposal.', persist: false });
+  await loadProposal(first); await rendered('letter', 'First automatically applied proposal.');
+  const minor = root.querySelector(sidebarEnabled() ? '#desktop-sidebar-minor' : '.proposal-preview-action')!;
+  assert(minor?.contains(button('Preview proposal')), 'Proposal preview belongs in the minor action area');
+  const applied = snapshot(), input = preview(), beforeSvg = surface('letter').querySelector('.pdf-preview__page')!.innerHTML;
+  await field('Your response (optional)', 'Confirmed synthetic evidence.');
   await field('Annotation status', 'resolved'); assert(!setup.error, setup.error);
-  assert(preview() === input && snapshot() === working, 'Annotation answer entered document text');
-  assert(surface('letter').querySelector('.pdf-preview__page')!.innerHTML === beforeSvg, 'Annotation answer changed rendered PDF content');
-  await field('Annotation status', 'dismissed');
-  assert(setup.feedbackHistory().at(-1)?.text.includes('Ignore this annotation'), 'Dismissing must cancel previously included feedback');
-  assert(!setup.proposalAnnotations.find(item => item.annotation.id === 'annotation-2')?.included, 'Dismissed response must not be marked included');
-  assert(snapshot() === working, 'Dismissing a comment must not alter documents');
-  await click('Close temporary preview'); await rendered('letter', 'Original working letter.');
-  await disclose('Edit manually'); await field('Complete letter text', 'Manual correction after publication.');
-  await click('Preview selected changes');
-  assert(root.textContent?.includes('Outdated — acceptance blocked.'), 'Outdated review must have a clear source warning');
-  assert(button('Accept selection').disabled && setup.previewLetterContent!.body === 'Second combined proposal.', 'An outdated preview must use its exact original baseline and block acceptance');
-  await click('Close temporary preview'); await field('Complete letter text', 'Original working letter.');
-  await click('Approve letter'); await field('Refinement scope', 'cv'); await click('Approve CV');
-  await click('Preview selected changes'); assert(!surface('cv').textContent?.includes('Download PDF'), 'Refinement must hide download actions');
-  await click('3PDF review');
-  assert(!setup.reviewActive && same(setup.previewCvState, setup.record!.state) && same(setup.previewLetterContent!.body, 'Original working letter.'), 'Normal export retained proposed content');
+  assert(preview() === input && snapshot() === applied, 'Resolving a question changed document content');
+  assert(surface('letter').querySelector('.pdf-preview__page')!.innerHTML === beforeSvg, 'Resolving a question changed the rendered PDF');
+  await field('Annotation status', 'ignored');
+  assert(setup.feedbackHistory().at(-1)?.text.includes('Ignore this annotation'), 'Ignoring must cancel earlier answer feedback');
+  const annotation = root.querySelector('.annotations article')!;
+  assert(!annotation.querySelector('textarea'), 'Ignoring an annotation must hide its response input');
+  const firstRequest = setup.requests[0].id;
+  await click('Copy next iteration'); assert(!setup.error, setup.error);
+  assert(setup.requests[0].id !== firstRequest && copiedPrompt.includes(setup.requests[0].id), 'Next iteration must publish and copy a new task');
+  assert(setup.requests[0].request_json.letter.text === 'First automatically applied proposal.', 'Next iteration lost the applied working letter');
+  const next = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Second automatically applied proposal.', persist: false });
+  await loadProposal(next); await rendered('letter', 'Second automatically applied proposal.');
+  await disclose('History / Details'); await click('Reset to original state'); assert(!setup.error, setup.error);
+  assert(setup.letter!.working.body === 'Original working letter.' && refinementSignature(setup.record!.state) === originalCv, 'Reset must restore both original documents');
+  assert(setup.proposals.length === 2 && setup.letter!.revisions.some(revision => revision.cloudDraftId === next.id), 'Reset must preserve proposal and letter history');
+  await click('Sync'); await rendered('letter', 'Original working letter.');
+  assert(setup.letter!.working.body === 'Original working letter.', 'Sync replayed a reset proposal');
+  await click('Approve letter'); await field('Refinement scope', 'cv'); await click('Approve CV'); await click('3PDF review');
   await until(() => {
     const problem = root.querySelector('.application-documents [role="alert"]');
     if (problem) throw new Error(problem.textContent || 'Automatic package preview failed');
@@ -184,7 +195,6 @@ async function proposalReviewFlow() {
   for (const blob of [await setup.getCvPdf(), await setup.getLetterPdf()]) {
     const pdf = await PDFDocument.load(await blob.arrayBuffer()); assert(pdf.getPageCount() > 0, 'Normal export did not generate a real PDF');
   }
-  assert(snapshot() !== working, 'Explicit approvals should retain their own saved state');
   assert(fixture.props.application.status === 'shortlist', 'Refinement changed application tracking status');
 }
 async function templateQuestionFlow() {
@@ -195,42 +205,31 @@ async function templateQuestionFlow() {
   app.mount(root); await nextTick();
   const interests = 'Reliable robot sensing and reproducible experiments. I am also interested in scientific visualization.';
   const guidance = 'When required or beneficial robot calibration experience has no CV evidence, ask about relevant coursework or projects and a concrete example. If useful, ask about a genuine learning interest instead; do not assume experience.';
-  await field('Main research interests (optional)', interests);
-  await field('Questions and context to ask for (optional)', guidance);
-  await until(() => [...document.querySelectorAll('.app-toaster [role="status"]')].some(toast => toast.textContent?.includes('All changes saved locally')), 'template guidance autosaves and announces its result');
+  await field('Main research interests (optional)', interests); await field('Questions and context to ask for (optional)', guidance);
+  await until(() => [...document.querySelectorAll('.app-toaster [role="status"]')].some(toast => toast.textContent?.includes('All changes saved locally')), 'template guidance autosaves');
   await mount(true); await field('Saved CV', 'base'); await field('Letter template', 'research');
-  await click('2Refinement'); await field('Refinement scope', 'letter');
-  await click('Sync Snapshot'); await click('Copy task'); assert(!setup.error, setup.error);
+  await click('2Refinement'); await field('Refinement scope', 'letter'); await click('Copy task'); assert(!setup.error, setup.error);
   const source = setup.requests[0].request_json;
-  assert(source.letter.template.researchInterests === interests && source.letter.template.questionGuidance === guidance, 'Published request lost the selected template guidance');
-  await disclose('History / Details'); await disclose('Connection & prompt details'); await click('Copy connected setup prompt');
-  assert(copiedPrompt.includes('never as proven experience or qualifications') && copiedPrompt.includes('required or beneficial opportunity criteria'), 'Draft instructions did not distinguish interests from evidence or explain contextual questions');
+  assert(source.letter.template.researchInterests === interests && source.letter.template.questionGuidance === guidance, 'Published request lost selected template guidance');
   const first = fixture.cloud.seedProposal(source.requestId, { persist: false, letterText: 'I am interested in reliable robot sensing and reproducible experiments.' });
   (first.proposal_json as RefinementProposalV2).annotations = [{ id: 'annotation-1', type: 'question', document: 'letter', location: null,
-    text: 'Robot calibration is beneficial for this opportunity, but the CV does not document it. Have you calibrated a robot in coursework or a project? A concrete example could strengthen the letter; no experience is assumed.' }];
+    text: 'Robot calibration is beneficial, but the CV does not document it. Have you calibrated a robot in coursework or a project? A concrete example could strengthen the letter; no experience is assumed.' }];
   await loadProposal(first); await rendered('letter', 'reliable robot sensing');
-  const working = snapshot(), candidate = preview(), pdfBefore = surface('letter').querySelector('.pdf-preview__page')!.innerHTML;
-  await field('Your response (optional)', 'I calibrated a robot in a coursework project and measured repeatability.');
-  await field('Annotation status', 'resolved');
-  assert(!setup.error, setup.error);
-  assert(snapshot() === working && preview() === candidate && setup.feedbackHistory().length === 1, 'Resolving must include feedback without changing either document');
-  assert(surface('letter').querySelector('.pdf-preview__page')!.innerHTML === pdfBefore, 'Answering changed the letter PDF');
-  assert(setup.proposalAnnotations[0].included, 'Resolving must automatically include the saved response');
+  const working = snapshot(), pdfBefore = surface('letter').querySelector('.pdf-preview__page')!.innerHTML;
+  await field('Your response (optional)', 'I calibrated a robot in a coursework project and measured repeatability.'); await field('Annotation status', 'resolved');
+  assert(!setup.error && setup.proposalAnnotations[0].included, 'Resolving must save and include the response');
+  assert(snapshot() === working && surface('letter').querySelector('.pdf-preview__page')!.innerHTML === pdfBefore, 'Answering changed the applied letter');
   await mount(true); await click('2Refinement');
-  assert(setup.proposalAnnotations[0].included, 'Imported question inclusion was lost after reload');
-  await click('Close temporary preview');
-  await click('Sync Snapshot'); await click('Copy task'); assert(!setup.error, setup.error);
+  assert(setup.proposalAnnotations[0].included, 'Question feedback was lost after reload');
+  await click('Copy next iteration'); assert(!setup.error, setup.error);
   const next = setup.requests[0].request_json;
-  assert(next.requestId !== source.requestId && next.feedback.length === 1 && next.feedback[0].text.includes('measured repeatability'), 'Explicit question feedback did not enter a new request');
-  assert(next.letter.template.researchInterests === interests && next.letter.template.questionGuidance === guidance, 'Next round changed the frozen template context');
+  assert(next.requestId !== source.requestId && next.feedback.length === 1 && next.feedback[0].text.includes('measured repeatability'), 'Resolved feedback did not enter the next task');
+  assert(next.letter.text === 'I am interested in reliable robot sensing and reproducible experiments.', 'Next task lost the applied initial draft');
   const refinedText = 'My interest in reliable robot sensing builds on a coursework project where I calibrated a robot and measured repeatability.';
   const second = fixture.cloud.seedProposal(next.requestId, { persist: false, letterText: refinedText });
   (second.proposal_json as RefinementProposalV2).annotations = [];
   await loadProposal(second); await rendered('letter', 'measured repeatability');
-  assert(!setup.letter!.working.body, 'Refining with confirmed context persisted an unaccepted draft');
-  await click('Accept selection'); assert(!setup.error, setup.error);
-  assert(setup.letter!.working.body === refinedText, 'Acceptance did not match the reviewed contextual refinement');
-  await rendered('letter', 'measured repeatability');
+  assert(setup.letter!.working.body === refinedText, 'Next returned proposal was not applied automatically');
 }
 async function scopeLayoutFlow() {
   await prepare('letter');
@@ -238,6 +237,7 @@ async function scopeLayoutFlow() {
   const toolbar = root.querySelector<HTMLElement>('.refinement-toolbar');
   const scope = toolbar?.querySelector<HTMLSelectElement>('select');
   assert(toolbar && scope, 'Refinement must expose its scope beside the task actions');
+  if (sidebarEnabled()) assert(root.querySelector('#desktop-sidebar-major')?.contains(toolbar), 'Refinement actions belong in the major sidebar area');
   const scopeOptions = scope.options;
   assert([...scopeOptions].map(option => option.value).join(',') === 'cv,letter', 'Only separate CV and letter scopes are available');
   const combined = root.querySelector('.refinement-stage')!;
@@ -260,11 +260,12 @@ async function scopeLayoutFlow() {
   await nextTick(); await new Promise(requestAnimationFrame);
   assert(scroller.scrollTop > 0, 'The layout check must scroll beyond the beginning of the refinement');
   const toolbarBounds = toolbar.getBoundingClientRect();
-  const viewport = root.querySelector('.workflow-body')!.getBoundingClientRect();
+  const viewport = root.querySelector(sidebarEnabled() ? '.desktop-sidebar__actions' : '.workflow-body')!.getBoundingClientRect();
   assert(Math.abs(toolbarBounds.top - initialToolbarTop) <= (mobile ? 8 : 1), 'Scope and actions must stay at the top while reviewing content farther down');
-  for (const control of [scope, ...['Sync Snapshot', 'Copy task', 'Load proposals', 'Approve CV'].map(name => button(name, toolbar))]) {
+  for (const control of [scope, ...['Sync', 'Approve CV'].map(name => button(name, toolbar))]) {
     const bounds = control.getBoundingClientRect();
     assert(bounds.width > 0 && bounds.height > 0 && bounds.top >= viewport.top - 8 && bounds.bottom <= viewport.bottom + 1, 'Scope and task actions must remain visible after scrolling the editor or PDF');
+    if (sidebarEnabled()) assert(bounds.left >= viewport.left && bounds.right <= viewport.right, 'Sidebar controls must fit within the sidebar width');
   }
   scroller.scrollTop = 0;
   await nextTick(); await new Promise(requestAnimationFrame);
@@ -272,15 +273,21 @@ async function scopeLayoutFlow() {
   assert(visible('.document-preview').length === 0 && visible('.letter-preview').length === 1, 'Letter scope must select the letter inline preview');
   assert(visible('.working-document').length === 1 && visible('.working-document')[0].querySelector('textarea'), 'Letter scope must expose only the letter editor');
   await click('1Preparation');
-  const settings = root.querySelector('.preparation-stage')!;
+  const settings = root.querySelector('.preparation-settings')!;
   assert(settings.textContent?.includes('Language') && settings.textContent?.includes('Target words'), 'Letter settings belong in Preparation');
+  if (sidebarEnabled()) {
+    const selection = root.querySelector('.preparation-selection')!;
+    assert(root.querySelector('#desktop-sidebar-major')?.contains(selection), 'CV and letter selection belong in the major sidebar area');
+    assert(selection.textContent?.includes('Saved CV') && selection.textContent?.includes('Letter template'), 'Both preparation selectors must share the major sidebar area');
+    assert(root.querySelector('#desktop-sidebar-minor')?.contains(settings), 'Language and target words belong in the minor sidebar area');
+  }
 }
 const flows = [
   ['scope-layout', 'Scope dropdown → task controls → scoped preview and editor → preparation settings', scopeLayoutFlow],
-  ['cv', 'CV privacy snapshot → load → automatic preview → select → subvariant → reload', cvFlow],
-  ['initial-letter', 'Initial letter → automatic preview → accept → reload', () => letterFlow(true)],
-  ['existing-letter', 'Existing letter → refinement preview → accept → reload', () => letterFlow(false)],
-  ['proposal-review', 'Load → switch → resolve comment → dismiss preview → real approved PDFs', proposalReviewFlow],
+  ['cv', 'CV snapshot → automatic application → compare → subvariant → reload', cvFlow],
+  ['initial-letter', 'Initial letter → automatic application → compare → reload', () => letterFlow(true)],
+  ['existing-letter', 'Existing letter → automatic refinement → compare → reload', () => letterFlow(false)],
+  ['proposal-review', 'Automatic application → ignored answer → next iteration → reset → approved PDFs', proposalReviewFlow],
   ['template-questions', 'Template interests → contextual question → explicit answer feedback → refinement', templateQuestionFlow],
 ] as const;
 const flowId = new URLSearchParams(location.search).get('flow');

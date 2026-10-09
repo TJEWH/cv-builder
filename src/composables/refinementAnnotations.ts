@@ -13,7 +13,7 @@ export function validAnnotationReference(value: unknown): value is AnnotationRef
 export function validateAnnotationReview(value: unknown): void {
   if (!exact(value, ['proposalId', 'annotationId', 'status', 'response', 'previousReviewId'])
     || !validAnnotationReference({ proposalId: value.proposalId, annotationId: value.annotationId, reviewId: value.previousReviewId })
-    || !['open', 'resolved', 'dismissed'].includes(value.status as string)
+    || !['open', 'resolved', 'ignored'].includes(value.status as string)
     || !(value.response === null || validText(value.response, 12000) && !!value.response.trim())) throw new Error('Invalid annotation review.');
 }
 export function validateRefinementAnnotations(value: unknown, request: RefinementRequest, letterText: string): asserts value is RefinementAnnotation[] {

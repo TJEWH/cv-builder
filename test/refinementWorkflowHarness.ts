@@ -26,11 +26,11 @@ export interface Workspace {
   temporaryReview: { error: string }; proposalAlreadyApplied: boolean; baselineSignature: string;
   preview: { getPdfBlob(): Promise<Blob> } | null; letterPreview: { getPdfBlob(): Promise<Blob> } | null;
   getCvPdf(): Promise<Blob>; getLetterPdf(): Promise<Blob>;
-  saveAnnotation(id: string, status: 'open' | 'resolved' | 'dismissed', response: string, previousReviewId: string | null): Promise<boolean>;
+  saveAnnotation(id: string, status: 'open' | 'resolved' | 'ignored', response: string, previousReviewId: string | null): Promise<boolean>;
   includeAnnotationFeedback(id: string): Promise<void>; feedbackHistory(): RefinementFeedback[];
   proposalAnnotations: { annotation: { id: string }; status: string; response: string | null; reviewId: string | null; included: boolean }[];
   reviewAcceptanceError: string; letterText: string;
-  selectCv(id: string): Promise<void>; selectLetterTemplate(id: string): Promise<void>; publishSources(): Promise<void>; copyTask(): Promise<void>; connectedPrompt(): Promise<void>; checkProposals(): Promise<void>;
+  selectCv(id: string): Promise<void>; selectLetterTemplate(id: string): Promise<void>; publishSources(): Promise<void>; syncRefinement(): Promise<void>; copyTask(): Promise<void>; copyIterationTask(): Promise<void>; resetOriginalState(): Promise<void>; connectedPrompt(): Promise<void>; checkProposals(): Promise<void>;
   openProposal(): void; discardReview(): void; acceptSelectedChanges(): Promise<void>;
   persist(): void;
   feedbackScope: 'cv' | 'letter' | 'both'; pane: 'cv' | 'letter'; tab: string; historyOpen: boolean;

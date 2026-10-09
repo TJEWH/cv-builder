@@ -4,7 +4,7 @@ import type { CvStructure, CvOperation, CvComment, CvStructureBindings } from '.
 
 export type RefinementScope = 'both' | 'cv' | 'letter';
 export interface AnnotationReference { proposalId: string; annotationId: string; reviewId: string | null }
-export type AnnotationStatus = 'open' | 'resolved' | 'dismissed';
+export type AnnotationStatus = 'open' | 'resolved' | 'ignored';
 export type RefinementAnnotation = {
   id: string; type: 'comment' | 'todo' | 'question'; text: string;
 } & ({ document: 'cv'; location: { fieldId: string } | null }

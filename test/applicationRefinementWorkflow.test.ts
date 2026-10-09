@@ -192,7 +192,7 @@ test('history selection activates exact older proposal previews, and refresh kee
   assert.match(setup.reviewAcceptanceError, /superseded/);
   await setup.checkProposals(); assert.equal(setup.selectedProposalId, old.id);
   setup.discardReview(); setup.selectReviewProposal(old.id);
-  assert.equal(setup.reviewActive, true, 'selecting the same dismissed proposal reopens its temporary preview');
+  assert.equal(setup.reviewActive, true, 'selecting the same ignored proposal reopens its temporary preview');
   assert.equal(documents(setup), before); assert.equal(fixture.props.application.status, status);
 });
 
