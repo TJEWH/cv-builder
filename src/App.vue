@@ -1001,7 +1001,7 @@ body,
   .builder-topbar__tabs { height: 100%; }
   .builder-shell > .builder-layout, .builder-shell > .jobs-workspace, .builder-shell > .workspace-sign-in { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; margin-bottom: 0; }
   .builder-layout:not(.builder-layout--library) { grid-template-columns: minmax(0, 1fr) minmax(280px, 34%); grid-template-rows: minmax(0, 1fr); gap: 0; padding-right: 16px; }
-  .builder-layout__controls .builder-group-panel { padding: 16px; }
+  .builder-layout__controls .builder-group-panel { padding: 32px; }
   .studio-inline-preview { width: 100%; min-width: 0; max-width: none; }
   .desktop-sidebar .cv-studio-subtabs { display: flex; flex-direction: column; gap: 5px; margin: 0; }
   .desktop-sidebar .cv-studio-subtabs .btn { justify-content: flex-start; }
