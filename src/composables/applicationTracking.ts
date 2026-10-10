@@ -1,15 +1,49 @@
-import { APPLICATION_STATUSES, type Application } from '../cloudTypes';
+import { APPLICATION_STAGES, APPLICATION_STATUSES, type Application, type ApplicationStage, type ApplicationStatus } from '../cloudTypes';
+
+export const APPLICATION_STAGE_STATUS: Record<ApplicationStage, ApplicationStatus> = {
+  preparation: 'preparation', refinement: 'refinement', review: 'attachments', tracking: 'ready',
+};
+
+export function applicationStatusLabel(status: string, lang: string = 'en'): string {
+  const labels: Record<string, [string, string]> = {
+    preparation: ['Preparation', 'Vorbereitung'], refinement: ['Refinement', 'Überarbeitung'],
+    attachments: ['Attachments', 'Anhänge'], ready: ['Ready', 'Bereit'], shortlist: ['Ready', 'Bereit'],
+    contacted: ['Contacted', 'Kontaktiert'], submitted: ['Submitted', 'Eingereicht'],
+    interview: ['Interview', 'Gespräch'], offer: ['Offer', 'Angebot'], rejected: ['Rejected', 'Abgelehnt'], withdrawn: ['Withdrawn', 'Zurückgezogen'],
+  };
+  return labels[status]?.[lang === 'de' ? 1 : 0] ?? status;
+}
+
+/** Legacy Shortlist rows remain readable while a database is awaiting its upgrade. */
+export function normalizeApplication(application: Application): Application {
+  const normalize = (status: unknown): ApplicationStatus => status === 'shortlist' ? 'ready' : status as ApplicationStatus;
+  return { ...application, status: normalize(application.status),
+    ...(Array.isArray(application.status_history) ? { status_history: application.status_history.map(entry => ({ ...entry, status: normalize(entry?.status) })) } : {}),
+  };
+}
+
+export function applicationTrackingStarted(application: Application): boolean {
+  return application.tracking_started ?? ['contacted', 'submitted', 'interview', 'offer', 'rejected', 'withdrawn'].includes(application.status);
+}
+
+export function applicationStage(application: Application): ApplicationStage {
+  if (application.workflow_stage && APPLICATION_STAGES.includes(application.workflow_stage)) return application.workflow_stage;
+  if (application.status === 'preparation' || application.status === 'refinement') return application.status;
+  if (application.status === 'attachments') return 'review';
+  return 'tracking';
+}
 
 export function opensInTracking(status: Application['status']): boolean {
-  return status !== 'shortlist' && status !== 'contacted';
+  return status !== 'preparation' && status !== 'refinement' && status !== 'attachments';
 }
 
 /** Never infer a transition date from unrelated edits or legacy contact/submission dates. */
 export function applicationStatusHistory(application: Application): NonNullable<Application['status_history']> {
-  const history = application.status_history;
+  const normalized = normalizeApplication(application);
+  const history = normalized.status_history;
   if (!Array.isArray(history) || !history.length || !history.every(entry => entry && APPLICATION_STATUSES.includes(entry.status)
     && (entry.changedAt === null || typeof entry.changedAt === 'string' && Number.isFinite(Date.parse(entry.changedAt))))) {
-    return [{ status: application.status, changedAt: null }];
+    return [{ status: normalized.status, changedAt: null }];
   }
-  return history.at(-1)!.status === application.status ? history : [...history, { status: application.status, changedAt: null }];
+  return history.at(-1)!.status === normalized.status ? history : [...history, { status: normalized.status, changedAt: null }];
 }

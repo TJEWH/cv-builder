@@ -1,13 +1,14 @@
 import { onScopeDispose, ref, toValue, watch } from 'vue';
 import type { MaybeRefOrGetter } from 'vue';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Application, ApplicationContext, CloudCvSnapshot, CloudCvVariant, CreateApplicationInput, Opportunity, OpportunityReview, OpportunityReviewState, UpdateApplicationInput } from '../cloudTypes';
-import { APPLICATION_STATUSES, OPPORTUNITY_REVIEW_STATES } from '../cloudTypes';
+import type { Application, ApplicationContext, ApplicationStage, CloudCvSnapshot, CloudCvVariant, CreateApplicationInput, Opportunity, OpportunityReview, OpportunityReviewState, UpdateApplicationInput } from '../cloudTypes';
+import { APPLICATION_STAGES, TRACKING_STATUSES, OPPORTUNITY_REVIEW_STATES } from '../cloudTypes';
 import { SAMPLE_CONTACT } from '../defaults';
 import { CV_STATE_VERSION } from '../types';
 import { createCloudCvSnapshot } from './cloudCvPrivacy';
 import { isRecord, readCvConfig, readCvContent } from './cvStateValidation';
 import { hasReviewedOpportunity } from './opportunityRecency';
+import { normalizeApplication } from './applicationTracking';
 
 const PAGE_SIZE = 500;
 const CV_SUMMARY_FIELDS = 'id,user_id,name,cv_version,revision,created_at';
@@ -100,8 +101,10 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   const pendingReviews = new Set<string>();
   let pendingCreate: PendingApplication | null = null;
   let pendingAssignment: PendingSnapshot | null = null;
+  let mutationTail: Promise<void> = Promise.resolve();
+  let disposed = false;
 
-  const current = (account: string, generation: number) => epoch === generation && toValue(userId) === account;
+  const current = (account: string, generation: number) => !disposed && epoch === generation && toValue(userId) === account;
   function reset() {
     epoch++;
     loadSequence++;
@@ -112,6 +115,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
     opportunities.value = []; applications.value = []; cvVariants.value = []; reviews.value = [];
     loading.value = false; saving.value = false; error.value = '';
     pendingCreate = null; pendingAssignment = null;
+    mutationTail = Promise.resolve();
   }
 
   async function rows(table: string, fields: string, account: string, signal: AbortSignal) {
@@ -134,7 +138,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
 
   async function refresh(): Promise<boolean> {
     const account = toValue(userId);
-    if (!client || !account || saving.value) return false;
+    if (disposed || !client || !account || saving.value) return false;
     const generation = epoch;
     const sequence = ++loadSequence;
     loadController?.abort();
@@ -150,7 +154,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
       ]);
       if (!current(account, generation) || sequence !== loadSequence) return false;
       opportunities.value = opportunityRows.map(normalizeOpportunity);
-      applications.value = applicationRows as unknown as Application[];
+      applications.value = (applicationRows as unknown as Application[]).map(normalizeApplication);
       cvVariants.value = cvRows as unknown as CloudCvVariant[];
       reviews.value = reviewRows as unknown as OpportunityReview[];
       return true;
@@ -171,8 +175,15 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   async function runMutation<T>(action: (account: string, generation: number, signal: AbortSignal) => Promise<T>, saveResult: (value: T) => void,
     failureMessage = 'Could not save the application. Check your connection and retry.'): Promise<T | null> {
     const account = toValue(userId);
-    if (!client || !account || saving.value) return null;
+    if (disposed || !client || !account) return null;
     const generation = epoch;
+    // Tab changes and autosaves can overlap. Keep every patch in user order and
+    // prevent an older response from replacing a newer application row.
+    const previousMutation = mutationTail;
+    let releaseMutation!: () => void;
+    mutationTail = new Promise<void>(resolve => { releaseMutation = resolve; });
+    await previousMutation;
+    if (!current(account, generation)) { releaseMutation(); return null; }
     const controller = new AbortController();
     controllers.add(controller);
     // An older read must not overwrite the results of a newer write.
@@ -189,6 +200,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
     } finally {
       controllers.delete(controller);
       if (current(account, generation)) saving.value = false;
+      releaseMutation();
     }
   }
 
@@ -196,7 +208,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
     const { data, error: queryError } = await client!.from('applications').select('*').eq('user_id', account).eq('id', id).abortSignal(signal).single();
     if (queryError) throw queryError;
     if (!data || data.user_id !== account || data.id !== id) throw new Error('The saved application could not be loaded. Refresh the workspace.');
-    return data as Application;
+    return normalizeApplication(data as Application);
   }
 
   function recordSnapshot(snapshot: CloudCvSnapshot, account: string, generation: number) {
@@ -232,8 +244,10 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
     return runMutation(async (account, generation, signal) => {
       const patch: Record<string, unknown> = {};
       if (input.status !== undefined) {
-        if (!APPLICATION_STATUSES.includes(input.status)) throw new Error('Select a valid application status.');
+        if (!(TRACKING_STATUSES as readonly string[]).includes(input.status)) throw new Error('Select a valid tracking status.');
         patch.status = input.status;
+        // The assignment RPC marks this itself whenever p_changes has status.
+        if (!input.cvState) patch.tracking_started = true;
       }
       if (input.notes !== undefined) patch.notes = input.notes?.trim() || null;
       if (input.contactEmail !== undefined) patch.contact_email = contactEmail(input.contactEmail);
@@ -257,11 +271,23 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
         const { data, error: queryError } = await client!.from('applications').update(patch).eq('id', id).eq('user_id', account).select('*').abortSignal(signal).single();
         if (queryError) throw queryError;
         if (!data) throw new Error('The application could not be updated. Refresh the workspace.');
-        application = data as Application;
+        application = normalizeApplication(data as Application);
       } else application = await applicationById(id, account, signal);
       if (current(account, generation)) pendingAssignment = null;
       return application;
     }, rememberApplication);
+  }
+
+  function setApplicationStage(id: string, stage: ApplicationStage): Promise<Application | null> {
+    return runMutation(async (account, _generation, signal) => {
+      if (!APPLICATION_STAGES.includes(stage)) throw new Error('Select a valid application stage.');
+      const { data, error: queryError } = await client!.rpc('set_job_application_stage', {
+        p_application_id: id, p_stage: stage,
+      }).abortSignal(signal);
+      if (queryError) throw queryError;
+      if (!data || data.id !== id || data.user_id !== account) throw new Error('The application stage could not be confirmed. Refresh the workspace.');
+      return normalizeApplication(data as Application);
+    }, rememberApplication, 'Could not save the application stage. Check your connection and retry.');
   }
 
   function setApplicationChecklistItem(id: string, key: string, completed: boolean): Promise<Application | null> {
@@ -274,7 +300,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
       if (!data || data.id !== id || data.user_id !== account || !Array.isArray(data.completed_checklist_keys)) {
         throw new Error('The checklist could not be saved. Refresh and retry.');
       }
-      return data as Application;
+      return normalizeApplication(data as Application);
     }, rememberApplication, 'Could not save checklist progress. Check your connection and retry.');
   }
 
@@ -394,6 +420,6 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   }
 
   watch(() => toValue(userId), () => { reset(); void refresh(); }, { immediate: true, flush: 'sync' });
-  onScopeDispose(reset);
-  return { opportunities, applications, cvVariants, reviews, loading, saving, error, refresh, createApplication, updateApplication, setApplicationChecklistItem, removeApplication, refreshApplicationContext, setOpportunityReview, markOpportunityReviewed, getApplicationContext };
+  onScopeDispose(() => { disposed = true; reset(); });
+  return { opportunities, applications, cvVariants, reviews, loading, saving, error, refresh, createApplication, updateApplication, setApplicationStage, setApplicationChecklistItem, removeApplication, refreshApplicationContext, setOpportunityReview, markOpportunityReviewed, getApplicationContext };
 }

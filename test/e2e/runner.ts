@@ -192,7 +192,7 @@ async function proposalReviewFlow() {
   assert(setup.proposals.length === 2 && setup.letter!.revisions.some(revision => revision.cloudDraftId === next.id), 'Reset must preserve proposal and letter history');
   await click('Sync'); await rendered('letter', 'Original working letter.');
   assert(setup.letter!.working.body === 'Original working letter.', 'Sync replayed a reset proposal');
-  await click('Approve letter'); await field('Refinement scope', 'cv'); await click('Approve CV'); await click('3PDF review');
+  await click('Approve letter'); await field('Refinement scope', 'cv'); await click('Approve CV'); await click('3Attachments');
   await until(() => {
     const problem = root.querySelector('.application-documents [role="alert"]');
     if (problem) throw new Error(problem.textContent || 'Automatic package preview failed');
@@ -201,7 +201,7 @@ async function proposalReviewFlow() {
   for (const blob of [await setup.getCvPdf(), await setup.getLetterPdf()]) {
     const pdf = await PDFDocument.load(await blob.arrayBuffer()); assert(pdf.getPageCount() > 0, 'Normal export did not generate a real PDF');
   }
-  assert(fixture.props.application.status === 'shortlist', 'Refinement changed application tracking status');
+  assert(fixture.props.application.status === 'attachments', 'The Attachments tab did not persist the application stage');
 }
 async function templateQuestionFlow() {
   await mount();

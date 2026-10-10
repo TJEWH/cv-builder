@@ -97,7 +97,7 @@ function mount(t: TestContext, legacy?: 'unchanged' | 'tailored', missingLetterT
   }
   const application: Application = { id: applicationId, user_id: account, opportunity_id: '20000000-0000-4000-8000-000000000001',
     context_json: { title: 'Robotics PhD', required_documents: ['CV', 'Motivation letter (maximum 400 words)', 'Transcript of records'] }, context_captured_at: new Date().toISOString(),
-    cv_variant_id: null, completed_checklist_keys: [], status: 'shortlist', contact_email: null, notes: null, contacted_at: null, submitted_at: null,
+    cv_variant_id: null, completed_checklist_keys: [], status: 'preparation', workflow_stage: 'preparation', tracking_started: false, contact_email: null, notes: null, contacted_at: null, submitted_at: null,
     created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   const database: Record<string, Record<string, unknown>[]> = { applications: [{ ...application }], cv_variants: [] };
   const cloud = createRefinementFixture(database, account);

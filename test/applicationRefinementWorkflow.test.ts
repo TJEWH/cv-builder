@@ -3,6 +3,7 @@ import test from 'node:test';
 import { cloneCv, loadApplicationCv } from '../src/composables/applicationCv';
 import { finalizeLetter } from '../src/composables/motivationLetters';
 import type { ApplicationLetter } from '../src/letterTypes';
+import type { ApplicationStage } from '../src/cloudTypes';
 import { account, applicationId, refinementKey, mount, prepare, idle, documents, loadHistoricalProposal } from './refinementWorkflowHarness';
 
 test('loading an existing local proposal activates the complete temporary candidate without a cloud write or document save', async t => {
@@ -298,23 +299,90 @@ test('an empty letter publishes an explicit first-draft task and switches to ref
   assert.equal(setup.requests[0].request_json.letter.text, 'A complete manually written letter.');
 });
 
-test('later application statuses open Tracking despite an earlier saved tab, while preparation statuses retain navigation', async t => {
+test('the persisted application stage restores navigation and drives the status until tracking begins', async t => {
   const fixture = mount(t); await idle(fixture.setup);
   const navigationKey = `CV_APPLICATION_TAB:${account}:${applicationId}`;
-  for (const status of ['submitted', 'interview', 'offer', 'rejected', 'withdrawn'] as const) {
-    fixture.props.application.status = status;
-    fixture.storage.setItem(navigationKey, 'refinement');
-    const setup = fixture.reopen(); await idle(setup);
-    assert.equal(setup.tab, 'tracking');
-    setup.tab = 'preparation'; await idle(setup);
-    assert.equal(setup.tab, 'preparation', 'default selection must not lock other tabs');
+  let setup = fixture.setup;
+  for (const [stage, status] of [['refinement', 'refinement'], ['review', 'attachments'], ['tracking', 'ready'], ['preparation', 'preparation']] as const) {
+    setup.tab = stage; await idle(setup);
+    assert.equal(fixture.props.application.workflow_stage, stage);
+    assert.equal(fixture.props.application.status, status);
+    fixture.storage.setItem(navigationKey, stage === 'refinement' ? 'tracking' : 'refinement');
+    setup = fixture.reopen(); await idle(setup);
+    assert.equal(setup.tab, stage, 'the saved application stage takes precedence over an old session tab');
   }
-  for (const status of ['shortlist', 'contacted'] as const) {
-    fixture.props.application.status = status;
-    fixture.storage.setItem(navigationKey, 'refinement');
-    const setup = fixture.reopen(); await idle(setup); assert.equal(setup.tab, 'refinement');
-    fixture.props.application.status = 'submitted'; await idle(setup); assert.equal(setup.tab, 'tracking');
+
+  fixture.props.application = { ...fixture.props.application, status: 'ready', tracking_started: true };
+  for (const stage of ['refinement', 'review', 'tracking', 'preparation'] as const) {
+    setup.tab = stage; await idle(setup);
+    assert.equal(fixture.props.application.status, 'ready', 'an explicitly chosen Ready state stays independent of navigation');
+    assert.equal(fixture.props.application.workflow_stage, stage);
+    setup = fixture.reopen(); await idle(setup); assert.equal(setup.tab, stage);
   }
+  fixture.props.application.status = 'submitted'; await idle(setup);
+  assert.equal(setup.tab, 'preparation', 'a tracking save must not move the active tab');
+});
+
+test('legacy applications restore their compatible local tab and persist the initial stage', async t => {
+  const fixture = mount(t); await idle(fixture.setup);
+  const navigationKey = `CV_APPLICATION_TAB:${account}:${applicationId}`;
+  fixture.props.application = { ...fixture.props.application, workflow_stage: undefined, status: 'ready', tracking_started: false };
+  fixture.storage.setItem(navigationKey, 'documents');
+  let setup = fixture.reopen(); await idle(setup);
+  assert.equal(setup.tab, 'review');
+  assert.equal(fixture.props.application.workflow_stage, 'review');
+  assert.equal(fixture.props.application.status, 'attachments');
+  fixture.props.application = { ...fixture.props.application, workflow_stage: undefined, status: 'contacted', tracking_started: true };
+  fixture.storage.setItem(navigationKey, 'refinement');
+  setup = fixture.reopen(); await idle(setup);
+  assert.equal(setup.tab, 'tracking');
+  assert.equal(fixture.props.application.workflow_stage, 'tracking');
+  assert.equal(fixture.props.application.status, 'contacted');
+});
+
+test('selecting the active tab retries a failed initial stage save', async t => {
+  const fixture = mount(t); await idle(fixture.setup);
+  const persistStage = fixture.props.onChangeStage;
+  const attempts: ApplicationStage[] = [];
+  let canSave = false;
+  fixture.props.onChangeStage = stage => {
+    attempts.push(stage);
+    if (canSave) persistStage(stage);
+  };
+  fixture.props.application = { ...fixture.props.application, workflow_stage: undefined, status: 'ready', tracking_started: false };
+  fixture.storage.setItem(`CV_APPLICATION_TAB:${account}:${applicationId}`, 'refinement');
+  const setup = fixture.reopen(); await idle(setup);
+  assert.equal(setup.tab, 'refinement');
+  assert.equal(fixture.props.application.status, 'ready');
+  assert.deepEqual(attempts, ['refinement']);
+
+  canSave = true;
+  setup.selectStage('refinement'); await idle(setup);
+  assert.deepEqual(attempts, ['refinement', 'refinement']);
+  assert.equal(fixture.props.application.workflow_stage, 'refinement');
+  assert.equal(fixture.props.application.status, 'refinement');
+});
+
+test('stage clicks emit once and reselecting a tab preserves explicitly chosen tracking status', async t => {
+  const fixture = mount(t), setup = fixture.setup; await idle(setup);
+  const persistStage = fixture.props.onChangeStage;
+  const attempts: ApplicationStage[] = [];
+  fixture.props.onChangeStage = stage => { attempts.push(stage); persistStage(stage); };
+  setup.selectStage('refinement'); await idle(setup);
+  assert.deepEqual(attempts, ['refinement']);
+  assert.equal(fixture.props.application.status, 'refinement');
+
+  fixture.props.application = { ...fixture.props.application, status: 'ready', tracking_started: true };
+  setup.selectStage('refinement'); await idle(setup);
+  assert.deepEqual(attempts, ['refinement', 'refinement']);
+  assert.equal(fixture.props.application.status, 'ready');
+  setup.selectStage('review'); await idle(setup);
+  assert.deepEqual(attempts, ['refinement', 'refinement', 'review']);
+  assert.equal(fixture.props.application.workflow_stage, 'review');
+  assert.equal(fixture.props.application.status, 'ready');
+  setup.tab = 'preparation'; await idle(setup);
+  assert.deepEqual(attempts, ['refinement', 'refinement', 'review', 'preparation'], 'programmatic navigation keeps the same persistence path');
+  assert.equal(fixture.props.application.status, 'ready');
 });
 
 test('new applications and saved combined scopes select a separate document scope', async t => {

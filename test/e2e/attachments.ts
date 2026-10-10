@@ -58,7 +58,7 @@ async function mount() {
     h('nav', { style: 'display:flex;gap:8px;margin-bottom:16px' }, [
       h('button', { class: 'btn', onClick: () => { view.value = 'library'; } }, 'CV Studio · Local attachments'),
       h('button', { class: 'btn', onClick: () => { view.value = 'prepare'; } }, 'Application preparation'),
-      h('button', { class: 'btn', onClick: () => { view.value = 'review'; } }, 'PDF review'),
+      h('button', { class: 'btn', onClick: () => { view.value = 'review'; } }, 'Attachments'),
     ]),
     h(LocalAttachments as Component, { userId: attachmentAccount, client: fixture.client, storage: fixture.storage, lang: 'en', active: view.value === 'library',
       style: view.value === 'library' ? 'flex:1;min-height:0' : 'display:none',
@@ -159,13 +159,13 @@ runButton.addEventListener('click', async () => {
     const selected = await local.getManifest(applicationId);
     assert(selected.items.filter(item => item.kind === 'attachment').length === 2, 'Application selection did not persist');
     stage('Selecting reusable attachments adds them automatically and retains both descriptions');
-    await click('PDF review', root); assert(!documents.error, documents.error);
+    await click('Attachments', root); assert(!documents.error, documents.error);
     for (const removed of ['Preview complete PDF', 'Manage attachments in CV Studio', 'Refresh attachments', 'Supporting documents & export', 'Package order', 'Frozen package archive']) {
-      assert(!current().textContent?.includes(removed), `Redundant PDF review control remains: ${removed}`);
+      assert(!current().textContent?.includes(removed), `Redundant Attachments control remains: ${removed}`);
     }
     const inline = await renderedPreview(1, 'Synthetic accepted generated document.');
     assert(inline.classList.contains('document-inline-preview') && inline.getBoundingClientRect().height > 0, 'Shared inline PDF preview is hidden or was not reused');
-    assert(!current().querySelector('iframe, .simple-pdf-viewer'), 'PDF review still mounts the native or separate custom viewer');
+    assert(!current().querySelector('iframe, .simple-pdf-viewer'), 'Attachments still mounts the native or separate custom viewer');
     assert(!inline.querySelector('.document-inline-preview__actions'), 'Inline PDF preview has duplicate open/download actions');
     assert(documents.composition?.blob, 'Composed PDF bytes missing');
     const compositionBytes = new Uint8Array(await documents.composition.blob.arrayBuffer());
@@ -211,7 +211,7 @@ runButton.addEventListener('click', async () => {
     assert(current().querySelector('[role="img"][aria-label="File missing on this device"]') && fixture.rows.length === 2, 'Missing local file incorrectly removed its cloud metadata');
     stage('Missing files remain explicit and block export while metadata stays available');
     await local.importBackup(backup); window.dispatchEvent(new Event('cv-local-documents-updated')); await settle();
-    await click('PDF review', root); assert(documents.composition, 'Restored files did not restore the automatic preview'); await renderedPreview();
+    await click('Attachments', root); assert(documents.composition, 'Restored files did not restore the automatic preview'); await renderedPreview();
     status.textContent = '6/6 attachment checks passed'; document.body.dataset.result = 'passed';
   } catch (reason) {
     const item = document.createElement('li'); item.dataset.result = 'fail'; item.textContent = `FAIL: ${reason instanceof Error ? reason.message : String(reason)}`; results.append(item);

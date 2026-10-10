@@ -141,7 +141,7 @@ test('opening a legacy proposal keeps its schema and frozen fields without struc
   assert.equal(documents(setup), before); assert.equal(local.request.schemaVersion, 1);
 });
 
-test('normal export cannot serialize an unaccepted candidate and PDF review exports only approved working inputs', async t => {
+test('normal export cannot serialize an unaccepted candidate and Attachments exports only approved working inputs', async t => {
   const fixture = mount(t), setup = await prepare(fixture);
   await setup.approve('cv'); await setup.approve('letter');
   const cv = cloneCv(setup.record!.state), letter = JSON.stringify(setup.letter!.working);
@@ -153,5 +153,5 @@ test('normal export cannot serialize an unaccepted candidate and PDF review expo
   assert.deepEqual(renderInputs, []);
   setup.tab = 'review'; await idle(setup); await setup.getCvPdf(); await setup.getLetterPdf();
   assert.deepEqual(renderInputs, [JSON.stringify(cv), letter]); assert.equal(setup.reviewActive, false);
-  assert.equal(fixture.props.application.status, 'shortlist'); assert.equal(setup.requests[0].application_id, applicationId);
+  assert.equal(fixture.props.application.status, 'attachments'); assert.equal(setup.requests[0].application_id, applicationId);
 });

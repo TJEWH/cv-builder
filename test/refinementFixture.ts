@@ -5,7 +5,7 @@ import type { CvOperation } from '../src/cvStructuredTypes';
 import { parseRefinementProposal, refinementSignature } from '../src/composables/applicationRefinement';
 import { IDENTITY_PLACEHOLDERS } from '../src/composables/identityRedaction';
 import { reactive } from 'vue';
-import type { Application } from '../src/cloudTypes';
+import type { Application, ApplicationStage } from '../src/cloudTypes';
 import type { CvState, SavedConfiguration } from '../src/types';
 import { createEmptyDocument, createSampleDocument } from '../src/composables/builtinConfigurations';
 import { cloneCv } from '../src/composables/applicationCv';
@@ -246,13 +246,18 @@ export function createSyntheticRefinementWorkspace(source = createSampleDocument
   const base = cloneCv(source), states = new Map([['base', base]]);
   const application: Application = { id: applicationId, user_id: account, opportunity_id: '20000000-0000-4000-8000-000000000001',
     context_json: { title: 'Synthetic robotics application', institution: 'Example University' }, context_captured_at: '2026-10-02T00:00:00Z', cv_variant_id: null,
-    completed_checklist_keys: [], status: 'shortlist', contact_email: null, notes: null, contacted_at: null, submitted_at: null,
+    completed_checklist_keys: [], status: 'preparation', workflow_stage: 'preparation', tracking_started: false, contact_email: null, notes: null, contacted_at: null, submitted_at: null,
     created_at: '2026-10-02T00:00:00Z', updated_at: '2026-10-02T00:00:00Z' };
   const database: Record<string, Row[]> = { applications: [{ ...application }], cv_variants: [] };
   const cloud = createRefinementFixture(database, account);
   const creations: { sourceId: string; id: string; state: CvState }[] = [];
   const props = reactive({ application, client: cloud.client, userId: account, lang: 'en', projectId: 'fixture',
     configurations: [{ id: 'base', name: 'Research' }] as SavedConfiguration[], readVersion: (id: string) => states.get(id) || null,
+    onChangeStage: (stage: ApplicationStage) => {
+      const status = ({ preparation: 'preparation', refinement: 'refinement', review: 'attachments', tracking: 'ready' } as const)[stage];
+      props.application = { ...props.application, workflow_stage: stage, ...(!props.application.tracking_started ? { status } : {}) };
+      Object.assign(database.applications[0], { workflow_stage: stage, status: props.application.status });
+    },
     publishCv: async (state: CvState) => {
       const snapshot = createCloudCvSnapshot(state); database.cv_variants.push({ ...snapshot, user_id: account });
       props.application = { ...props.application, cv_variant_id: snapshot.id }; database.applications[0].cv_variant_id = snapshot.id; return props.application;

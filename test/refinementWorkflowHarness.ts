@@ -6,6 +6,7 @@ import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
 import { createRenderer, h, nextTick, type Component } from 'vue';
 import type { CvState } from '../src/types';
+import type { ApplicationStage } from '../src/cloudTypes';
 import type { ApplicationLetter } from '../src/letterTypes';
 import type { LocalRefinementRequest, RefinementApprovals, RefinementFeedback, RefinementProposalRow, RefinementRequestRow, RefinementReviewRow, RefinementState } from '../src/refinementTypes';
 import { type ApplicationCvRecord } from '../src/composables/applicationCv';
@@ -40,6 +41,7 @@ export interface Workspace {
   openProposal(): void; discardReview(): void; acceptSelectedChanges(): Promise<void>;
   persist(): void;
   feedbackScope: 'cv' | 'letter' | 'both'; pane: 'cv' | 'letter'; tab: string; historyOpen: boolean;
+  selectStage(stage: ApplicationStage): void;
   selectReviewProposal(id: string): void;
   approve(kind: 'cv' | 'letter', reopen?: boolean): Promise<void>;
   updateLetter(value: string): void; toggleProposedChange(id: string, included: boolean): void;
@@ -93,6 +95,7 @@ export async function prepare(fixture: ReturnType<typeof mount>, sourceId = 'bas
   await setup.selectCv(sourceId); await idle(setup); await setup.selectLetterTemplate('research');
   setup.updateLetter(options.letterText ?? 'Original private working letter.');
   setup.feedbackScope = options.scope ?? 'both'; await setup.publishSources();
+  setup.tab = 'refinement'; await idle(setup);
   assert.equal(setup.error, '');
   assert.equal(setup.requests.length, 1);
   return setup;

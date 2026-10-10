@@ -7,7 +7,7 @@ import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive, ref } from 'vue';
 import type { Component } from 'vue';
-import type { Application, Opportunity, OpportunityReview } from '../src/cloudTypes';
+import type { Application, ApplicationStage, Opportunity, OpportunityReview } from '../src/cloudTypes';
 import { normalizeOpportunity } from '../src/composables/useJobWorkspace';
 
 const filename = new URL('../src/components/JobWorkspace.vue', import.meta.url);
@@ -37,7 +37,7 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   const application: Application = {
     id: 'application-one', user_id: 'account-one', opportunity_id: opportunity.id, cv_variant_id: null,
     contact_email: null, context_json: opportunity.details, context_captured_at: '2026-09-20T12:00:00Z',
-    completed_checklist_keys: [], status: 'shortlist', notes: null, contacted_at: null, submitted_at: null,
+    completed_checklist_keys: [], status: 'preparation', workflow_stage: 'preparation', tracking_started: false, notes: null, contacted_at: null, submitted_at: null,
     created_at: '2026-09-20T12:00:00Z', updated_at: '2026-09-20T12:00:00Z',
   };
   const receipts: Opportunity[] = [];
@@ -46,12 +46,33 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   const opportunities = ref([opportunity]);
   let created = 0;
   const removed: string[] = [];
+  const applicationUpdates: { id: string; changes: Partial<Application> }[] = [];
+  const stageUpdates: { id: string; stage: ApplicationStage }[] = [];
+  let failNotes = false;
+  const saveApplication = (id: string, changes: Partial<Application>) => {
+    const current = applications.value.find(item => item.id === id);
+    if (!current) return null;
+    const saved = { ...current, ...changes };
+    applications.value = applications.value.map(item => item.id === id ? saved : item);
+    return saved;
+  };
   const workspace = {
     opportunities, applications, reviews,
     loading: ref(false), saving: ref(false), error: ref(''), refresh() {},
     markOpportunityReviewed: async (item: Opportunity) => { receipts.push(item); },
     createApplication: async () => { created++; applications.value.push(application); return application; },
-    updateApplication: async () => null, setApplicationChecklistItem: async () => false,
+    updateApplication: async (id: string, changes: Partial<Application>) => {
+      applicationUpdates.push({ id, changes });
+      if (failNotes && 'notes' in changes) { failNotes = false; return null; }
+      return saveApplication(id, { ...changes, ...(changes.status ? { tracking_started: true } : {}) });
+    },
+    setApplicationStage: async (id: string, stage: ApplicationStage) => {
+      stageUpdates.push({ id, stage });
+      const current = applications.value.find(item => item.id === id);
+      const status = ({ preparation: 'preparation', refinement: 'refinement', review: 'attachments', tracking: 'ready' } as const)[stage];
+      return saveApplication(id, { workflow_stage: stage, ...(!current?.tracking_started ? { status } : {}) });
+    },
+    setApplicationChecklistItem: async () => false,
     removeApplication: async (id: string) => { removed.push(id); applications.value = applications.value.filter((item) => item.id !== id); return true; }, setOpportunityReview: async () => null,
     getApplicationContext: async () => null, refreshApplicationContext: async () => null,
   };
@@ -67,16 +88,19 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   unmount = () => app.unmount();
   const setup = (mounted as { $: { setupState: {
     query: string; statusFilter: string; reviewFilter: string; hideWithApplication: boolean; hideNotInterested: boolean; sortBy: string; deadlineFilter: 'current' | 'past'; now: Date;
+    statusLabel(status: string): string;
+    notes: string; notesStatus: string; notesError: string; flushNotes(): Promise<boolean>;
     recencyById: Map<string, 'new' | 'updated' | null>; unseenById: Map<string, 'new' | 'updated' | null>;
     fitScoreById: Map<string, number | undefined>; fitTone(score: number | undefined): string | undefined; fitLabel(score: number | undefined): string;
     filteredOpportunities: Opportunity[]; filteredApplications: Application[]; selectedOpportunity?: Opportunity; showingDetail: boolean; editingApplication?: Application;
     opportunityGroups: { key: string; title: string; items: Opportunity[] }[];
     removingId: string | null; removalDialog: { open?: boolean; showModal(): void; close(): void };
-    openOpportunity(id: string): void; closeOpportunity(): void; closeApplication(): void; startApplication(item: Opportunity): Promise<void>;
+    openOpportunity(id: string): void; closeOpportunity(): void; closeApplication(): Promise<void>; startApplication(item: Opportunity): Promise<void>;
+    changeApplicationStatus(item: Application, event: Event): Promise<void>;
     requestDetailRemoval(item: Application): Promise<void>; cancelRemoval(): void; confirmRemoval(item: Application): Promise<void>;
   } } }).$.setupState;
   const componentProps = (mounted as { $props: { active: boolean } }).$props;
-  return { setup, props, componentProps, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, created: () => created };
+  return { setup, props, componentProps, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, applicationUpdates, stageUpdates, failNextNotesSave: () => { failNotes = true; }, created: () => created };
 }
 
 test('standalone workspaces activate sidebar controls by default while accepting explicit inactivity', async (t) => {
@@ -141,6 +165,60 @@ test('application search matches server codes and full IDs, including applicatio
   assert.equal(setup.filteredApplications.length, 2, 'title search remains available');
 });
 
+test('application status filters include each preparation stage and Ready alongside tracking states', async (t) => {
+  const { setup, props, application, applications } = mount(t);
+  const statuses = ['preparation', 'refinement', 'attachments', 'ready', 'contacted', 'submitted'] as const;
+  applications.value = statuses.map(status => ({ ...application, id: `application-${status}`, status }));
+  props.tab = 'applications';
+  await nextTick();
+  for (const status of statuses) {
+    setup.statusFilter = status;
+    assert.deepEqual(setup.filteredApplications.map(item => item.id), [`application-${status}`]);
+  }
+  assert.deepEqual(statuses.slice(0, 4).map(status => setup.statusLabel(status)), ['Preparation', 'Refinement', 'Attachments', 'Ready']);
+  setup.statusFilter = '';
+  assert.equal(setup.filteredApplications.length, statuses.length);
+});
+
+test('tracking dropdown flushes pending notes and selecting Ready starts tracking even when already ready', async (t) => {
+  const { setup, opportunity, applications, applicationUpdates } = mount(t);
+  await setup.startApplication(opportunity);
+  applications.value = applications.value.map(item => ({ ...item, workflow_stage: 'tracking', status: 'ready' }));
+  await nextTick();
+  setup.notes = 'Ask about the project start date.';
+  const select = { value: 'ready' };
+  await setup.changeApplicationStatus(setup.editingApplication!, { target: select } as unknown as Event);
+  assert.deepEqual(applicationUpdates.map(update => update.changes), [{ notes: 'Ask about the project start date.' }, { status: 'ready' }]);
+  assert.equal(setup.editingApplication?.notes, 'Ask about the project start date.');
+  assert.equal(setup.editingApplication?.tracking_started, true);
+  assert.equal(setup.notesStatus, 'saved');
+});
+
+test('closing an application flushes its latest notes and reopening restores the saved value', async (t) => {
+  const { setup, opportunity, applications, applicationUpdates } = mount(t);
+  await setup.startApplication(opportunity);
+  setup.notes = 'A final note before leaving.';
+  await setup.closeApplication();
+  assert.equal(setup.editingApplication, undefined);
+  assert.equal(applications.value[0].notes, 'A final note before leaving.');
+  assert.equal(applicationUpdates.length, 1);
+  await setup.startApplication(opportunity);
+  assert.equal(setup.notes, 'A final note before leaving.');
+});
+
+test('failed note autosave keeps the application open and retains the draft for retry', async (t) => {
+  const { setup, opportunity, failNextNotesSave } = mount(t);
+  await setup.startApplication(opportunity);
+  setup.notes = 'Keep this note when the connection fails.';
+  failNextNotesSave();
+  await setup.closeApplication();
+  assert.ok(setup.editingApplication);
+  assert.equal(setup.notes, 'Keep this note when the connection fails.');
+  assert.equal(setup.notesStatus, 'error');
+  await setup.closeApplication();
+  assert.equal(setup.editingApplication, undefined);
+});
+
 test('opportunity detail preserves filters and stays open after its review removes it from results', async (t) => {
   const { setup, opportunity, receipts, reviews, storage } = mount(t);
   setup.query = 'Robotics';
@@ -172,7 +250,7 @@ test('creating and reopening an application preserves opportunity selection and 
   assert.equal(setup.editingApplication?.id, application.id);
   assert.equal(setup.showingDetail, true);
   assert.equal(setup.query, '', 'application search remains independent');
-  setup.closeApplication();
+  await setup.closeApplication();
   props.tab = 'opportunities';
   await nextTick();
   assert.equal(setup.showingDetail, true);

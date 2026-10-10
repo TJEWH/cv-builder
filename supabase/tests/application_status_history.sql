@@ -19,10 +19,10 @@ begin
     values(app,user_a,opportunity,'[{"status":"offer","changedAt":"2000-01-01T00:00:00Z"}]');
   select status_history, to_jsonb(a) into original, got from public.applications a where id=app;
   first_time := (original->0->>'changedAt')::timestamptz;
-  if jsonb_array_length(original)<>1 or original->0->>'status'<>'shortlist' or first_time is null
+  if jsonb_array_length(original)<>1 or original->0->>'status'<>'preparation' or first_time is null
     or first_time < statement_timestamp() then raise exception 'FAIL: initial history not server recorded'; end if;
   perform public.create_job_application(app, opportunity);
-  update public.applications set notes='Synthetic note',status='shortlist',status_history='[]' where id=app;
+  update public.applications set notes='Synthetic note',status='preparation',status_history='[]' where id=app;
   if (select status_history from public.applications where id=app)<>original then raise exception 'FAIL: unchanged status, retry or notes rewrote history'; end if;
   update public.applications set status='contacted',status_history='[{"status":"offer"}]' where id=app;
   update public.applications set status='submitted' where id=app;

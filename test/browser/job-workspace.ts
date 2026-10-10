@@ -118,7 +118,8 @@ function from(table: string) {
       if (table === 'applications' && patch!.status && patch!.status !== row.status) {
         row.status_history = [...(row.status_history as Row[] || []), { status: patch!.status, changedAt: new Date().toISOString() }];
       }
-      Object.assign(row, patch, { updated_at: new Date().toISOString() });
+      const tracking = table === 'applications' ? { tracking_started: row.tracking_started === true || patch!.tracking_started === true } : {};
+      Object.assign(row, patch, tracking, { updated_at: new Date().toISOString() });
     });
     return { data: structuredClone(one ? selected[0] ?? null : selected), error: null, count: matching.length };
   };
@@ -170,8 +171,22 @@ const client = {
         database.applications.push({ id: parameters.p_application_id, user_id: account,
           application_code: opportunity?.id === '10000000-0000-4000-8000-000000000001' ? 'APP-7K4M9Q' : null,
           opportunity_id: parameters.p_opportunity_id, cv_variant_id: null,
-          contact_email: null, context_json: structuredClone(opportunity), context_captured_at: new Date().toISOString(), status: 'shortlist', status_history: [{ status: 'shortlist', changedAt: new Date().toISOString() }], completed_checklist_keys: [], notes: null,
+          contact_email: null, context_json: structuredClone(opportunity), context_captured_at: new Date().toISOString(), status: 'preparation', workflow_stage: 'preparation', tracking_started: false,
+          status_history: [{ status: 'preparation', changedAt: new Date().toISOString() }], completed_checklist_keys: [], notes: null,
           contacted_at: null, submitted_at: null, created_at: now, updated_at: now });
+      } else if (name === 'set_job_application_stage') {
+        const application = database.applications.find(row => row.id === parameters.p_application_id && row.user_id === account);
+        if (!application) return { error: new Error('Missing fixture application') };
+        const stage = String(parameters.p_stage);
+        const status = ({ preparation: 'preparation', refinement: 'refinement', review: 'attachments', tracking: 'ready' } as Record<string, string>)[stage];
+        if (!status) return { error: new Error('Invalid fixture application stage') };
+        application.workflow_stage = stage;
+        if (!application.tracking_started && status !== application.status) {
+          application.status = status;
+          application.status_history = [...(application.status_history as Row[] || []), { status, changedAt: new Date().toISOString() }];
+        }
+        application.updated_at = new Date().toISOString();
+        return { data: structuredClone(application), error: null };
       } else if (name === 'set_job_application_checklist_item') {
         const application = database.applications.find((row) => row.id === parameters.p_application_id && row.user_id === account);
         if (!application) return { error: new Error('Missing fixture application') };

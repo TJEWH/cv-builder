@@ -57,7 +57,7 @@ async function settleUntil(predicate: () => boolean) {
 }
 function application(id = 'application-1', cvId: string | null = 'cv-1'): Application {
   return { id, user_id: 'account-a', opportunity_id: 'opportunity-1', cv_variant_id: cvId,
-    contact_email: 'employer@example.org', status: 'shortlist', completed_checklist_keys: [], notes: null, contacted_at: null, submitted_at: null,
+    contact_email: 'employer@example.org', status: 'preparation', completed_checklist_keys: [], notes: null, contacted_at: null, submitted_at: null,
     context_json: { title: 'Researcher', requirements: ['Degree'], supervisor_research_focus: { robotics: 'Applied robotics' }, supervisor_top_papers: [{ title: 'Paper', year: 2025 }] },
     context_captured_at: '2026-09-19T16:00:00.000Z',
     created_at: '2026-09-19T16:00:00.000Z', updated_at: '2026-09-19T16:00:00.000Z' };
@@ -459,7 +459,7 @@ test('metadata can be saved before CV assignment and employer contact email is o
   assert.equal(updated.contact_email, null);
   assert.equal(queries.some(({ operation }) => operation === 'rpc'), false);
   assert.deepEqual(queries.find(({ operation }) => operation === 'update')?.payload,
-    { status: 'contacted', notes: 'Asked about supervision', contact_email: null });
+    { status: 'contacted', tracking_started: true, notes: 'Asked about supervision', contact_email: null });
   scope.stop();
 });
 
@@ -649,4 +649,92 @@ test('logout during research refresh prevents follow-up reads and stale applicat
   assert.deepEqual(workspace.applications.value, []);
   assert.equal(workspace.error.value, '');
   scope.stop();
+});
+
+test('stage saves queue with explicit tracking choices and preserve the server lock', async () => {
+  const firstWrite = deferred<Result>();
+  let held = true;
+  let stored: Application = { ...application(), workflow_stage: 'preparation', tracking_started: false };
+  const stages = { preparation: 'preparation', refinement: 'refinement', review: 'attachments', tracking: 'ready' } as const;
+  const { client, queries } = fakeClient(async query => {
+    if (query.operation === 'rpc' && query.table === 'set_job_application_stage') {
+      if (held) { held = false; await firstWrite.promise; }
+      const stage = query.payload!.p_stage as keyof typeof stages;
+      stored = { ...stored, workflow_stage: stage, status: stored.tracking_started ? stored.status : stages[stage] };
+      return { data: { ...stored }, error: null };
+    }
+    if (query.operation === 'update') {
+      stored = { ...stored, ...query.payload };
+      return { data: { ...stored }, error: null };
+    }
+    return { data: query.table === 'applications' ? [stored] : [], error: null };
+  });
+  const scope = effectScope();
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  const stage = workspace.setApplicationStage(stored.id, 'tracking');
+  await settleUntil(() => queries.some(query => query.operation === 'rpc'));
+  const explicitReady = workspace.updateApplication(stored.id, { status: 'ready' });
+  const lastStage = workspace.setApplicationStage(stored.id, 'review');
+  assert.equal(queries.filter(query => query.operation !== 'select').length, 1);
+  firstWrite.resolve({ data: null, error: null });
+  assert.equal((await stage)?.status, 'ready');
+  assert.equal((await explicitReady)?.tracking_started, true);
+  assert.equal((await lastStage)?.workflow_stage, 'review');
+  assert.equal(workspace.applications.value[0].status, 'ready');
+  assert.deepEqual(queries.filter(query => query.operation !== 'select').map(query => query.table),
+    ['set_job_application_stage', 'applications', 'set_job_application_stage']);
+  assert.deepEqual(queries.find(query => query.operation === 'update')?.payload, { status: 'ready', tracking_started: true });
+  scope.stop();
+});
+
+test('queued application writes cannot run under the next account', async () => {
+  const writing = deferred<Result>();
+  const { client, queries } = fakeClient(query => query.operation === 'rpc' ? writing.promise : { data: [], error: null });
+  const scope = effectScope();
+  const account = ref<string | null>('account-a');
+  const workspace = scope.run(() => useJobWorkspace(client, account))!;
+  await settleUntil(() => !workspace.loading.value);
+  const stage = workspace.setApplicationStage('application-1', 'refinement');
+  await settleUntil(() => queries.some(query => query.operation === 'rpc'));
+  const note = workspace.updateApplication('application-1', { notes: 'Old account note' });
+  const tracking = workspace.updateApplication('application-1', { status: 'submitted' });
+  account.value = null;
+  writing.resolve({ data: { ...application(), workflow_stage: 'refinement', status: 'refinement' }, error: null });
+  assert.deepEqual(await Promise.all([stage, note, tracking]), [null, null, null]);
+  assert.equal(queries.filter(query => query.operation !== 'select').length, 1);
+  assert.deepEqual(workspace.applications.value, []);
+  scope.stop();
+});
+
+test('missing workflow RPC reports setup failure without inventing a saved stage', async () => {
+  const original: Application = { ...application(), status: 'ready' };
+  const { client } = fakeClient(query => query.operation === 'rpc' ? { data: null, error: { code: 'PGRST202' } }
+    : { data: query.table === 'applications' ? [original] : [], error: null });
+  const scope = effectScope();
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  assert.equal(await workspace.setApplicationStage(original.id, 'refinement'), null);
+  assert.match(workspace.error.value, /database setup is incomplete/);
+  assert.equal(workspace.applications.value[0].workflow_stage, undefined);
+  assert.equal(workspace.applications.value[0].status, 'ready');
+  scope.stop();
+});
+
+test('disposed workspaces discard queued writes and reject new writes', async () => {
+  const writing = deferred<Result>();
+  const { client, queries } = fakeClient(query => query.operation === 'rpc' ? writing.promise : { data: [], error: null });
+  const scope = effectScope();
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  const stage = workspace.setApplicationStage('application-1', 'review');
+  await settleUntil(() => queries.some(query => query.operation === 'rpc'));
+  const pendingNote = workspace.updateApplication('application-1', { notes: 'Queued note' });
+  scope.stop();
+  assert.equal(await workspace.updateApplication('application-1', { notes: 'After unmount' }), null);
+  assert.equal(await workspace.setApplicationStage('application-1', 'tracking'), null);
+  assert.equal(await workspace.refresh(), false);
+  writing.resolve({ data: { ...application(), workflow_stage: 'review', status: 'attachments' }, error: null });
+  assert.deepEqual(await Promise.all([stage, pendingNote]), [null, null]);
+  assert.equal(queries.filter(query => query.operation !== 'select').length, 1);
 });

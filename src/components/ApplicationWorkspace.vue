@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faCheck, faRotate, faRotateLeft } from '@fortawesome/free-solid-svg-icons';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Application } from '../cloudTypes';
+import type { Application, ApplicationStage } from '../cloudTypes';
 import { supabaseConfiguration } from '../lib/supabase';
 import type { CvState, SavedConfiguration } from '../types';
 import type { ApplicationLetter, LetterTemplate } from '../letterTypes';
@@ -12,7 +12,7 @@ import { cloneCv, createApplicationCv, cvDifferences, isApplicationCvPublished, 
 import { subvariantParent } from '../composables/careerVariants';
 import { addIncomingDraft, createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, editLetter, finalizeLetter, letterContextVersion, letterFromEditableText, openLetterRevision, saveWorkingRevision, selectApplicationLetterTemplate, unresolvedLetterPlaceholders } from '../composables/motivationLetters';
 import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, describeCvOperation, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText, validateLocalRefinementSource } from '../composables/applicationRefinement';
-import { opensInTracking } from '../composables/applicationTracking';
+import { applicationStage, applicationStatusLabel, applicationTrackingStarted } from '../composables/applicationTracking';
 import { formatOpportunityDeadline } from '../composables/opportunityDeadline';
 import FormBuilder from './FormBuilder.vue';
 import DocumentCvPreview from './DocumentCvPreview.vue';
@@ -41,7 +41,7 @@ const props = withDefaults(defineProps<{
   publishCv: (state: CvState) => Promise<Application | null>;
   createSubvariant?: (sourceId: string, name: string, state: CvState) => string | null;
 }>(), { active: true });
-const emit = defineEmits<{ close: []; 'edit-variant': [id: string]; toggleChecklist: [key: string, completed: boolean] }>();
+const emit = defineEmits<{ close: []; 'edit-variant': [id: string]; toggleChecklist: [key: string, completed: boolean]; 'change-stage': [stage: ApplicationStage] }>();
 const desktopSidebar = useDesktopSidebar();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -49,7 +49,7 @@ const storageKey = 'CV_REFINEMENT:1:' + encodeURIComponent(props.userId) + ':' +
 const navigationKey = 'CV_APPLICATION_TAB:' + props.userId + ':' + props.application.id;
 const stages = ['preparation', 'refinement', 'review', 'tracking'] as const;
 type Stage = typeof stages[number];
-const tab = ref<Stage>('preparation');
+const tab = ref<Stage>(applicationStage(props.application));
 const record = ref<ApplicationCvRecord | null>(null);
 const letter = ref<ApplicationLetter | null>(null);
 const templates = ref<LetterTemplate[]>([]);
@@ -132,14 +132,11 @@ try {
   }
   const previous = sessionStorage.getItem(navigationKey);
   const mapped = ({ overview: 'preparation', cv: 'refinement', letter: 'refinement', documents: 'review' } as Record<string, Stage>)[previous || ''] || previous;
-  if (stages.includes(mapped as Stage)) tab.value = mapped as Stage;
+  if (!props.application.workflow_stage && !applicationTrackingStarted(props.application) && stages.includes(mapped as Stage)) tab.value = mapped as Stage;
 } catch (cause) {
   localReadError = text('Saved application data could not be read. Recover the local application data before saving: ', 'Gespeicherte Bewerbungsdaten konnten nicht gelesen werden. Vor dem Speichern die lokalen Bewerbungsdaten wiederherstellen: ') + String(cause);
   saveError.value = localReadError;
 }
-watch(() => props.application.status, status => {
-  if (opensInTracking(status)) tab.value = 'tracking';
-}, { immediate: true });
 const selectedCvId = computed(() => record.value?.variantId || record.value?.baseId || '');
 const selectedTemplate = computed(() => letter.value?.templateSnapshot || templates.value.find(item => item.id === letter.value?.templateId) || DEFAULT_LETTER_TEMPLATES[0]!);
 const missingLetterTemplate = computed(() => !!letter.value && !letter.value.templateSnapshot);
@@ -297,7 +294,14 @@ watch([cvApproved, letterApproved], ([cv, letter]) => {
   if (cv && !letter && feedbackScope.value !== 'letter') feedbackScope.value = 'letter';
   else if (letter && !cv && feedbackScope.value !== 'cv') feedbackScope.value = 'cv';
 }, { immediate: true });
-watch(tab, value => { try { sessionStorage.setItem(navigationKey, value); } catch { /* Navigation remains available. */ } });
+watch(tab, value => {
+  try { sessionStorage.setItem(navigationKey, value); } catch { /* Navigation remains available. */ }
+  emit('change-stage', value);
+});
+function selectStage(stage: Stage) {
+  if (stage === tab.value) emit('change-stage', stage);
+  else tab.value = stage;
+}
 
 function persist() {
   if (committingSelection) return;
@@ -386,10 +390,15 @@ function selectReviewProposal(id: string) {
 }
 async function checkProposals(navigate = true) { if (navigate) tab.value = 'refinement'; await run(async () => { await refreshCloud(); notice.value = proposals.value.length ? text('Proposals loaded. Review one before applying it.', 'Vorschläge geladen. Vor dem Übernehmen prüfen.') : text('No proposal yet. Run the copied prompt in ChatGPT, then check again.', 'Noch kein Vorschlag. Kopierten Prompt in ChatGPT ausführen und erneut prüfen.'); }); }
 function refreshOnFocus() { if (!busy.value && !syncing.value && props.active !== false) void refreshCloud().then(async () => { if (tab.value === 'refinement') await applyCurrentProposal(); }).catch(report); }
-watch(() => props.active, active => { if (active) { if (opensInTracking(props.application.status)) tab.value = 'tracking'; void syncRefinement(); } });
+watch(() => props.active, active => { if (active) void syncRefinement(); });
 watch(tab, stage => { if (stage === 'refinement') refreshOnFocus(); });
 function reloadTemplates() { try { templates.value = letterRepository.listTemplates(); } catch (cause) { report(cause); } }
-onMounted(() => { void syncRefinement(); window.addEventListener('focus', refreshOnFocus); window.addEventListener('cv-letter-templates-updated', reloadTemplates); });
+onMounted(() => {
+  if (!props.application.workflow_stage) emit('change-stage', tab.value);
+  void syncRefinement();
+  window.addEventListener('focus', refreshOnFocus);
+  window.addEventListener('cv-letter-templates-updated', reloadTemplates);
+});
 onBeforeUnmount(() => { disposed = true; window.removeEventListener('focus', refreshOnFocus); window.removeEventListener('cv-letter-templates-updated', reloadTemplates); });
 
 async function publishCurrentCv() {
@@ -898,9 +907,9 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 
 <template>
   <section class="application-workspace" :class="{ 'application-workspace--sidebar': desktopSidebar }">
-    <WorkspaceDetailHeader class="application-header" :title="String(application.context_json.title || text('Application', 'Bewerbung'))" :subtitle="String(application.context_json.institution || application.context_json.university || '')" :back-label="text('All applications', 'Alle Bewerbungen')" :status="application.status" @back="emit('close')">
+    <WorkspaceDetailHeader class="application-header" :title="String(application.context_json.title || text('Application', 'Bewerbung'))" :subtitle="String(application.context_json.institution || application.context_json.university || '')" :back-label="text('All applications', 'Alle Bewerbungen')" @back="emit('close')">
       <template v-if="$slots.actions" #actions><slot name="actions" /></template>
-      <template #metadata><ApplicationIdentifier :application="application" :lang="lang" /><span>{{ text('Deadline', 'Bewerbungsfrist') }}: {{ formatOpportunityDeadline(application.context_json, lang) }}</span></template>
+      <template #metadata><ApplicationIdentifier :application="application" :lang="lang" /><span>{{ text('Deadline', 'Bewerbungsfrist') }}: {{ formatOpportunityDeadline(application.context_json, lang) }}</span><span class="application-header__state">{{ applicationStatusLabel(application.status, lang) }}</span></template>
     </WorkspaceDetailHeader>
     <div class="workflow-body" :class="{ 'workflow-body--refinement': tab === 'refinement', 'workflow-body--review': tab === 'review' }">
       <section v-show="tab === 'preparation'" class="preparation-stage">
@@ -995,7 +1004,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
     <footer class="workflow-navigation" :class="{ 'workflow-navigation--sidebar': desktopSidebar }">
       <button class="workflow-back" type="button" @click="emit('close')"><span aria-hidden="true">←</span>{{ text('All applications', 'Alle Bewerbungen') }}</button>
       <nav class="workspace-subtabs" :aria-label="text('Application stages', 'Bewerbungsphasen')">
-        <button v-for="(stage, index) in stages" :key="stage" type="button" :class="{ 'is-active': tab === stage }" :aria-pressed="tab === stage" @click="tab = stage"><span class="stage-number">{{ index + 1 }}</span>{{ ({ preparation: text('Preparation', 'Vorbereitung'), refinement: text('Refinement', 'Überarbeitung'), review: text('PDF review', 'PDF-Prüfung'), tracking: text('Tracking', 'Verlauf') })[stage] }}</button>
+        <button v-for="(stage, index) in stages" :key="stage" type="button" :class="{ 'is-active': tab === stage }" :aria-pressed="tab === stage" @click="selectStage(stage)"><span class="stage-number">{{ index + 1 }}</span>{{ ({ preparation: text('Preparation', 'Vorbereitung'), refinement: text('Refinement', 'Überarbeitung'), review: text('Attachments', 'Anhänge'), tracking: text('Tracking', 'Verlauf') })[stage] }}</button>
       </nav>
     </footer>
     </DesktopSidebarPortal>
@@ -1003,6 +1012,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 </template>
 
 <style scoped>
+.application-header__state{margin-left:auto;align-self:flex-end;padding:5px 9px;border:1px solid #356454;border-radius:6px;color:#b9edd9;font-size:12px;white-space:nowrap}
 .iteration-step{padding:16px 0;}.iteration-step:first-child{padding-top:0}.iteration-step:last-of-type{border-bottom:0}.iteration-step h3{margin-bottom:10px}.iteration-step h4{font-size:14px;margin:20px 0 10px}.proposal-summary{color:#b8d9cf;font-weight:600}.proposal-preview-action{display:flex;flex-wrap:wrap;gap:8px}.proposal-preview-action--sidebar{flex-direction:column}.proposal-preview-action--sidebar button{width:100%;text-align:left}.refinement-icon-action{display:inline-flex;align-items:center;gap:8px}.refinement-icon-action svg{width:1em;flex-shrink:0}
 
 .selection-checkbox{display:flex;align-items:center;gap:9px}.selection-checkbox input{width:18px;height:18px;accent-color:#67c8a6}.preview-review-label{font-size:12px;color:#efcc87;margin:0}.application-workspace{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden;color:#d1fae5;font-family:var(--font-ui,system-ui)}

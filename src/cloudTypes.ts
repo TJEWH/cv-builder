@@ -1,7 +1,10 @@
 import type { CvConfig, CvContent, CvState } from './types';
 
-export const APPLICATION_STATUSES = ['shortlist', 'contacted', 'submitted', 'interview', 'offer', 'rejected', 'withdrawn'] as const;
+export const TRACKING_STATUSES = ['ready', 'contacted', 'submitted', 'interview', 'offer', 'rejected', 'withdrawn'] as const;
+export const APPLICATION_STATUSES = ['preparation', 'refinement', 'attachments', ...TRACKING_STATUSES] as const;
 export type ApplicationStatus = typeof APPLICATION_STATUSES[number];
+export const APPLICATION_STAGES = ['preparation', 'refinement', 'review', 'tracking'] as const;
+export type ApplicationStage = typeof APPLICATION_STAGES[number];
 export const OPPORTUNITY_REVIEW_STATES = ['unreviewed', 'interested', 'strong_interest', 'not_interested'] as const;
 export type OpportunityReviewState = typeof OPPORTUNITY_REVIEW_STATES[number];
 
@@ -80,6 +83,10 @@ export interface Application {
   context_captured_at: string;
   completed_checklist_keys: string[];
   status: ApplicationStatus;
+  /** Last opened application tab; absent on databases that need the stage upgrade. */
+  workflow_stage?: ApplicationStage;
+  /** Sticky after the first explicit Tracking dropdown selection, including Ready. */
+  tracking_started?: boolean;
   /** Server-recorded transitions; older installations may not have history yet. */
   status_history?: { status: ApplicationStatus; changedAt: string | null }[];
   notes: string | null;

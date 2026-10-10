@@ -6,7 +6,7 @@ import { applicationIdentifier, buildShortRefinementInstruction } from '../src/c
 const id = '81c40a65-c850-4faa-b539-4fe8c5c51327';
 function application(code?: string | null): Application {
   return { id, application_code: code, user_id: 'owner', opportunity_id: 'opportunity', cv_variant_id: null,
-    contact_email: null, status: 'shortlist', completed_checklist_keys: [], notes: null, contacted_at: null, submitted_at: null,
+    contact_email: null, status: 'preparation', workflow_stage: 'preparation', tracking_started: false, completed_checklist_keys: [], notes: null, contacted_at: null, submitted_at: null,
     context_json: { title: 'PhD in robotics' }, context_captured_at: '2026-10-01T08:00:00Z',
     created_at: '2026-10-01T08:00:00Z', updated_at: '2026-10-01T08:00:00Z' };
 }
