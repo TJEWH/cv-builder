@@ -419,7 +419,7 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
 
       <div class="backup-manager__language">
         <h3>{{ t('language') }}</h3>
-        <button class="backup-manager__language-toggle" type="button" :class="{ 'is-on': lang === 'en' }" :aria-label="t('language')" aria-describedby="variant-language-help" :aria-pressed="lang === 'en'" @click="emit('toggle-language')">
+        <button class="backup-manager__language-toggle" type="button" :class="{ 'is-on': lang === 'en' }" :aria-label="`${t('language')}: ${lang === 'en' ? 'English' : 'Deutsch'}`" aria-describedby="variant-language-help" :aria-pressed="lang === 'en'" @click="emit('toggle-language')">
           <span class="backup-manager__language-track"><span>DE</span><span>EN</span><span class="backup-manager__language-thumb"></span></span>
         </button>
       </div>

@@ -40,7 +40,8 @@ const statusFilter = ref('');
 const reviewFilter = ref('all');
 const hideNotInterested = ref(true);
 const deadlineFilter = ref<'current' | 'past'>('current');
-const opportunityFiltersOpen = ref(false);
+const filtersOpen = ref(false);
+const filterToggle = ref<HTMLButtonElement | null>(null);
 const hideWithApplication = ref(true);
 const sortBy = ref('deadline');
 const applicationSortBy = ref('deadline');
@@ -174,8 +175,16 @@ const statusHistory = computed(() => editingApplication.value ? applicationStatu
 function timestampLabel(value: string) {
   return new Intl.DateTimeFormat(props.lang === 'de' ? 'de-DE' : 'en-GB', { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(value));
 }
-watch(() => props.tab, () => { notice.value = ''; cancelRemoval(); removedOpportunityId.value = null; });
-watch(() => props.userId, () => { editingId.value = null; selectedOpportunityId.value = null; cancelRemoval(); removedOpportunityId.value = null; visitedOpportunityVersions.value = new Map(); });
+watch(() => props.tab, () => { filtersOpen.value = false; notice.value = ''; cancelRemoval(); removedOpportunityId.value = null; });
+watch(() => props.userId, () => { filtersOpen.value = false; editingId.value = null; selectedOpportunityId.value = null; cancelRemoval(); removedOpportunityId.value = null; visitedOpportunityVersions.value = new Map(); });
+watch(() => props.active, active => { if (active === false) filtersOpen.value = false; });
+function closeFilters(event: KeyboardEvent) {
+  if (!filtersOpen.value) return;
+  event.preventDefault();
+  event.stopPropagation();
+  filtersOpen.value = false;
+  nextTick(() => filterToggle.value?.focus({ preventScroll: true }));
+}
 function focusResult(kind: 'opportunities' | 'applications', id: string) {
   nextTick(() => {
     if (props.tab !== kind) return;
@@ -186,7 +195,7 @@ function focusResult(kind: 'opportunities' | 'applications', id: string) {
 function openOpportunity(id: string) {
   const opportunity = opportunityById.value.get(id);
   if (!opportunity) return;
-  opportunityFiltersOpen.value = false;
+  filtersOpen.value = false;
   recordOpportunityVisit(opportunity);
   selectedOpportunityId.value = id;
   nextTick(() => opportunityDetail.value?.focus({ preventScroll: true }));
@@ -217,6 +226,7 @@ async function changeReview(item: Opportunity, event: Event) {
     : text('Your review state was saved.', 'Deine Bewertung wurde gespeichert.');
 }
 function openApplication(application: Application) {
+  filtersOpen.value = false;
   editingId.value = application.id;
   formError.value = '';
 }
@@ -229,6 +239,7 @@ async function closeApplication() {
   if (id) focusResult('applications', id);
 }
 async function toggleApplication(application: Application) {
+  if (saving.value) return;
   formError.value = '';
   const previous = editingId.value;
   if (!await flushNotes() || editingId.value !== previous) return;
@@ -302,18 +313,20 @@ useToastWatch(() => notice.value, () => {
 <template>
   <section :id="`builder-group-${tab}`" class="jobs-workspace" :aria-label="tab === 'opportunities' ? text('Opportunities', 'Stellenangebote') : text('Applications', 'Bewerbungen')">
     <DesktopSidebarPortal area="major" :active="props.active !== false && !showingDetail">
-    <div v-show="!showingDetail" class="jobs-toolbar jobs-sidebar-controls" :class="{ 'jobs-toolbar--sidebar': sidebarActive }">
+    <div v-show="!showingDetail" class="jobs-toolbar jobs-sidebar-controls" :class="{ 'jobs-toolbar--sidebar': sidebarActive }" @keydown.esc="closeFilters">
       <label class="jobs-search"><span>{{ text('Search', 'Suchen') }}</span><input v-model="query" type="search" :placeholder="tab === 'applications' ? text('Title, institution or application ID…', 'Titel, Einrichtung oder Bewerbungs-ID…') : text('Title, institution or country…', 'Titel, Einrichtung oder Land…')" /></label>
-      <button v-if="tab === 'opportunities'" class="btn jobs-filter-toggle" type="button" :aria-expanded="opportunityFiltersOpen" aria-controls="opportunity-filters" @click="opportunityFiltersOpen = !opportunityFiltersOpen">{{ text('Filters', 'Filter') }}</button>
-      <div v-if="tab === 'opportunities'" id="opportunity-filters" class="jobs-opportunity-filters" :class="{ 'is-open': opportunityFiltersOpen }">
+      <button ref="filterToggle" class="btn jobs-filter-toggle" type="button" :aria-expanded="filtersOpen" :aria-controls="`jobs-${tab}-filters`" @click="filtersOpen = !filtersOpen">{{ text('Filters', 'Filter') }}</button>
+      <div :id="`jobs-${tab}-filters`" class="jobs-filters" :class="{ 'is-open': filtersOpen }">
+        <template v-if="tab === 'opportunities'">
         <label>{{ text('Review state', 'Bewertung') }}<select v-model="reviewFilter"><option value="all">{{ text('All review states', 'Alle Bewertungen') }}</option><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
         <label>{{ text('Opportunities', 'Stellenangebote') }}<select v-model="deadlineFilter"><option value="current">{{ text('Current opportunities', 'Aktuelle Stellenangebote') }}</option><option value="past">{{ text('Past opportunities', 'Abgelaufene Stellenangebote') }}</option></select></label>
         <label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="sortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option><option value="personal_fit">{{ text('Personal fit: high to low', 'Persönliche Passung: absteigend') }}</option></select></label>
         <DesktopSidebarPortal area="minor" :active="props.active !== false && !showingDetail">
           <div class="jobs-filter-checks jobs-sidebar-controls"><label class="jobs-check"><input v-model="hideWithApplication" type="checkbox" /> {{ text('Hide applications', 'Stellen mit Bewerbungen ausblenden') }}</label><label class="jobs-check"><input v-model="hideNotInterested" type="checkbox" /> {{ text('Hide not interesting', 'Nicht interessante ausblenden') }}</label></div>
         </DesktopSidebarPortal>
+        </template>
+        <template v-else><label>{{ text('Status', 'Status') }}<select v-model="statusFilter"><option value="">{{ text('All statuses', 'Alle Status') }}</option><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label><label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="applicationSortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option></select></label></template>
       </div>
-      <template v-else><label>{{ text('Status', 'Status') }}<select v-model="statusFilter"><option value="">{{ text('All statuses', 'Alle Status') }}</option><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label><label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="applicationSortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option></select></label></template>
       <span class="jobs-count">{{ tab === 'opportunities' ? filteredOpportunities.length : filteredApplications.length }} {{ text('results', 'Ergebnisse') }}</span>
     </div>
     </DesktopSidebarPortal>
@@ -325,7 +338,7 @@ useToastWatch(() => notice.value, () => {
           <tr v-if="group.title" class="jobs-group-row" :data-opportunity-group="group.key"><th scope="rowgroup" colspan="6">{{ group.title }} <span>{{ group.items.length }}</span></th></tr>
           <template v-for="item in group.items" :key="item.id">
           <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'jobs-opportunity--new': recencyById.get(item.id) === 'new', 'jobs-opportunity--updated': recencyById.get(item.id) === 'updated', 'jobs-opportunity--unseen-new': unseenById.get(item.id) === 'new', 'jobs-opportunity--unseen-updated': unseenById.get(item.id) === 'updated' }" @click="openOpportunity(item.id)">
-            <td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :aria-label="`${text('Open opportunity:', 'Stelle öffnen:')} ${item.title}`" @click.stop="openOpportunity(item.id)"><span class="jobs-row-chevron" aria-hidden="true">›</span><strong>{{ item.title }}</strong></button><span class="jobs-subline">{{ item.university || '—' }}</span><div v-if="recencyById.get(item.id) || (item.particularly_suitable && fitScoreById.get(item.id) !== undefined)" class="jobs-opportunity-badges"><span v-if="recencyById.get(item.id)" class="jobs-badge" :class="`jobs-badge--${recencyById.get(item.id)}`" :title="recencyById.get(item.id) === 'new' ? text('Added within the last 24 hours', 'In den letzten 24 Stunden hinzugefügt') : text('Updated within the last 24 hours', 'In den letzten 24 Stunden aktualisiert')">{{ recencyById.get(item.id) === 'new' ? text('New · 24h', 'Neu · 24 Std.') : text('Updated · 24h', 'Aktualisiert · 24 Std.') }}</span><span v-if="item.particularly_suitable && fitScoreById.get(item.id) !== undefined" class="jobs-badge jobs-fit-score" :class="fitTone(fitScoreById.get(item.id)) && `jobs-fit-score--${fitTone(fitScoreById.get(item.id))}`" :aria-label="`${text('Personal fit', 'Persönliche Passung')}: ${fitLabel(fitScoreById.get(item.id))}`" :title="text('Personal fit score', 'Bewertung der persönlichen Passung')">{{ fitLabel(fitScoreById.get(item.id)) }}</span></div></td>
+            <td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :aria-label="`${text('Open opportunity:', 'Stelle öffnen:')} ${item.title}`" @click.stop="openOpportunity(item.id)"><svg class="jobs-row-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg><strong>{{ item.title }}</strong></button><span class="jobs-subline">{{ item.university || '—' }}</span><div v-if="recencyById.get(item.id) || (item.particularly_suitable && fitScoreById.get(item.id) !== undefined)" class="jobs-opportunity-badges"><span v-if="recencyById.get(item.id)" class="jobs-badge" :class="`jobs-badge--${recencyById.get(item.id)}`" :title="recencyById.get(item.id) === 'new' ? text('Added within the last 24 hours', 'In den letzten 24 Stunden hinzugefügt') : text('Updated within the last 24 hours', 'In den letzten 24 Stunden aktualisiert')">{{ recencyById.get(item.id) === 'new' ? text('New · 24h', 'Neu · 24 Std.') : text('Updated · 24h', 'Aktualisiert · 24 Std.') }}</span><span v-if="item.particularly_suitable && fitScoreById.get(item.id) !== undefined" class="jobs-badge jobs-fit-score" :class="fitTone(fitScoreById.get(item.id)) && `jobs-fit-score--${fitTone(fitScoreById.get(item.id))}`" :aria-label="`${text('Personal fit', 'Persönliche Passung')}: ${fitLabel(fitScoreById.get(item.id))}`" :title="text('Personal fit score', 'Bewertung der persönlichen Passung')">{{ fitLabel(fitScoreById.get(item.id)) }}</span></div></td>
             <td :data-label="text('Country', 'Land')">{{ item.country || '—' }}</td><td :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.details, now) }">{{ formatOpportunityDeadline(item.details, lang) }}</span></td>
             <td class="jobs-topics jobs-cell-wide" :data-label="text('Topics', 'Themen')">{{ item.topics.join(' · ') || '—' }}</td><td class="jobs-cell-state" :data-label="text('Your review', 'Deine Bewertung')" @click.stop><select class="jobs-review-select" :aria-label="`${text('Review state for', 'Bewertung für')} ${item.title}`" :value="reviewState(item.id)" :disabled="saving" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></td>
             <td class="jobs-cell-actions"><div class="jobs-row-actions" @click.stop><button class="btn btn--success" type="button" :disabled="saving" @click="startApplication(item)">{{ applicationByOpportunity.has(item.id) ? text('Open application', 'Bewerbung öffnen') : text('Create application', 'Bewerbung anlegen') }}</button></div></td>
@@ -336,7 +349,7 @@ useToastWatch(() => notice.value, () => {
         <colgroup><col style="width: 34%" /><col style="width: 18%" /><col style="width: 30%" /><col style="width: 18%" /></colgroup>
         <thead><tr><th scope="col">{{ text('Application', 'Bewerbung') }}</th><th scope="col">{{ text('Deadline', 'Frist') }}</th><th scope="col">{{ text('Contact person', 'Kontaktperson') }}</th><th scope="col">{{ text('Status', 'Status') }}</th></tr></thead>
         <tbody><template v-for="item in filteredApplications" :key="item.id">
-          <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'is-expanded': editingId === item.id }" :aria-disabled="saving" @click="toggleApplication(item)"><td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :disabled="saving" :aria-label="`${text('Open application:', 'Bewerbung öffnen:')} ${contextTitle(item)}`" @click.stop="toggleApplication(item)"><span class="jobs-row-chevron" aria-hidden="true">›</span><strong>{{ contextTitle(item) }}</strong></button><span class="jobs-subline">{{ contextInstitution(item) }}</span><ApplicationIdentifier :application="item" :lang="lang" /></td><td class="jobs-cell-wide" :data-label="text('Deadline', 'Frist')"><div class="jobs-application-deadline"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.context_json, now) }">{{ formatOpportunityDeadline(item.context_json, lang) }}</span><ApplicationDeadlineCalendar :application="item" :lang="lang" /></div></td>
+          <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'is-expanded': editingId === item.id }" :aria-disabled="saving" @click="toggleApplication(item)"><td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :disabled="saving" :aria-label="`${text('Open application:', 'Bewerbung öffnen:')} ${contextTitle(item)}`" @click.stop="toggleApplication(item)"><svg class="jobs-row-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg><strong>{{ contextTitle(item) }}</strong></button><span class="jobs-subline">{{ contextInstitution(item) }}</span><ApplicationIdentifier :application="item" :lang="lang" /></td><td class="jobs-cell-wide" :data-label="text('Deadline', 'Frist')"><div class="jobs-application-deadline"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.context_json, now) }">{{ formatOpportunityDeadline(item.context_json, lang) }}</span><ApplicationDeadlineCalendar :application="item" :lang="lang" /></div></td>
             <td class="jobs-cell-wide jobs-cell-contacts" :data-label="text('Contact person', 'Kontaktperson')"><template v-for="(person, index) in contacts(item)" :key="index"><span class="jobs-subline">{{ person.name }}</span><a v-if="safeEmailUrl(person.email)" :href="safeEmailUrl(person.email)!" @click.stop>{{ person.email }}</a><span v-else>{{ person.email }}</span></template><span v-if="!contacts(item).length">{{ text('Not recorded', 'Nicht erfasst') }}</span></td>
             <td class="jobs-cell-state jobs-application-state" :data-label="text('Status', 'Status')" @click.stop><span class="jobs-badge">{{ statusLabel(item.status) }}</span></td>
           </tr>
@@ -400,7 +413,7 @@ useToastWatch(() => notice.value, () => {
 </template>
 
 <style scoped>
-.jobs-workspace { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; color: #d1fae5; scrollbar-width: thin; }
+.jobs-workspace { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; color: var(--ui-text); scrollbar-width: thin; }
 
 .jobs-workspace > :not(.jobs-table-scroll) { flex-shrink: 0; }
 .jobs-workspace > .application-workspace, .jobs-workspace > .opportunity-detail { flex: 1 1 auto; min-height: 0; }
@@ -409,13 +422,13 @@ useToastWatch(() => notice.value, () => {
 .opportunity-comment { display: grid; gap: 8px; margin-bottom: 24px; }
 .jobs-workspace .opportunity-comment label { display: block; font-size: 14px; font-weight: 600; }
 .jobs-workspace .opportunity-comment textarea { box-sizing: border-box; min-height: 76px; resize: vertical; font-size: 14px; line-height: 1.5; }
-.opportunity-comment textarea::placeholder { color: #a6c1b9; opacity: 1; }
-.application-status-history h3 { color: #9be8c7; margin: 0 0 12px; }
-.application-status-history ol { list-style: none; margin: 12px 0 0 5px; padding: 0 0 0 18px; border-left: 2px solid #356454; }
+.opportunity-comment textarea::placeholder { color: var(--ui-muted); opacity: 1; }
+.application-status-history h3 { color: var(--ui-accent); margin: 0 0 12px; }
+.application-status-history ol { list-style: none; margin: 12px 0 0 5px; padding: 0 0 0 18px; border-left: 2px solid var(--ui-accent-border); }
 .application-status-history li { position: relative; padding: 0 0 18px; font-size: 13px; }
-.application-status-history li::before { content: ''; position: absolute; left: -24px; top: 5px; width: 10px; height: 10px; border-radius: 50%; background: #356454; }
-.application-status-history li[aria-current=step]::before { background: #9be8c7; }
-.application-status-history time { display: block; margin-top: 5px; color: #a6c1b9; }
+.application-status-history li::before { content: ''; position: absolute; left: -24px; top: 5px; width: 10px; height: 10px; border-radius: 50%; background: var(--ui-accent-border); }
+.application-status-history li[aria-current=step]::before { background: var(--ui-accent); }
+.application-status-history time { display: block; margin-top: 5px; color: var(--ui-muted); font-variant-numeric: tabular-nums; }
 .application-status-history .jobs-badge { margin-left: 9px; }
 .jobs-workspace .jobs-detail-state { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
 .jobs-workspace .jobs-detail-state select { width: auto; min-width: 0; max-width: 100%; padding: 6px 9px; }
@@ -425,48 +438,49 @@ useToastWatch(() => notice.value, () => {
 .jobs-workspace > .jobs-table-scroll { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-width: thin; }
 .jobs-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .jobs-heading h1 { margin: 4px 0 8px; font-size: 27px; letter-spacing: -.6px; }
-.jobs-heading p { margin: 0 0 12px; color: #9bb3ad; line-height: 1.55; }
+.jobs-heading p { margin: 0 0 12px; color: var(--ui-muted); line-height: 1.55; }
 .jobs-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 16px; margin: 14px 0 18px; }
 .jobs-workspace label, .jobs-sidebar-controls label, label.jobs-sidebar-controls { display: grid; gap: 8px; font-size: 12px; }
 .jobs-search { flex: 1; min-width: 200px; max-width: 450px; }
 .jobs-toolbar .jobs-check, .jobs-filter-checks .jobs-check { display: flex; align-items: center; }
 .jobs-filter-checks { display: grid; gap: 2px; }
-.jobs-opportunity-filters { display: contents; }
+.jobs-filters { display: contents; }
 .jobs-filter-toggle { display: none; }
-.jobs-count { margin-left: auto; color: #9bb3ad; font-size: 12px; padding-bottom: 10px; }
-.jobs-workspace input, .jobs-workspace select, .jobs-workspace textarea, .jobs-sidebar-controls :is(input, select, textarea) { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid #29524e; border-radius: 7px; background: #0b1b25; color: #e3f7ef; font: inherit; color-scheme: dark; }
+.jobs-count { margin-left: auto; color: var(--ui-muted); font-size: 12px; padding-bottom: 10px; font-variant-numeric: tabular-nums; }
+.jobs-workspace input, .jobs-workspace select, .jobs-workspace textarea, .jobs-sidebar-controls :is(input, select, textarea) { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid var(--ui-border); border-radius: 7px; background: var(--ui-control); color: var(--ui-text); font: inherit; color-scheme: dark; }
 .jobs-workspace input[type=checkbox], .jobs-sidebar-controls input[type=checkbox] { flex-shrink: 0; width: auto; }
-.jobs-workspace :is(button, input, select, textarea, summary, a):focus-visible, .jobs-sidebar-controls :is(button, input, select, textarea):focus-visible { outline: 2px solid #6ee7b7; outline-offset: 3px; }
+.jobs-workspace :is(button, input, select, textarea, summary, a):focus-visible, .jobs-sidebar-controls :is(button, input, select, textarea):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
 .jobs-workspace button:disabled, .jobs-sidebar-controls button:disabled { opacity: .5; cursor: not-allowed; }
 .jobs-table-scroll { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.jobs-table-scroll:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; text-align: left; }
 .jobs-opportunities-table, .jobs-applications-table { table-layout: fixed; min-width: 960px; }
 .jobs-workspace td { min-width: 0; max-width: none; overflow-wrap: anywhere; }
 .jobs-opportunities-table .jobs-row-actions { min-width: 0; }
 .jobs-opportunities-table .jobs-row-actions .btn { white-space: normal; }
 .jobs-workspace th { position: sticky; top: 0; z-index: 1; }
-th { padding: 13px 14px; white-space: nowrap; background: #0d242c; color: #8db7ab; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
-.jobs-workspace .jobs-group-row th { position: static; padding: 11px 14px; border-top: 1px solid #29504b; color: #b6edda; background: #0a1c25; font-size: 12px; text-transform: none; letter-spacing: 0; }
-.jobs-group-row th span { margin-left: 6px; color: #8db7ab; font-weight: normal; }
-td { padding: 16px 14px; vertical-align: top; border-top: 1px solid #17383c; line-height: 1.5; }
+th { padding: 13px 14px; white-space: nowrap; background: var(--ui-surface); color: var(--ui-muted); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+.jobs-workspace .jobs-group-row th { position: static; padding: 11px 14px; border-top: 1px solid var(--ui-border); color: var(--ui-accent); background: var(--ui-control); font-size: 12px; text-transform: none; letter-spacing: 0; }
+.jobs-group-row th span { margin-left: 6px; color: var(--ui-muted); font-weight: normal; }
+td { padding: 16px 14px; vertical-align: top; border-top: 1px solid var(--ui-divider); line-height: 1.5; }
 td:first-child { min-width: 220px; max-width: 340px; }
-td a { color: #8be9bf; overflow-wrap: anywhere; }
+td a { color: var(--ui-accent); overflow-wrap: anywhere; }
 .jobs-application-state { vertical-align: bottom; text-align: right; }
 .jobs-application-deadline { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
 .jobs-application-deadline :deep(.application-deadline-calendar) { max-width: 100%; }
-.jobs-subline { display: block; margin-top: 5px; color: #94afa6; font-size: 11px; }
-.jobs-topics { min-width: 130px; max-width: 220px; color: #a7c4b9; }
+.jobs-subline { display: block; margin-top: 5px; color: var(--ui-muted); font-size: 11px; }
+.jobs-topics { min-width: 130px; max-width: 220px; color: var(--ui-muted); }
 .jobs-workspace .jobs-review-select, .jobs-workspace .jobs-row-select { width: 100%; min-width: 0; padding: 7px 5px; font-size: 11px; cursor: pointer; }
 .jobs-removal-confirm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; color: #fecaca; }
 .jobs-removal-confirm p { flex: 1; min-width: 240px; margin: 0; }
-.jobs-removal-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 22px; border: 1px solid #29504b; border-radius: 12px; background: #081b25; color: #e3f7ef; overflow: auto; box-sizing: border-box; }
+.jobs-removal-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 22px; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface); color: var(--ui-text); overflow: auto; box-sizing: border-box; }
 .jobs-removal-dialog::backdrop { background: rgb(0 0 0 / 65%); }
 .jobs-removal-dialog .jobs-row-actions { justify-content: flex-end; width: 100%; }
 .jobs-row-actions { display: flex; flex-wrap: wrap; gap: 7px; min-width: 145px; }
 .jobs-row-actions .btn { font-size: 11px; white-space: nowrap; }
-.jobs-badge { display: inline-block; padding: 3px 7px; margin-top: 4px; border-radius: 5px; background: #123e36; color: #9be8c7; font-size: 10px; white-space: nowrap; }
+.jobs-badge { display: inline-block; padding: 3px 7px; margin-top: 4px; border-radius: 5px; background: var(--ui-active); color: var(--ui-accent); font-size: 10px; white-space: nowrap; }
 .jobs-expired { color: #dfbc8a; }
-.jobs-empty { padding: 45px 20px; text-align: center; color: #94afa6; }
+.jobs-empty { padding: 45px 20px; text-align: center; color: var(--ui-muted); }
 .jobs-empty .btn { display: block; margin: 16px auto 0; }
 .jobs-opportunity-badges { display: flex; flex-wrap: wrap; gap: 6px; }
 .jobs-badge--new { background: #153e57; color: #b9e5ff; }
@@ -477,20 +491,21 @@ tr.jobs-opportunity--new { background: #0b202e; }
 tr.jobs-opportunity--updated { background: #24241e; }
 .jobs-opportunity--unseen-new > td:first-child { box-shadow: inset 3px 0 #77caff; }
 .jobs-opportunity--unseen-updated > td:first-child { box-shadow: inset 3px 0 #efbf69; }
-tr.is-expanded { background: #0b242b; }
+tr.is-expanded { background: var(--ui-active); }
 .jobs-result-row { cursor: pointer; }
 .jobs-result-row[aria-disabled="true"] { cursor: wait; }
-.jobs-result-row:hover, .jobs-result-row:focus-within { background: #103038; }
-.jobs-row-toggle { display: flex; align-items: baseline; gap: 8px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.jobs-row-chevron { display: inline-block; flex-shrink: 0; color: #6ee7b7; font-size: 18px; line-height: 1; transition: transform .15s ease; }
+.jobs-result-row:hover, .jobs-result-row:focus-within { background: var(--ui-surface-hover); }
+.jobs-row-toggle { display: flex; align-items: baseline; gap: 8px; width: 100%; min-width: 0; padding: 0; border: 0; border-radius: 3px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.jobs-row-toggle strong { min-width: 0; overflow-wrap: anywhere; }
+.jobs-row-chevron { width: 14px; height: 14px; flex-shrink: 0; align-self: flex-start; margin-top: 2px; color: var(--ui-accent); }
 .jobs-review-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 0 0 22px; }
-.jobs-review-toolbar h2 { margin: 0 auto 0 0; font-size: 18px; color: #b6edda; }
+.jobs-review-toolbar h2 { margin: 0 auto 0 0; font-size: 18px; color: var(--ui-accent); }
 .jobs-review-toolbar > span { color: #92afa6; font-size: 11px; }
 .application-inline-form { display: grid; gap: 14px; padding: 0; background: transparent; border: 0; border-radius: 0; }
 .application-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .application-notes { grid-column: 1 / -1; }
-.jobs-form-footer { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
-.jobs-autosave { color: #94afa6; font-size: 12px; }
+.jobs-form-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 12px; min-width: 0; overflow-wrap: anywhere; }
+.jobs-autosave { color: var(--ui-muted); font-size: 12px; }
 .jobs-autosave-error { color: #fecaca; }
 .jobs-upload-preview summary { color: #a0e7ca; cursor: pointer; }
 .jobs-upload-preview pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #041016; font: 11px/1.5 monospace; }
@@ -500,15 +515,15 @@ tr.is-expanded { background: #0b242b; }
   table thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   table tbody { display: grid; gap: 12px; }
   table tbody + tbody { margin-top: 12px; }
-  table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; min-width: 0; overflow: hidden; border: 1px solid #29504b; border-radius: 10px; background: #081b25; }
+  table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; min-width: 0; overflow: hidden; border: 1px solid var(--ui-border); border-radius: 10px; background: var(--ui-surface); }
   .jobs-workspace td { display: block; min-width: 0; max-width: none; padding: 11px 12px; border: 0; }
-  td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 5px; color: #8db7ab; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
+  td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 5px; color: var(--ui-muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
   .jobs-cell-heading, .jobs-cell-wide, .jobs-empty { grid-column: 1 / -1; }
   .jobs-workspace .jobs-application-state { display: flex; grid-column: 1 / -1; justify-content: flex-end; align-self: end; }
   .jobs-workspace .jobs-application-state::before { display: none; }
   .jobs-group-row { display: block; border: 0; border-radius: 0; }
   .jobs-group-row th { display: block; }
-  .jobs-cell-heading { background: #102730; border-bottom: 1px solid #29504b; }
+  .jobs-cell-heading { background: var(--ui-surface-hover); border-bottom: 1px solid var(--ui-border); }
   .jobs-row-toggle { font-size: 14px; }
   .jobs-cell-actions { display: flex; align-self: end; }
   .jobs-cell-actions .btn { width: 100%; white-space: normal; }
@@ -519,7 +534,7 @@ tr.is-expanded { background: #0b242b; }
 }
 @media (min-width: 761px) {
   .opportunity-detail:not(.opportunity-detail--sidebar) { margin-bottom: 40px; }
-  .opportunity-detail__header:not(.opportunity-detail__header--sidebar) :deep(.workspace-detail-header__controls) { position: fixed; inset-inline: 0; bottom: 0; z-index: 30; display: flex; align-items: center; gap: 20px; min-height: 66px; padding: 12px max(20px, calc((100vw - 1484px) / 2)); box-sizing: border-box; border-top: 1px solid #24504e; background: #06141f; box-shadow: 0 -6px 20px #0003; }
+  .opportunity-detail__header:not(.opportunity-detail__header--sidebar) :deep(.workspace-detail-header__controls) { position: fixed; inset-inline: 0; bottom: 0; z-index: 30; display: flex; align-items: center; gap: 20px; min-height: 66px; padding: 12px max(20px, calc((100vw - 1484px) / 2)); box-sizing: border-box; border-top: 1px solid var(--ui-border); background: var(--ui-shell); box-shadow: 0 -6px 20px #0003; }
   .opportunity-detail__header :deep(.workspace-detail-header__back) { gap: 8px; font-size: 13px; }
   .opportunity-detail__header :deep(.workspace-detail-header__actions) { flex: 1; justify-content: flex-end; gap: 20px; }
   .opportunity-detail__header .jobs-detail-action { font-size: 13px; }
@@ -536,25 +551,28 @@ tr.is-expanded { background: #0b242b; }
   .jobs-workspace { padding: 0; font-size: 16px; }
   .jobs-heading h1 { font-size: 23px; }
   .jobs-heading p { font-size: 12px; }
-  .jobs-toolbar { position: fixed; left: 0; right: 0; bottom: var(--mobile-tabs-height, 76px); z-index: 35; height: var(--mobile-context-row-height, 52px); box-sizing: border-box; align-items: center; margin: 0; padding: 5px 8px; border-top: 1px solid #21423e; background: #071820; }
+  .jobs-toolbar { position: fixed; left: 0; right: 0; bottom: var(--mobile-tabs-height, 76px); z-index: 35; height: var(--mobile-context-row-height, 52px); box-sizing: border-box; align-items: center; margin: 0; padding: 3px max(8px, env(safe-area-inset-right, 0px)) 3px max(8px, env(safe-area-inset-left, 0px)); border-top: 1px solid var(--ui-border); background: var(--ui-shell); }
   .jobs-toolbar > :not(.jobs-search) { display: none; }
-  .jobs-toolbar > .jobs-filter-toggle { display: block; flex-shrink: 0; min-height: 40px; }
+  .jobs-toolbar > .jobs-filter-toggle { display: block; flex-shrink: 0; min-height: 44px; }
   .jobs-toolbar:has(.jobs-filter-toggle) .jobs-search { flex-basis: 0; }
-  .jobs-toolbar > .jobs-opportunity-filters.is-open { display: grid; position: absolute; bottom: 100%; left: 0; right: 0; max-height: calc(100dvh - var(--mobile-tabs-height, 76px) - 64px); overflow: auto; gap: 14px; padding: 16px; border-top: 1px solid #29524e; background: #071820; box-shadow: 0 -8px 24px rgb(0 0 0 / 25%); }
+  .jobs-toolbar > .jobs-filters.is-open { display: grid; position: absolute; bottom: 100%; left: 0; right: 0; max-height: calc(100dvh - var(--mobile-tabs-height, 76px) - var(--mobile-context-row-height, 52px) - env(safe-area-inset-top, 0px) - 12px); overflow: auto; overscroll-behavior: contain; gap: 14px; padding: 16px max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px)); border-top: 1px solid var(--ui-border); background: var(--ui-shell); box-shadow: 0 -8px 24px rgb(0 0 0 / 25%); }
+  .jobs-filters :is(select, .jobs-check) { min-height: 44px; }
   .jobs-search { flex-basis: 100%; max-width: none; min-width: 0; }
-  .jobs-workspace .jobs-search input { height: 40px; padding: 8px 12px; }
+  .jobs-workspace .jobs-search input { height: 44px; padding: 8px 12px; }
   .jobs-search > span { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .jobs-workspace :is(input, select, textarea) { font-size: 16px; }
   .jobs-workspace label { font-size: 14px; }
   table { font-size: 16px; }
-  .jobs-row-toggle { font-size: 18px; }
+  .jobs-row-toggle { min-height: 40px; font-size: 18px; }
+  .jobs-workspace .jobs-row-toggle:focus-visible { outline-offset: -2px; }
+  .jobs-row-chevron { margin-top: 6px; }
   .jobs-subline { font-size: 14px; }
   .jobs-badge { font-size: 12px; }
   .jobs-topics { font-size: 15px; }
   td[data-label]::before { font-size: 12px; }
   .jobs-workspace .jobs-group-row th { font-size: 15px; padding: 11px 0; }
   table tbody { gap: 8px; }
-  table tr { column-gap: 12px; border: 0; border-bottom: 1px solid #21423e; border-radius: 0; background: transparent; }
+  table tr { column-gap: 12px; border: 0; border-bottom: 1px solid var(--ui-border); border-radius: 0; background: transparent; }
   .jobs-workspace td { padding: 8px 0; }
   .jobs-workspace :is(.jobs-cell-state, .jobs-cell-actions) { display: none; }
   .jobs-workspace .jobs-application-state { display: flex; }
@@ -575,7 +593,6 @@ tr.is-expanded { background: #0b242b; }
   .jobs-action-mobile { display: inline; }
   .jobs-removal-dialog { padding: 18px; }
   .jobs-removal-dialog .jobs-row-actions .btn { font-size: 16px; }
-  .jobs-form-footer { flex-wrap: wrap; }
   .application-fields { grid-template-columns: 1fr; }
   .application-inline-form { padding: 0; border: 0; border-radius: 0; background: transparent; }
   .jobs-review-toolbar { align-items: stretch; gap: 10px; margin-bottom: 16px; }

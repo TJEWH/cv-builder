@@ -47,6 +47,10 @@ const activeContentTab = ref('body');
 const sidebarContactCollapsed = ref(true);
 const contactInSidebar = computed(() => props.state.design.contactLayout === 'sidebar');
 const reorderMode = ref(false);
+const touchReorderMedia = typeof window === 'undefined' ? undefined : window.matchMedia?.('(max-width: 760px), (any-pointer: coarse)');
+const touchReorder = ref(touchReorderMedia?.matches ?? false);
+const sectionDragHandle = computed(() => touchReorder.value ? '.section-drag-handle' : '.section-head, .section-drag-handle');
+const syncTouchReorder = () => { touchReorder.value = touchReorderMedia?.matches ?? false; };
 const todosMode = ref(false);
 const configMode = ref(false);
 const sectionVersions = useSectionVersions({
@@ -353,8 +357,14 @@ const setCustomBodyFieldEnabled = (section: CustomSection, key: CustomBodyField,
   else selected.delete(key);
   section.fields = customBodyFieldOptions.value.map((field) => field.key).filter((field) => selected.has(field));
 };
-onMounted(() => window.addEventListener('pagehide', sectionVersions.flush));
-onBeforeUnmount(() => window.removeEventListener('pagehide', sectionVersions.flush));
+onMounted(() => {
+  window.addEventListener('pagehide', sectionVersions.flush);
+  touchReorderMedia?.addEventListener('change', syncTouchReorder);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('pagehide', sectionVersions.flush);
+  touchReorderMedia?.removeEventListener('change', syncTouchReorder);
+});
 
 const educationSchema = computed<ItemField[]>(() => [
   { label: t('degreeTitle'), key: 'title', type: 'text', placeholder: t('degreePlaceholder') },
@@ -412,7 +422,7 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
           </section>
       </dialog>
     </Teleport>
-    <section class="body section-group editor-panel content-panel" :class="{ 'is-reordering': reorderMode && activeContentTab !== 'header' }">
+    <section class="body section-group editor-panel content-panel" :class="{ 'is-reordering': reorderMode && activeContentTab !== 'header', 'uses-touch-reorder': touchReorder }">
       <slot name="before-tabs" />
       <div class="content-tabs" role="tablist" :aria-label="t(privacyMode ? 'privacy' : 'content')">
         <button :id="tabId('header')" data-content-tab="header" :tabindex="activeContentTab === 'header' ? 0 : -1" @keydown="onContentTabKeydown($event, 'header')" class="content-tab" :class="{ active: activeContentTab === 'header' }" type="button" role="tab" :aria-selected="activeContentTab === 'header'" :aria-controls="tabPanelId('header')" @click="selectContentTab('header')"><span>{{ t('header') }}</span><font-awesome-icon v-if="todosMode && isContentTabComplete('header')" class="content-tab__complete" :icon="['fas', 'check']" aria-hidden="true" /></button>
@@ -434,7 +444,7 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
         <ContactFields v-if="!contactInSidebar" :contact="state.contact" :lang="langRef" />
       </section>
 
-      <Draggable v-show="activeContentTab === 'body'" :id="tabPanelId('body')" v-model="bodyRows" item-key="key" tag="section" class="content-tab-panel content-column" role="tabpanel" :aria-labelledby="tabId('body')" :disabled="!reorderMode" handle=".section-head, .section-drag-handle" :animation="150" ghost-class="sortable-ghost">
+      <Draggable v-show="activeContentTab === 'body'" :id="tabPanelId('body')" v-model="bodyRows" item-key="key" tag="section" class="content-tab-panel content-column" role="tabpanel" :aria-labelledby="tabId('body')" :disabled="!reorderMode" :handle="sectionDragHandle" :animation="150" ghost-class="sortable-ghost">
           <template #item="{ element: { key, section } }: { element: BodyRow }">
             <div class="content-section-card" :data-section-key="key">
               <button v-if="reorderMode" class="section-drag-handle" type="button" :aria-label="`${t('moveSection')}: ${getSectionDisplayName(key)}`" :title="t('moveSection')" @click.stop @keydown.up.prevent.stop="moveSection('bodyOrder', key, -1, $event)" @keydown.down.prevent.stop="moveSection('bodyOrder', key, 1, $event)"><font-awesome-icon :icon="['fas', 'grip-vertical']" aria-hidden="true" /></button>
@@ -519,7 +529,7 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
           </template>
       </Draggable>
 
-      <Draggable v-show="activeContentTab === 'sidebar'" :id="tabPanelId('sidebar')" v-model="sidebarRows" item-key="key" tag="section" class="content-tab-panel content-column" role="tabpanel" :aria-labelledby="tabId('sidebar')" :disabled="!reorderMode" handle=".section-head, .section-drag-handle" :animation="150" ghost-class="sortable-ghost">
+      <Draggable v-show="activeContentTab === 'sidebar'" :id="tabPanelId('sidebar')" v-model="sidebarRows" item-key="key" tag="section" class="content-tab-panel content-column" role="tabpanel" :aria-labelledby="tabId('sidebar')" :disabled="!reorderMode" :handle="sectionDragHandle" :animation="150" ghost-class="sortable-ghost">
           <template #header>
             <section v-if="contactInSidebar" class="section-group content-section" :class="{ collapsed: sidebarContactCollapsed, disabled: sidebarContactHidden }">
               <div class="section-head" @click="sidebarContactCollapsed = !sidebarContactCollapsed">
@@ -657,6 +667,8 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
 .is-reordering .content-section-card :deep(.section-head) { padding-left: 28px; }
 .is-reordering .content-section-card :deep(.section-head > h3) { pointer-events: none; }
 .is-reordering .content-section-card :deep(.section-head__actions), .is-reordering .content-section-card :deep(.visibility-toggle) { display: none; }
+.uses-touch-reorder .section-drag-handle { width: 44px; height: 44px; color: var(--ui-accent); }
+.is-reordering.uses-touch-reorder .content-section-card :deep(.section-head) { min-height: 52px; padding-left: 48px; cursor: default; touch-action: pan-y; }
 .add-section-row { width: 100%; min-height: 54px; padding: 8px; border: 0; border-top: 1px dashed var(--ui-border); border-bottom: 1px dashed var(--ui-border); }
 .about-editor { display: grid; gap: 4px; }
 .sidebar-skill-row__content { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; }

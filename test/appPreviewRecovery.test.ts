@@ -28,6 +28,7 @@ test('CV preview failures discard stale pages, retry, and ignore failures from s
   t.mock.timers.enable({ apis: ['setTimeout'] });
   t.mock.method(console, 'error', () => {});
   const renders: ReturnType<typeof deferred<{ pages: { svg: string }[] }>>[] = [];
+  const signals: AbortSignal[] = [];
   const downloads: ReturnType<typeof deferred<void>>[] = [];
   let app: ReturnType<typeof renderer.createApp>;
   t.after(() => app?.unmount());
@@ -35,7 +36,7 @@ test('CV preview failures discard stale pages, retry, and ignore failures from s
     localStorage: { getItem: () => null, setItem() {} },
     sessionStorage: { getItem: () => null, setItem() {} },
     window: { matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }), addEventListener() {}, removeEventListener() {} },
-    document: { activeElement: null }, Element: class {},
+    document: { activeElement: null, addEventListener() {}, removeEventListener() {} }, Element: class {}, HTMLElement: class {},
   })) {
     const previous = Object.getOwnPropertyDescriptor(globalThis, name);
     Object.defineProperty(globalThis, name, { configurable: true, value });
@@ -47,7 +48,7 @@ test('CV preview failures discard stale pages, retry, and ignore failures from s
     if (path.endsWith('/useSupabaseAuth')) return { useSupabaseAuth: () => ({ user: ref(null), client: null }) };
     if (path.endsWith('/useCvDesign')) return { useCvDesign() {} };
     if (path.endsWith('/usePdfExport')) return { usePdfExport: () => ({
-      renderPreview: () => { const job = deferred<{ pages: { svg: string }[] }>(); renders.push(job); return job.promise; },
+      renderPreview: (_element: unknown, options: { signal: AbortSignal }) => { signals.push(options.signal); const job = deferred<{ pages: { svg: string }[] }>(); renders.push(job); return job.promise; },
       exportToPdf: () => { const job = deferred<void>(); downloads.push(job); return job.promise; },
       revokeDownloads() {},
     }) };
@@ -58,6 +59,8 @@ test('CV preview failures discard stale pages, retry, and ignore failures from s
     pdfRenderSource: unknown; anonymizedPdfRenderSource: unknown;
     previewPages: { svg: string }[]; anonymizedPreviewPages: { svg: string }[];
     previewFailed: boolean; anonymizedPreviewFailed: boolean; isPreviewRendering: boolean;
+    activeBuilderGroup: string; activeWorkspace: string; isMobile: boolean; previewMode: boolean;
+    state: { about: string };
     requestPdfPreview(): void; requestAnonymizedPdfPreview(): void;
     handleExportPdf(): Promise<void>; handleAnonymizedExportPdf(): Promise<void>;
   } } };
@@ -85,6 +88,7 @@ test('CV preview failures discard stale pages, retry, and ignore failures from s
   assert.equal(setup.previewFailed, false);
   assert.equal(setup.previewPages[0].svg, '<svg>recovered</svg>');
 
+  setup.activeBuilderGroup = 'privacy'; await settle();
   setup.requestAnonymizedPdfPreview(); t.mock.timers.tick(500); await settle();
   renders.at(-1)!.reject(new Error('Private preview unavailable')); await settle();
   assert.equal(setup.anonymizedPreviewFailed, true);
@@ -101,4 +105,31 @@ test('CV preview failures discard stale pages, retry, and ignore failures from s
     assert.equal(downloads.length, count + 1, 'repeated activation must not start duplicate exports');
     downloads.at(-1)!.resolve(); await pending;
   }
+
+  const completed = renders.length;
+  setup.activeBuilderGroup = 'templates'; await settle();
+  setup.state.about = 'An edit made while the preview is hidden'; await settle();
+  t.mock.timers.tick(1000); await settle();
+  assert.equal(renders.length, completed, 'Templates does not spend time on hidden PDF layouts');
+  setup.isMobile = true;
+  setup.activeBuilderGroup = 'content'; await settle();
+  t.mock.timers.tick(1000); await settle();
+  assert.equal(renders.length, completed, 'phone editing leaves PDF work until the preview is opened');
+  setup.previewMode = true; await settle();
+  t.mock.timers.tick(100); await settle();
+  assert.equal(renders.length, completed + 1, 'opening the phone preview renders the latest edits once');
+  renders.at(-1)!.resolve({ pages: [{ svg: '<svg>phone</svg>' }] }); await settle();
+  setup.previewMode = false; await settle();
+  setup.previewMode = true; await settle();
+  t.mock.timers.tick(1000); await settle();
+  assert.equal(renders.length, completed + 1, 'reopening an unchanged preview reuses its pages');
+  setup.previewMode = false;
+  setup.state.about = 'A later edit'; await settle();
+  setup.isMobile = false; await settle();
+  t.mock.timers.tick(100); await settle();
+  assert.equal(renders.length, completed + 2, 'returning to desktop refreshes its visible preview');
+  setup.activeWorkspace = 'opportunities'; await settle();
+  assert.equal(signals.at(-1)!.aborted, true, 'leaving CV Studio cancels an in-flight preview');
+  renders.at(-1)!.resolve({ pages: [{ svg: '<svg>obsolete</svg>' }] }); await settle();
+  assert.equal(setup.previewPages[0].svg, '<svg>phone</svg>', 'a hidden cancelled render cannot replace the last preview');
 });

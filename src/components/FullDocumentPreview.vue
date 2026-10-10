@@ -14,8 +14,11 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; 'update:page': [value: number]; 'update:mode': [value: string]; download: []; retry: [] }>();
 const dialog = ref<HTMLDialogElement | null>(null);
 const mobileViewport = window.matchMedia('(max-width: 760px)');
+const touchViewport = window.matchMedia('(any-pointer: coarse)');
 const mobile = ref(mobileViewport.matches);
+const touchInput = ref(touchViewport.matches);
 const syncViewport = () => { mobile.value = mobileViewport.matches; };
+const syncTouchInput = () => { touchInput.value = touchViewport.matches; };
 const t = makeT(computed(() => props.lang));
 const showPdf = computed(() => mobile.value || props.mode !== 'html');
 const mobileModes = computed(() => props.modes.filter(({ value }) => value !== 'html'));
@@ -30,8 +33,14 @@ watch([() => props.modelValue, dialog], ([open, element]) => {
   if (open && !element.open) element.showModal();
   else if (!open && element.open) element.close();
 }, { flush: 'post' });
-onMounted(() => mobileViewport.addEventListener('change', syncViewport));
-onBeforeUnmount(() => mobileViewport.removeEventListener('change', syncViewport));
+onMounted(() => {
+  mobileViewport.addEventListener('change', syncViewport);
+  touchViewport.addEventListener('change', syncTouchInput);
+});
+onBeforeUnmount(() => {
+  mobileViewport.removeEventListener('change', syncViewport);
+  touchViewport.removeEventListener('change', syncTouchInput);
+});
 </script>
 
 <template>
@@ -60,7 +69,7 @@ onBeforeUnmount(() => mobileViewport.removeEventListener('change', syncViewport)
         <div class="document-full-preview__content" :class="{ 'document-full-preview__content--with-header': !!$slots.header || !!error }">
           <div v-if="$slots.header || error" class="document-full-preview__header"><slot name="header" /><p v-if="error" role="alert">{{ error }}</p></div>
           <div class="document-full-preview__viewport">
-            <PdfPreview v-if="showPdf" :key="mode" :pages="pages" :page="page" :is-updating="isUpdating" :error="previewError" :lang="lang" gesture-navigation :pinch-zoom="mobile" @retry="emit('retry')" @update:page="emit('update:page', $event)" />
+            <PdfPreview v-if="showPdf" :key="mode" :pages="pages" :page="page" :is-updating="isUpdating" :error="previewError" :lang="lang" gesture-navigation :pinch-zoom="mobile || touchInput" @retry="emit('retry')" @update:page="emit('update:page', $event)" />
             <div v-else class="document-full-preview__html"><slot name="html" /></div>
           </div>
         </div>

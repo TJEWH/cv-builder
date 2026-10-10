@@ -40,7 +40,7 @@ function setPage(nextPage: number) {
 .pdf-pagination { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; }
 .pdf-pagination .mini:disabled { cursor: not-allowed; opacity: .45; }
 .pdf-pagination:not(.pdf-pagination--fullscreen) .pdf-pagination__button { width: 52px; height: 44px; padding: 0; font-size: 18px; }
-.pdf-pagination__page-count { min-width: 0; color: #cbd5e1; font-size: 12px; font-weight: 700; text-align: center; }
+.pdf-pagination__page-count { min-width: 0; color: var(--ui-muted); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: center; }
 
 .pdf-pagination--fullscreen { position: fixed; inset: 0; z-index: 25; display: block; pointer-events: none; }
 .pdf-pagination--fullscreen .pdf-pagination__button {
@@ -83,5 +83,12 @@ function setPage(nextPage: number) {
   .pdf-pagination--fullscreen .pdf-pagination__button { position: static; width: 44px; height: 44px; font-size: 18px; transform: none; }
   .pdf-pagination--fullscreen .pdf-pagination__button:hover:not(:disabled) { transform: none; }
   .pdf-pagination--fullscreen .pdf-pagination__page-count { position: static; justify-self: center; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pdf-pagination--fullscreen .pdf-pagination__button { transition: none; }
+  .pdf-pagination--fullscreen .pdf-pagination__button:hover:not(:disabled) { transform: translateY(-50%); }
+}
+@media (prefers-reduced-motion: reduce) and (max-width: 760px) {
+  .pdf-pagination--fullscreen .pdf-pagination__button:hover:not(:disabled) { transform: none; }
 }
 </style>

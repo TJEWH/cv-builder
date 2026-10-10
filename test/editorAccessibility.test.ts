@@ -9,7 +9,7 @@ import { createSampleDocument } from '../src/composables/builtinConfigurations';
 import { createAnonymizedState } from '../src/composables/anonymization';
 import { applyPrivacyEditorChanges, createPrivacyEditorState } from '../src/composables/privacyOverrides';
 import { createTestState } from './helpers';
-import type { CustomSection } from '../src/types';
+import type { CustomSection, CvItem } from '../src/types';
 const { PRIVACY_EDITOR } = createRequire(import.meta.url)('../src/composables/privacyEditorContext');
 
 function loadComponent(name: string, inlineTemplate = false): Component {
@@ -35,6 +35,7 @@ const renderer = createRenderer<Node, Node>({
 const FormBuilder = loadComponent('FormBuilder');
 const SectionHeading = loadComponent('SectionHeading', true);
 const SectionList = loadComponent('SectionList');
+const SectionItems = loadComponent('SectionItems');
 const CvPreview = loadComponent('CvPreview');
 const PrivacySectionHeading = loadComponent('PrivacySectionHeading');
 
@@ -65,6 +66,7 @@ test('inline privacy headings display defaults without storing them and preserve
 interface EditorSetup {
   activeContentTab: string;
   reorderMode: boolean;
+  sectionDragHandle: string;
   configMode: boolean;
   editingSection: { id: string | null; value: string };
   fieldConfigSectionId: string | null;
@@ -158,6 +160,62 @@ test('section activation expands normally and does not collapse sortable items d
   editor.toggleCollapsed('education');
   editor.reorderMode = false;
   assert.equal(editor.isCollapsed('education'), true, 'reordering preserves the previous collapsed state');
+});
+
+test('touch reordering uses dedicated grips while keyboard moves preserve data and focus', async t => {
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const listeners = new Set<() => void>();
+  const media = {
+    matches: true,
+    addEventListener(_type: string, listener: () => void) { listeners.add(listener); },
+    removeEventListener(_type: string, listener: () => void) { listeners.delete(listener); },
+  };
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: {
+    addEventListener() {}, removeEventListener() {},
+    matchMedia(query: string) { assert.equal(query, '(max-width: 760px), (any-pointer: coarse)'); return media; },
+  } });
+  type ItemSetup = { touchReorder: boolean; moveItem(index: number, direction: number, event: KeyboardEvent): void };
+  let editorInstance: unknown, itemInstance: unknown, updates = 0, focused = 0, unmounted = false;
+  const original: CvItem[] = [{ id: 'first', title: 'First role' }, { id: 'second', title: 'Second role' }];
+  const model = reactive({ items: original, reorderMode: true });
+  const app = renderer.createApp({ render: () => h('div', [
+    h(FormBuilder, { state: createSampleDocument(), readVersion: () => null, saveVersion: () => true, ref: (value: unknown) => { editorInstance = value; } }),
+    h(SectionItems, {
+      modelValue: model.items, reorderMode: model.reorderMode, lang: 'en',
+      'onUpdate:modelValue': (items: CvItem[]) => { model.items = items; updates++; },
+      ref: (value: unknown) => { itemInstance = value; },
+    }),
+  ]) });
+  app.mount(node('root'));
+  t.after(() => {
+    if (!unmounted) app.unmount();
+    if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
+    else Reflect.deleteProperty(globalThis, 'window');
+  });
+  const editor = (editorInstance as { $: { setupState: EditorSetup } }).$.setupState;
+  const items = (itemInstance as { $: { setupState: ItemSetup } }).$.setupState;
+  assert.equal(editor.sectionDragHandle, '.section-drag-handle');
+  assert.equal(items.touchReorder, true);
+  const keyEvent = { currentTarget: { focus() { focused++; } } } as unknown as KeyboardEvent;
+  items.moveItem(0, -1, keyEvent);
+  assert.equal(updates, 0, 'the first row cannot move above the list');
+  items.moveItem(0, 1, keyEvent);
+  await nextTick();
+  assert.deepEqual(model.items.map(item => item.id), ['second', 'first']);
+  assert.deepEqual(original.map(item => item.id), ['first', 'second'], 'reordering emits a new list for persistence');
+  assert.equal(focused, 1, 'focus follows the moved row');
+  media.matches = false;
+  listeners.forEach(listener => listener());
+  await nextTick();
+  assert.equal(editor.sectionDragHandle, '.section-head, .section-drag-handle', 'desktop keeps header dragging');
+  assert.equal(items.touchReorder, false, 'desktop keeps full row dragging');
+  model.reorderMode = false;
+  await nextTick();
+  items.moveItem(0, 1, keyEvent);
+  assert.equal(updates, 1, 'ordinary editing never changes the item order');
+  assert.equal(listeners.size, 2);
+  app.unmount(); unmounted = true;
+  assert.equal(listeners.size, 0, 'responsive listeners are removed with the editors');
 });
 
 test('field configuration uses native modal lifecycle and a cancelled opening never reopens it', async t => {

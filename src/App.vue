@@ -64,6 +64,19 @@ const { notify } = useToasts();
 type Workspace = 'opportunities' | 'cv-studio' | 'applications';
 const activeWorkspace = ref<Workspace>('cv-studio');
 const activeBuilderGroup = ref('content');
+const studioNavigation = ref<HTMLElement | null>(null);
+function revealActiveStudioSection() {
+  const nav = studioNavigation.value;
+  if (!isMobile.value || activeWorkspace.value !== 'cv-studio' || !nav?.clientWidth) return;
+  const active = nav.querySelector<HTMLElement>('[aria-pressed="true"]');
+  if (!active) return;
+  const bounds = nav.getBoundingClientRect();
+  const selected = active.getBoundingClientRect();
+  if (selected.left < bounds.left) nav.scrollLeft += selected.left - bounds.left;
+  else if (selected.right > bounds.right) nav.scrollLeft += selected.right - bounds.right;
+}
+watch([activeBuilderGroup, activeWorkspace, isMobile, previewMode, lang], () => nextTick(revealActiveStudioSection), { flush: 'post' });
+onMounted(() => nextTick(revealActiveStudioSection));
 try {
   const cached = JSON.parse(sessionStorage.getItem('CV_WORKSPACE_NAV') || '{}');
   if (['opportunities', 'cv-studio', 'applications'].includes(cached.workspace)) activeWorkspace.value = cached.workspace;
@@ -75,6 +88,12 @@ watch([activeWorkspace, activeBuilderGroup], () => {
 const isCloudTab = computed(() => activeWorkspace.value !== 'cv-studio');
 const studioHasPreview = computed(() => !['templates', 'attachments'].includes(activeBuilderGroup.value));
 const isPrivacyStudioPreview = computed(() => !isCloudTab.value && activeBuilderGroup.value === 'privacy');
+const normalPreviewVisible = computed(() => !isCloudTab.value && (previewMode.value
+  ? fullPreviewView.value !== 'html' && fullPreviewVariant.value === 'normal'
+  : !isMobile.value && studioHasPreview.value && !isPrivacyStudioPreview.value));
+const privacyPreviewVisible = computed(() => !isCloudTab.value && (previewMode.value
+  ? fullPreviewView.value !== 'html' && fullPreviewVariant.value === 'anonymized'
+  : !isMobile.value && isPrivacyStudioPreview.value));
 const cloudTab = computed(() => activeWorkspace.value === 'applications' ? 'applications' : 'opportunities');
 const workspaceGroups = computed(() => [
   { key: 'cv-studio' as const, label: lang.value === 'de' ? 'CV-Studio' : 'CV Studio', icon: 'layer-group' },
@@ -237,6 +256,7 @@ const isAnonymizedExporting = ref(false);
 const pdfExportError = ref('');
 useToastWatch(() => pdfExportError.value, { tone: 'error' });
 let previewRenderVersion = 0;
+let previewDirty = true;
 let anonymizedSourceVersion = 0;
 let anonymizedPreviewRenderVersion = 0;
 let renderedAnonymizedSourceVersion = -1;
@@ -306,7 +326,7 @@ function getAnonymizedPdfSourceElement() {
 const anonymizedState = computed(() => createAnonymizedState(state));
 
 async function refreshPdfPreview(version: number) {
-  if (version !== previewRenderVersion) return;
+  if (version !== previewRenderVersion || !normalPreviewVisible.value) return;
   const signal = inlineRenderSlot.start();
   try {
     await nextTick();
@@ -318,6 +338,7 @@ async function refreshPdfPreview(version: number) {
     if (version !== previewRenderVersion) return;
 
     previewPages.value = pages;
+    previewDirty = false;
     previewPage.value = Math.min(Math.max(previewPage.value, 1), Math.max(pages.length, 1));
   } catch (error) {
     if (!signal.aborted && version === previewRenderVersion) {
@@ -341,13 +362,14 @@ function invalidatePdfPreview() {
 function requestPdfPreview() {
   textPreviewUpdatePending = false;
   const version = invalidatePdfPreview();
+  previewDirty = true;
   previewFailed.value = false;
-  isPreviewRendering.value = true;
-  schedulePdfPreview(version);
+  isPreviewRendering.value = normalPreviewVisible.value;
+  if (normalPreviewVisible.value) schedulePdfPreview(version);
 }
 
 async function refreshAnonymizedPdfPreview(renderVersion: number, sourceVersion: number) {
-  if (renderVersion !== anonymizedPreviewRenderVersion || sourceVersion !== anonymizedSourceVersion) return;
+  if (renderVersion !== anonymizedPreviewRenderVersion || sourceVersion !== anonymizedSourceVersion || !privacyPreviewVisible.value) return;
   const signal = anonymizedRenderSlot.start();
   try {
     await nextTick();
@@ -378,6 +400,7 @@ const scheduleAnonymizedPdfPreview = debounce((renderVersion: number, sourceVers
 
 function requestAnonymizedPdfPreview() {
   privacyTextPreviewUpdatePending = false;
+  if (!privacyPreviewVisible.value) return;
   if (renderedAnonymizedSourceVersion === anonymizedSourceVersion && anonymizedPreviewPages.value.length) return;
   anonymizedRenderSlot.cancel();
   const renderVersion = ++anonymizedPreviewRenderVersion;
@@ -402,6 +425,23 @@ function invalidateAnonymizedPdfPreview({ defer = false, preservePages = false }
 }
 
 watch(isPrivacyStudioPreview, (active) => { if (active) requestAnonymizedPdfPreview(); }, { immediate: true });
+watch(normalPreviewVisible, (visible) => {
+  if (visible) {
+    if (previewDirty) requestPdfPreview();
+  } else {
+    invalidatePdfPreview();
+    isPreviewRendering.value = false;
+  }
+}, { flush: 'post' });
+watch(privacyPreviewVisible, (visible) => {
+  if (visible) requestAnonymizedPdfPreview();
+  else {
+    anonymizedRenderSlot.cancel();
+    scheduleAnonymizedPdfPreview.cancel();
+    anonymizedPreviewRenderVersion++;
+    isAnonymizedPreviewRendering.value = false;
+  }
+}, { flush: 'post' });
 
 function handleVersionDeleted() {
   saveDebounced.cancel();
@@ -670,17 +710,14 @@ function selectBuilderGroup(group: string) {
         <template #header><SupabaseAuth v-if="!isMobile" :lang="lang === 'de' ? 'de' : 'en'" /></template>
       </DesktopSidebar>
       <header v-if="!isMobile" class="builder-topbar">
-        <nav class="builder-topbar__tabs" role="tablist" :aria-label="t('content')">
+        <nav class="builder-topbar__tabs" :aria-label="lang === 'de' ? 'Arbeitsbereiche' : 'Workspaces'">
           <button
             v-for="group in workspaceGroups"
             :key="group.key"
             class="builder-topbar__tab"
             :class="{ 'is-active': activeWorkspace === group.key }"
             type="button"
-            role="tab"
-            :aria-selected="activeWorkspace === group.key"
-            :aria-controls="`builder-group-${group.key}`"
-
+            :aria-pressed="activeWorkspace === group.key"
             @click="selectWorkspace(group.key)"
           >
             <font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" />
@@ -692,7 +729,7 @@ function selectBuilderGroup(group: string) {
 
       <DesktopSidebarPortal area="subtabs" :active="!isCloudTab">
       <div v-show="!isCloudTab" class="cv-studio-navigation">
-        <nav class="cv-studio-subtabs" aria-label="CV Studio sections">
+        <nav ref="studioNavigation" class="cv-studio-subtabs" :aria-label="lang === 'de' ? 'CV-Studio-Bereiche' : 'CV Studio sections'">
           <button v-for="group in builderGroups" :key="group.key" class="btn" :class="{ 'is-active': activeBuilderGroup === group.key }" :aria-pressed="activeBuilderGroup === group.key" :disabled="groupDisabled(group.key)" type="button" @click="selectBuilderGroup(group.key)"><font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" /><span>{{ isMobile && group.key === 'templates' ? (lang === 'de' ? 'Vorlagen' : 'Templates') : group.label }}</span></button>
         </nav>
         <button v-if="isMobile && studioHasPreview" class="btn cv-studio-open-preview" type="button" :aria-label="t('openPreview')" :title="t('openPreview')" :disabled="isEmptyDocument" @click="openFullPreview"><font-awesome-icon :icon="['fas', 'eye']" aria-hidden="true" /></button>
@@ -783,7 +820,7 @@ function selectBuilderGroup(group: string) {
       </section>
     </section>
 
-    <nav class="mobile-bottom-tabs" aria-label="Workspaces">
+    <nav class="mobile-bottom-tabs" :aria-label="lang === 'de' ? 'Arbeitsbereiche' : 'Workspaces'">
       <button v-for="group in workspaceGroups" :key="group.key" class="builder-topbar__tab" :class="{ 'is-active': activeWorkspace === group.key }" :aria-pressed="activeWorkspace === group.key" type="button" @click="selectWorkspace(group.key)"><font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" /><span>{{ group.label }}</span></button>
       <SupabaseAuth v-if="isMobile" class="mobile-bottom-auth" :lang="lang === 'de' ? 'de' : 'en'" bottom-bar />
     </nav>
@@ -864,6 +901,7 @@ body,
 }
 
 .builder-topbar__tab {
+  position: relative;
   display: grid;
   place-items: center;
   align-content: center;
@@ -883,8 +921,9 @@ body,
 .builder-topbar__tab .svg-inline--fa { font-size: 17px; }
 .builder-topbar__tab:hover,
 .builder-topbar__tab:focus-visible { background: var(--ui-surface-hover); color: var(--ui-text); }
-.builder-topbar__tab:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.builder-topbar__tab:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -3px; }
 .builder-topbar__tab.is-active { background: var(--ui-active); color: var(--ui-accent); }
+.builder-topbar__tab.is-active::after { content: ''; position: absolute; inset: auto 12px 0; height: 1px; background: var(--ui-accent); }
 .builder-topbar__tab:disabled { opacity: .4; cursor: not-allowed; border-color: transparent; background: transparent; color: #94a3b8; box-shadow: none; transform: none; }
 
 .builder-layout {
@@ -941,7 +980,7 @@ body,
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: #24504e transparent;
+  scrollbar-color: var(--ui-scrollbar) transparent;
 }
 
 .builder-layout__controls .builder-group-panel > .content-panel {
@@ -961,7 +1000,7 @@ body,
 .builder-group-panel > .editor-panel__body::-webkit-scrollbar-thumb,
 .builder-group-panel > .design-panel__scroll-body::-webkit-scrollbar-thumb,
 .builder-group-panel .content-panel__scroll-body::-webkit-scrollbar-thumb {
-  background: #24504e;
+  background: var(--ui-scrollbar);
   border-radius: 6px;
 }
 
@@ -990,17 +1029,19 @@ body,
 
 @media (max-width: 760px) {
   .builder-layout__controls .studio-templates { overflow-y: auto; }
+  .builder-layout__controls .builder-group-panel { padding: 8px; }
   .cv-builder-app {
     --mobile-tabs-height: calc(72px + env(safe-area-inset-bottom, 0px));
-    --mobile-context-row-height: 52px;
+    --mobile-context-row-height: 53px;
     --mobile-context-row-space: 0px;
     --mobile-studio-tools-space: 0px;
     padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) calc(var(--mobile-tabs-height) + var(--mobile-context-row-space) + var(--mobile-studio-tools-space) + 8px) max(8px, env(safe-area-inset-left, 0px));
   }
 
   .cv-builder-app.has-mobile-context-row { --mobile-context-row-space: var(--mobile-context-row-height); }
-  .cv-builder-app.has-mobile-studio-tools:not(.is-preview-mode) { --mobile-studio-tools-space: 52px; }
-  .studio-bottom-bar { bottom: calc(var(--mobile-tabs-height) + var(--mobile-context-row-height)); min-height: 52px; height: 52px; padding: 5px max(8px, env(safe-area-inset-right, 0px)) 5px max(8px, env(safe-area-inset-left, 0px)); gap: 8px; }
+  .cv-builder-app.has-mobile-studio-tools:not(.is-preview-mode) { --mobile-studio-tools-space: 53px; }
+  .studio-bottom-bar { bottom: calc(var(--mobile-tabs-height) + var(--mobile-context-row-height)); min-height: 53px; height: 53px; padding: 4px max(8px, env(safe-area-inset-right, 0px)) 4px max(8px, env(safe-area-inset-left, 0px)); gap: 8px; }
+  .cv-builder-app .studio-bottom-bar .studio-bottom-bar__tools :is(button, select) { min-height: 44px; }
   .cv-builder-app.is-preview-mode { overflow: hidden; }
   .cv-studio-navigation { position: fixed; inset: auto 0 var(--mobile-tabs-height); z-index: 35; display: flex; align-items: stretch; gap: var(--workspace-control-gap); height: var(--mobile-context-row-height); padding: 4px max(8px, env(safe-area-inset-right, 0px)) 4px max(8px, env(safe-area-inset-left, 0px)); border-top: 1px solid #24504e; background: #06141f; }
   .cv-studio-subtabs { flex: 1; flex-wrap: nowrap; gap: 6px; height: 100%; margin: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
@@ -1028,6 +1069,12 @@ body,
   .mobile-bottom-auth { min-width: 0; height: 100%; }
 
 
+}
+
+/* Keep the attachment library reachable when phone instructions wrap to many lines. */
+@media (max-width: 760px), (max-width: 960px) and (max-height: 500px) and (pointer: coarse) {
+  .builder-layout__controls .studio-attachments { overflow-y: auto; }
+  .builder-layout__controls .studio-attachments > .group-panel__scroll-body { flex: 0 0 auto; min-height: auto; overflow: visible; }
 }
 
 @media (min-width: 761px) {

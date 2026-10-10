@@ -45,8 +45,9 @@ test('CV Studio reports pending edits immediately, updates the saved time, and f
       addEventListener: (event: string, handler: () => void) => listeners.set(event, handler),
       removeEventListener: (event: string) => listeners.delete(event),
     },
-    document: { activeElement: null },
+    document: { activeElement: null, addEventListener() {}, removeEventListener() {} },
     Element: ElementStub,
+    HTMLElement: ElementStub,
   })) {
     const previous = Object.getOwnPropertyDescriptor(globalThis, name);
     Object.defineProperty(globalThis, name, { configurable: true, value });

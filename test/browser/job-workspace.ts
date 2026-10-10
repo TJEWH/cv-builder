@@ -1,5 +1,5 @@
 /** Development-only visual fixture; never imported by the production app. No network or auth. */
-import { createApp, defineComponent, h, onBeforeUnmount, ref } from 'vue';
+import { createApp, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import PrimeVue from 'primevue/config';
 import Aura from '@primeuix/themes/aura';
 import InputText from 'primevue/inputtext';
@@ -280,6 +280,66 @@ const Fixture = defineComponent({
     const cv = createSampleDocument();
     const fixtureVariants = ref<SavedConfiguration[]>([{ id: 'sample-cv', name: 'Sample research CV', mtime: 1 }]);
     const fixtureStates = new Map<string, CvState>([['sample-cv', cv]]);
+    // Opt-in regression using the real phone layout and controls:
+    // /test/browser/job-workspace.html?flow=phone-filters at a viewport <= 760px.
+    onMounted(async () => {
+      if (new URLSearchParams(location.search).get('flow') !== 'phone-filters') return;
+      const assert: (condition: unknown, message: string) => asserts condition = (condition, message) => {
+        if (!condition) throw new Error(message);
+      };
+      const settle = async () => { await nextTick(); await new Promise(requestAnimationFrame); };
+      const rows = () => [...document.querySelectorAll<HTMLElement>('.jobs-applications-table .jobs-result-row')];
+      document.body.dataset.filterTest = 'running';
+      try {
+        assert(!desktop.value, 'Run the phone filter check at a viewport no wider than 760px.');
+        for (const opportunity of database.opportunities.slice(0, 2)) {
+          await client.rpc('create_job_application', { p_application_id: crypto.randomUUID(), p_opportunity_id: opportunity.id });
+        }
+        database.applications[0].status = 'interview';
+        tab.value = 'applications'; workspaceKey.value++;
+        const deadline = performance.now() + 5000;
+        do { await settle(); } while (rows().length !== 2 && performance.now() < deadline);
+        assert(rows().length === 2, 'Both synthetic applications must load.');
+        const toggle = document.querySelector<HTMLButtonElement>('.jobs-filter-toggle');
+        assert(toggle && toggle.getBoundingClientRect().height >= 44, 'Applications must expose a touch-sized Filters button.');
+        toggle.click(); await settle();
+        const panel = document.getElementById(toggle.getAttribute('aria-controls')!);
+        assert(panel?.getClientRects().length, 'The Filters button must open its controlled panel.');
+        const selects = panel.querySelectorAll<HTMLSelectElement>('select');
+        const status = selects[0], sort = selects[1];
+        assert(status && sort && status.getBoundingClientRect().height >= 44 && sort.getBoundingClientRect().height >= 44, 'Status and Sort must both be usable touch controls.');
+        sort.value = 'institution'; sort.dispatchEvent(new Event('change', { bubbles: true })); await settle();
+        assert(rows()[0].textContent?.includes('Research Engineer'), 'Institution sorting must reorder the application results.');
+        status.value = 'interview'; status.dispatchEvent(new Event('change', { bubbles: true })); await settle();
+        assert(rows().length === 1 && rows()[0].textContent?.includes('Human-Centred Robotics'), 'Status filtering must show only the matching application.');
+        status.focus();
+        status.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await settle();
+        assert(toggle.getAttribute('aria-expanded') === 'false' && !panel.getClientRects().length && document.activeElement === toggle, 'Escape must close Filters and return focus to its trigger.');
+        toggle.click(); await settle();
+        assert(status.value === 'interview' && sort.value === 'institution', 'Closing Filters must preserve the selected filter and sort.');
+        const navigation = document.querySelectorAll<HTMLButtonElement>('.fixture-mobile-nav button');
+        navigation[0].click(); await settle();
+        assert(toggle.getAttribute('aria-expanded') === 'false', 'Changing workspaces must close Filters.');
+        toggle.click(); await settle();
+        assert(document.querySelectorAll('#jobs-opportunities-filters select').length === 3, 'Opportunity filters must remain available in the shared panel.');
+        navigation[1].click(); await settle();
+        toggle.click(); await settle();
+        const retained = document.querySelectorAll<HTMLSelectElement>('#jobs-applications-filters select');
+        assert(retained[0].value === 'interview' && retained[1].value === 'institution' && rows().length === 1, 'Workspace changes must preserve application filters and results.');
+        toggle.click(); await settle();
+        const search = document.querySelector<HTMLInputElement>('.jobs-search input')!;
+        search.focus();
+        const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+        search.dispatchEvent(escape); await settle();
+        assert(!escape.defaultPrevented && document.activeElement === search, 'Escape must leave the search control alone when Filters is closed.');
+        draftStatus.value = 'PASS: Phone application filtering, sorting, touch targets and focus restoration.';
+        document.body.dataset.filterTest = 'passed';
+      } catch (cause) {
+        draftStatus.value = `FAIL: ${cause instanceof Error ? cause.message : String(cause)}`;
+        document.body.dataset.filterTest = 'failed';
+      }
+      document.body.dataset.filterTestMessage = draftStatus.value;
+    });
     async function select400WordScenario() {
       const template = { ...DEFAULT_LETTER_TEMPLATES[0], maxWords: 400 };
       createLetterRepository(localStorage, account).saveTemplate(template);

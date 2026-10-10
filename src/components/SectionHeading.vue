@@ -37,5 +37,5 @@ defineEmits<{ activate: []; 'toggle-collapse': [] }>();
 /* The row remains a keyboard-accessible collapse target without a visible prefix. */
 .section-collapse-button { position: absolute; inset: 0; z-index: 0; width: 100%; padding: 0; border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
 .section-heading-button:focus-visible, .section-collapse-button:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
-@media (max-width: 760px) { .section-heading-button { min-height: 32px; } }
+@media (max-width: 760px), (max-width: 960px) and (max-height: 500px) and (pointer: coarse) { .section-heading-button { min-height: 44px; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; } }
 </style>

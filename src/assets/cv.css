@@ -13,6 +13,7 @@ html{
     --font-ui:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
     /* App chrome only: document colors continue to use the CV design variables. */
     --ui-surface:#101a20;--ui-surface-hover:#162329;--ui-control:#0c151c;
+    --ui-shell:#06141f;--ui-scrollbar:#3d6156;
     --ui-border:#2c3d42;--ui-divider:#23343a;
     --ui-text:#dce6e2;--ui-muted:#a5b8b1;--ui-placeholder:#829991;
     --ui-accent:#9bc6b4;--ui-accent-border:#5e8979;--ui-active:#1b302b;
@@ -30,6 +31,11 @@ body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f1
 .btn:hover:not(:disabled){background:var(--ui-surface-hover)}
 .btn:focus-visible,.mini:focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}
 .btn:disabled,.mini:disabled{opacity:.5;cursor:not-allowed}
+/* Keep native controls and browser affordances in the workspace palette. */
+:where(.builder-shell,.jobs-workspace,.desktop-sidebar){color-scheme:dark;scrollbar-color:var(--ui-scrollbar) transparent}
+:where(.builder-shell,.jobs-workspace,.desktop-sidebar) ::selection{background:var(--ui-accent);color:var(--ui-control)}
+:where(.builder-shell,.jobs-workspace,.desktop-sidebar) :is(button,a,summary):focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}
+:where(.builder-shell,.jobs-workspace,.desktop-sidebar) a{text-underline-offset:.18em}
 .note{align-self:center;color:#94a3b8}
 .app-hint.app-hint{padding:10px 12px;border:0;border-left:1px solid var(--ui-accent-border);border-radius:0;background:var(--ui-surface);color:var(--ui-muted);line-height:1.6;overflow-wrap:anywhere;text-align:left;align-self:stretch}
 
@@ -162,20 +168,22 @@ details.disclosure-row[open] > summary{margin-bottom:12px}
 .builder .section-name-label{flex:1 1 0;min-width:0;margin:0;padding:0;color:var(--ui-text);font-size:1rem;font-weight:600;cursor:pointer;user-select:none}
 .builder .section-name-label--static{cursor:default}
 .builder .section-head > .section-name-input{flex:0 1 auto;field-sizing:content;width:max-content;max-width:100%;min-width:2ch;font-size:1rem;font-weight:600}
-@media (max-width:760px){
-    .builder .content-section > .section-head{gap:4px}
+@media (max-width:760px), (max-width:960px) and (max-height:500px) and (pointer:coarse){
+    .builder .content-section > .section-head{flex-wrap:wrap;gap:8px}
     .builder .section-name-label{font-size:16px;line-height:1.3;letter-spacing:0;overflow-wrap:anywhere}
     .builder .section-head > .section-name-input{padding:6px 3px;font-size:16px}
-    .builder .content-section > .section-head > .visibility-toggle{flex:0 0 28px;min-width:28px;padding:4px}
-    .builder .section-head__actions{gap:4px}
-    .builder .section-head__actions .section-level-select{width:82px;font-size:12px}
-    .builder .section-level-select .p-select-label{padding:7px 4px}
+    .builder .content-section > .section-head > .visibility-toggle{flex:0 0 44px;min-width:44px;min-height:44px;padding:8px}
+    .builder .section-head__actions{gap:8px}
+    .builder .section-head__actions:has(.section-header-control,.header-size-select,.section-level-select){flex:1 0 100%;flex-wrap:wrap;justify-content:flex-end;margin-left:0}
+    .builder .section-head__actions .section-level-select{width:112px;min-height:44px;font-size:16px}
+    .builder .section-level-select .p-select-label{padding:10px 8px}
     .builder .section-level-select .p-select-dropdown{width:20px}
-    .builder .section-header-control{min-width:32px;min-height:36px;padding:5px;font-size:12px}
-    .builder .section-head__actions .header-size-select{flex:0 0 56px;width:56px;min-width:0;min-height:36px;font-size:12px}
-    .builder .header-size-select .p-select-label{padding:7px 4px}
+    .builder .section-header-control{min-width:44px;min-height:44px;padding:8px;font-size:14px}
+    .builder .section-head__actions .header-size-select{flex:0 0 72px;width:72px;min-width:0;min-height:44px;font-size:16px}
+    .builder .header-size-select .p-select-label{padding:10px 8px}
     .builder .header-size-select .p-select-dropdown{width:20px;flex-shrink:0}
-    .builder .section-version-select{flex:0 1 45%;width:45%;min-width:0;padding:7px 4px;font-size:12px}
+    .builder .section-version-select{flex:1 0 100%;width:100%;min-width:0;min-height:44px;padding:10px 8px;font-size:16px}
+    .builder .section-complete-toggle{justify-content:center;min-width:44px;min-height:44px}
 }
 .builder .item-row__actions{display:flex;flex-direction:column;align-items:center;gap:6px;align-self:flex-start;padding-top: 25px;}
 .builder .sortable-ghost{opacity:.4}
@@ -234,8 +242,8 @@ textarea{min-height:64px}
     .builder .content-section .section-items{margin-left:0;padding-left:0;border-left:0}
     .builder .item-row{grid-template-columns:minmax(0,1fr);gap:6px}
     .builder .item-row + .item-row{border-top:1px solid #134e4a;padding-top:10px}
-    .builder .item-row__actions{align-items:stretch;align-self:stretch;width:100%}
-    .builder .item-row__actions > .mini{width:100%;min-height:36px}
+    .builder .item-row__actions{flex-direction:row;justify-content:flex-end;align-items:center;align-self:stretch;width:100%;padding-top:0}
+    .builder .item-row__actions > .mini{width:44px;min-height:44px}
     .builder .item-row__content{padding:0 0 8px;border-top:0}
     .builder .row,.builder .row-2,.builder .row-3,.builder .row-4,
     .builder .grid-2,.builder .grid-3,

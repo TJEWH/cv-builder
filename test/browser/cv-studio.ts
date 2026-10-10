@@ -10,6 +10,17 @@ sample.contact.name = 'Synthetic Elena';
 sample.anonymization.excludedSections = ['jobs'];
 // Opt-in stress data for keyboard, wrapping, and translated control checks.
 const stress = new URLSearchParams(location.search).has('stress');
+// Opt-in DOM work counter for hidden-preview performance checks.
+if (new URLSearchParams(location.search).has('performance')) {
+  let layouts = 0;
+  document.body.dataset.previewLayouts = '0';
+  new MutationObserver((records) => {
+    for (const record of records) for (const node of record.addedNodes) {
+      if (node instanceof Element && node.matches('.pdf-layout-snapshot')) layouts++;
+    }
+    document.body.dataset.previewLayouts = String(layouts);
+  }).observe(document.body, { childList: true });
+}
 if (stress) {
   sample.lang = 'de';
   sample.sectionNames = { ...sample.sectionNames, jobs: 'InterdisziplinäreForschungserfahrungen'.repeat(4) };

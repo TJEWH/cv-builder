@@ -72,18 +72,21 @@ function setLinked(key: FavoriteLink['linkKey'], primaryKey: StringDesignKey, se
                       <span>{{ isLinked(entry.link.linkKey) ? entry.label : shortLabel(entry.options[0]) }}: {{ valueLabel(entry.options[0]) }}</span>
                       <button class="mini link-toggle" type="button" :aria-label="t(isLinked(entry.link.linkKey) ? 'unlinkControls' : 'linkControls').replace('{label}', entry.label)" :aria-pressed="isLinked(entry.link.linkKey)" @click="toggleLink(entry.link)"><font-awesome-icon :icon="['fas', isLinked(entry.link.linkKey) ? 'link' : 'link-slash']" /></button>
                     </div>
-                    <input type="range" :aria-label="isLinked(entry.link.linkKey) ? entry.label : entry.options[0].label" :min="entry.options[0].min" :max="entry.options[0].max" :step="entry.options[0].step" :value="controlValue(entry.options[0])" @input="setControlValue(entry.options[0], ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
+                    <input type="range" :aria-label="isLinked(entry.link.linkKey) ? entry.label : entry.options[0].label" :aria-valuetext="String(valueLabel(entry.options[0]))" :min="entry.options[0].min" :max="entry.options[0].max" :step="entry.options[0].step" :value="controlValue(entry.options[0])" @input="setControlValue(entry.options[0], ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
                   </div>
                   <label v-if="!isLinked(entry.link.linkKey)">
                     <span>{{ shortLabel(entry.options[1]) }}: {{ valueLabel(entry.options[1]) }}</span>
-                    <input type="range" :aria-label="entry.options[1].label" :min="entry.options[1].min" :max="entry.options[1].max" :step="entry.options[1].step" :value="controlValue(entry.options[1])" @input="setControlValue(entry.options[1], ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
+                    <input type="range" :aria-label="entry.options[1].label" :aria-valuetext="String(valueLabel(entry.options[1]))" :min="entry.options[1].min" :max="entry.options[1].max" :step="entry.options[1].step" :value="controlValue(entry.options[1])" @input="setControlValue(entry.options[1], ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
                   </label>
                 </div>
               </div>
               <div v-else class="design-control">
-                <div class="design-control-label"><span>{{ entry.option.label }}<template v-if="entry.option.type === 'range'">: {{ valueLabel(entry.option) }}</template></span></div>
-                <input v-if="entry.option.type === 'toggle'" class="design-toggle" type="checkbox" role="switch" :aria-label="entry.option.label" :checked="Boolean(controlValue(entry.option))" @change="setControlValue(entry.option, ($event.target as HTMLInputElement).checked)">
-                <input v-else-if="entry.option.type === 'range'" type="range" :aria-label="entry.option.label" :min="entry.option.min" :max="entry.option.max" :step="entry.option.step" :value="String(controlValue(entry.option))" @input="setControlValue(entry.option, ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
+                <div v-if="entry.option.type !== 'toggle'" class="design-control-label"><span>{{ entry.option.label }}<template v-if="entry.option.type === 'range'">: {{ valueLabel(entry.option) }}</template></span></div>
+                <label v-if="entry.option.type === 'toggle'" class="design-toggle-control">
+                  <span>{{ entry.option.label }}</span>
+                  <input class="design-toggle" type="checkbox" role="switch" :checked="Boolean(controlValue(entry.option))" @change="setControlValue(entry.option, ($event.target as HTMLInputElement).checked)">
+                </label>
+                <input v-else-if="entry.option.type === 'range'" type="range" :aria-label="entry.option.label" :aria-valuetext="String(valueLabel(entry.option))" :min="entry.option.min" :max="entry.option.max" :step="entry.option.step" :value="String(controlValue(entry.option))" @input="setControlValue(entry.option, ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
                 <input v-else-if="entry.option.type === 'color'" type="color" :aria-label="entry.option.label" :value="String(controlValue(entry.option))" @input="setControlValue(entry.option, ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
                 <select v-else :aria-label="entry.option.label" :value="String(controlValue(entry.option))" @change="setControlValue(entry.option, ($event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value)">
                   <option v-for="choice in entry.option.options" :key="choice.value" :value="choice.value">{{ choice.label }}</option>
@@ -104,12 +107,14 @@ function setLinked(key: FavoriteLink['linkKey'], primaryKey: StringDesignKey, se
 .design-paired-controls label { display: grid; gap: 4px; color: var(--ui-muted); font-size: 10pt; }
 .link-toggle { flex: 0 0 auto; width: 28px; min-width: 28px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .link-toggle[aria-pressed="true"] { border-color: var(--ui-accent-border); background: var(--ui-active); color: var(--ui-accent); }
-.design-toggle { width: 16px; height: 16px; accent-color: var(--ui-accent); }
+.design-toggle-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; color: var(--ui-muted); font-size: 10pt; cursor: pointer; }
+.design-toggle { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: var(--ui-accent); cursor: pointer; }
 .design-control input[type="range"] { accent-color: var(--ui-accent); }
 @container design-controls (max-width: 367px) {
   .design-control--linked { grid-column: auto; }
   .design-paired-controls { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 640px) { .design-controls, .design-paired-controls { grid-template-columns: 1fr; } .design-control--linked { grid-column: auto; } }
-@media (max-width: 760px) { .design-control input[type="range"], .design-control select { min-height: 44px; } }
+@media (max-width: 760px), (pointer: coarse) { .design-control input[type="range"], .design-control input[type="color"], .design-control select { min-height: 44px; } }
+@media (max-width: 760px), (pointer: coarse) { .link-toggle { width: 44px; min-width: 44px; height: 44px; } }
 </style>
