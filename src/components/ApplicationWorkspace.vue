@@ -274,6 +274,10 @@ const reviewAcceptanceError = computed(() => {
   try { checkedProposalResult(); return ''; }
   catch (cause) { return cause instanceof Error ? cause.message : String(cause); }
 });
+const documentPreviewKey = computed(() => JSON.stringify([
+  props.application.id, showReviewPreview.value, reviewComparison.value,
+  selectedProposal.value?.id, includeProposedLetter.value,
+]));
 const previewCvState = computed(() => {
   if (!showCvReview.value) return record.value?.state || null;
   if (!temporaryReview.value.result) return null;
@@ -1028,8 +1032,8 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
         </div>
         <div class="refinement-preview">
           <div v-if="temporaryReview.error && (pane === 'cv' ? showCvReview : showLetterReview)" class="app-hint error" role="alert"><strong>{{ text('Proposal preview unavailable', 'Vorschlagsvorschau nicht verfügbar') }}</strong><p>{{ temporaryReview.error }}</p><p>{{ proposalPreviewReference }}</p></div>
-          <DocumentCvPreview v-if="previewCvState" v-show="pane === 'cv'" ref="preview" :state="previewCvState" :active="tab === 'refinement' && feedbackScope === 'cv'" hide-actions :download-disabled="showReviewPreview" />
-          <MotivationLetterPreview v-if="previewLetterContent" v-show="pane === 'letter'" ref="letterPreview" :cv-state="previewLetterCvState" :content="previewLetterContent" :lang="previewLetterLanguage" :active="tab === 'refinement' && feedbackScope === 'letter'" hide-actions :download-disabled="!letterApproved || showReviewPreview" />
+          <DocumentCvPreview v-if="previewCvState" v-show="pane === 'cv'" ref="preview" :preview-key="documentPreviewKey" :state="previewCvState" :active="tab === 'refinement' && feedbackScope === 'cv'" hide-actions :download-disabled="showReviewPreview" />
+          <MotivationLetterPreview v-if="previewLetterContent" v-show="pane === 'letter'" ref="letterPreview" :preview-key="documentPreviewKey" :cv-state="previewLetterCvState" :content="previewLetterContent" :lang="previewLetterLanguage" :active="tab === 'refinement' && feedbackScope === 'letter'" hide-actions :download-disabled="!letterApproved || showReviewPreview" />
         </div>
       </section>
       <ApplicationDocuments v-show="tab === 'review'" :client="client" :active="active && tab === 'review'" mode="review" :application-id="application.id" :user-id="userId" :lang="lang" :cv-state="record?.state || null" :cv-ready="cvApproved" :export-ready="cvApproved && letterApproved" :get-cv-pdf="getCvPdf" :get-letter-pdf="getLetterPdf" :letter-ready="letterApproved" :letter-revision="letterRevision" @readiness="documentReadiness = $event">

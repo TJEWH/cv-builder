@@ -12,8 +12,8 @@ import { normalizeAnonymizationState } from '../src/composables/anonymization';
 import { privacyFieldKey } from '../src/composables/privacyOverrides';
 import { createTestState } from './helpers';
 
-// Compile the actual setup script so these tests exercise both synchronous
-// watchers and the provided field-reset contract used by the shared editor.
+// Compile the actual setup script to exercise committed privacy changes,
+// source refreshes, and the field-reset contract used by the shared editor.
 function loadPanel(): Component {
   const filename = new URL('../src/components/AnonymizationPanel.vue', import.meta.url);
   const script = compileScript(parse(readFileSync(filename, 'utf8')).descriptor, { id: 'PrivacyEditorTest' });
@@ -37,6 +37,8 @@ interface PanelSetup {
   draft: CvState;
   hasEdits: boolean;
   resetEdits(): void;
+  commitDraft(): void;
+  draftFields: WeakMap<object, Map<string, string>>;
   setFieldProxy(field: FieldPrivacyType, enabled: boolean): void;
   isFieldProxyChecked(field: FieldPrivacyType): boolean;
   isFieldProxyMixed(field: FieldPrivacyType): boolean;
@@ -61,11 +63,40 @@ function mountPanel(t: TestContext, initial = state()) {
   return { panel: instance.setupState, selection, context: instance.provides[contextKey] as PrivacyEditorContext };
 }
 
-test('editing the privacy draft persists sparse changes while leaving the original content untouched', t => {
+test('typing keeps comparisons and highlights unchanged until commit, and identical commits do not write settings', t => {
+  const { panel, selection, context } = mountPanel(t);
+  const initialSettings = selection.state.anonymization;
+  const fieldIndex = panel.draftFields;
+  for (const text of ['P', 'Pu', 'Public profile']) {
+    panel.draft.about.text = text;
+    assert.equal(selection.state.anonymization, initialSettings);
+    assert.equal(context.field(panel.draft.about, 'text')?.changed, false);
+    assert.equal(panel.draftFields, fieldIndex, 'typing never rebuilds the field index');
+  }
+  panel.commitDraft();
+  assert.equal(context.field(panel.draft.about, 'text')?.changed, true);
+  const committedSettings = selection.state.anonymization;
+  assert.notEqual(committedSettings, initialSettings);
+  panel.draft.about.text = 'Temporary edit';
+  panel.draft.about.text = 'Public profile';
+  panel.commitDraft();
+  assert.equal(selection.state.anonymization, committedSettings, 'net-zero edits trigger no reactive save or PDF update');
+  panel.commitDraft();
+  assert.equal(selection.state.anonymization, committedSettings);
+  panel.draft.about.text = selection.state.about.text;
+  assert.equal(context.field(panel.draft.about, 'text')?.changed, true, 'original equality is evaluated at commit');
+  panel.commitDraft();
+  assert.equal(context.field(panel.draft.about, 'text')?.changed, false);
+  assert.equal(selection.state.anonymization.fieldOverrides, undefined);
+});
+
+test('committing the privacy draft persists sparse changes while leaving the original content untouched', t => {
   const { panel, selection, context } = mountPanel(t);
   const before = cvContent(selection.state);
   panel.draft.about.text = 'Worked under supervision of a qualified person.';
+  panel.commitDraft();
   panel.draft.experience.jobs[0].company = '';
+  panel.commitDraft();
   assert.deepEqual(selection.state.anonymization.fieldOverrides, {
     [privacyFieldKey('about', 'text')]: 'Worked under supervision of a qualified person.',
     [privacyFieldKey('item', 'job', 'company')]: '',
@@ -81,7 +112,9 @@ test('field reset and reset-all restore originals and remove only the correspond
   selection.state.anonymization.excludedSections = ['education'];
   panel.setFieldProxy('company', true);
   panel.draft.about.text = 'Public profile';
+  panel.commitDraft();
   panel.draft.experience.jobs[0].desc = 'New public description';
+  panel.commitDraft();
   context.field(panel.draft.about, 'text')!.reset();
   assert.equal(panel.draft.about.text, selection.state.about.text);
   assert.deepEqual(selection.state.anonymization.fieldOverrides, { [privacyFieldKey('item', 'job', 'desc')]: 'New public description' });
@@ -89,6 +122,7 @@ test('field reset and reset-all restore originals and remove only the correspond
   assert.equal(Object.hasOwn(panel.draft.experience.jobs[0], 'desc'), false);
   assert.equal(Object.hasOwn(selection.state.anonymization, 'fieldOverrides'), false);
   panel.draft.about.text = 'Another public profile';
+  panel.commitDraft();
   panel.resetEdits();
   assert.equal(panel.draft.about.text, selection.state.about.text);
   assert.equal(panel.hasEdits, false);
@@ -99,6 +133,7 @@ test('field reset and reset-all restore originals and remove only the correspond
 test('original Content updates rebuild the draft and retain independent privacy wording', t => {
   const { panel, selection } = mountPanel(t);
   panel.draft.about.text = 'Public profile';
+  panel.commitDraft();
   const previousDraft = panel.draft;
   selection.state.experience.jobs[0].title = 'Lead engineer';
   selection.state.experience.jobs.push({ id: 'new-job', title: 'New role' });
@@ -114,6 +149,7 @@ test('switching variants or language states never carries draft wording into ano
   const { panel, selection, context } = mountPanel(t);
   const first = selection.state;
   panel.draft.about.text = 'First public profile';
+  panel.commitDraft();
   const firstDraft = panel.draft;
   const second = state('Maria Example');
   second.lang = 'de';
@@ -126,6 +162,7 @@ test('switching variants or language states never carries draft wording into ano
   firstDraft.about.text = 'Discarded draft';
   assert.equal(selection.state.anonymization.fieldOverrides, undefined);
   panel.draft.about.text = 'Zweites öffentliches Profil';
+  panel.commitDraft();
   assert.equal(first.anonymization.fieldOverrides?.[privacyFieldKey('about', 'text')], 'First public profile');
   selection.state = first;
   selection.lang = 'en';
@@ -137,6 +174,7 @@ test('switching variants or language states never carries draft wording into ano
 test('automatic mask switches preserve manual edits and keep the draft on original text', t => {
   const { panel, selection } = mountPanel(t);
   panel.draft.about.text = 'Public profile';
+  panel.commitDraft();
   const overrides = { ...selection.state.anonymization.fieldOverrides };
   panel.setFieldProxy('company', true);
   panel.setFieldProxy('dates', true);
@@ -159,6 +197,7 @@ test('a same-field manual replacement survives automatic masking and unrelated e
   assert.equal(context.field(panel.draft.experience.jobs[0], 'company')?.automaticMask, 'company');
   assert.equal(context.field(panel.draft.experience.jobs[0], 'company')?.changed, true);
   panel.draft.about.text = 'Public profile';
+  panel.commitDraft();
   assert.deepEqual(selection.state.anonymization.fieldOverrides, {
     [companyKey]: 'A qualified engineering company', [privacyFieldKey('about', 'text')]: 'Public profile',
   });
@@ -185,6 +224,7 @@ test('Header stays automatically masked without silently deleting older manual c
   assert.equal(context.field(panel.draft.contact, 'email')?.automaticMask, 'header');
   assert.equal(context.field(panel.draft.contact, 'name')?.changed, true);
   panel.draft.about.text = 'Public profile';
+  panel.commitDraft();
   panel.setFieldProxy('company', true);
   panel.setFieldProxy('company', false);
   selection.state.experience.jobs[0].title = 'Lead engineer';

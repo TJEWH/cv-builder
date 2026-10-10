@@ -6,6 +6,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { debounce, loadLocal, saveLocal } from './composables/useStorage';
 import { useCvDesign } from './composables/useCvDesign';
 import { usePdfExport } from './composables/usePdfExport';
+import { usePreviewInputCommit } from './composables/usePreviewInputCommit';
 import { createPreviewRenderSlot } from './composables/pdfRenderTask.ts';
 import FormBuilder from './components/FormBuilder.vue';
 import CvPreview from './components/CvPreview.vue';
@@ -243,6 +244,26 @@ let isSliderPreviewUpdateDeferred = false;
 let sliderPreviewUpdatePending = false;
 let sliderSaveUpdatePending = false;
 let textPreviewUpdatePending = false;
+let privacyTextPreviewUpdatePending = false;
+let privacyDraftCommitPending = false;
+const previewInputCommit = usePreviewInputCommit(() => {
+  if (textPreviewUpdatePending) requestPdfPreview();
+  if (privacyTextPreviewUpdatePending) {
+    privacyTextPreviewUpdatePending = false;
+    if (isPrivacyStudioPreview.value || fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
+  }
+});
+async function commitPrivacyPreview() {
+  // Privacy compares and stores its local draft first. Wait for the source
+  // watchers before releasing a refresh deferred by the still-focused input.
+  privacyDraftCommitPending = true;
+  await nextTick();
+  privacyDraftCommitPending = false;
+  if (privacyTextPreviewUpdatePending) {
+    privacyTextPreviewUpdatePending = false;
+    if (isPrivacyStudioPreview.value || fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
+  }
+}
 
 // Mark edits immediately, including an edit followed by navigation or pagehide
 // in the same event. A queued watcher could leave the status at "Saved" and
@@ -356,6 +377,7 @@ const scheduleAnonymizedPdfPreview = debounce((renderVersion: number, sourceVers
 ), 500);
 
 function requestAnonymizedPdfPreview() {
+  privacyTextPreviewUpdatePending = false;
   if (renderedAnonymizedSourceVersion === anonymizedSourceVersion && anonymizedPreviewPages.value.length) return;
   anonymizedRenderSlot.cancel();
   const renderVersion = ++anonymizedPreviewRenderVersion;
@@ -364,15 +386,17 @@ function requestAnonymizedPdfPreview() {
   scheduleAnonymizedPdfPreview(renderVersion, anonymizedSourceVersion);
 }
 
-function invalidateAnonymizedPdfPreview({ defer = false } = {}) {
+function invalidateAnonymizedPdfPreview({ defer = false, preservePages = false } = {}) {
   anonymizedRenderSlot.cancel();
   scheduleAnonymizedPdfPreview.cancel();
   anonymizedPreviewRenderVersion += 1;
   isAnonymizedPreviewRendering.value = false;
   anonymizedPreviewFailed.value = false;
   anonymizedSourceVersion += 1;
-  anonymizedPreviewPages.value = [];
-  anonymizedPreviewPage.value = 1;
+  if (!preservePages) {
+    anonymizedPreviewPages.value = [];
+    anonymizedPreviewPage.value = 1;
+  }
   renderedAnonymizedSourceVersion = -1;
   if (!defer && (isPrivacyStudioPreview.value || fullPreviewVariant.value === 'anonymized')) requestAnonymizedPdfPreview();
 }
@@ -385,6 +409,8 @@ function handleVersionDeleted() {
   sliderSaveUpdatePending = false;
   sliderPreviewUpdatePending = false;
   textPreviewUpdatePending = false;
+  privacyTextPreviewUpdatePending = false;
+  previewInputCommit.reset();
   invalidatePdfPreview();
   invalidateAnonymizedPdfPreview({ defer: true });
   exportRenderSlot.cancel();
@@ -435,21 +461,6 @@ const anonymizedPreviewState = computed(() => ({
   anonymization: state.anonymization,
 }));
 
-function isTextEntryInput(element: EventTarget | null) {
-  return Boolean(element instanceof Element && element.matches([
-    'textarea',
-    '[contenteditable="true"]',
-    'input:not([type])',
-    'input[type="text"]',
-    'input[type="email"]',
-    'input[type="tel"]',
-    'input[type="url"]',
-    'input[type="search"]',
-    'input[type="number"]',
-    'input[type="password"]',
-  ].join(',')));
-}
-
 function isRangeInput(element: EventTarget | null) {
   return element instanceof Element && element.matches('input[type="range"]');
 }
@@ -468,7 +479,7 @@ function commitDeferredSliderPreview() {
 
   if (shouldRefreshPreview) {
     requestPdfPreview();
-    if (fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
+    if (isPrivacyStudioPreview.value || fullPreviewVariant.value === 'anonymized') requestAnonymizedPdfPreview();
   }
   if (shouldSave) scheduleStateSave();
 }
@@ -498,10 +509,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('blur', commitDeferredSliderPreview);
 });
 
-function onPreviewInputBlur(event: FocusEvent) {
-  if (textPreviewUpdatePending && isTextEntryInput(event.target)) requestPdfPreview();
-}
-
 watch(previewState, () => {
   if (isSliderPreviewUpdateDeferred) {
     sliderPreviewUpdatePending = true;
@@ -509,7 +516,7 @@ watch(previewState, () => {
     isPreviewRendering.value = false;
     return;
   }
-  if (isTextEntryInput(document.activeElement)) {
+  if (previewInputCommit.defer()) {
     textPreviewUpdatePending = true;
     invalidatePdfPreview();
     isPreviewRendering.value = false;
@@ -521,7 +528,12 @@ watch(previewState, () => {
 watch(anonymizedPreviewState, () => {
   if (isSliderPreviewUpdateDeferred) {
     sliderPreviewUpdatePending = true;
-    invalidateAnonymizedPdfPreview({ defer: true });
+    invalidateAnonymizedPdfPreview({ defer: true, preservePages: true });
+    return;
+  }
+  if (privacyDraftCommitPending || previewInputCommit.defer()) {
+    privacyTextPreviewUpdatePending = true;
+    invalidateAnonymizedPdfPreview({ defer: true, preservePages: true });
     return;
   }
   invalidateAnonymizedPdfPreview();
@@ -636,7 +648,7 @@ function selectBuilderGroup(group: string) {
 </script>
 
 <template>
-  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode, 'is-cloud-workspace': isCloudTab, 'has-mobile-context-row': !isCloudTab || !!cloudUser, 'has-mobile-studio-tools': !isCloudTab && ['versions', 'content'].includes(activeBuilderGroup) }" @focusout="onPreviewInputBlur" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
+  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode, 'is-cloud-workspace': isCloudTab, 'has-mobile-context-row': !isCloudTab || !!cloudUser, 'has-mobile-studio-tools': !isCloudTab && ['versions', 'content'].includes(activeBuilderGroup) }" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
     <AppToaster :lang="lang" />
     <div ref="pdfRenderSource" class="pdf-render-source" aria-hidden="true">
       <CvPreview :state="state" export-source />
@@ -754,6 +766,7 @@ function selectBuilderGroup(group: string) {
           </Transition>
           <Transition name="builder-group">
             <AnonymizationPanel
+              @commit="commitPrivacyPreview"
               v-show="activeBuilderGroup === 'privacy' && !isEmptyDocument"
               id="builder-group-privacy"
               class="builder-group-panel"

@@ -138,7 +138,7 @@ export function createPrivacyEditorState(state: CvState): CvState {
 }
 
 /** Only privacy settings are updated; draft structure and original content are never copied back. */
-export function applyPrivacyEditorChanges(state: CvState, draft: CvState): void {
+export function applyPrivacyEditorChanges(state: CvState, draft: CvState): boolean {
   const originals = new Map(privacyFieldEntries(state).map(entry => [entry.key, entry]));
   const overrides: PrivacyFieldOverrides = {};
   for (const entry of privacyFieldEntries(draft)) {
@@ -157,8 +157,15 @@ export function applyPrivacyEditorChanges(state: CvState, draft: CvState): void 
     }
   }
   const { fieldOverrides: _previous, ...settings } = state.anonymization;
+  const previousOverrides = _previous || {};
+  const sameOverrides = Object.keys(previousOverrides).length === Object.keys(overrides).length
+    && Object.entries(overrides).every(([key, value]) => Object.hasOwn(previousOverrides, key) && previousOverrides[key] === value);
+  const sameIds = (previous: string[] | undefined, next: string[]) => (previous || []).length === next.length
+    && next.every(id => previous?.includes(id));
+  if (sameOverrides && sameIds(settings.excludedSections, excludedSections) && sameIds(settings.excludedItems, [...excludedItems])) return false;
   state.anonymization = { ...settings, excludedSections, excludedItems: [...excludedItems],
     ...(Object.keys(overrides).length ? { fieldOverrides: overrides } : {}) };
+  return true;
 }
 
 function isExcludedField(state: CvState, entry: PrivacyFieldEntry): boolean {

@@ -12,7 +12,7 @@ import InlineDocumentPreview from './InlineDocumentPreview.vue';
 import FullDocumentPreview from './FullDocumentPreview.vue';
 
 const props = withDefaults(defineProps<{
-  cvState: CvState | null; content: LetterContent; active?: boolean; lang?: string;
+  cvState: CvState | null; content: LetterContent; previewKey?: string; active?: boolean; lang?: string;
   hideActions?: boolean; downloadDisabled?: boolean; downloading?: boolean; downloadError?: string;
 }>(), { active: true, lang: '', downloadDisabled: false, downloading: false, downloadError: '' });
 const emit = defineEmits<{ download: [] }>();
@@ -40,6 +40,7 @@ async function element() {
 const { pages, page: previewPage, busy, error, getPdfBlob: renderPdfBlob } = useDocumentPdfPreview({
   source: element, options: () => ({ margin: margins.value }),
   signature: () => [props.cvState, props.content], active: () => props.active,
+  identity: () => [props.previewKey],
 });
 useToastWatch(() => error.value, { tone: 'error' });
 watch(() => props.active, (active) => { if (!active) expanded.value = false; });

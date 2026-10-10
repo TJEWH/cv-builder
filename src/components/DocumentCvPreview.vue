@@ -9,7 +9,7 @@ import CvPreview from './CvPreview.vue';
 import InlineDocumentPreview from './InlineDocumentPreview.vue';
 import FullDocumentPreview from './FullDocumentPreview.vue';
 
-const props = withDefaults(defineProps<{ state: CvState; active?: boolean; privacy?: boolean; hideActions?: boolean; downloadDisabled?: boolean }>(), { active: true, privacy: false, downloadDisabled: false });
+const props = withDefaults(defineProps<{ state: CvState; previewKey?: string; active?: boolean; privacy?: boolean; hideActions?: boolean; downloadDisabled?: boolean }>(), { active: true, privacy: false, downloadDisabled: false });
 const source = ref<HTMLElement | null>(null);
 const privacySource = ref<HTMLElement | null>(null);
 const privacyState = computed(() => createAnonymizedState(props.state));
@@ -35,6 +35,7 @@ async function element(privacy = activePrivacy.value) {
 const { pages, page, busy, downloading, error, getPdfBlob: renderPdfBlob, download: downloadPdf } = useDocumentPdfPreview({
   source: () => element(), options: () => options.value,
   signature: () => [props.state, activePrivacy.value], active: () => props.active,
+  identity: () => [props.previewKey, activePrivacy.value],
 });
 // Never leave a private page visible beneath a newly selected privacy mode.
 watch(activePrivacy, () => { pages.value = []; page.value = 1; });

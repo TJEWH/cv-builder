@@ -1,41 +1,75 @@
 <script setup lang="ts">
-import { computed, provide, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue';
 import { FIELD_PRIVACY_TYPES, type CvState, type FieldPrivacyType } from '../types';
 import { makeT } from '../i18n/dict';
 import FormBuilder from './FormBuilder.vue';
 import { applyPrivacyEditorChanges, createPrivacyEditorState, privacyFieldEntries } from '../composables/privacyOverrides';
 import { automaticMaskForField } from '../composables/privacyEditorMasking';
 import { PRIVACY_EDITOR } from '../composables/privacyEditorContext';
+import { usePreviewInputCommit } from '../composables/usePreviewInputCommit';
 
 const props = defineProps<{ state: CvState; lang: string }>();
+const emit = defineEmits<{ commit: [] }>();
 const t = makeT(computed(() => props.lang));
 const draft = ref(createPrivacyEditorState(props.state));
 let refreshing = false;
 let saving = false;
+let dirty = false;
+const inputCommit = usePreviewInputCommit(commitDraft);
+function commitDraft() {
+  if (refreshing) return;
+  inputCommit.reset();
+  dirty = false;
+  saving = true;
+  let changed = false;
+  try { changed = applyPrivacyEditorChanges(props.state, draft.value); }
+  finally { saving = false; }
+  if (changed) emit('commit');
+}
+function onDraftFieldChange() {
+  if (refreshing) return;
+  dirty = true;
+  if (!inputCommit.defer()) commitDraft();
+}
+function flushDraft() { if (dirty) commitDraft(); }
+onMounted(() => { if (typeof window !== 'undefined') window.addEventListener('pagehide', flushDraft); });
+onBeforeUnmount(() => {
+  flushDraft();
+  if (typeof window !== 'undefined') window.removeEventListener('pagehide', flushDraft);
+});
 watch(() => props.state, () => {
   if (saving) return;
+  inputCommit.reset();
+  dirty = false;
   refreshing = true;
   try { draft.value = createPrivacyEditorState(props.state); }
   finally { refreshing = false; }
 }, { deep: true, flush: 'sync' });
-watch(draft, value => {
-  if (refreshing) return;
-  saving = true;
-  try { applyPrivacyEditorChanges(props.state, value); }
-  finally { saving = false; }
-}, { deep: true, flush: 'sync' });
-
 const originals = computed(() => new Map(privacyFieldEntries(props.state).map(entry => [entry.key, entry])));
-const draftFields = computed(() => {
+const hiddenContentIds = computed(() => new Set([
+  ...props.state.disabled,
+  ...[...originals.value.values()].filter(entry => Reflect.get(entry.owner, 'hidden'))
+    .map(entry => Reflect.get(entry.owner, 'id')).filter((id): id is string => typeof id === 'string'),
+]));
+const draftFields = shallowRef(new WeakMap<object, Map<string, string>>());
+const draftOwners = shallowRef<object[]>([]);
+// Reindex only when the draft is replaced, never when an individual value changes.
+watch(draft, value => {
   const owners = new WeakMap<object, Map<string, string>>();
-  for (const entry of privacyFieldEntries(draft.value)) {
+  const entries = privacyFieldEntries(value);
+  for (const entry of entries) {
     if (!owners.has(entry.owner)) owners.set(entry.owner, new Map());
     owners.get(entry.owner)!.set(entry.field, entry.key);
   }
-  return owners;
-});
+  draftFields.value = owners;
+  draftOwners.value = [...new Set(entries.map(entry => entry.owner))];
+}, { immediate: true, flush: 'sync' });
+// Visibility switches commit immediately without observing the draft's text.
+watch(() => [draft.value.disabled, ...draftOwners.value.map(owner => Reflect.get(owner, 'hidden'))],
+  () => { if (!refreshing) commitDraft(); }, { deep: true, flush: 'sync' });
 provide(PRIVACY_EDITOR, {
   language: () => props.lang,
+  edited: onDraftFieldChange,
   field(owner, field) {
     const key = draftFields.value.get(owner)?.get(field);
     const original = key && originals.value.get(key);
@@ -43,16 +77,19 @@ provide(PRIVACY_EDITOR, {
     return {
       original: original.value,
       automaticMask: automaticMaskForField(props.state, original),
-      changed: (Reflect.get(owner, field) ?? '') !== original.value,
+      changed: Object.hasOwn(props.state.anonymization.fieldOverrides || {}, original.key),
       reset() {
-        if (Object.hasOwn(original.owner, field)) Reflect.set(owner, field, Reflect.get(original.owner, field));
-        else Reflect.deleteProperty(owner, field);
+        refreshing = true;
+        try {
+          if (Object.hasOwn(original.owner, field)) Reflect.set(owner, field, Reflect.get(original.owner, field));
+          else Reflect.deleteProperty(owner, field);
+        } finally { refreshing = false; }
+        commitDraft();
       },
     };
   },
   hiddenInContent(id) {
-    return props.state.disabled.includes(id) || privacyFieldEntries(props.state)
-      .some(entry => Reflect.get(entry.owner, 'id') === id && Reflect.get(entry.owner, 'hidden'));
+    return hiddenContentIds.value.has(id);
   },
 });
 
@@ -65,6 +102,7 @@ const isFieldProxyChecked = (field: FieldPrivacyType) =>
 const isFieldProxyMixed = (field: FieldPrivacyType) => !isFieldProxyChecked(field)
   && maskKeys(field).some(key => props.state.anonymization.proxyFields?.includes(key));
 function setFieldProxy(field: FieldPrivacyType, enabled: boolean) {
+  flushDraft();
   const fields = new Set(props.state.anonymization.proxyFields || []);
   for (const key of maskKeys(field)) {
     if (enabled) fields.add(key);
@@ -74,6 +112,8 @@ function setFieldProxy(field: FieldPrivacyType, enabled: boolean) {
 }
 const hasEdits = computed(() => Object.keys(props.state.anonymization.fieldOverrides || {}).length > 0);
 function resetEdits() {
+  inputCommit.reset();
+  dirty = false;
   const { fieldOverrides: _overrides, ...settings } = props.state.anonymization;
   props.state.anonymization = settings;
 }

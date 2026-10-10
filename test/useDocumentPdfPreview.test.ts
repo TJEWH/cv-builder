@@ -25,12 +25,17 @@ function mountPreview(mock: {
   renderPdfBlob?: (_element: HTMLElement, options: RenderOptions) => Promise<Blob>;
 }) {
   let revoked = 0;
+  let typing = false;
+  let commitInput = () => {};
   const exports: { useDocumentPdfPreview?: typeof useDocumentPdfPreview } = {};
   new Function('require', 'exports', sourceCode)((path: string) => path === './usePdfExport' ? {
     usePdfExport: () => ({ ...mock, revokeDownloads: () => { revoked++; }, exportToPdf: async () => {} }),
+  } : path === './usePreviewInputCommit' ? {
+    usePreviewInputCommit: (commit: () => void) => { commitInput = commit; return { defer: () => typing, reset() {} }; },
   } : requireFromSource(path), exports);
   const active = ref(false);
   const version = ref(1);
+  const identity = ref('original');
   let sourceReads = 0;
   let preview!: Preview;
   const app = renderer.createApp({
@@ -38,13 +43,41 @@ function mountPreview(mock: {
       preview = exports.useDocumentPdfPreview!({
         source: async () => { sourceReads++; return {} as HTMLElement; }, options: () => ({ margin: [10, 10, 10, 10] }),
         signature: () => version.value, active: () => active.value,
+        identity: () => [identity.value],
       });
       return () => null;
     },
   });
   app.mount({});
-  return { preview, active, version, unmount: () => app.unmount(), sourceReads: () => sourceReads, revoked: () => revoked };
+  return { preview, active, version, identity, setTyping: (value: boolean) => { typing = value; }, commitInput: () => commitInput(), unmount: () => app.unmount(), sourceReads: () => sourceReads, revoked: () => revoked };
 }
+
+test('typing preserves the current PDF until commit, while a source switch still clears it immediately', async t => {
+  let renders = 0;
+  const fixture = mountPreview({ renderPreview: async () => ({ pages: [samplePage(`render-${++renders}`)] }) });
+  t.after(fixture.unmount);
+  fixture.active.value = true;
+  await settle();
+  fixture.setTyping(true);
+  fixture.version.value++;
+  fixture.version.value++;
+  await settle();
+  assert.equal(renders, 1);
+  assert.equal(fixture.preview.pages.value[0]?.svg, 'render-1');
+  assert.equal(fixture.preview.busy.value, false);
+  fixture.commitInput();
+  await settle();
+  assert.equal(renders, 2);
+  assert.equal(fixture.preview.pages.value[0]?.svg, 'render-2');
+  fixture.identity.value = 'proposal';
+  fixture.version.value++;
+  assert.deepEqual(fixture.preview.pages.value, []);
+  await settle();
+  assert.equal(renders, 2, 'further typing still waits, but cannot retain a different source');
+  fixture.commitInput();
+  await settle();
+  assert.equal(renders, 3);
+});
 
 test('document previews cancel stale renders and stop work when their tab is hidden', async (t) => {
   const renders: { signal: AbortSignal; finish: (value: { pages: PreviewPage[] }) => void }[] = [];

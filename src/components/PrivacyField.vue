@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, useId } from 'vue';
+import { computed, inject, useId, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faRotateLeft } from '@fortawesome/free-solid-svg-icons';
 import { PRIVACY_EDITOR } from '../composables/privacyEditorContext';
@@ -7,6 +7,10 @@ import { makeT } from '../i18n/dict';
 
 const props = defineProps<{ owner: object; field: string }>();
 const context = inject(PRIVACY_EDITOR, null);
+if (context) watch([() => props.owner, () => props.field, () => Reflect.get(props.owner, props.field)],
+  ([owner, field], [previousOwner, previousField]) => {
+    if (owner === previousOwner && field === previousField) context.edited?.();
+  }, { flush: 'sync' });
 const status = computed(() => context?.field(props.owner, props.field));
 const disabled = computed(() => Boolean(status.value?.automaticMask));
 const t = makeT(computed(() => context?.language() || 'en'));
