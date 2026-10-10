@@ -65,6 +65,29 @@ test('marked originals are filtered from feedback, instructions, template exampl
   assert.equal(sanitizeRefinementText('Secret Works', minimal), '{{CONFIDENTIAL}}');
 });
 
+test('field-type protection reaches refinement instructions, opportunities, letters, feedback and approved descriptions', () => {
+  const source = state();
+  source.anonymization.proxyFields = ['company', 'institution', 'place', 'dates'];
+  source.experience.jobs[0].company = 'Confidential Engineering';
+  source.experience.jobs[0].place = 'Confidential Town';
+  source.education = [{ id: 'degree', institution: 'Confidential Institute', start: '2011', end: '2015' }];
+  const text = 'Confidential Engineering in Confidential Town; Confidential Institute from 2011 to 2015.';
+  source.about.text = text;
+  const local = prepare({ state: source, instructions: text, letterText: text, opportunity: { notes: text },
+    setup: { template: { ...DEFAULT_LETTER_TEMPLATES[0], exampleText: text, tone: text }, language: 'en', maxWords: 400 },
+    feedback: [{ id: crypto.randomUUID(), text, scope: 'both', createdAt: '2026-10-02T00:00:00Z' }] });
+  for (const original of ['Confidential Engineering', 'Confidential Town', 'Confidential Institute', '2011', '2015']) {
+    assert.equal(JSON.stringify(local.request).includes(original), false, original);
+    assert.equal(sanitizeRefinementText(original, source), '{{CONFIDENTIAL}}');
+  }
+  assert.deepEqual(reconstructRefinementProposal(local, proposal(local), [], APP).state, source);
+  const target = privacyContextTargets(local.cv, refinementSignature).find(target => target.label === 'Experience 1: company')!;
+  assert.ok(target);
+  assert.throws(() => prepare({ state: source, privacyContexts: { [target.sourceKey]: { type: 'organization', description: 'Worked at Confidential Engineering' } } }), /protected text/);
+  source.experience.jobs[0].company = 'A';
+  assert.equal(sanitizeRefinementText('Annual evidence [A](https://company.example.test) A', source), 'Annual evidence {{CONFIDENTIAL}} {{CONFIDENTIAL}}');
+});
+
 test('legend validation rejects invented references, hidden mappings, invalid types and unsafe descriptions', () => {
   const local = prepare(), field = local.request.cv.fields.find(field => field.text.includes('{{PRIVATE_1}}'))!;
   const entry = { fieldId: field.id, token: '{{PRIVATE_1}}', type: 'organization', description: 'Sensor company' };

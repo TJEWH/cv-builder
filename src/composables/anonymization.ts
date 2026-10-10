@@ -1,5 +1,6 @@
 import type { CvState, CvItem, Contact } from '../types';
 import { SAMPLE_CONTACT } from '../defaults';
+import { anonymizeFieldContent, normalizeProxyFields } from './fieldPrivacy';
 const BUILT_IN_BODY_SECTION_KEYS = ['about', 'education', 'jobs'];
 const BUILT_IN_SIDEBAR_SECTION_KEYS = ['languages', 'hobbies'];
 
@@ -37,6 +38,7 @@ export function normalizeAnonymizationState(state: CvState) {
   state.anonymization = {
     excludedSections: uniqueKnownIds(settings.excludedSections, new Set(sectionKeys(state))),
     excludedItems: uniqueKnownIds(settings.excludedItems, new Set(itemIds(state))),
+    ...(settings.proxyFields !== undefined ? { proxyFields: normalizeProxyFields(settings.proxyFields) } : {}),
   };
 }
 
@@ -84,5 +86,5 @@ export function createAnonymizedState(state: CvState): CvState {
     items: hideMatchingItems(section.items, excludedItems),
   }));
 
-  return anonymized;
+  return anonymizeFieldContent(anonymized, state);
 }

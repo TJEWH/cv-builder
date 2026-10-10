@@ -1,6 +1,7 @@
 import type { Contact, CvDesign, CvState, CustomFont, CustomSection, CvItem, SidebarSection, CvContent, CvContentItem, CvConfig } from '../types';
-import { CV_STATE_VERSION } from '../types';
+import { CV_STATE_VERSION, FIELD_PRIVACY_TYPES } from '../types';
 import { SUPPORTED_LANGUAGES } from '../defaults';
+import { normalizeProxyFields } from './fieldPrivacy';
 
 type Guard<T> = (value: unknown) => value is T;
 type Shape<T> = { [K in keyof T]-?: Guard<Exclude<T[K], undefined>> };
@@ -81,7 +82,7 @@ const sidebarSection = object<SidebarSection>({
 const currentState = object<CvState>({
   version: number, lang: literals(...SUPPORTED_LANGUAGES), disabled: strings,
   completedSections: strings, keepTogetherSections: strings, design, contact,
-  anonymization: object<CvState['anonymization']>({ excludedSections: strings, excludedItems: strings }),
+  anonymization: object<CvState['anonymization']>({ excludedSections: strings, excludedItems: strings, proxyFields: optional(array(literals(...FIELD_PRIVACY_TYPES))) }),
   about: object<CvState['about']>({ text: string }),
   education: items,
   experience: object<CvState['experience']>({ jobs: items }),
@@ -90,8 +91,19 @@ const currentState = object<CvState>({
   sectionNames: stringRecord, sectionHeaderSizes: stringRecord, bodyOrder: strings, sidebarOrder: strings,
 });
 
-/** Only the current schema is accepted at every persistence boundary. */
+/** Preserve saved CVs when the earlier individual proxy switches are encountered. */
+function currentProxySettings(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.anonymization)) return value;
+  const fields = value.anonymization.proxyFields;
+  const legacyFields = ['start', 'end', 'title', 'name', 'level'];
+  if (!Array.isArray(fields) || !fields.some(field => legacyFields.includes(field))
+    || !fields.every(field => [...FIELD_PRIVACY_TYPES, ...legacyFields].includes(field))) return value;
+  return { ...value, anonymization: { ...value.anonymization, proxyFields: normalizeProxyFields(fields) } };
+}
+
+/** Accept the current schema after upgrading earlier proxy settings. */
 export function readCvState(value: unknown): CvState {
+  value = currentProxySettings(value);
   if (!isRecord(value) || value.version !== CV_STATE_VERSION) throw new Error('Unsupported CV data version.');
   if (!currentState(value)) throw new Error('The CV contains invalid or missing fields.');
   return value;
@@ -116,7 +128,7 @@ const contentShape: { [K in keyof CvContent]-?: Guard<CvContent[K]> } = {
 const configShape: { [K in keyof CvConfig]-?: Guard<CvConfig[K]> } = {
   lang: literals(...SUPPORTED_LANGUAGES), design: partialObject<CvDesign>(designShape, true),
   disabled: strings, completedSections: strings, keepTogetherSections: strings,
-  anonymization: object<CvConfig['anonymization']>({ excludedSections: strings, excludedItems: strings }, true),
+  anonymization: object<CvConfig['anonymization']>({ excludedSections: strings, excludedItems: strings, proxyFields: optional(array(literals(...FIELD_PRIVACY_TYPES))) }, true),
   sectionHeaderSizes: stringRecord, bodyOrder: strings, sidebarOrder: strings, hiddenItems: strings,
 };
 
@@ -140,6 +152,7 @@ export function readCvContent(value: unknown): CvContent {
 }
 
 export function readCvConfig(value: unknown): CvConfig {
+  value = currentProxySettings(value);
   if (!object<CvConfig>(configShape, true)(value)) throw new Error('Invalid CV configuration fields.');
   return value;
 }

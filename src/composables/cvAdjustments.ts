@@ -6,6 +6,7 @@ import { SAMPLE_CONTACT } from '../defaults';
 import { readCvState } from './cvStateValidation';
 import { redactKnownIdentityText } from './identityRedaction';
 import { redactMarkedOriginals } from './refinementPrivacy';
+import { isProxyFieldEnabled, selectedProxyFieldValues } from './fieldPrivacy';
 
 const UUID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
 const MAX_JSON_LENGTH = 1048576;
@@ -50,16 +51,23 @@ export function prepareCvAdjustment(input: {
   if (!boundedText(input.instructions ?? '')) throw new Error('Adjustment instructions are too long.');
   const request: CvAdjustmentRequest = { schemaVersion: 1, requestId: crypto.randomUUID(), fields: [], opportunity: {}, instructions: '' };
   const bindings: LocalCvAdjustmentRequest['bindings'] = [];
+  const selectedValues = selectedProxyFieldValues(state).sort((a, b) => b.length - a.length);
   const patterns = identityPatterns(state);
+  const selectedPattern = selectedValues.length ? new RegExp(`(?<![\\p{L}\\p{N}])(?:${selectedValues.map(value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?![\\p{L}\\p{N}])`, 'giu') : null;
+  const privateParts = new RegExp(`${selectedPattern ? `${selectedPattern.source}|` : ''}`
+    + /\[([^\]]*)\]\(([^\s)]+)\)|!![\s\S]*?!!|!![\s\S]*$|\{\{[^{}]*\}\}/.source, 'giu');
   let tokenIndex = 0;
-  function mask(text: string): { text: string; tokens: Record<string, string> } {
+  function mask(text: string, wholeField = false): { text: string; tokens: Record<string, string> } {
     const tokens: Record<string, string> = {};
     const hide = (value: string) => { const token = `{{PRIVATE_${++tokenIndex}}}`; tokens[token] = value; return token; };
+    if (wholeField && text.trim()) return { text: hide(text), tokens };
     // One pass over the original text also prevents literal PRIVATE_n text
     // colliding with tokens already generated for an earlier private link.
-    let safe = text.replace(/\[([^\]]*)\]\(([^\s)]+)\)|!![\s\S]*?!!|!![\s\S]*$|\{\{[^{}]*\}\}/g, (part: string, label?: string, href?: string) => {
+    let safe = text.replace(privateParts, (part: string, label?: string, href?: string) => {
       if (label !== undefined && href !== undefined) {
-        return /!!|\{\{/.test(label + href) || patterns.some((pattern) => { pattern.lastIndex = 0; return pattern.test(href); }) ? hide(part) : part;
+        if (selectedPattern) selectedPattern.lastIndex = 0;
+        return /!!|\{\{/.test(label + href) || patterns.some((pattern) => { pattern.lastIndex = 0; return pattern.test(href); })
+          || selectedPattern?.test(part) ? hide(part) : part;
       }
       return hide(part);
     });
@@ -70,11 +78,11 @@ export function prepareCvAdjustment(input: {
     for (const pattern of patterns) outsideTokens((part) => part.replace(pattern, hide));
     return { text: safe, tokens };
   }
-  function add(path: (string | number)[], label: string, value: unknown) {
+  function add(path: (string | number)[], label: string, value: unknown, wholeField = false) {
     if (typeof value !== 'string') return;
     if (!boundedText(value)) throw new Error('An editable CV field exceeds the adjustment limit. Shorten it in CV Studio first.');
     const id = `field-${request.fields.length + 1}`;
-    const projected = mask(value);
+    const projected = mask(value, wholeField);
     request.fields.push({ id, label, text: projected.text });
     bindings.push({ fieldId: id, path, tokens: projected.tokens });
   }
@@ -83,7 +91,7 @@ export function prepareCvAdjustment(input: {
   function items(values: CvItem[], path: (string | number)[], label: string) {
     values.forEach((item, index) => {
       if (item.hidden || excludedItems.has(item.id)) return;
-      for (const key of EDITABLE_ITEM_KEYS) add([...path, index, key], `${label} ${index + 1}: ${key}`, item[key]);
+      for (const key of EDITABLE_ITEM_KEYS) add([...path, index, key], `${label} ${index + 1}: ${key}`, item[key], isProxyFieldEnabled(state, key));
     });
   }
   if (!excluded.has('header')) add(['contact', 'role'], 'Professional headline', state.contact.role);

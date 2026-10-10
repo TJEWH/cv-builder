@@ -46,7 +46,7 @@ export function cvConfig(state: CvState): CvConfig {
   if (design.customFonts) design.customFonts = design.customFonts.map((font) => pick(font, ['name', 'source']));
   return clone(readCvConfig({
     ...pick({ ...state, hiddenItems: allItems(state).filter(({ hidden }) => hidden).map(({ id }) => id) }, CV_CONFIG_KEYS),
-    design, anonymization: pick(state.anonymization, ['excludedSections', 'excludedItems']),
+    design, anonymization: pick(state.anonymization, ['excludedSections', 'excludedItems', 'proxyFields']),
   }));
 }
 

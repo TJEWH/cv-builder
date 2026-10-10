@@ -47,6 +47,67 @@ test('accepted wording reconstructs private fragments exactly and preserves CV I
   assert.deepEqual(state, fixture()); assert.equal(result.state.education[0].id, 'private-degree-id');
 });
 
+test('selected field types use restorable tokens everywhere in adjustment sources', () => {
+  const state = fixture();
+  state.anonymization.proxyFields = ['company', 'institution', 'place', 'dates'];
+  state.education[0].institution = '  !!Private university!!  ';
+  state.education[0].place = 'Secret City';
+  state.experience.jobs[0].company = 'Taylor [Q] Works';
+  state.experience.jobs[1].company = 'Hidden Research Firm';
+  state.experience.jobs[0].bullets = 'Built prototypes at Taylor [Q] Works in Secret City from 2019 to 2023.';
+  state.about.text = 'Work at Hidden Research Firm. [Private university](https://research.example.test).';
+  state.customSections[1].text = 'Research in Secret City.';
+  const request = prepareCvAdjustment({ state, variantId: 'base', instructions: 'Focus on Private university and Taylor [Q] Works.',
+    opportunity: { employer: 'Taylor [Q] Works', 'Secret City': ['2019', '2023', 'Hidden Research Firm'] } });
+  const wire = JSON.stringify(request.publicRequest);
+  for (const secret of ['Private university', 'Taylor [Q] Works', 'Secret City', 'Hidden Research Firm', '2019', '2023', 'research.example.test']) {
+    assert.equal(wire.includes(secret), false, secret);
+  }
+  const institution = field(request, 'Education 1: institution');
+  const company = field(request, 'Experience 1: company');
+  for (const projected of [institution, company, field(request, 'Education 1: place')]) assert.match(projected.text, /^\{\{PRIVATE_[1-9][0-9]*\}\}$/);
+  assert.equal(request.bindings.find(binding => binding.fieldId === institution.id)!.tokens[institution.text], '  !!Private university!!  ');
+  assert.equal(request.bindings.find(binding => binding.fieldId === company.id)!.tokens[company.text], 'Taylor [Q] Works');
+  const bullets = field(request, 'Experience 1: bullets');
+  const restored = reconstructCvAdjustment(request, response(request, [{ fieldId: bullets.id, text: bullets.text.replace('Built prototypes', 'Developed prototypes') }]), state);
+  const expected = structuredClone(state); expected.experience.jobs[0].bullets = expected.experience.jobs[0].bullets!.replace('Built prototypes', 'Developed prototypes');
+  assert.deepEqual(restored.state, expected);
+  assert.throws(() => reconstructCvAdjustment(request, response(request, [{ fieldId: company.id, text: 'Invented company' }]), state), /Private placeholders/);
+  assert.throws(() => reconstructCvAdjustment(request, response(request), { ...state, anonymization: { ...state.anonymization, proxyFields: [] } }), /CV changed/);
+});
+
+test('field switches protect institutions while titles, item names and levels remain editable', () => {
+  const state = createTestState({
+    anonymization: { excludedSections: [], excludedItems: [], proxyFields: ['institution'] },
+    customSections: [{ id: 'custom', name: 'Public heading', entries: [{ id: 'custom-item', title: 'Private title', sub: 'Private subtitle' }] }],
+    sidebarSections: [{ id: 'skills', name: 'Public sidebar heading', levelType: null, items: [{ id: 'skill', name: 'Private skill', level: 'Private proficiency' }, { id: 'empty-skill', name: '' }] }],
+  });
+  const request = prepareCvAdjustment({ state, variantId: 'base' });
+  for (const label of ['Body section 1 1: sub']) {
+    assert.match(field(request, label).text, /^\{\{PRIVATE_[1-9][0-9]*\}\}$/);
+  }
+  assert.equal(field(request, 'Body section 1 1: title').text, 'Private title');
+  assert.equal(field(request, 'Sidebar section 1 1: name').text, 'Private skill');
+  assert.equal(field(request, 'Sidebar section 1 1: level').text, 'Private proficiency');
+  assert.equal(field(request, 'Body section 1: heading').text, 'Public heading');
+  assert.equal(field(request, 'Sidebar section 1: heading').text, 'Public sidebar heading');
+  assert.equal(field(request, 'Sidebar section 1 2: name').text, '');
+  assert.deepEqual(reconstructCvAdjustment(request, response(request), state).state, state);
+});
+
+test('selected field proxies preserve unrelated words and capture marked composite values as a whole', () => {
+  const state = createTestState({
+    anonymization: { excludedSections: [], excludedItems: [], proxyFields: ['company', 'institution'] },
+    education: [{ id: 'degree', institution: 'Public !!Private!! University' }],
+    experience: { jobs: [{ id: 'job', company: 'A' }] },
+    about: { text: 'Annual evidence at A. Public !!Private!! University. [A](https://company.example.test).' },
+  });
+  const request = prepareCvAdjustment({ state, variantId: 'base' }); const profile = field(request, 'Profile');
+  assert.match(profile.text, /^Annual evidence at \{\{PRIVATE_\d+\}\}\. \{\{PRIVATE_\d+\}\}\. \{\{PRIVATE_\d+\}\}\.$/);
+  const restored = reconstructCvAdjustment(request, response(request, [{ fieldId: profile.id, text: `Strong ${profile.text}` }]), state);
+  assert.equal(restored.state.about.text, `Strong ${state.about.text}`);
+});
+
 test('private Markdown links, existing token literals and repeated identities restore without token collisions', () => {
   const state = fixture();
   state.about.text = '[!!Private label!!](https://secret.example) {{PRIVATE_1}} {{OTHER}} TAYLOR [Q] Taylor [Q] and [Portfolio](https://taylor.example.org)';

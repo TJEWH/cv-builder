@@ -58,7 +58,7 @@ test('structure is deterministic, follows existing areas and exposes no local pa
   assert.ok(bindings.sections.some(item => item.sourceId === 'local-prose'), 'private source references remain in local bindings only');
   const protectedField = local.publicRequest.fields.find(item => item.label === 'Experience 1: company')!;
   assert.ok(structure.unsupported.some(item => item.fieldId === protectedField.id));
-  assert.ok(structure.ranges.every(range => !['title', 'company', 'institution', 'name', 'start', 'end'].includes(String(bindings.ranges.find(item => item.id === range.id)!.path.at(-1)))));
+  assert.ok(structure.ranges.every(range => !['title', 'company', 'institution', 'name', 'dates'].includes(String(bindings.ranges.find(item => item.id === range.id)!.path.at(-1)))));
 });
 
 test('bounded labels preserve whole Unicode characters without generating invalid JSON surrogates', () => {
@@ -130,6 +130,29 @@ test('shortenings preserve exact private fragments and tampered reconstruction p
   local.bindings.forEach(binding => { binding.path = ['contact', 'name']; Object.keys(binding.tokens).forEach(key => { binding.tokens[key] = 'tampered'; }); });
   assert.throws(() => applyCvOperations(local, structure, [operation(1, { type: 'shorten_text', targetId: privateRange.id, text: shortened })], state), /reconstruction mappings.*inconsistent/);
   assert.throws(() => applyCvOperations(local, structure, [], state, []), /reconstruction mappings.*inconsistent/);
+});
+
+test('structured changes carry field proxies with their original entries and restore exact repeated values', () => {
+  const state = createTestState({
+    anonymization: { excludedSections: [], excludedItems: [], proxyFields: ['company', 'place', 'dates'] },
+    experience: { jobs: [
+      { id: 'first', title: 'Secret role', company: 'Private Company', place: 'Private City', start: '2012', end: '2018', bullets: '- Built reliable sensors at Private Company.\n- Shared results in Private City.' },
+      { id: 'second', title: 'Other secret role', company: 'Other Private Company', bullets: '- Measured reliable systems.' },
+    ] },
+  });
+  const local = prepareCvAdjustment({ state, variantId: 'base' }); const { structure } = prepareCvStructure(local);
+  for (const secret of ['Private Company', 'Private City']) assert.equal(JSON.stringify(structure).includes(secret), false);
+  const jobs = section(structure, 'Experience'); const first = structure.entries[0];
+  const firstRange = structure.ranges.find(range => range.bulletId === first.bulletIds[0])!;
+  const result = applyCvOperations(local, structure, [
+    operation(1, { type: 'reorder_entries', targetId: jobs.id, order: [...jobs.entryIds].reverse() }),
+    operation(2, { type: 'shorten_text', targetId: firstRange.id, text: firstRange.text.replace('reliable ', '') }),
+  ], state);
+  assert.deepEqual(result.experience.jobs[0], state.experience.jobs[1]);
+  assert.deepEqual(result.experience.jobs[1], { ...state.experience.jobs[0], bullets: state.experience.jobs[0].bullets!.replace('reliable ', '') });
+  const corrupted = structuredClone(local); const binding = corrupted.bindings.find(binding => Object.values(binding.tokens).includes('Private Company'))!;
+  delete binding.tokens[Object.keys(binding.tokens).find(token => binding.tokens[token] === 'Private Company')!];
+  assert.throws(() => applyCvOperations(corrupted, structure, [], state), /reconstruction mappings/);
 });
 
 test('omitting a private bullet only changes the candidate and retains originals and token maps in the local source', () => {

@@ -1,6 +1,7 @@
 import type { CvContent, CvContentItem, CvState } from '../types';
 import { createAnonymizedContact } from './anonymization';
 import { renderConfidentialText } from './markdownText';
+import { anonymizeFieldContent, preservePrivateFields } from './fieldPrivacy';
 
 export interface ContentPrivacyOptions { bypassPrivacy?: boolean }
 
@@ -29,6 +30,7 @@ function redactedText(value: string): string {
 
 /** Mutate only the isolated content projection; never the editor's private state. */
 export function anonymizeContentJson(content: CvContent, state: CvState): CvContent {
+  anonymizeFieldContent(content, state);
   const { sections, items } = protectedContent(state);
   const visible = (values: CvContentItem[]) => values.filter(({ id }) => !items.has(id)).map((item) => {
     for (const [key, value] of Object.entries(item)) {
@@ -64,6 +66,7 @@ function insertProtected<T>(previous: T[], imported: T[], isProtected: (item: T)
 
 /** Current privacy rules, not the incoming file, decide what may be overwritten. */
 export function preservePrivateContent(current: CvContent, incoming: CvContent, state: CvState): CvContent {
+  preservePrivateFields(current, incoming, state);
   const { sections, items } = protectedContent(state);
   const mergeItems = (previous: CvContentItem[], imported: CvContentItem[]) => insertProtected(
     previous, imported.filter(({ id }) => !items.has(id)), ({ id }) => items.has(id),

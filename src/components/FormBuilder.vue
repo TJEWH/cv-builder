@@ -264,22 +264,24 @@ const addBodySection = () => {
     fields: ['title', 'institution', 'place', 'start', 'end', 'state', 'desc'],
     entries: [],
   };
+  addBodyEntry(section);
   props.state.customSections.push(section);
   props.state.bodyOrder.push(section.id);
   props.state.sectionHeaderSizes[section.id] = DEFAULT_SECTION_HEADER_SIZE;
-  customCollapsed[section.id] = true;
+  customCollapsed[section.id] = false;
 };
 const addSidebarSection = () => {
-  const section = {
+  const section: SidebarSection = {
     id: createContentId('sidebar'),
     name: t('newSidebarSection'),
     levelType: null,
     items: [],
   };
+  addSidebarItem(section);
   props.state.sidebarSections.push(section);
   props.state.sidebarOrder.push(section.id);
   props.state.sectionHeaderSizes[section.id] = DEFAULT_SECTION_HEADER_SIZE;
-  customCollapsed[section.id] = true;
+  customCollapsed[section.id] = false;
 };
 const deleteCustomSection = (section: CustomSection | SidebarSection, area: ContentArea) => {
   const sections = area === 'body' ? props.state.customSections : props.state.sidebarSections;
