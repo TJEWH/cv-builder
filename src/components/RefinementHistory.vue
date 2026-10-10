@@ -1,26 +1,46 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { LocalRefinementRequest, RefinementProposalRow, RefinementRequestRow } from '../refinementTypes';
 import { refinementRunMetadata } from '../composables/refinementHistory';
 import RefinementPrivacyPreview from './RefinementPrivacyPreview.vue';
+import ConfirmDeletionDialog from './ConfirmDeletionDialog.vue';
 const props = defineProps<{
   requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; localRequests: Record<string, LocalRefinementRequest>;
   currentRequestId: string | null; activeId: string; reviewActive: boolean; accepted: boolean;
-  canReset?: boolean;
+  canReset?: boolean; canClear?: boolean;
   publicationStatus: 'unpublished' | 'current' | 'outdated' | 'unverifiable'; lang: string; busy: boolean; open: boolean;
 }>();
-const emit = defineEmits<{ reset: []; select: [id: string]; details: [open: boolean]; exportRequest: [id: string]; exportProposal: [id: string] }>();
+const emit = defineEmits<{ reset: []; clear: []; select: [id: string]; details: [open: boolean]; exportRequest: [id: string]; exportProposal: [id: string] }>();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const unknown = () => text('Unknown', 'Unbekannt');
 const date = (value?: string | null) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString(props.lang === 'de' ? 'de-DE' : 'en-GB') : unknown();
 const runs = computed(() => props.requests.map(row => ({ row, metadata: refinementRunMetadata(row, props.localRequests[row.id]), proposals: props.proposals.filter(proposal => proposal.request_id === row.id) })));
+const confirmingClear = ref(false);
+const requestClear = () => { if (!props.busy && props.canClear) confirmingClear.value = true; };
+const cancelClear = () => { confirmingClear.value = false; };
+const confirmClear = () => {
+  if (!confirmingClear.value) return;
+  confirmingClear.value = false;
+  if (!props.busy && props.canClear) emit('clear');
+};
+watch(() => props.busy || !props.canClear, disabled => { if (disabled) cancelClear(); });
 </script>
 
 <template>
   <section class="refinement-history" :aria-label="text('Refinement runs', 'Überarbeitungsrunden')">
+    <ConfirmDeletionDialog
+      :visible="confirmingClear"
+      :title="text('Clear refinement history?', 'Überarbeitungsverlauf löschen?')"
+      :message="text('Permanently delete all saved refinement rounds, proposals, comments, feedback and the original snapshot. Your current CV and letter are kept. Reset to the original state will no longer be available.', 'Alle gespeicherten Überarbeitungsrunden, Vorschläge, Kommentare, Rückmeldungen und den ursprünglichen Stand endgültig löschen. Der aktuelle Lebenslauf und das Anschreiben bleiben erhalten. Der ursprüngliche Stand kann danach nicht mehr wiederhergestellt werden.')"
+      :cancel-label="text('Cancel', 'Abbrechen')"
+      :confirm-label="text('Clear history', 'Verlauf löschen')"
+      @cancel="cancelClear"
+      @confirm="confirmClear"
+    />
     <details class="disclosure-row run-details" :open="open" @toggle="emit('details', ($event.target as HTMLDetailsElement).open)">
       <summary>{{ text('History / Details', 'Verlauf / Details') }}</summary>
       <button type="button" :disabled="busy || !canReset" @click="emit('reset')">{{ text('Reset to original state', 'Ursprünglichen Stand wiederherstellen') }}</button>
+      <button type="button" class="btn btn--danger" :disabled="busy || !canClear" @click="requestClear">{{ text('Clear history', 'Verlauf löschen') }}</button>
       <p class="app-hint">{{ text('Historical metadata comes from saved records. Missing versions remain unknown.', 'Historische Metadaten stammen aus gespeicherten Datensätzen. Fehlende Versionen bleiben unbekannt.') }}</p>
       <details v-for="run in runs" :key="run.row.id" class="disclosure-row history-run">
         <summary>{{ date(run.row.created_at) }} · {{ run.row.request_json.scope }} · {{ run.proposals.length }} {{ text('proposals', 'Vorschläge') }}{{ run.row.id === currentRequestId ? text(' · Current', ' · Aktuell') : '' }}</summary>
@@ -46,5 +66,6 @@ const runs = computed(() => props.requests.map(row => ({ row, metadata: refineme
 
 <style scoped>
 .refinement-history{margin:16px 0 0;padding:0;font-size:13px;line-height:1.5}.current-run{padding:0 0 14px}h3{font-size:16px;margin:0 0 8px}p{margin:8px 0}code,dd{overflow-wrap:anywhere}code{font-size:11px;color:#a6c1b9}label{display:grid;gap:8px;margin-top:12px}select{width:100%;min-width:0}button,select{color:inherit;background:#0b1b25;border:1px solid #28534e;border-radius:6px;padding:8px;font:inherit}button{cursor:pointer;margin:5px 8px 5px 0}button:disabled{opacity:.5}dl{display:grid;grid-template-columns:minmax(90px,35%) minmax(0,1fr);gap:7px 12px}dt{color:#a6c1b9}dd{margin:0}.pre-wrap{white-space:pre-wrap}.history-proposal{border-left:2px solid #447565;margin:14px 0;padding-left:12px}
+button.btn--danger{border-color:#ef4444;color:#fee2e2}
 @media(max-width:600px){dl{grid-template-columns:1fr;gap:3px}dd{margin-bottom:9px}select{font-size:16px}}
 </style>

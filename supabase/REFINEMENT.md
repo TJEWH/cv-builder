@@ -8,13 +8,14 @@ The application stages are Preparation, Refinement, PDF review and Tracking. Com
 
 ## Browser contract
 
-All three browser RPCs are `SECURITY INVOKER`, require a signed-in non-anonymous owner and use the existing owner RLS model. They return one JSON row, not an array.
+The three preparation/publication RPCs are `SECURITY INVOKER`, require a signed-in non-anonymous owner and use the existing owner RLS model. They return one JSON row, not an array. History clearing uses a separate, narrowly scoped endpoint described below.
 
 | RPC | Arguments | Behavior |
 | --- | --- | --- |
 | `public.save_refinement_state` | `p_application_id`, `p_setup`, `p_approvals`, `p_expected_revision` | Save frozen template/settings with optimistic concurrency. Initial expected revision is `0`; subsequent saves require the current revision. Existing approval hashes may be preserved or cleared, but new approvals require a recorded review. |
 | `public.publish_refinement_request` | `p_request` | On first insertion, freeze a request, capture authoritative application research and assigned privacy CV, and advance the current request atomically. Repeating the exact UUID and payload returns the original receipt without changing the current request. |
 | `public.save_refinement_review` | `p_application_id`, nullable `p_request_id`, `p_kind`, `p_payload`, `p_id` | Append feedback, annotation updates or CV decisions, or atomically record an approval/reopening and update state. Identical retries return the stored row. |
+| `public.clear_refinement_history` | `p_application_id`, `p_expected_revision` | Remove this owner's application refinement requests, proposals and reviews atomically; preserve setup/approval hashes, clear the current request and increment the state revision. Return the updated state, or JSON `null` for an owned application with no state and expected revision `0`. |
 
 Read `application_refinement_state`, `application_refinement_requests`, `application_refinement_proposals` and `application_refinement_reviews` through the signed-in client. Order request/review history by `created_at, id` and always load **all** feedback before publishing another request. Proposal refresh only adds history; it never changes working documents automatically.
 
@@ -27,6 +28,16 @@ Review payloads:
 ```
 
 The respective review kinds are `feedback`, `approve_cv`/`approve_letter`, and `reopen_cv`/`reopen_letter`. Approval hashes identify exact local document revisions without storing raw private content. After approval or reopening, reload state for its new revision. Manual changes clear the affected approval through state save. A letter setup change also clears letter approval and current request. Approved documents must be explicitly reopened before requesting edits to them.
+
+### Clearing refinement history
+
+**Deployed:** **phd-workflow** received `refinement_clear_history` (`20261009164510`) and `refinement_clear_history_private_execution` (`20261009164753`) on **2026-10-09**. Both the clear-history and existing application-refinement SQL suites passed; synthetic fixtures rolled back. Security advisors report no new findings compared with the pre-upgrade baseline. Installing these endpoints did not clear existing application history.
+
+Apply [`changes/refinement_clear_history.sql`](changes/refinement_clear_history.sql) after the annotations upgrade, followed by [`changes/refinement_clear_history_private_execution.sql`](changes/refinement_clear_history_private_execution.sql), before enabling **Clear refinement history**. The consolidated schema includes both changes. They do not modify existing data when installed. Run [`tests/refinement_clear_history.sql`](tests/refinement_clear_history.sql) as `postgres`; all synthetic fixtures roll back.
+
+The danger action permanently removes the selected application's unified refinement snapshots, proposals, feedback, annotation responses and approval event history. Current documents, assigned CV snapshots, preparation settings and approval hashes are preserved. The caller must provide the current state revision; stale calls fail before any deletion. An empty-history retry with the new revision is safe, while retrying an old revision fails and requires a reload. A missing state accepts revision `0` and returns JSON `null` without creating preparation. Other applications, research records and legacy CV/letter drafting archives remain unchanged.
+
+The public endpoint is `SECURITY INVOKER`; only its helper in the non-exposed `private` schema is `SECURITY DEFINER`, owned by `postgres`. Authenticated users receive schema `USAGE` and `EXECUTE` on this helper only; existing management helpers remain inaccessible. The implementation checks the non-anonymous signed-in owner and revision under the same transaction advisory lock as publication. Ordinary table deletion remains revoked; immutable triggers permit the scoped RPC only when the actual executing role is `postgres`, `auth.uid()` matches the row owner, and the transaction-local deletion scope matches the application. The helper restores the prior scope on success; failures roll back the setting and data together. No table/RLS privileges are broadened and no triggers are disabled. Management proposal writes acquire the same application lock and recheck the request, so a proposal arriving after its request was cleared is rejected.
 
 `request_json` preserves the exact versioned `RefinementRequest` in `src/refinementTypes.ts`: IDs, editable privacy CV fields, frozen letter setup/current text, requested scope, parent proposal and accumulated feedback. Build feedback entries using the stored review ID, text, scope and `created_at`; every saved feedback row must appear exactly once in creation order. Missing, altered or reordered history is rejected. If complete history exceeds the bounded request size, publication fails explicitly rather than truncating context.
 

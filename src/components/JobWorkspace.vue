@@ -30,7 +30,7 @@ const desktopSidebar = useDesktopSidebar();
 const sidebarActive = computed(() => desktopSidebar.value && props.active !== false);
 const emit = defineEmits<{ navigate: [tab: 'opportunities' | 'applications']; 'save-career-variant': [name: string, state: CvState]; 'edit-variant': [id: string] }>();
 const { opportunities, applications, reviews, loading, saving, error, createApplication,
-  updateApplication, setApplicationChecklistItem, removeApplication, setOpportunityReview, markOpportunityReviewed, refreshApplicationContext } = useJobWorkspace(props.client, () => props.userId);
+  updateApplication, setApplicationChecklistItem, removeApplication, setOpportunityReview, markOpportunityReviewed } = useJobWorkspace(props.client, () => props.userId);
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const queries = reactive({ opportunities: '', applications: '' });
 const query = computed({ get: () => queries[props.tab], set: (value: string) => { queries[props.tab] = value; } });
@@ -128,10 +128,6 @@ function contacts(item: Application): { name: string; email: string }[] {
     return [{ name: typeof entry.name === 'string' ? entry.name : '', email: typeof entry.email === 'string' ? entry.email : '' }];
   }).filter(({ name, email }) => name || email);
   return people.length ? people : item.contact_email ? [{ name: '', email: item.contact_email }] : [];
-}
-function dateLabel(value: string | null | undefined) {
-  if (!value || !Number.isFinite(Date.parse(value))) return '—';
-  return new Intl.DateTimeFormat(props.lang === 'de' ? 'de-DE' : 'en-GB', { dateStyle: 'medium' }).format(new Date(value));
 }
 const statusHistory = computed(() => editingApplication.value ? applicationStatusHistory(editingApplication.value) : []);
 function timestampLabel(value: string) {
@@ -259,14 +255,6 @@ async function showRemovedOpportunity(id: string) {
     deadlineFilter.value = isOpportunityDeadlinePassed(opportunity.details, now.value) ? 'past' : 'current';
     openOpportunity(opportunity.id);
   }
-}
-async function refreshResearch() {
-  if (!editingId.value || saving.value || hasUnsavedChanges.value) return;
-  notice.value = '';
-  const result = await refreshApplicationContext(editingId.value);
-  if (!result) return;
-  openApplication(result);
-  notice.value = text('Research context refreshed from the opportunity. Your CV and application progress are preserved.', 'Forschungskontext aus dem Stellenangebot aktualisiert. CV und Bewerbungsfortschritt bleiben erhalten.');
 }
 useToastWatch(() => error.value, { tone: 'error' });
 useToastWatch(() => formError.value !== error.value ? formError.value : '', { tone: 'error' });

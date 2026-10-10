@@ -51,6 +51,18 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
   }
   function rpc(name: string, args: Row) {
     try {
+      if (name === 'clear_refinement_history') {
+        appFor(args.p_application_id);
+        const state = stateFor(args.p_application_id);
+        if (!Number.isInteger(args.p_expected_revision) || Number(args.p_expected_revision) < 0
+          || args.p_expected_revision !== (state?.revision || 0)) throw new Error('Refinement state changed. Reload and retry.');
+        if (!state) return { data: null, error: null };
+        for (const table of ['application_refinement_reviews', 'application_refinement_proposals', 'application_refinement_requests']) {
+          database[table] = database[table].filter(row => row.application_id !== args.p_application_id || row.user_id !== account);
+        }
+        Object.assign(state, { current_request_id: null, revision: Number(state.revision) + 1, updated_at: now() });
+        return { data: clone(state), error: null };
+      }
       if (name === 'save_refinement_state') {
         appFor(args.p_application_id);
         let state = stateFor(args.p_application_id);

@@ -9,7 +9,7 @@ import type { ApprovedPrivacyContexts, AnnotationStatus, AnnotationReference, Lo
 import { cloneCv, createApplicationCv, cvDifferences, isApplicationCvPublished, loadApplicationCv, saveApplicationCv, type ApplicationCvRecord } from '../composables/applicationCv';
 import { subvariantParent } from '../composables/careerVariants';
 import { addIncomingDraft, createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, editLetter, finalizeLetter, letterContextVersion, letterFromEditableText, openLetterRevision, saveWorkingRevision, selectApplicationLetterTemplate, unresolvedLetterPlaceholders } from '../composables/motivationLetters';
-import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, describeCvOperation, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText } from '../composables/applicationRefinement';
+import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, describeCvOperation, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText, validateLocalRefinementSource } from '../composables/applicationRefinement';
 import { opensInTracking } from '../composables/applicationTracking';
 import { formatOpportunityDeadline } from '../composables/opportunityDeadline';
 import FormBuilder from './FormBuilder.vue';
@@ -211,6 +211,8 @@ const availableProposals = computed(() => visibleRefinementProposals(proposals.v
   .filter(row => { const scope = requests.value.find(request => request.id === row.request_id)?.request_json.scope; return scope === pane.value || scope === 'both'; }));
 const originalRequest = computed(() => [...requests.value].sort((a, b) => a.created_at.localeCompare(b.created_at))[0]);
 const canResetOriginal = computed(() => !!record.value && !!letter.value && !!originalRequest.value && !!localRequests.value[originalRequest.value.id]?.letterBaseline);
+const canClearHistory = computed(() => cloudLoaded.value && !!(requests.value.length || proposals.value.length || reviews.value.length
+  || Object.keys(localRequests.value).length || importedProposals.value.length || importedReviews.value.length));
 const scopeLocked = computed(() => pane.value === 'cv' ? cvApproved.value : letterApproved.value);
 const hasActiveProposal = computed(() => !!selectedProposal.value && availableProposals.value.some(row => row.id === selectedProposalId.value));
 const iterationPending = computed(() => currentPublishedRequest.value?.request_json.scope === feedbackScope.value
@@ -337,14 +339,27 @@ async function refreshCloud() {
     ]);
     if (disposed) return;
     // Validate target references before the review UI can describe or preview them.
-    const combinedProposals = [...nextProposals, ...importedProposals.value.filter(item => !nextProposals.some(row => row.id === item.id))];
+    const requestById = new Map(nextRequests.map(row => [row.id, row]));
+    const requestIds = new Set(requestById.keys());
+    // Shared history can be cleared on another device. Do not resurrect its local imports or snapshots.
+    const remainingImports = importedProposals.value.filter(item => requestIds.has(item.request_id));
+    const remainingImportedReviews = importedReviews.value.filter(item => item.request_id !== null && requestIds.has(item.request_id));
+    const remainingLocalRequests = Object.fromEntries(Object.entries(localRequests.value)
+      .filter(([id, local]) => !local.publishedAt || requestIds.has(id))
+      .map(([id, local]) => [id, requestById.has(id) && !local.publishedAt ? { ...local, publishedAt: requestById.get(id)!.created_at } : local]));
+    const combinedProposals = [...nextProposals, ...remainingImports.filter(item => !nextProposals.some(row => row.id === item.id))];
     for (const proposal of combinedProposals) {
       const source = nextRequests.find(request => request.id === proposal.request_id);
       if (!source) throw new Error('The proposal source request is unavailable. Reload refinement history.');
       if (proposal.application_id !== props.application.id || proposal.user_id !== props.userId) throw new Error('The proposal belongs to another application or account.');
       parseRefinementProposal(proposal.proposal_json, source.request_json);
     }
-    cloudState.value = state; requests.value = nextRequests; proposals.value = combinedProposals; reviews.value = mergeReviews(nextReviews, importedReviews.value);
+    cloudState.value = state; requests.value = nextRequests; proposals.value = combinedProposals; reviews.value = mergeReviews(nextReviews, remainingImportedReviews);
+    importedProposals.value = remainingImports; importedReviews.value = remainingImportedReviews;
+    localRequests.value = remainingLocalRequests;
+    resetRequestIds.value = resetRequestIds.value.filter(id => requestIds.has(id));
+    if (parentProposalId.value && !combinedProposals.some(item => item.id === parentProposalId.value)) parentProposalId.value = null;
+    if (selectedProposalId.value && !combinedProposals.some(item => item.id === selectedProposalId.value)) reviewActive.value = false;
     if (state && initialSignature === baselineSignature.value) approvals.value = clone(state.approvals_json);
     if (!scopeWasChosen && currentPublishedRequest.value) {
       const scope = currentPublishedRequest.value.request_json.scope === 'letter' ? 'letter' : 'cv';
@@ -352,6 +367,7 @@ async function refreshCloud() {
     }
     cloudLoaded.value = true;
     if (!selectedProposalId.value || !combinedProposals.some(item => item.id === selectedProposalId.value)) selectedProposalId.value = combinedProposals.find(item => item.request_id === state?.current_request_id && !resetRequestIds.value.includes(item.request_id))?.id || '';
+    persist();
   })();
   try { await loadingCloud; }
   finally { loadingCloud = null; refreshing.value = false; }
@@ -776,11 +792,7 @@ async function resetOriginalState() {
     const local = row && localRequests.value[row.id];
     if (!row || !local?.letterBaseline || !record.value || !letter.value) throw new Error(text('The original private snapshot is unavailable on this device.', 'Der ursprüngliche private Snapshot ist auf diesem Gerät nicht verfügbar.'));
     if (row.application_id !== props.application.id || row.user_id !== props.userId || refinementSignature(row.request_json) !== refinementSignature(local.request)) throw new Error('The original snapshot does not match this application.');
-    const emptyProposal = local.request.schemaVersion === 2
-      ? { schemaVersion: 2 as const, requestId: row.id, summary: 'Original', cvOperations: [], cvComments: [], letterText: local.request.letter.text }
-      : { schemaVersion: 1 as const, requestId: row.id, summary: 'Original', cvEdits: [], letterText: local.request.letter.text };
-    // Verify the private source and its reconstruction bindings before restoring it.
-    reconstructRefinementProposal(local, emptyProposal, [], props.application.id);
+    validateLocalRefinementSource(local, props.application.id);
     const previous = { record: record.value, letter: letter.value, approvals: approvals.value, parent: parentProposalId.value, selected: selectedProposalId.value, review: reviewActive.value, resetRequests: resetRequestIds.value };
     const nextRecord = { ...clone(record.value), state: cloneCv(local.cv.baselineState), variantId: local.cv.sourceVariantId, revision: record.value.revision + 1, updatedAt: new Date().toISOString() };
     const nextLetter = saveWorkingRevision(letter.value);
@@ -813,6 +825,27 @@ async function resetOriginalState() {
     }
     await saveSetup();
     notice.value = text('Original documents restored. Earlier iterations remain in history.', 'Ursprüngliche Dokumente wiederhergestellt. Frühere Iterationen bleiben im Verlauf.');
+  });
+}
+async function clearRefinementHistory() {
+  if (refreshing.value || syncing.value || !canClearHistory.value) return;
+  await run(async () => {
+    persist();
+    if (saveError.value) throw new Error(saveError.value);
+    const nextState = await repository.clearHistory(props.application.id, cloudState.value?.revision || 0);
+    if (disposed) return;
+    committingSelection = true;
+    try {
+      cloudState.value = nextState;
+      requests.value = []; proposals.value = []; reviews.value = [];
+      localRequests.value = {}; importedProposals.value = []; importedReviews.value = [];
+      resetRequestIds.value = []; parentProposalId.value = null; selectedProposalId.value = '';
+      selectedChangeIds.value = []; reviewActive.value = false; reviewComparison.value = 'proposed';
+      feedback.value = ''; prompt.value = ''; pendingReview = null;
+    } finally { committingSelection = false; }
+    persist();
+    if (saveError.value) throw new Error(text('Shared history was cleared, but local cleanup could not be saved. Retry saving before continuing.', 'Der geteilte Verlauf wurde gelöscht, aber die lokale Bereinigung konnte nicht gespeichert werden. Vor dem Fortfahren erneut speichern.'));
+    notice.value = text('History cleared. Your current CV and letter are unchanged.', 'Verlauf gelöscht. Der aktuelle CV und Brief bleiben unverändert.');
   });
 }
 function exportHistory(value: unknown, filename: string) {
@@ -931,7 +964,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
           <section v-if="record" v-show="pane === 'cv'" class="working-document"><div class="action-row"><span class="app-hint">{{ text('Application copy — template stays unchanged', 'Bewerbungskopie — Vorlage bleibt unverändert') }}</span></div><fieldset :disabled="cvApproved || busy || reviewActive"><FormBuilder :state="record.state" :read-version="() => null" :save-version="() => false" /></fieldset></section>
           <section v-if="letter" v-show="pane === 'letter'" class="working-document"><label>{{ text('Application writing instructions', 'Schreibhinweise für diese Bewerbung') }}<textarea v-model="letter.instructions" rows="3" maxlength="20000" :disabled="busy || reviewActive || letterApproved" /></label><label>{{ text('Complete letter text', 'Vollständiger Brieftext') }}<textarea :value="letterText" rows="18" :disabled="letterApproved || busy || reviewActive" @input="updateLetter(($event.target as HTMLTextAreaElement).value)" /></label><p :class="{ warning: words > setup.maxWords }">{{ words }} / {{ setup.maxWords }} {{ text('target words (complete letter)', 'Zielwörter (vollständiger Brief)') }}</p><p v-if="words > setup.maxWords" class="app-hint warning">{{ text('Over the target. Review the tender limit; approval and export remain available.', 'Über der Zielwortzahl. Vorgabe prüfen; Freigabe und Export bleiben möglich.') }}</p><p v-if="unresolved.length" class="app-hint warning">{{ text('Resolve placeholders:', 'Platzhalter auflösen:') }} {{ unresolved.join(', ') }}</p></section>
           </details>
-          <RefinementHistory :requests="requests" :proposals="proposals" :local-requests="localRequests" :current-request-id="cloudState?.current_request_id || null" :active-id="selectedProposalId" :review-active="reviewActive" :accepted="proposalAlreadyApplied" :publication-status="publicationStatus" :open="historyOpen" :lang="lang" :busy="busy" :can-reset="canResetOriginal" @reset="resetOriginalState" @select="selectReviewProposal" @details="historyOpen = $event" @export-request="exportRequest" @export-proposal="exportProposal">
+          <RefinementHistory :requests="requests" :proposals="proposals" :local-requests="localRequests" :current-request-id="cloudState?.current_request_id || null" :active-id="selectedProposalId" :review-active="reviewActive" :accepted="proposalAlreadyApplied" :publication-status="publicationStatus" :open="historyOpen" :lang="lang" :busy="busy || refreshing || syncing" :can-reset="canResetOriginal" :can-clear="canClearHistory" @reset="resetOriginalState" @clear="clearRefinementHistory" @select="selectReviewProposal" @details="historyOpen = $event" @export-request="exportRequest" @export-proposal="exportProposal">
               <details class="disclosure-row"><summary>{{ text('Connection & prompt details', 'Verbindungs- & Promptdetails') }}</summary>
                 <p class="app-hint hint">{{ text('ChatGPT needs Supabase SQL tools to read the published sources and save proposals.', 'ChatGPT benötigt Supabase-SQL-Werkzeuge, um veröffentlichte Quellen zu lesen und Vorschläge zu speichern.') }}</p>
                 <button type="button" :disabled="busy || publicationStatus !== 'current'" @click="connectedPrompt">{{ text('Copy connected setup prompt', 'Einrichtungsprompt für die Verbindung kopieren') }}</button>

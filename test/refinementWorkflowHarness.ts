@@ -7,7 +7,7 @@ import ts from 'typescript';
 import { createRenderer, h, nextTick, type Component } from 'vue';
 import type { CvState } from '../src/types';
 import type { ApplicationLetter } from '../src/letterTypes';
-import type { LocalRefinementRequest, RefinementFeedback, RefinementProposalRow, RefinementRequestRow } from '../src/refinementTypes';
+import type { LocalRefinementRequest, RefinementApprovals, RefinementFeedback, RefinementProposalRow, RefinementRequestRow, RefinementReviewRow, RefinementState } from '../src/refinementTypes';
 import { type ApplicationCvRecord } from '../src/composables/applicationCv';
 import { createSyntheticRefinementWorkspace } from './refinementFixture';
 
@@ -19,6 +19,11 @@ export interface Workspace {
   busy: boolean; refreshing: boolean; error: string; saveError: string;
   selectedCvId: string; selectedTemplateId: string; selectedProposalId: string;
   importedProposals: RefinementProposalRow[];
+  importedReviews: RefinementReviewRow[]; reviews: RefinementReviewRow[];
+  cloudState: RefinementState | null; approvals: RefinementApprovals;
+  parentProposalId: string | null; feedback: string; resetRequestIds: string[];
+  proposalInput: string; fallbackPrompt: string;
+  canClearHistory: boolean; cvApproved: boolean; letterApproved: boolean;
   requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; localRequests: Record<string, LocalRefinementRequest>;
   selectedChangeIds: string[]; includeProposedLetter: boolean; reviewActive: boolean;
   previewCvState: CvState | null; previewLetterContent: ApplicationLetter['working'] | undefined;
@@ -30,7 +35,8 @@ export interface Workspace {
   includeAnnotationFeedback(id: string): Promise<void>; feedbackHistory(): RefinementFeedback[];
   proposalAnnotations: { annotation: { id: string }; status: string; response: string | null; reviewId: string | null; included: boolean }[];
   reviewAcceptanceError: string; letterText: string;
-  selectCv(id: string): Promise<void>; selectLetterTemplate(id: string): Promise<void>; publishSources(): Promise<void>; syncRefinement(): Promise<void>; copyTask(): Promise<void>; copyIterationTask(): Promise<void>; resetOriginalState(): Promise<void>; connectedPrompt(): Promise<void>; checkProposals(): Promise<void>;
+  selectCv(id: string): Promise<void>; selectLetterTemplate(id: string): Promise<void>; publishSources(): Promise<void>; syncRefinement(): Promise<void>; copyTask(): Promise<void>; copyIterationTask(): Promise<void>; resetOriginalState(): Promise<void>; clearRefinementHistory(): Promise<void>; connectedPrompt(): Promise<void>; checkProposals(): Promise<void>;
+  copyFullPromptWithSources(): Promise<void>; importProposal(): Promise<void>;
   openProposal(): void; discardReview(): void; acceptSelectedChanges(): Promise<void>;
   persist(): void;
   feedbackScope: 'cv' | 'letter' | 'both'; pane: 'cv' | 'letter'; tab: string; historyOpen: boolean;

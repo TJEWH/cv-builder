@@ -188,12 +188,12 @@ export function parseRefinementProposal(value: unknown, request: RefinementReque
   return clone(proposal);
 }
 
-/** Build the complete review candidate from its frozen originals, without reading or writing working documents. */
-export function reconstructRefinementProposal(local: LocalRefinementRequest, proposal: RefinementProposal, selectedIds?: readonly string[], expectedApplicationId?: string): { state: CvState; letterText: string } {
+/** Validate frozen originals independently of proposal requirements, including an empty initial letter. */
+export function validateLocalRefinementSource(local: LocalRefinementRequest, expectedApplicationId?: string): void {
   if (!record(local) || !record(local.request) || !record(local.cv)) throw new Error('The original local refinement source is unavailable. Restore it or prepare a new request.');
   if (!SIGNATURE.test(local.baselineSignature)) throw new Error('The original application source version is missing or invalid. Prepare a new request.');
   if (expectedApplicationId !== undefined && local.request.applicationId !== expectedApplicationId) throw new Error('This proposal belongs to another application.');
-  const validated = parseRefinementProposal(proposal, local.request);
+  readRequest(local.request);
   if (canonical(local.cv.publicRequest) !== canonical(local.request.cv)) throw new Error('The local privacy snapshot is inconsistent. Prepare a new request.');
   validateLocalCvAdjustment(local.cv);
   if (local.sourceSignatures && (!exact(local.sourceSignatures, ['cv', 'letter'])
@@ -210,10 +210,19 @@ export function reconstructRefinementProposal(local: LocalRefinementRequest, pro
       throw new Error('The original local letter source version is inconsistent. Restore the exact snapshot or prepare a new request.');
     }
   }
-  const letterText = local.request.scope === 'cv' ? local.letterBaseline?.text ?? validated.letterText : validated.letterText;
-  if (validated.schemaVersion === 2 && local.request.schemaVersion === 2) {
+  if (local.request.schemaVersion === 2) {
     const rebuilt = prepareCvStructure(local.cv);
     if (!local.structureBindings || canonical(local.structureBindings) !== canonical(rebuilt.bindings)) throw new Error('The local structural reconstruction mappings are missing or inconsistent. Restore them or prepare a new request.');
+    if (canonical(local.request.cvStructure) !== canonical(rebuilt.structure)) throw new Error('The CV structure does not match the original local snapshot. Prepare a new request.');
+  }
+}
+
+/** Build the complete review candidate from its frozen originals, without reading or writing working documents. */
+export function reconstructRefinementProposal(local: LocalRefinementRequest, proposal: RefinementProposal, selectedIds?: readonly string[], expectedApplicationId?: string): { state: CvState; letterText: string } {
+  validateLocalRefinementSource(local, expectedApplicationId);
+  const validated = parseRefinementProposal(proposal, local.request);
+  const letterText = local.request.scope === 'cv' ? local.letterBaseline?.text ?? validated.letterText : validated.letterText;
+  if (validated.schemaVersion === 2 && local.request.schemaVersion === 2) {
     return { state: applyCvOperations(local.cv, local.request.cvStructure, validated.cvOperations, local.cv.baselineState, selectedIds), letterText };
   }
   if (validated.schemaVersion !== 1) throw new Error('The structured proposal requires its original version 2 request.');
@@ -353,6 +362,18 @@ export function createRefinementRepository(client: SupabaseClient | null, getUse
     if (canonical(row.setup_json) !== canonical(settings) || canonical(row.approvals_json) !== canonical(revisions) || row.revision !== expectedRevision + 1) throw new Error('The saved refinement settings could not be confirmed. Reload and retry.');
     return row;
   }
+  async function clearHistory(applicationId: string, expectedRevision: number): Promise<RefinementState | null> {
+    const owner = account();
+    if (!uuid(applicationId) || !Number.isInteger(expectedRevision) || expectedRevision < 0) throw new Error('Invalid application or refinement state revision.');
+    const { data, error } = await client!.rpc('clear_refinement_history', { p_application_id: applicationId, p_expected_revision: expectedRevision });
+    if (getUserId() === owner && record(error) && ['42883', 'PGRST202'].includes(String(error.code))) throw new Error('Apply the refinement clear-history database update and retry. Your history and documents are preserved.');
+    check(owner, error);
+    if (data === null && expectedRevision === 0) return null;
+    const row = checkedState(data, owner, applicationId);
+    if (row.current_request_id !== null || row.revision !== expectedRevision + 1) throw new Error('Clearing refinement history could not be confirmed. Reload before retrying.');
+    pendingReviews.clear(); legacyAnnotationReviewIds.clear();
+    return row;
+  }
   async function publishRequest(value: RefinementRequest): Promise<RefinementRequestRow> {
     const owner = account(); const request = clone(readRequest(value));
     const { data, error } = await client!.rpc('publish_refinement_request', { p_request: request });
@@ -417,5 +438,5 @@ export function createRefinementRepository(client: SupabaseClient | null, getUse
     if (row.id !== id || row.request_id !== requestId || row.kind !== kind || canonical(row.payload) !== canonical(reviewPayload)) throw new Error('The saved refinement review could not be confirmed. Retry this same review.');
     pendingReviews.delete(fingerprint); return row;
   }
-  return { loadState, saveState, publishRequest, listRequests, listProposals, listReviews, saveReview };
+  return { loadState, saveState, clearHistory, publishRequest, listRequests, listProposals, listReviews, saveReview };
 }

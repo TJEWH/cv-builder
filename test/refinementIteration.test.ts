@@ -195,6 +195,31 @@ test('reset restores the first private sources, retains history, and prevents au
   assert.equal(setup.requests[0].request_json.letter.text, 'Original complete letter.');
 });
 
+for (const scope of ['letter', 'both'] as const) test(`reset restores an empty original letter after a ${scope} proposal was loaded`, async t => {
+  const fixture = mount(t), setup = await prepare(fixture, 'base', { scope, letterText: '' });
+  setup.tab = 'refinement'; await idle(setup);
+  const originalCv = refinementSignature(setup.record!.state);
+  const originalLetter = JSON.parse(JSON.stringify(setup.letter!.working));
+  const request = setup.requests[0];
+  const proposal = fixture.cloud.seedProposal(request.id, { letterText: 'Generated initial letter draft.' });
+  await setup.syncRefinement();
+  assert.equal(setup.error, '');
+  assert.equal(setup.letter!.working.body, 'Generated initial letter draft.');
+
+  await setup.resetOriginalState();
+
+  assert.equal(setup.error, '');
+  assert.equal(refinementSignature(setup.record!.state), originalCv);
+  assert.deepEqual(setup.letter!.working, originalLetter);
+  assert.equal(setup.selectedProposalId, '');
+  assert.ok(setup.letter!.revisions.some(revision => revision.cloudDraftId === proposal.id));
+  assert.ok(setup.proposals.some(row => row.id === proposal.id));
+  await setup.copyIterationTask();
+  assert.equal(setup.error, '');
+  assert.notEqual(setup.requests[0].id, request.id);
+  assert.equal(setup.requests[0].request_json.letter.text, '');
+});
+
 test('reset without any original private snapshot reports the missing source without changing documents', async t => {
   const fixture = mount(t), setup = await prepare(fixture);
   setup.localRequests = {};

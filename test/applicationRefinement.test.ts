@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import test from 'node:test';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LocalRefinementRequest, RefinementFeedback, RefinementProposalV1, RefinementProposalV2, RefinementRequest, RefinementSetup } from '../src/refinementTypes';
-import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText } from '../src/composables/applicationRefinement';
+import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText, validateLocalRefinementSource } from '../src/composables/applicationRefinement';
 import { DEFAULT_LETTER_TEMPLATES, letterToEditableText } from '../src/composables/motivationLetters';
 import { createTestState, stub } from './helpers';
 import { buildShortRefinementInstruction } from '../src/composables/applicationReference';
@@ -114,6 +114,20 @@ test('blank structured letter originals use the same empty-draft normalization a
     const request = local({ letterText: '', letterContent: content });
     assert.deepEqual(request.letterBaseline?.content, content);
     assert.equal(reconstructRefinementProposal(request, proposal(request), [], APP).letterText, proposal(request).letterText);
+  }
+});
+
+test('source validation permits blank originals in both protocols without relaxing proposal draft requirements', () => {
+  for (const schemaVersion of [1, 2] as const) for (const scope of ['letter', 'both'] as const) {
+    for (const letterText of ['', ' \n\t']) {
+      const request = local({ schemaVersion, scope, letterText });
+      const before = structuredClone(request);
+      assert.doesNotThrow(() => validateLocalRefinementSource(request, APP));
+      const incoming = schemaVersion === 1 ? proposal(request) : structuredProposal(request);
+      if (incoming.schemaVersion === 2) incoming.cvOperations = [];
+      assert.throws(() => parseRefinementProposal({ ...incoming, letterText }, request.request), /complete letter draft/);
+      assert.deepEqual(request, before);
+    }
   }
 });
 
@@ -471,6 +485,7 @@ test('missing or corrupt local originals and mappings block reconstruction and a
     copy => { const binding = copy.cv.bindings.find(item => Object.keys(item.tokens).length)!; delete binding.tokens[Object.keys(binding.tokens)[0]]; },
     copy => { delete copy.structureBindings; },
     copy => { copy.structureBindings!.sections[0].sourceId = 'wrong source'; },
+    copy => { if (copy.request.schemaVersion === 2) copy.request.cvStructure.sections[0].label = 'Different source label'; },
     copy => { delete copy.letterBaseline; },
     copy => { copy.letterBaseline!.text = 'Lost original wording.'; },
     copy => { copy.sourceSignatures!.cv = refinementSignature('different source'); },
@@ -479,6 +494,7 @@ test('missing or corrupt local originals and mappings block reconstruction and a
   ];
   for (const mutate of mutations) {
     const corrupt = structuredClone(request); mutate(corrupt);
+    assert.throws(() => validateLocalRefinementSource(corrupt, APP), /source|snapshot|mappings/);
     assert.throws(() => reconstructRefinementProposal(corrupt, incoming, [], APP), /source|snapshot|mappings/);
     assert.throws(() => applyRefinementProposal(corrupt, incoming, state(), request.baselineSignature, [], APP), /source|snapshot|mappings/);
   }
