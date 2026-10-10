@@ -45,7 +45,7 @@ function wallTimeToTimestamp(parts: WallTime, timeZone: string | null): number |
   } catch { return null; }
 }
 
-function resolveDeadline(input: DeadlineInput): Deadline | null {
+export function resolveDeadline(input: DeadlineInput): Deadline | null {
   const details = record(input);
   const raw = typeof input === 'string' ? input : details.deadline;
   if (typeof raw !== 'string' || !raw.trim()) return null;

@@ -14,6 +14,7 @@ import { useApplicationNotesAutosave } from '../composables/useApplicationNotesA
 import OpportunityContext from './OpportunityContext.vue';
 import ApplicationWorkspace from './ApplicationWorkspace.vue';
 import ApplicationIdentifier from './ApplicationIdentifier.vue';
+import ApplicationDeadlineCalendar from './ApplicationDeadlineCalendar.vue';
 import WorkspaceDetailHeader from './WorkspaceDetailHeader.vue';
 import { removeApplicationCv } from '../composables/applicationCv';
 import { useToastWatch } from '../composables/useToasts';
@@ -297,7 +298,7 @@ useToastWatch(() => notice.value, () => {
         <colgroup><col style="width: 34%" /><col style="width: 18%" /><col style="width: 30%" /><col style="width: 18%" /></colgroup>
         <thead><tr><th scope="col">{{ text('Application', 'Bewerbung') }}</th><th scope="col">{{ text('Deadline', 'Frist') }}</th><th scope="col">{{ text('Contact person', 'Kontaktperson') }}</th><th scope="col">{{ text('Status', 'Status') }}</th></tr></thead>
         <tbody><template v-for="item in filteredApplications" :key="item.id">
-          <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'is-expanded': editingId === item.id }" :aria-disabled="saving" @click="toggleApplication(item)"><td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :disabled="saving" :aria-label="`${text('Open application:', 'Bewerbung öffnen:')} ${contextTitle(item)}`" @click.stop="toggleApplication(item)"><span class="jobs-row-chevron" aria-hidden="true">›</span><strong>{{ contextTitle(item) }}</strong></button><span class="jobs-subline">{{ contextInstitution(item) }}</span><ApplicationIdentifier :application="item" :lang="lang" /></td><td :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.context_json, now) }">{{ formatOpportunityDeadline(item.context_json, lang) }}</span></td>
+          <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'is-expanded': editingId === item.id }" :aria-disabled="saving" @click="toggleApplication(item)"><td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :disabled="saving" :aria-label="`${text('Open application:', 'Bewerbung öffnen:')} ${contextTitle(item)}`" @click.stop="toggleApplication(item)"><span class="jobs-row-chevron" aria-hidden="true">›</span><strong>{{ contextTitle(item) }}</strong></button><span class="jobs-subline">{{ contextInstitution(item) }}</span><ApplicationIdentifier :application="item" :lang="lang" /></td><td class="jobs-cell-wide" :data-label="text('Deadline', 'Frist')"><div class="jobs-application-deadline"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.context_json, now) }">{{ formatOpportunityDeadline(item.context_json, lang) }}</span><ApplicationDeadlineCalendar :application="item" :lang="lang" /></div></td>
             <td class="jobs-cell-wide jobs-cell-contacts" :data-label="text('Contact person', 'Kontaktperson')"><template v-for="(person, index) in contacts(item)" :key="index"><span class="jobs-subline">{{ person.name }}</span><a v-if="safeEmailUrl(person.email)" :href="safeEmailUrl(person.email)!" @click.stop>{{ person.email }}</a><span v-else>{{ person.email }}</span></template><span v-if="!contacts(item).length">{{ text('Not recorded', 'Nicht erfasst') }}</span></td>
             <td class="jobs-cell-state jobs-application-state" :data-label="text('Status', 'Status')" @click.stop><span class="jobs-badge">{{ statusLabel(item.status) }}</span></td>
           </tr>
@@ -403,6 +404,8 @@ td { padding: 16px 14px; vertical-align: top; border-top: 1px solid #17383c; lin
 td:first-child { min-width: 220px; max-width: 340px; }
 td a { color: #8be9bf; overflow-wrap: anywhere; }
 .jobs-application-state { vertical-align: bottom; text-align: right; }
+.jobs-application-deadline { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.jobs-application-deadline :deep(.application-deadline-calendar) { max-width: 100%; }
 .jobs-subline { display: block; margin-top: 5px; color: #94afa6; font-size: 11px; }
 .jobs-topics { min-width: 130px; max-width: 220px; color: #a7c4b9; }
 .jobs-workspace .jobs-review-select, .jobs-workspace .jobs-row-select { width: 100%; min-width: 0; padding: 7px 5px; font-size: 11px; cursor: pointer; }

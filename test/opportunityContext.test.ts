@@ -42,7 +42,7 @@ const fixture = {
 
 test('live opportunity shapes are assigned to useful groups and rendered as recursive values', () => {
   const groups = buildOpportunityGroups(fixture, 'en');
-  assert.deepEqual(groups.map(({ id }) => id), ['overview', 'salary', 'requirements', 'documents', 'advisor', 'links', 'metadata']);
+  assert.deepEqual(groups.map(({ id }) => id), ['overview', 'requirements', 'documents', 'salary', 'advisor', 'links', 'metadata']);
   const research = groups.find(({ id }) => id === 'advisor')!;
   assert.deepEqual(research.items.slice(0, 2).map(({ label }) => label), ['Advisor research focus', 'Representative papers']);
   const nodes = flatten(groups.flatMap(({ items }) => items));

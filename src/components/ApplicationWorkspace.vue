@@ -20,6 +20,7 @@ import MotivationLetterPreview from './MotivationLetterPreview.vue';
 import RefinementHistory from './RefinementHistory.vue';
 import ApplicationDocuments from './ApplicationDocuments.vue';
 import ApplicationIdentifier from './ApplicationIdentifier.vue';
+import ApplicationDeadlineCalendar from './ApplicationDeadlineCalendar.vue';
 import WorkspaceDetailHeader from './WorkspaceDetailHeader.vue';
 import OpportunityContext from './OpportunityContext.vue';
 import { buildShortRefinementInstruction } from '../composables/applicationReference';
@@ -909,7 +910,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
   <section class="application-workspace" :class="{ 'application-workspace--sidebar': desktopSidebar }">
     <WorkspaceDetailHeader class="application-header" :title="String(application.context_json.title || text('Application', 'Bewerbung'))" :subtitle="String(application.context_json.institution || application.context_json.university || '')" :back-label="text('All applications', 'Alle Bewerbungen')" @back="emit('close')">
       <template v-if="$slots.actions" #actions><slot name="actions" /></template>
-      <template #metadata><ApplicationIdentifier :application="application" :lang="lang" /><span>{{ text('Deadline', 'Bewerbungsfrist') }}: {{ formatOpportunityDeadline(application.context_json, lang) }}</span><span class="application-header__state">{{ applicationStatusLabel(application.status, lang) }}</span></template>
+      <template #metadata><ApplicationIdentifier :application="application" :lang="lang" /><span>{{ text('Deadline', 'Bewerbungsfrist') }}: {{ formatOpportunityDeadline(application.context_json, lang) }}</span><ApplicationDeadlineCalendar :application="application" :lang="lang" /><span class="application-header__state">{{ applicationStatusLabel(application.status, lang) }}</span></template>
     </WorkspaceDetailHeader>
     <div class="workflow-body" :class="{ 'workflow-body--refinement': tab === 'refinement', 'workflow-body--review': tab === 'review' }">
       <section v-show="tab === 'preparation'" class="preparation-stage">
@@ -927,7 +928,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
             <label>{{ text('Target words', 'Zielwortzahl') }}<input v-model.number="letter.maxWords" type="number" min="50" max="2000" :disabled="busy || reviewActive || letterApproved" /></label>
           </div>
         </DesktopSidebarPortal>
-        <OpportunityContext :context="application.context_json" :lang="lang" :default-open-groups="['requirements', 'documents']" />
+        <OpportunityContext :context="application.context_json" :lang="lang" :default-open-groups="['overview', 'requirements', 'documents']" />
         <DesktopSidebarPortal v-if="$slots['preparation-actions']" area="minor" :active="active && tab === 'preparation'">
           <div class="preparation-actions" :class="{ 'preparation-actions--sidebar': desktopSidebar }"><slot name="preparation-actions" /></div>
         </DesktopSidebarPortal>

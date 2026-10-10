@@ -21,9 +21,9 @@ export interface OpportunityContextGroup {
 
 const GROUPS: [OpportunityContextGroupId, string, string][] = [
   ['overview', 'Research overview & fit', 'Forschungsüberblick & Passung'],
-  ['salary', 'Salary & funding', 'Gehalt & Finanzierung'],
   ['requirements', 'Requirements', 'Anforderungen'],
   ['documents', 'Application documents', 'Bewerbungsunterlagen'],
+  ['salary', 'Salary & funding', 'Gehalt & Finanzierung'],
   ['advisor', 'Advisor & lab context', 'Betreuung & Forschungsgruppe'],
   ['links', 'Links & contacts', 'Links & Kontakte'],
   ['suitability', 'Particularly suitable', 'Besonders passend'],
