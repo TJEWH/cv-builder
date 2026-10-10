@@ -149,19 +149,17 @@ begin
   proposal:=proposal||jsonb_build_object('requestId',request_c);
   begin perform private.save_refinement_proposal(request_c,gen_random_uuid(),proposal); raise exception 'FAIL: CV scope changed letter'; exception when invalid_parameter_value then null; end;
   perform private.save_refinement_proposal(request_c,gen_random_uuid(),proposal||'{"letterText":"Existing letter."}');
-  -- Version-1 history retains its original shape and may record field-level decisions.
+  -- The outer v1 wire format is retired; inner CV and structure versions stay 1.
   perform set_config('request.jwt.claims',jsonb_build_object('sub',owner_a,'role','authenticated','is_anonymous',false)::text,true);
   execute 'set local role authenticated';
   request:=jsonb_set((request-'cvStructure')||jsonb_build_object('schemaVersion',1,'requestId',legacy_request,'scope','both'),'{cv,requestId}',to_jsonb(legacy_request));
-  perform public.publish_refinement_request(request);
+  begin perform public.publish_refinement_request(request); raise exception 'FAIL: retired v1 request accepted'; exception when invalid_parameter_value then null; end;
   execute 'reset role'; perform set_config('request.jwt.claims','{}',true);
-  begin perform private.save_refinement_proposal(legacy_request,gen_random_uuid(),proposal||jsonb_build_object('requestId',legacy_request)); raise exception 'FAIL: v2 proposal accepted against v1 request'; exception when invalid_parameter_value then null; end;
-  proposal:=jsonb_build_object('schemaVersion',1,'requestId',legacy_request,'summary','Legacy wording review','cvEdits','[{"fieldId":"field-4","text":"Nested content remains untouched."}]'::jsonb,'letterText','Dear committee.');
-  perform private.save_refinement_proposal(legacy_request,legacy_proposal,proposal);
-  begin perform private.save_refinement_proposal(request_a,gen_random_uuid(),proposal||jsonb_build_object('requestId',request_a)); raise exception 'FAIL: v1 proposal accepted against v2 request'; exception when invalid_parameter_value then null; end;
+  proposal:=jsonb_build_object('schemaVersion',1,'requestId',request_a,'summary','Retired wording review','cvEdits','[]'::jsonb,'letterText','Dear committee.');
+  begin perform private.save_refinement_proposal(request_a,gen_random_uuid(),proposal); raise exception 'FAIL: retired v1 proposal accepted'; exception when invalid_parameter_value then null; end;
+  begin perform public.refinement_validate_cv_decisions(jsonb_build_object('proposalId',legacy_proposal,'accepted','[]'::jsonb,'rejected','[]'::jsonb,'revision','v1:'||repeat('b',64)),proposal); raise exception 'FAIL: retired field decisions accepted'; exception when invalid_parameter_value then null; end;
   perform set_config('request.jwt.claims',jsonb_build_object('sub',owner_a,'role','authenticated','is_anonymous',false)::text,true);
   execute 'set local role authenticated';
-  perform public.save_refinement_review(app_a,legacy_request,'cv_decisions',jsonb_build_object('proposalId',legacy_proposal,'accepted','["field-4"]'::jsonb,'rejected','[]'::jsonb,'revision','v1:'||repeat('b',64)),gen_random_uuid());
   perform set_config('request.jwt.claims',jsonb_build_object('sub',owner_b,'role','authenticated','is_anonymous',false)::text,true);
   perform public.create_job_application(app_b,opportunity);
   if exists(select 1 from public.application_refinement_requests where application_id=app_a)
@@ -180,4 +178,4 @@ begin
 end;
 $$;
 rollback;
-select 'PASS: structured CV graph, bounded operations, extractive shortening, privacy/link preservation, scopes, immutable retries, exact decisions, approved/stale/cross-owner refusal, v1 compatibility and cascade; all fixtures rolled back.' as result;
+select 'PASS: structured CV graph, bounded operations, extractive shortening, privacy/link preservation, scopes, immutable retries, exact decisions, approved/stale/cross-owner refusal, retired v1 refusal and cascade; all fixtures rolled back.' as result;

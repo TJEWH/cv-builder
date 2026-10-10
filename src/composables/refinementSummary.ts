@@ -2,11 +2,9 @@ import type { RefinementProposal } from '../refinementTypes';
 
 /** Counts describe the returned proposal, independently of later review decisions. */
 export function refinementSummaryCounts(proposal: RefinementProposal, document: 'cv' | 'letter') {
-  const annotations = proposal.schemaVersion === 2
-    ? (proposal.annotations || []).filter(annotation => annotation.document === document)
-    : [];
+  const annotations = (proposal.annotations || []).filter(annotation => annotation.document === document);
   return {
-    automaticChanges: document === 'cv' ? (proposal.schemaVersion === 2 ? proposal.cvOperations.length : proposal.cvEdits.length) : 0,
+    automaticChanges: document === 'cv' ? proposal.cvOperations.length : 0,
     todos: annotations.filter(annotation => annotation.type === 'todo').length,
     questions: annotations.filter(annotation => annotation.type === 'question').length,
   };

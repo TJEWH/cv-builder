@@ -1,4 +1,4 @@
-import type { CvAdjustmentRequest, LocalCvAdjustmentRequest, CvAdjustmentResponse } from './cvAdjustmentTypes';
+import type { CvAdjustmentRequest, LocalCvAdjustmentRequest } from './cvAdjustmentTypes';
 import type { LetterContent, LetterTemplate } from './letterTypes';
 import type { CvStructure, CvOperation, CvComment, CvStructureBindings } from './cvStructuredTypes';
 
@@ -27,20 +27,15 @@ interface RefinementRequestBase {
   scope: RefinementScope; feedback: RefinementFeedback[]; parentProposalId: string | null;
   privacyLegend?: PrivacyLegendEntry[];
 }
-export interface RefinementRequestV1 extends RefinementRequestBase { schemaVersion: 1 }
 export interface RefinementRequestV2 extends RefinementRequestBase { schemaVersion: 2; cvStructure: CvStructure }
-export type RefinementRequest = RefinementRequestV1 | RefinementRequestV2;
-export interface RefinementProposalV1 {
-  schemaVersion: 1; requestId: string; summary: string;
-  cvEdits: CvAdjustmentResponse['edits']; letterText: string;
-}
+export type RefinementRequest = RefinementRequestV2;
 export interface RefinementProposalV2 {
   schemaVersion: 2; requestId: string; summary: string;
   cvOperations: CvOperation[]; cvComments: CvComment[]; letterText: string;
   /** Optional extension: older v2 proposals remain readable without annotations. */
   annotations?: RefinementAnnotation[];
 }
-export type RefinementProposal = RefinementProposalV1 | RefinementProposalV2;
+export type RefinementProposal = RefinementProposalV2;
 export interface RefinementRequestRow {
   id: string; application_id: string; user_id: string; request_json: RefinementRequest; created_at: string;
   cv_snapshot?: { snapshotId?: string; revision?: number };

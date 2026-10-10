@@ -52,8 +52,6 @@ export function privacyFieldEntries(content: PrivacyContent): PrivacyFieldEntry[
   return entries;
 }
 
-export const enumeratePrivacyFields = privacyFieldEntries;
-
 function keyParts(key: string): string[] | null {
   try {
     const parts: unknown = JSON.parse(key);

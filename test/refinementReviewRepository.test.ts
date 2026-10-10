@@ -8,7 +8,7 @@ const applicationId = '11111111-1111-4111-8111-111111111111';
 const requestId = '22222222-2222-4222-8222-222222222222';
 const proposalId = '33333333-3333-4333-8333-333333333333';
 const createdAt = '2026-10-09T10:00:00.000Z';
-const legacyRejection = { code: '22023', message: 'Invalid or unanonymized annotation review.' };
+const validationRejection = { code: '22023', message: 'Invalid or unanonymized annotation review.' };
 type Call = { name: string; params?: Record<string, unknown> };
 function fakeClient(handler: (call: Call) => { data: unknown; error: unknown }) {
   const calls: Call[] = [];
@@ -42,75 +42,50 @@ test('current workspaces save ignored annotations once without changing their pa
   assert.deepEqual(payload, before);
 });
 
-test('legacy status rejection retries the same annotation UUID and normalizes its verified receipt', async () => {
-  const { client, calls } = fakeClient(call => (call.params!.p_payload as Record<string, unknown>).status === 'ignored'
-    ? { data: null, error: legacyRejection } : { data: receipt(call), error: null });
-  const payload = annotation();
-  const saved = await createRefinementRepository(client, () => 'owner').saveReview(applicationId, requestId, 'annotation', payload);
-  assert.equal(calls.length, 2);
-  assert.deepEqual(calls[1].params, { ...calls[0].params, p_payload: { ...payload, status: 'dismissed' } });
-  assert.deepEqual(saved.payload, payload);
-  assert.equal(saved.payload.status, 'ignored');
-});
-
-test('uncertain legacy saves retry the same wire payload and UUID', async () => {
+test('uncertain saves retry the same payload and UUID', async () => {
   let failed = false;
   const { client, calls } = fakeClient(call => {
-    if ((call.params!.p_payload as Record<string, unknown>).status === 'ignored') return { data: null, error: legacyRejection };
     if (!failed) { failed = true; return { data: null, error: { message: 'Connection interrupted after saving.' } }; }
     return { data: receipt(call), error: null };
   });
   const repo = createRefinementRepository(client, () => 'owner');
   await assert.rejects(repo.saveReview(applicationId, requestId, 'annotation', annotation()), /Connection interrupted after saving/);
   const saved = await repo.saveReview(applicationId, requestId, 'annotation', annotation());
-  assert.equal(calls.length, 3);
-  assert.deepEqual(calls[2].params, calls[1].params);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[1].params, calls[0].params);
   assert.equal(saved.payload.status, 'ignored');
 });
 
-test('legacy annotation history is normalized without changing stored responses or other review payloads', async () => {
-  const rows = [
-    { id: crypto.randomUUID(), application_id: applicationId, user_id: 'owner', request_id: requestId, kind: 'annotation', payload: annotation('dismissed'), created_at: createdAt },
-    { id: crypto.randomUUID(), application_id: applicationId, user_id: 'owner', request_id: requestId, kind: 'feedback', payload: { scope: 'cv', text: 'Status: dismissed\nIgnore this annotation.' }, created_at: createdAt },
-  ];
-  const before = structuredClone(rows);
-  const { client } = fakeClient(() => ({ data: rows, error: null }));
-  const saved = await createRefinementRepository(client, () => 'owner').listReviews(applicationId);
-  assert.deepEqual(saved[0].payload, annotation());
-  assert.deepEqual(saved[1], rows[1]);
-  assert.deepEqual(rows, before);
-});
 
 for (const [status, error] of [
-  ['resolved', legacyRejection],
+  ['resolved', validationRejection],
   ['ignored', { code: '22023', message: 'Invalid annotation reference.' }],
-  ['ignored', { code: '40001', message: legacyRejection.message }],
+  ['ignored', { code: '40001', message: validationRejection.message }],
   ['ignored', { code: '22023', message: 'Invalid or unanonymized annotation review. Additional failure.' }],
-] as const) test(`annotation compatibility does not retry ${status} with ${error.code}: ${error.message}`, async () => {
+] as const) test(`annotation saves do not retry ${status} with ${error.code}: ${error.message}`, async () => {
   const { client, calls } = fakeClient(() => ({ data: null, error }));
   await assert.rejects(createRefinementRepository(client, () => 'owner').saveReview(applicationId, requestId, 'annotation', annotation(status)),
     cause => cause instanceof Error && cause.message === error.message);
   assert.equal(calls.length, 1);
 });
 
-test('invalid local annotation responses and changed sessions never use compatibility retry', async () => {
-  const invalid = fakeClient(() => ({ data: null, error: legacyRejection }));
+test('invalid local annotation responses and changed sessions stop immediately', async () => {
+  const invalid = fakeClient(() => ({ data: null, error: validationRejection }));
   await assert.rejects(createRefinementRepository(invalid.client, () => 'owner').saveReview(applicationId, requestId, 'annotation', { ...annotation(), response: 'Invalid\u0000detail' }), /Invalid annotation review/);
   assert.equal(invalid.calls.length, 0);
   let owner = 'owner';
-  const switched = fakeClient(() => { owner = 'other'; return { data: null, error: legacyRejection }; });
+  const switched = fakeClient(() => { owner = 'other'; return { data: null, error: validationRejection }; });
   await assert.rejects(createRefinementRepository(switched.client, () => owner).saveReview(applicationId, requestId, 'annotation', annotation()), /Session changed/);
   assert.equal(switched.calls.length, 1);
 });
 
-test('compatibility does not bypass server privacy rejection or verification of the exact saved response', async () => {
-  const rejected = fakeClient(() => ({ data: null, error: legacyRejection }));
+test('annotation saves preserve privacy rejection and verify the exact saved response', async () => {
+  const rejected = fakeClient(() => ({ data: null, error: validationRejection }));
   await assert.rejects(createRefinementRepository(rejected.client, () => 'owner').saveReview(applicationId, requestId, 'annotation', annotation()),
-    cause => cause instanceof Error && cause.message === legacyRejection.message);
-  assert.equal(rejected.calls.length, 2);
+    cause => cause instanceof Error && cause.message === validationRejection.message);
+  assert.equal(rejected.calls.length, 1);
   const altered = fakeClient(call => {
-    if ((call.params!.p_payload as Record<string, unknown>).status === 'ignored') return { data: null, error: legacyRejection };
-    return { data: { ...receipt(call), payload: { ...annotation('dismissed'), response: 'Altered response.' } }, error: null };
+    return { data: { ...receipt(call), payload: { ...annotation(), response: 'Altered response.' } }, error: null };
   });
   await assert.rejects(createRefinementRepository(altered.client, () => 'owner').saveReview(applicationId, requestId, 'annotation', annotation()), /could not be confirmed/);
 });

@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { buildCvAdjustmentPrompt, createCvAdjustmentRepository, parseCvAdjustmentResponse, prepareCvAdjustment, reconstructCvAdjustment } from '../src/composables/cvAdjustments';
+import { parseCvAdjustmentResponse, prepareCvAdjustment, reconstructCvAdjustment } from '../src/composables/cvAdjustments';
 import type { LocalCvAdjustmentRequest } from '../src/cvAdjustmentTypes';
-import { createTestState, stub } from './helpers';
+import { createTestState } from './helpers';
 
 function fixture() {
   return createTestState({ contact: { name: 'Taylor [Q]', role: 'Researcher', location: 'Neustadt', email: 'taylor@example.org', phone: '+44 12345', website: 'https://taylor.example.org', linkedin: '', github: '' },
@@ -222,62 +221,4 @@ test('JSON bounds, controls, literal punctuation and short identity boundaries a
   assert.throws(() => parseCvAdjustmentResponse(response(request, [{ fieldId: 'field-1', text: 'a\u0000b' }])), /Invalid/);
   assert.throws(() => parseCvAdjustmentResponse('x'.repeat(1048577)), /too large/);
   assert.throws(() => parseCvAdjustmentResponse('```json\n{}\n```'), /Markdown/);
-  const prompt = buildCvAdjustmentPrompt(request.publicRequest); assert.ok(prompt.includes(request.publicRequest.requestId)); assert.equal(prompt.includes('unclosed secret'), true);
-});
-
-type Query = { name: string; params?: Record<string, unknown>; filters: Record<string, unknown> };
-function fakeClient(handler: (query: Query) => { data: unknown; error: unknown }) {
-  const queries: Query[] = [];
-  function query(name: string, params?: Record<string, unknown>) {
-    const entry: Query = { name, params, filters: {} };
-    const builder = { select() { return builder; }, range() { return builder; }, eq(key: string, value: unknown) { entry.filters[key] = value; return builder; }, order() { return builder; },
-      then(resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) { queries.push(entry); return Promise.resolve().then(() => handler(entry)).then(resolve, reject); } };
-    return builder;
-  }
-  return { client: stub<SupabaseClient>({ from: query, rpc: query }), queries };
-}
-function requestRow(request: LocalCvAdjustmentRequest, owner = 'owner', app: string | null = 'app') {
-  return { id: request.publicRequest.requestId, user_id: owner, application_id: app, request_json: request.publicRequest, created_at: '2026-09-21T00:00:00Z' };
-}
-test('repository upload accepts only public request and preserves retry identity', async () => {
-  const request = prepareCvAdjustment({ state: fixture(), variantId: 'private-variant' }); let failed = false;
-  const { client, queries } = fakeClient(() => {
-    if (!failed) { failed = true; return { data: null, error: new Error('Network') }; }
-    return { data: requestRow(request), error: null };
-  });
-  const repo = createCvAdjustmentRepository(client, () => 'owner');
-  await assert.rejects(repo.publishRequest(request.publicRequest, 'app'), /Network/); await repo.publishRequest(request.publicRequest, 'app');
-  assert.deepEqual(queries[0].params, queries[1].params);
-  assert.deepEqual(Object.keys(queries[0].params!).sort(), ['p_application_id', 'p_request', 'p_request_id']);
-  for (const secret of ['baselineState', 'sourceVariantId', 'bindings', 'private-variant']) assert.equal(JSON.stringify(queries).includes(secret), false);
-  await assert.rejects(repo.publishRequest(stub(request), 'app'), /Invalid/);
-});
-
-test('repository response history rejects foreign ownership, wrong request and account switches', async () => {
-  const request = prepareCvAdjustment({ state: fixture(), variantId: 'base' }); const id = request.publicRequest.requestId;
-  const row = { id: crypto.randomUUID(), user_id: 'owner', request_id: id, response_json: response(request), created_at: '2026-09-21T00:00:00Z' };
-  const { client, queries } = fakeClient(() => ({ data: [row], error: null }));
-  assert.deepEqual(await createCvAdjustmentRepository(client, () => 'owner').listResponses(id), [row]);
-  assert.deepEqual(queries[0].filters, { user_id: 'owner', request_id: id });
-  for (const foreign of [{ ...row, user_id: 'someone' }, { ...row, request_id: crypto.randomUUID() }]) {
-    const bad = fakeClient(() => ({ data: [foreign], error: null }));
-    await assert.rejects(createCvAdjustmentRepository(bad.client, () => 'owner').listResponses(id), /verified/);
-  }
-  let owner = 'owner'; const switched = fakeClient(() => { owner = 'someone'; return { data: [row], error: null }; });
-  await assert.rejects(createCvAdjustmentRepository(switched.client, () => owner).listResponses(id), /Session changed/);
-});
-
-test('response writes are append-only and retry an uncertain operation with its existing UUID', async () => {
-  const request = prepareCvAdjustment({ state: fixture(), variantId: 'base' }); let fail = true;
-  const { client, queries } = fakeClient(({ params }) => {
-    if (fail) { fail = false; return { data: null, error: new Error('Network') }; }
-    return { data: { id: params?.p_response_id, user_id: 'owner', request_id: params?.p_request_id, response_json: params?.p_response, created_at: '2026-09-21T00:00:00Z' }, error: null };
-  });
-  const repo = createCvAdjustmentRepository(client, () => 'owner'); const id = request.publicRequest.requestId;
-  await assert.rejects(repo.saveResponse(id, response(request)), /Network/); await repo.saveResponse(id, response(request));
-  assert.equal(queries[0].params?.p_response_id, queries[1].params?.p_response_id);
-  await repo.saveResponse(id, response(request)); assert.notEqual(queries[1].params?.p_response_id, queries[2].params?.p_response_id);
-  const missing = fakeClient(() => ({ data: null, error: { code: 'PGRST202' } }));
-  await assert.rejects(createCvAdjustmentRepository(missing.client, () => 'owner').listResponses(id), /database update/);
-  await assert.rejects(createCvAdjustmentRepository(null, () => null).listResponses(id), /Sign in/);
 });

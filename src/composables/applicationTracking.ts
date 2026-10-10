@@ -1,9 +1,5 @@
 import { APPLICATION_STAGES, APPLICATION_STATUSES, type Application, type ApplicationStage, type ApplicationStatus } from '../cloudTypes';
 
-export const APPLICATION_STAGE_STATUS: Record<ApplicationStage, ApplicationStatus> = {
-  preparation: 'preparation', refinement: 'refinement', review: 'attachments', tracking: 'ready',
-};
-
 export function applicationStatusLabel(status: string, lang: string = 'en'): string {
   const labels: Record<string, [string, string]> = {
     preparation: ['Preparation', 'Vorbereitung'], refinement: ['Refinement', 'Überarbeitung'],
@@ -31,10 +27,6 @@ export function applicationStage(application: Application): ApplicationStage {
   if (application.status === 'preparation' || application.status === 'refinement') return application.status;
   if (application.status === 'attachments') return 'review';
   return 'tracking';
-}
-
-export function opensInTracking(status: Application['status']): boolean {
-  return status !== 'preparation' && status !== 'refinement' && status !== 'attachments';
 }
 
 /** Never infer a transition date from unrelated edits or legacy contact/submission dates. */

@@ -21,11 +21,9 @@ export interface Workspace {
   selectedCvId: string; selectedTemplateId: string; selectedProposalId: string;
   variantName: string; savedVariantId: string;
   saveApprovedVariant(): Promise<void>;
-  importedProposals: RefinementProposalRow[];
-  importedReviews: RefinementReviewRow[]; reviews: RefinementReviewRow[];
+  reviews: RefinementReviewRow[];
   cloudState: RefinementState | null; approvals: RefinementApprovals;
-  parentProposalId: string | null; feedback: string; resetRequestIds: string[];
-  proposalInput: string; fallbackPrompt: string;
+  parentProposalId: string | null; resetRequestIds: string[];
   canClearHistory: boolean; cvApproved: boolean; letterApproved: boolean; showInitialRefinement: boolean;
   requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; localRequests: Record<string, LocalRefinementRequest>;
   selectedChangeIds: string[]; includeProposedLetter: boolean; reviewActive: boolean;
@@ -39,7 +37,6 @@ export interface Workspace {
   proposalAnnotations: { annotation: { id: string }; status: string; response: string | null; reviewId: string | null; included: boolean }[];
   reviewAcceptanceError: string; letterText: string;
   selectCv(id: string): Promise<void>; selectLetterTemplate(id: string): Promise<void>; publishSources(): Promise<void>; syncRefinement(): Promise<void>; copyTask(): Promise<void>; copyIterationTask(): Promise<void>; resetOriginalState(): Promise<void>; clearRefinementHistory(): Promise<void>; connectedPrompt(): Promise<void>; checkProposals(): Promise<void>;
-  copyFullPromptWithSources(): Promise<void>; importProposal(): Promise<void>;
   openProposal(): void; discardReview(): void; acceptSelectedChanges(): Promise<void>;
   persist(): void;
   feedbackScope: 'cv' | 'letter' | 'both'; pane: 'cv' | 'letter'; tab: string; historyOpen: boolean;
@@ -103,9 +100,3 @@ export async function prepare(fixture: ReturnType<typeof mount>, sourceId = 'bas
   return setup;
 }
 export const documents = (setup: Workspace) => JSON.stringify({ record: setup.record, letter: setup.letter });
-
-// Existing local proposal records remain readable after the manual-import UI is removed.
-export async function loadHistoricalProposal(setup: Workspace, row: RefinementProposalRow) {
-  setup.importedProposals.push(row); setup.persist();
-  await setup.checkProposals(); await idle(setup);
-}

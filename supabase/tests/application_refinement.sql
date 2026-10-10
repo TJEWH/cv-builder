@@ -35,12 +35,12 @@ begin
     perform public.save_refinement_state(app_a,setup,jsonb_build_object('cv','v1:'||repeat('b',64),'letter',null),1);
     raise exception 'FAIL: approval without recorded review';
   exception when check_violation then null; end;
-  request:=jsonb_build_object('schemaVersion',1,'requestId',request_a,'applicationId',app_a,
+  request:=jsonb_build_object('schemaVersion',2,'requestId',request_a,'applicationId',app_a,
     'cv',jsonb_build_object('schemaVersion',1,'requestId',request_a,'fields',jsonb_build_array(
-      jsonb_build_object('id','field-1','label','Profile','text','Research with {{PRIVATE_1}}.'),
+      jsonb_build_object('id','field-1','label','Profile','text','Research work with {{PRIVATE_1}}.'),
       jsonb_build_object('id','field-2','label','Evidence','text','An explicitly chosen Alex Muster label!!')),
       'opportunity','{}'::jsonb,'instructions','Use evidenced qualifications!!'),
-    'letter',setup||'{"text":""}','scope','both','feedback','[]'::jsonb,'parentProposalId',null);
+    'letter',setup||'{"text":""}','scope','both','feedback','[]'::jsonb,'parentProposalId',null,'cvStructure','{"schemaVersion":1,"areas":[{"id":"body","sectionIds":[]},{"id":"sidebar","sectionIds":[]}],"sections":[],"entries":[],"bullets":[],"ranges":[{"id":"range-1","fieldId":"field-1","bulletId":null,"text":"Research work with {{PRIVATE_1}}.","label":"Profile"}],"unsupported":[{"fieldId":"field-2","reason":"Preserve authored privacy wording."}]}'::jsonb);
   -- Authored CV privacy fields survive unchanged; other input channels still require identity filtering.
   begin
     perform public.publish_refinement_request(jsonb_set(request,'{cv,instructions}','"Alex Muster"'));
@@ -63,8 +63,8 @@ begin
     perform public.publish_refinement_request(jsonb_set(request,'{scope}','"cv"'));
     raise exception 'FAIL: request ID overwrite';
   exception when unique_violation then null; end;
-  proposal:=jsonb_build_object('schemaVersion',1,'requestId',request_a,'summary','Emphasized research experience.',
-    'cvEdits',jsonb_build_array(jsonb_build_object('fieldId','field-1','text','Robotics research with {{PRIVATE_1}}.')),
+  proposal:=jsonb_build_object('schemaVersion',2,'requestId',request_a,'summary','Emphasized research experience.',
+    'cvOperations',jsonb_build_array(jsonb_build_object('id','change-1','type','shorten_text','targetId','range-1','explanation','Keep the evidence concise.','text','Research with {{PRIVATE_1}}.')),'cvComments','[]'::jsonb,
     'letterText','Dear committee!! '||repeat('research ',401));
   begin perform private.read_refinement_request(request_a); raise exception 'FAIL: owner accessed management helper'; exception when insufficient_privilege then null; end;
   begin perform private.save_refinement_proposal(request_a,proposal_a,proposal); raise exception 'FAIL: owner wrote management proposal'; exception when insufficient_privilege then null; end;
@@ -84,17 +84,17 @@ begin
   for invalid in select value from jsonb_array_elements(jsonb_build_array(
     'null'::jsonb,'[]'::jsonb,proposal||'{"baselineState":{}}',proposal-'summary',
     jsonb_set(proposal,'{requestId}',to_jsonb(gen_random_uuid())),
-    jsonb_set(proposal,'{cvEdits}','[{"fieldId":"field-999","text":"Unknown"}]'),
-    jsonb_set(proposal,'{cvEdits}','[{"fieldId":"field-1","text":"Removed private token"}]'),
-    jsonb_set(proposal,'{cvEdits}','[{"fieldId":"field-2","text":"Moved {{PRIVATE_1}}"}]'),
-    jsonb_set(proposal,'{cvEdits}','[{"fieldId":"field-2","text":"A","path":["contact"]}]'),
+    jsonb_set(proposal,'{cvOperations,0,targetId}','"range-999"'),
+    jsonb_set(proposal,'{cvOperations,0,text}','"Research work"'),
+    jsonb_set(proposal,'{cvOperations,0,text}','"Moved {{PRIVATE_1}}"'),
+    jsonb_set(proposal,'{cvOperations,0,path}','["contact"]'),
     jsonb_set(proposal,'{letterText}','"Hello <b>HTML</b>"')
   )) loop
     begin perform private.save_refinement_proposal(request_a,gen_random_uuid(),invalid); raise exception 'FAIL: invalid proposal accepted'; exception when invalid_parameter_value then null; end;
   end loop;
   begin
     insert into public.application_refinement_proposals(id,application_id,user_id,request_id,proposal_json)
-      values(gen_random_uuid(),app_b,owner_b,request_a,jsonb_set(proposal,'{cvEdits}','[{"fieldId":"field-1","text":"Invalid"}]'));
+      values(gen_random_uuid(),app_b,owner_b,request_a,jsonb_set(proposal,'{cvOperations,0,text}','"Invalid"'));
     raise exception 'FAIL: direct write bypassed validation';
   exception when invalid_parameter_value then null; end;
   begin update public.application_refinement_proposals set proposal_json='{}' where id=proposal_a; raise exception 'FAIL: privileged proposal mutation'; exception when check_violation then null; end;
@@ -122,7 +122,7 @@ begin
   execute 'reset role'; perform set_config('request.jwt.claims','{}',true);
   proposal:=jsonb_set(proposal,'{requestId}',to_jsonb(request_b));
   begin perform private.save_refinement_proposal(request_b,gen_random_uuid(),proposal); raise exception 'FAIL: letter-only CV mutation'; exception when invalid_parameter_value then null; end;
-  proposal:=jsonb_set(proposal,'{cvEdits}','[]');
+  proposal:=jsonb_set(proposal,'{cvOperations}','[]');
   perform private.save_refinement_proposal(request_b,gen_random_uuid(),proposal);
   -- Late proposals may be retained against their immutable baseline; UI never applies them automatically.
   perform private.save_refinement_proposal(request_a,gen_random_uuid(),jsonb_set(proposal,'{requestId}',to_jsonb(request_a)));

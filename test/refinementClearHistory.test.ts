@@ -10,16 +10,16 @@ const documentFingerprint = (setup: Workspace) => refinementSignature(JSON.parse
 
 function history(setup: Workspace) {
   return refinementSignature({ requests: setup.requests, proposals: setup.proposals, reviews: setup.reviews,
-    localRequests: setup.localRequests, importedProposals: setup.importedProposals, importedReviews: setup.importedReviews,
-    parent: setup.parentProposalId, selected: setup.selectedProposalId, review: setup.reviewActive, feedback: setup.feedback });
+    localRequests: setup.localRequests,
+    parent: setup.parentProposalId, selected: setup.selectedProposalId, review: setup.reviewActive, feedback: setup.feedbackHistory() });
 }
 
 function assertEmptyHistory(setup: Workspace) {
   assert.deepEqual(setup.requests, []); assert.deepEqual(setup.proposals, []); assert.deepEqual(setup.reviews, []);
-  assert.deepEqual(setup.localRequests, {}); assert.deepEqual(setup.importedProposals, []); assert.deepEqual(setup.importedReviews, []);
+  assert.deepEqual(setup.localRequests, {});
   assert.deepEqual(setup.feedbackHistory(), []); assert.deepEqual(setup.resetRequestIds, []);
   assert.equal(setup.parentProposalId, null); assert.equal(setup.selectedProposalId, ''); assert.equal(setup.reviewActive, false);
-  assert.equal(setup.feedback, ''); assert.equal(setup.canClearHistory, false);
+  assert.deepEqual(setup.proposalAnnotations, []); assert.equal(setup.canClearHistory, false);
   assert.equal(setup.showInitialRefinement, true);
 }
 
@@ -31,10 +31,9 @@ function assertFreshInitialRequest(setup: Workspace) {
   assert.equal(setup.localRequests[request.id].publishedAt, request.created_at);
   assert.equal(request.request_json.parentProposalId, null); assert.deepEqual(request.request_json.feedback, []);
   assert.deepEqual(setup.proposals, []); assert.deepEqual(setup.reviews, []);
-  assert.deepEqual(setup.importedProposals, []); assert.deepEqual(setup.importedReviews, []);
   assert.deepEqual(setup.feedbackHistory(), []); assert.deepEqual(setup.resetRequestIds, []);
   assert.equal(setup.parentProposalId, null); assert.equal(setup.selectedProposalId, ''); assert.equal(setup.reviewActive, false);
-  assert.equal(setup.feedback, ''); assert.equal(setup.showInitialRefinement, true);
+  assert.deepEqual(setup.proposalAnnotations, []); assert.equal(setup.showInitialRefinement, true);
 }
 
 test('clear history deletes cloud and local iterations while preserving working documents and creates a fresh next task', async t => {
@@ -45,13 +44,11 @@ test('clear history deletes cloud and local iterations while preserving working 
   await setup.syncRefinement(); assert.equal(setup.error, '');
   assert.equal(setup.showInitialRefinement, false);
   assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'Previous iteration answer.', null), true);
-  assert.ok(setup.feedbackHistory().length);
-  setup.importedProposals.push(fixture.cloud.seedProposal(firstId, { persist: false }));
-  setup.importedReviews.push({ id: crypto.randomUUID(), application_id: applicationId, user_id: account, request_id: firstId,
-    kind: 'feedback', payload: { scope: 'letter', text: 'Older imported feedback.' }, created_at: new Date().toISOString() });
-  setup.feedback = 'Unsent feedback for the old proposal.'; setup.persist();
+  assert.equal(setup.feedbackHistory().length, 1);
+  assert.equal(await setup.saveAnnotation('annotation-1', 'resolved', 'Confirmed the documented CV research methods.', null), true);
   await setup.checkProposals(); setup.openProposal();
   assert.equal(setup.reviewActive, true); assert.equal(setup.canClearHistory, true);
+  assert.equal(setup.feedbackHistory().length, 2, 'saved CV and letter annotation answers are both included');
   const before = documentFingerprint(setup), state = JSON.parse(JSON.stringify(setup.cloudState));
 
   await setup.clearRefinementHistory();
@@ -66,7 +63,7 @@ test('clear history deletes cloud and local iterations while preserving working 
   assert.deepEqual(setup.cloudState!.setup_json, state.setup_json);
   assert.deepEqual(setup.cloudState!.approvals_json, state.approvals_json);
   const stored = JSON.parse(fixture.storage.getItem(refinementKey)!);
-  assert.deepEqual(stored.requests, {}); assert.deepEqual(stored.importedProposals, []); assert.deepEqual(stored.importedReviews, []);
+  assert.deepEqual(stored.requests, {});
 
   setup = fixture.reopen(); await idle(setup); await setup.checkProposals();
   assert.equal(setup.error, ''); assertFreshInitialRequest(setup); assert.equal(documentFingerprint(setup), before);
@@ -101,7 +98,7 @@ test('clearing iteration history keeps both document approvals and all letter re
 
 for (const failure of [
   { error: { message: 'Cloud history is temporarily unavailable.' }, expected: /temporarily unavailable/ },
-  { error: { code: 'PGRST202', message: 'Function not found.' }, expected: /database update|migration/i },
+  { error: { code: 'PGRST202', message: 'Function not found.' }, expected: /database setup is incomplete/i },
 ]) test(`failed history clear preserves local and cloud history: ${failure.error.message}`, async t => {
   const fixture = mount(t), setup = await prepare(fixture, 'base', { scope: 'letter' });
   fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Saved proposed draft.' });
@@ -123,7 +120,7 @@ test('cloud-confirmed history removal recovers on reload when persisting local c
   const firstId = setup.requests[0].id;
   fixture.cloud.seedProposal(firstId, { letterText: 'Keep this working draft through cleanup recovery.' });
   await setup.syncRefinement(); assert.equal(setup.error, '');
-  setup.importedProposals.push(fixture.cloud.seedProposal(firstId, { persist: false })); setup.persist();
+  assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'Keep this saved answer only until history is cleared.', null), true);
   const before = documentFingerprint(setup);
   fixture.failSave(refinementKey);
 

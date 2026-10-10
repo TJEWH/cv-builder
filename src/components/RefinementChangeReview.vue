@@ -5,7 +5,7 @@ interface ReviewedCvChange {
 }
 defineProps<{
   changes: ReviewedCvChange[]; selected: string[]; comments: { id: string; target: string; explanation: string }[];
-  legacy: boolean; lang: string; disabled: boolean; locked: boolean;
+  lang: string; disabled: boolean; locked: boolean;
 }>();
 const emit = defineEmits<{ toggle: [id: string, included: boolean] }>();
 const text = (lang: string, en: string, de: string) => lang === 'de' ? de : en;
@@ -14,7 +14,6 @@ const text = (lang: string, en: string, de: string) => lang === 'de' ? de : en;
 <template>
   <section class="change-review" :aria-label="text(lang, 'CV change review', 'Prüfung der CV-Änderungen')">
     <h4>{{ text(lang, 'CV changes & changelog', 'CV-Änderungen & Änderungsverlauf') }}</h4>
-    <p v-if="legacy" class="app-hint">{{ text(lang, 'Legacy text suggestions — these are general replacements, not validated structural operations. Review every wording change.', 'Frühere Textvorschläge — allgemeine Ersetzungen, keine validierten strukturellen Operationen. Jede Textänderung prüfen.') }}</p>
     <p v-if="!changes.length" class="app-hint">{{ text(lang, 'No CV changes proposed.', 'Keine CV-Änderungen vorgeschlagen.') }}</p>
     <article v-for="change in changes" :key="change.id" class="change" :data-change-id="change.id">
       <label class="include"><input type="checkbox" :checked="selected.includes(change.id)" :disabled="disabled || locked" @change="emit('toggle', change.id, ($event.target as HTMLInputElement).checked)" /><span>{{ text(lang, 'Include', 'Einbeziehen') }} {{ change.id }} · {{ change.target }}</span></label>

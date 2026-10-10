@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createSampleDocument } from '../src/composables/builtinConfigurations';
-import { cloneCv, copyCvSection, createApplicationCv, cvDifferences, isApplicationCvPublished, loadApplicationCv, resetCvDifference, saveApplicationCv } from '../src/composables/applicationCv';
+import { cloneCv, copyCvSection, createApplicationCv, cvDifferences, isApplicationCvPublished, loadApplicationCv, saveApplicationCv } from '../src/composables/applicationCv';
 import { normalizeContentState } from '../src/composables/contentLayout';
 
 function memoryStorage() {
@@ -22,15 +22,6 @@ test('application CV copies retain independent content and pinned sources across
   assert.equal(first.baseRevision, 1);
   assert.ok([...store.values.keys()].every(key => key.startsWith('CV_APPLICATION:')), 'assignment stores no career checkpoint history');
   assert.equal(loadApplicationCv('other-owner', 'application-a', store), null);
-});
-test('resetting one naming adjustment preserves unrelated application adjustments', () => {
-  const record = createApplicationCv('u', 'a', 'research', 'Research', createSampleDocument());
-  record.state.contact.role = 'Adjusted role'; record.state.about.text = 'Adjusted summary';
-  const difference = cvDifferences(record.baseState, record.state).find(({ label }) => label === 'contact › role')!;
-  record.state = resetCvDifference(record, difference);
-  assert.equal(record.state.contact.role, record.baseState.contact.role);
-  assert.equal(record.state.about.text, 'Adjusted summary');
-  assert.throws(() => resetCvDifference(record, difference), /no longer exists/);
 });
 test('reordered entries are treated as a whole collection rather than mismatching array indexes', () => {
   const before = createSampleDocument(); const after = cloneCv(before);

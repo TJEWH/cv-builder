@@ -1,195 +1,126 @@
 # Optional Supabase workspace
 
-The CV builder remains a frontend-only application. Its complete CVs, saved local versions and editor preferences stay in browser storage. Supabase adds an authenticated opportunities catalogue and private application records; it is not required for local editing or export.
+The app is a static frontend. Supabase supplies the shared opportunity catalogue, private applications and [connected CV/letter
+refinement](REFINEMENT.md). Local CV editing and PDF export work without an account.
 
-The main application workflow uses [joint CV/letter refinement](REFINEMENT.md): immutable requests, append-only proposals, accumulated feedback and separate document approval. The existing project Supabase MCP can read one prepared request and save a proposal through dedicated private management functions. The older [letter-drafting](DRAFTING.md) and [CV-adjustment](CV_ADJUSTMENTS.md) APIs remain supported with their original authentication requirements. Supporting files and private editable documents stay in browser storage; explicitly published requests include anonymized current wording.
+The deployment target is **phd-workflow** (`ehkfzvjgesomteqpwrwa`), using the matching GitHub Pages environment.
+The unused **Test** project (`vhkfrseocgiqxshrbevd`) has authorized deletion pending browser login; it has **not** been deleted.
 
-## Workspace and storage boundaries
+## Storage and workflow boundaries
 
-**Opportunities** searches the shared catalogue and creates applications. **CV Studio** maintains reusable career variants, pinned revisions, letter templates and local attachments. **Applications** provides four freely accessible stages: **Preparation**, **Refinement**, **Attachments** and **Tracking**.
+**CV Studio** maintains CV variants, letter templates and attachments. Applications have Preparation, Refinement, Attachments and
+Tracking stages. Selecting templates freezes independent working copies; an approved application CV can be saved as a new reusable
+variant.
 
-Selecting a career variant creates an independent application CV; its source ID is provenance, not a live link. Selecting a letter template freezes its revision, guidance and optional style example. Later library edits do not change either copy. Manual edits and accepted refinements update only that application's working documents. After approving its final CV, the owner can explicitly choose **Save as new variant** to create an independent reusable library copy. Older local subvariants remain available as ordinary variants, and existing application copies and restored backups preserve their content. Complete CVs and private letter revisions use LocalStorage; supporting files, package arrangements and frozen PDFs use IndexedDB. Application backups cover editable documents and local refinement reconstruction data; file/package and template-library backups remain separate. Cloud records alone cannot restore full private documents.
+Complete CVs, letters and private reconstruction data stay in LocalStorage. Attachment files, package arrangements and previously
+archived PDFs use IndexedDB. Cloud records cannot restore private originals on another device. CV, template and file/package backups
+are separate.
 
-Preparation saves the anonymized CV and letter settings and selects existing local attachments from CV Studio. Refinement copies a prompt for ChatGPT, retrieves a joint proposal and lets the owner review, edit or request improvements. Every new round includes the current anonymized wording and accumulated replies. Approving one document limits later requests to the other; reopen it to request further changes. PDF review assembles the approved documents and attachments. Word-limit/checklist warnings are advisory, while missing included files block export. Submission and status updates remain manual in Tracking.
+Refinement publishes privacy-filtered sources for the selected document. **Copy task** / **Copy feedback** prepares a connected ChatGPT
+handoff; **Sync** applies a valid current-snapshot proposal. Manual corrections, resolved annotation answers and separate approvals
+remain part of the flow. Approved documents must be reopened before edits. Attachments assembles local PDFs; submission and tracking
+remain manual.
 
-The attachment library shares only a user-entered name (up to 200 characters), description (up to 4,000 characters), and technical attachment/owner IDs. It never sends file bytes, original filenames, size, type or extracted text. Names and descriptions are not generated from files. Supabase metadata is owner-only; files and application selections use the existing account-scoped IndexedDB library and package manifests. A metadata-only entry on another device explicitly lacks a file and blocks package export until restored. Legacy filenames and backup imports are not automatically published. No Supabase Storage bucket or application-attachment association table is used.
+The attachment library shares explicitly saved names, descriptions and attachment/owner IDs. File bytes and file-derived metadata stay
+local. There is no Storage bucket or cloud application-attachment table. A metadata-only entry cannot be exported until its file exists
+locally.
 
 ## Setup
 
-1. Copy the optional variables from the root `.env.example` into `.env.local`: `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. Use the project's publishable key, never a secret or `service_role` key. Existing `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` configuration is supported too. Restart Vite after changing these values.
-2. For a **new database**, apply [`schema.sql`](schema.sql) once using a Supabase SQL migration or the SQL editor. This is a consolidated setup script, not a repeatable migration. For a workspace with only the original CV/application schema, apply [`opportunity_review_workflow.sql`](changes/opportunity_review_workflow.sql), [`refresh_application_research_context.sql`](changes/refresh_application_research_context.sql), [`opportunity_review_receipts.sql`](changes/opportunity_review_receipts.sql), [`application_checklists_and_removal.sql`](changes/application_checklists_and_removal.sql), then [`application_letter_drafting.sql`](changes/application_letter_drafting.sql) and [`cv_adjustments.sql`](changes/cv_adjustments.sql). Skip upgrades already present. The deployment project **phd-workflow** (`ehkfzvjgesomteqpwrwa`) has all these changes, including `add_application_letter_drafting` applied on 2026-09-20 and `add_private_cv_adjustments` applied on 2026-09-21; do not rerun them there. The earlier Test project remains initialized but is not the deployment target.
-3. Provision the intended email/password users through Supabase Authentication. The application signs in existing users; it does not create accounts. Review the project's password policy, auth rate limits and account recovery configuration. For a restricted workspace, keep public account signup disabled.
-4. Enable **leaked password protection** in the project's Auth settings if available for its plan. The earlier Test project reported this setting as **disabled** on 2026-09-20. The current **phd-workflow** security advisor also reported leaked password protection as disabled on 2026-09-20; its Auth settings were not changed by this update. See [Supabase password security](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
-5. Populate and maintain `public.opportunities` through trusted backend/admin tooling. The frontend can only read the catalogue, create applications and update the signed-in user's private records.
-
-The unified workflow additionally requires [`changes/application_refinement.sql`](changes/application_refinement.sql). It is already applied to **phd-workflow** as `add_application_refinement_workflow` (`20260922224611` UTC), on **2026-09-23** in Europe/Tirane; do not rerun it there. For other targets, apply it only if missing from migration history, after the earlier workspace/drafting/adjustment upgrades. It adds new refinement tables and private MCP helpers without changing legacy RPC authentication. See [refinement setup and verification](REFINEMENT.md).
-
-Persistent application reference codes additionally require [`changes/application_codes.sql`](changes/application_codes.sql), applied after refinement. **phd-workflow** received it on **2026-10-01** as `add_persistent_application_codes` (`20261001195548` UTC); do not rerun it there. For other targets, confirm migration history before applying it. The server backfills existing applications and generates codes for new ones; the browser never invents a code. See [code resolution and verification](REFINEMENT.md#application-reference-codes).
-
-The catalogue is shared with every signed-in, non-anonymous Supabase user. Check that this access model is appropriate before enabling signup or adding users. Signed-out browsers (`anon`) have no access to these tables or the application RPCs. `opportunity_history`, when present, remains outside the frontend's access.
-
-The **Strong interest** review option additionally requires [`changes/opportunity_strong_interest.sql`](changes/opportunity_strong_interest.sql), after review receipts. It is included in fresh `schema.sql` installs. **phd-workflow** received it on **2026-10-06** as `opportunity_strong_interest` (`20261006094003` UTC); skip it where already applied.
-
-Opportunity comments require [`changes/opportunity_review_comments.sql`](changes/opportunity_review_comments.sql) on existing installations, after review receipts. Fresh `schema.sql` installs include the same column and RPC. The comment, review workflow, receipt, strong-interest, application-removal and workspace-security SQL suites passed locally with PGlite against both fresh and upgraded schemas; existing review data, timestamps and RPC permissions were preserved by the upgrade. **phd-workflow** received `opportunity_review_comments` on **2026-10-11** (Europe/Tirane), migration version `20261010220403` (UTC); do not rerun it there.
-
-The live [comment SQL suite](tests/opportunity_review_comments.sql) passed after deployment with all synthetic users and records rolled back. It verifies comment creation/editing/clearing, length limits, owner isolation, anonymous denial and preservation of interest, receipts, application behavior and shared research. The RPC is `SECURITY INVOKER`, has an empty `search_path`, allows authenticated execution and denies `anon`; the PostgREST schema cache was explicitly reloaded. Before/after counts and checksums matched for all **150 opportunities** (`f710bf0b6d1b763555df48991bbeb21a`), **123 reviews**, excluding only the new nullable column (`780bce58dd21a53864eee1d4c4022a2f`), and **8 applications** (`273291036469c1797f7d4c56bd48f07b`). No existing comments were fabricated. Security/performance advisors reported no new finding; the existing [history-table missing-policy notice](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy), [history-table unindexed foreign key](https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys), [unused indexes](https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index) and [leaked-password-protection warning](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) remain.
-
-The local attachment library requires [`changes/local_attachment_metadata.sql`](changes/local_attachment_metadata.sql), after the structured-CV upgrade that supplies `refinement_utf16_length`. **phd-workflow** received it as `local_attachment_metadata` (`20261002231546` UTC; 2026-10-03 in Europe/Tirane). It is also included in the consolidated schema; do not rerun it on an upgraded database. The browser uses owner-filtered reads and the invoker RPCs `save_local_attachment_metadata(p_id, p_name, p_description)` and `delete_local_attachment_metadata(p_id)`. There is no file upload operation. The [synthetic SQL suite](tests/local_attachment_metadata.sql) verifies the exact four-column contract, metadata validation, retries, owner isolation, anonymous denial, immutable IDs, deletion and unchanged application state, then rolls back its fixtures.
-
-The **Privacy editor** requires [`changes/explicit_privacy_text.sql`](changes/explicit_privacy_text.sql) on existing installations, after `refinement_privacy_legend.sql` and `letter_template_guidance.sql` (and their earlier dependencies). It removes obsolete punctuation rules, accepts explicitly authored contact privacy values, and captures the already projected CV unchanged. The script is idempotent and preserves existing snapshots, proposals, ownership and grants. Fresh `schema.sql` installations include the same behavior. This change has been verified locally; no remote deployment is recorded here.
-
-## Data contract
-
-| Table | Access | Purpose |
-| --- | --- | --- |
-| `opportunities` | Authenticated, non-anonymous users: read only | Existing shared research records; `institution`, `contacts`, structured metadata and research history are preserved. |
-| `opportunity_reviews` | Owner only | Per-opportunity `unreviewed`, `interested`, `strong_interest` or `not_interested` state, optional private `comment`, and `reviewed_updated_at`, the source version last viewed; missing rows also mean unreviewed. |
-| `cv_variants` | Owner only | Immutable privacy-filtered content/config snapshots; complete local CVs are never uploaded by the app. |
-| `applications` | Owner only | Required opportunity, captured research, optional CV snapshot and optional legacy employer `contact_email`, status with server-maintained `status_history`, notes, private `completed_checklist_keys`, and retained legacy contact/submission timestamps. |
-| `drafts` | Owner only | Legacy integration drafts (`motivation_letter`, `cv_suggestions`, `contact_email`); preserved for existing clients. |
-| `drafting_contexts` | Owner only; immutable | Server-captured opportunity research, assigned anonymized CV, template, theme and drafting settings. |
-| `motivation_letter_drafts` | Owner only; append only | Returned draft text linked to one exact owner/application/context; local edited/final letters are separate. |
-| `cv_adjustment_requests` | Owner only; immutable | Reviewed public text fields, privacy placeholders and optional application context; full CVs and reconstruction data stay local. |
-| `cv_adjustment_responses` | Owner only; append only | Legacy returned field edits bound to an exact standalone adjustment request. |
-| `application_refinement_state` | Owner only | Frozen letter settings, current request reference, approval hashes and optimistic revision. |
-| `application_refinement_requests` | Owner only; immutable | Joint public CV/letter context, ordered feedback and server-captured opportunity/CV snapshots. |
-| `application_refinement_proposals` | Owner read; management append | Validated joint proposal summary, CV field edits and complete letter; never applied automatically. |
-| `application_refinement_reviews` | Owner only; append only | Feedback and separate CV/letter approval/reopen history. |
-| `local_attachment_metadata` | Owner only | Manually entered attachment name and description; `id` and `user_id` are the only other columns. File data and application package selections stay local. |
-
-Application statuses are `preparation`, `refinement`, `attachments`, `ready`, `contacted`, `submitted`, `interview`, `offer`, `rejected` and `withdrawn`. An owner can have one application per opportunity. Creating an application requires no CV or contact email; a privacy CV can be assigned later. Composite foreign keys prevent referencing another user's CV, parent CV or application. Assigned CVs and referenced opportunities cannot be removed while an application needs them; deleting an application cascades its drafts, and deleting an account removes its private records and interest reviews.
-
-Each application also has an immutable server-assigned `application_code` after the code upgrade. `public.resolve_application_reference` resolves a complete code or UUID within the signed-in owner's applications; `private.resolve_application_reference` provides the existing `postgres` management MCP with the matching UUID, code and current refinement request. Both use exact normalized lookup, with no title or partial matching. Codes do not bypass owner authorization. Creation retries and later document/status changes preserve the original code.
-
-CV snapshots use the builder's privacy export and a filtered configuration. The browser applies contact samples, selected Company/Institution/Place/Start & end dates masks, and known-identity filtering in shared prose, then applies explicit field replacements last. The Privacy editor shows the original Content layout and stores only changed field values locally in `anonymization.fieldOverrides`; the override map and replaced originals never enter a snapshot. The database validates contact shape, rejects unknown top-level content/config fields and prevents changing saved content, configuration, version or ownership. Drafting and refinement capture the assigned privacy CV unchanged, preserving manual wording. Database checks cannot identify personal information embedded in arbitrary prose: keep the frontend's privacy projection at every upload boundary.
-
-`review_job_opportunity(p_opportunity_id, p_observed_updated_at, p_state)` atomically saves an optional interest choice and the version viewed. Opening a row leaves the existing choice untouched. Only the matching current source timestamp can advance a receipt, and stale requests cannot regress it. Receipts use existing owner RLS and remain separate from the shared catalogue. New/updated highlights clear after opening a row or changing its dropdown, persist across sessions, and return for a later source update.
-
-`save_opportunity_comment(p_opportunity_id, p_comment)` saves optional private reasoning, such as why an opportunity is not interesting or merits strong interest, and returns the full review row. Comments are limited to 5,000 characters; outer whitespace is trimmed and blank/null input clears the field. This authenticated invoker RPC updates only the comment, preserving interest and the viewed source version. A first comment creates an unreviewed record without acknowledging research. Interest changes, opening an opportunity and creating/removing an application preserve its comment. The shared catalogue and application research snapshots are unchanged. The [comment SQL suite](tests/opportunity_review_comments.sql) covers these guarantees, bounds and account isolation with rolled-back fixtures.
-
-`strong_interest` is an explicit owner preference for future search analysis, independent of `personal_fit`, `particularly_suitable`, applications and original search provenance. It is saved through the existing `review_job_opportunity` RPC in `public.opportunity_reviews`. ChatGPT with authorised Supabase access can join these reviews to `public.opportunities` on `opportunity_id = id`, restricting reviews to the explicit owner and `state = 'strong_interest'`. Use all matching opportunities across original searches, scores and deadlines; do not apply browser table filters or substitute high-fit results. Confirm the owner rather than inferring one when using a management connection. Analysis and creation of new searches take place in ChatGPT; the app has no search-generation UI. Opening opportunities and creating/removing applications preserve this preference. Changing the review state withdraws it from subsequent strong-interest queries. The source receipt does not imply that a historical catalogue snapshot was retained.
-
-Strong-interest verification: [`tests/strong_interest.sql`](tests/strong_interest.sql), `review_receipts.sql` and `review_workflow.sql` passed inside the migration transaction, each with its fixtures rolled back before committing the schema change. The strong-interest suite passed again after deployment. Tests cover explicit selection across low scores, expired deadlines and different search origins, source integrity, stale receipts, application creation/removal, owner isolation and invalid/anonymous writes. Security advisors reported only the existing [history-table information](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy) and [leaked-password-protection warning](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
-
-Frontend regression coverage in `jobWorkspaceNavigation` and `useJobWorkspace` retains review filtering, save/reload, updated-source receipts, application creation and account isolation. These tests use synthetic data and mocked Supabase responses. Search-brief UI, generation and clipboard tests were removed with the in-app search workflow. Frontend deployment is separate from the database upgrade.
-
-`create_job_application(p_application_id, p_opportunity_id)` creates an application without uploading a CV. Repeated clicks for the same owner's opportunity return the existing application ID without changing its saved data. The previous eight-argument overload remains available for clients opened before the upgrade. `assign_job_application_cv` creates a privacy snapshot and saves permitted application edits in one transaction; retries with identical IDs/payload are safe. Assignment edits are limited to `contact_email`, `status`, `notes`, `contacted_at` and `submitted_at`.
-
-Each application captures the full opportunity row as `context_json`, including `requirements`, `required_documents`, `contacts`, `supervisors`, `supervisor_research_focus` and `supervisor_top_papers`; `context_captured_at` records server capture time. Normal edits and later catalogue changes leave that saved context stable. `refresh_job_application_context(p_application_id)` explicitly captures the latest research while preserving the selected CV, status, notes and contact email. Both RPC and direct table writes use an invoker trigger which replaces client-supplied context with authoritative source data. Application identity and ownership cannot be changed.
-
-All browser-facing application RPCs run as the caller (`SECURITY INVOKER`), enforce owner RLS and reject anonymous accounts. Research fields are stored without inventing missing data. The two supervisor research columns were present but empty across the catalogue at the time of the earlier upgrade; use explicit refresh to include later research in an existing application.
-
-The main browser contract uses `save_refinement_state`, `publish_refinement_request` and `save_refinement_review`. The existing project MCP uses SQL calls to `private.read_refinement_request(request_id)` and `private.save_refinement_proposal(request_id, proposal_id, proposal)`. These private invoker helpers are restricted to `postgres`; proposal ownership is derived from the immutable request, without fabricated JWT claims or wider browser grants. The prompt names one exact project/request, retains proposal UUIDs across retries and checks the persisted receipt. The MCP still has its existing project-wide administrative permissions; these functions define the supported workflow rather than restricting the entire connection. See [the full contract](REFINEMENT.md).
-
-The legacy `publish_application_drafting_context` freezes the current assigned privacy CV and saved opportunity research. `read_application_drafting_context` returns an owned context; `save_application_letter_draft` appends a draft for that exact context. These older owner-authenticated RPCs still reject a management connection without an app-user JWT. Their authenticated integration or read-only retrieval/local-import paths remain valid for old clients; the new private refinement operations provide MCP writeback separately. See [legacy integration details](DRAFTING.md).
-
-## Applied migrations and verification
-
-On **2026-09-19**, the original **Test** project (`vhkfrseocgiqxshrbevd`) received:
-
-1. `add_private_cv_application_workspace`
-2. `normalize_shared_catalogue_auth_initplan`
-
-The second migration changes only the syntax of the cached JWT lookup in the shared catalogue policy, preserving its authorization behavior. On **2026-09-20** (Europe/Tirane), the project then received:
-
-3. `add_opportunity_reviews_and_application_context`
-4. `refresh_application_research_context`
-
-Existing applications were backfilled with current opportunity context once, without changing their prior CV, email, notes, status, creation or update timestamps. That upgrade remains part of the consolidated `schema.sql`; later deployment-project additions are listed below.
-
-Both [`tests/workspace_security.sql`](tests/workspace_security.sql) and [`tests/review_workflow.sql`](tests/review_workflow.sql) passed against that project after the migrations. Run each entire file as the SQL editor / `postgres` role to repeat the verification. They create random fixture users and records inside transactions, simulate authenticated and anonymous requests, and roll everything back. An exception fails the run; a final `PASS` result confirms completion.
-
-The checks cover owner CRUD; cross-user reads, updates, deletes and owner spoofing; cross-tenant foreign keys; shared catalogue read-only permissions; rejection of private contacts and unknown config fields; immutable CV snapshots; server timestamps; atomic reassignment and failed-save rollback; identical retries; anonymous denial; and application/account deletion cascades. Review tests additionally verify interest upsert/isolation, creation without CV/email, duplicate-click protection, complete authoritative research, stable saved context, explicit refresh, and rejection of forged context.
-
-The latest upgrade baseline contained **55 opportunities**, **4 history records**, **1 application** and **1 CV snapshot**, and those counts remained unchanged afterward. Hashes of the existing application's original fields and the complete existing CV row matched before and after the upgrade. Drafts, interest reviews and test users remained at **0**; all test fixtures rolled back.
-
-Supabase advisors reported no new security warnings or performance warnings after the final migration. Remaining findings were:
-
-- Pre-existing **leaked password protection disabled** warning, described above.
-- Informational [RLS enabled without a policy](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy) on the unchanged, frontend-inaccessible `opportunity_history` table.
-- Informational [unused indexes](https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index), including research indexes and the new review foreign-key index before normal use. These indexes were retained.
-
-## Current deployment project: phd-workflow
-
-On **2026-09-20**, the deployment target changed to **phd-workflow** (`ehkfzvjgesomteqpwrwa`). Its GitHub Pages build uses the GitHub environment named `phd-workflow`; configure that environment’s `VITE_SUPABASE_URL` as `https://ehkfzvjgesomteqpwrwa.supabase.co` and `VITE_SUPABASE_PUBLISHABLE_KEY` as this project's publishable key. GitHub variable values were not inspected through an authenticated GitHub API session. Local `.env.local` was also switched to this project and remains ignored by Git.
-
-The project already contained 64 opportunities, including advisor research columns, but had no application workspace tables or access policies. Migration `add_secure_cv_application_workspace` applied the consolidated `schema.sql`, including private CVs, applications, drafts, reviews, atomic RPCs, and explicit removal of browser grants on the backend-only history table and its sequence. That setup enabled RLS on the six tables then present. The complete catalogue checksum matched before and after migration; no opportunity data changed. No accounts, CVs or applications were copied from Test.
-
-Both SQL security suites passed on **phd-workflow**, with all fixtures rolled back. At that initial setup, the security advisor returned no warnings; its only informational finding was the intentionally inaccessible history table having RLS enabled without policies. Earlier Test-specific audit findings above describe that project's historical state, not this deployment project.
-
-The project had **no Auth users** at verification time. Provision an account in **phd-workflow → Authentication → Users** before signing in; Test accounts do not carry over between projects. The local production build passed and its generated bundle contains the phd-workflow URL, with no Test project URL.
-
-On **2026-09-20**, **phd-workflow** also received `add_private_opportunity_review_receipts` ([SQL](changes/opportunity_review_receipts.sql)). [`tests/review_receipts.sql`](tests/review_receipts.sql) and the existing review workflow suite passed with rolled-back fixtures. Receipt checks cover account isolation, anonymous denial, stale/future versions, unchanged shared research and preservation of interest choices. The security advisor reports the existing backend-only history table without frontend policies (INFO), and disabled leaked password protection (WARN; see the setup recommendation above).
-
-The performance advisor also flags the existing backend-only history table’s [unindexed foreign key](https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys) (INFO). This receipt migration does not change that table.
-
-On **2026-09-20**, **phd-workflow** received `add_application_checklists_and_removal` ([SQL](changes/application_checklists_and_removal.sql)). The private application column `completed_checklist_keys` stores completed requirement/document identities. Identities are based on canonical source content, not list positions or translated labels, so reorder/language changes retain progress and changed items start unchecked. Existing application RLS applies to the new field. `set_job_application_checklist_item` atomically changes one key without overwriting another device’s checks or the saved research/CV. A research refresh preserves stored checks; only keys still matching the visible research are counted or exported.
-
-`remove_job_application` deletes only the caller’s application and cascading drafts, retains CV snapshots and shared opportunities, and resets a previous “not interesting” review so the opportunity can return to the default review list. Repeated removal requests are safe. The frontend shows an inline confirmation and a “View opportunity” action after success; existing deadline filters still apply to general browsing.
-
-[`tests/application_checklists_and_removal.sql`](tests/application_checklists_and_removal.sql) and the existing review workflow suite passed on **phd-workflow**, with all fixtures rolled back. Checks cover checklist persistence, per-item retries, refresh preservation, bounds, owner isolation, anonymous denial, deletion retries, draft cascades, retained CV snapshots, unchanged research and application recreation. No existing application records were removed during implementation. Security advisor findings remain the previously documented leaked-password-protection warning and backend-only history-table informational notice.
-
-On **2026-09-20**, **phd-workflow** received `add_application_letter_drafting` ([SQL](changes/application_letter_drafting.sql)). It adds immutable `drafting_contexts` and append-only `motivation_letter_drafts`, explicit API grants, owner RLS, composite ownership/context foreign keys and invoker RPCs. Existing application, CV, legacy draft and catalogue data are preserved.
-
-The complete [`tests/application_letter_drafting.sql`](tests/application_letter_drafting.sql) suite passed against **phd-workflow**, with every fixture rolled back. It verifies authoritative source capture, sample-identity placeholders, preservation of factual roles/cities, input bounds, identical retries, immutability, cross-user and cross-application denial, anonymous denial and deletion cascades. The security advisor reported no new finding; the existing **leaked password protection disabled** warning remains. This database deployment does not configure a ChatGPT OAuth client or connector.
-
-
-On **2026-09-21**, **phd-workflow** received `add_private_cv_adjustments` ([SQL](changes/cv_adjustments.sql)). It adds only `cv_adjustment_requests`, `cv_adjustment_responses`, owner RLS, indexed composite ownership foreign keys, immutable row guards and caller-permission RPCs. Requests may optionally belong to an application. Deleting that application cascades its requests/responses; independent requests remain until account deletion or administrative cleanup. Existing opportunity, application, CV and drafting records are unchanged.
-
-The complete [`tests/cv_adjustments.sql`](tests/cv_adjustments.sql) suite passed with random synthetic users and records, all rolled back. It verifies exact JSON shapes, payload and field bounds, known field IDs, private-token preservation, link/HTML rejection, direct-write validation, owner isolation, anonymous denial, append-only history, identical retries, server timestamps and application/account cascades. See [CV_ADJUSTMENTS.md](CV_ADJUSTMENTS.md) for authenticated RPC examples and the manual workflow. Publication does not configure or start a ChatGPT connection; private full-CV reconstruction remains local.
-
-Final verification retained **63 opportunities**, **11 applications**, and **0 CV snapshots, drafting contexts or motivation-letter drafts**. Both new adjustment tables contained **0 rows** after rollback. Both have RLS enabled; the three public adjustment RPCs are `SECURITY INVOKER`, have an empty `search_path`, allow authenticated execution and deny `anon` execution.
-
-Advisors found no new security issue or performance warning. Remaining findings are the existing [leaked password protection warning](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection), the unchanged backend-only history table's [missing RLS policy](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy) and [unindexed foreign key](https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys), plus informational [unused indexes](https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index). The new `cv_adjustment_requests_recent_idx` is retained for the owner-scoped all-requests query, which has not yet been used in normal traffic.
-
-On **2026-09-23** (Europe/Tirane), **phd-workflow** received `add_application_refinement_workflow`, migration version `20260922224611` (UTC), from [`changes/application_refinement.sql`](changes/application_refinement.sql). It adds frozen preparation state, immutable joint requests, append-only proposals and feedback/review history, owner RLS, atomic revision-checked approvals and `postgres`-only private MCP operations. Legacy drafting APIs and existing records remain unchanged.
-
-The expanded [`tests/application_refinement.sql`](tests/application_refinement.sql) suite passed after deployment, with all synthetic fixtures rolled back. It covers captured context, privacy-token and scope validation, accumulated feedback, exact retries, approval history, owner isolation, management-helper restrictions, CV-only letter preservation, and application/account cascades. Advisors reported no new security finding: the existing leaked-password warning and backend-only history-table notices remain. Performance findings additionally include the new `refinement_reviews_request_idx` unused-index INFO, retained for its composite foreign key, alongside older unused indexes. See [the refinement integration contract and verification details](REFINEMENT.md).
-
-On **2026-10-01**, **phd-workflow** received `add_persistent_application_codes`, migration version `20261001195548` (UTC), from [`changes/application_codes.sql`](changes/application_codes.sql). It assigns globally unique immutable server-generated codes, preserves both creation APIs with bounded collision retries, and adds owner-scoped/public and `postgres`-only/private reference resolvers. Complete codes or UUIDs resolve to one application and its current refinement request.
-
-The complete [`tests/application_codes.sql`](tests/application_codes.sql) suite passed after deployment, including forced cross-owner collisions, unchanged retry identity, allocation-failure rollback, owner isolation and management permissions; all fixtures rolled back. Verification found **8 existing applications and 8 distinct non-null codes**. The checksum of all non-code fields was `bfdc47723dc28cd1f2ef44b91fe08da8` both before and after migration, confirming their preservation. Advisors reported no new findings; the previously documented history-table, leaked-password-protection and older unused-index notices remain.
-
-
-On **2026-10-01**, **phd-workflow** received `structured_cv_refinement`, migration version `20261001205721` (UTC), from [`changes/structured_cv_refinement.sql`](changes/structured_cv_refinement.sql). It extends existing validation to version-2 CV structure/operation proposals and exact accepted/rejected decision records, preserving version-1 JSON, ownership rules, immutable history and MCP privileges. No saved CV document migration is required; private structural mappings stay local.
-
-Before deployment, the upgrade passed in one rolled-back transaction with [`tests/application_refinement.sql`](tests/application_refinement.sql), [`tests/workspace_security.sql`](tests/workspace_security.sql) and [`tests/structured_cv_refinement.sql`](tests/structured_cv_refinement.sql). The structured suite passed again after deployment. Checks include all five operation types, unknown/invalid references, exact permutations, extractive shortening, Unicode bounds, private tokens/links, scope/version matching, retries, stale and approved-document guards, legacy reviews and cross-user isolation. All test fixtures rolled back. Security advisors reported no new findings; the existing history-table missing-policy information and leaked-password-protection warning remain. The frontend remains a separate release.
-
-
-On **2026-10-01**, **phd-workflow** received `refinement_annotations`, migration version `20261001213228` (UTC), from [`changes/refinement_annotations.sql`](changes/refinement_annotations.sql). It adds optional structured CV/letter annotations to v2 proposals and records annotation status, responses and explicitly referenced feedback through the existing append-only review table and owner-authenticated RPCs. It does not change document content, existing proposal history, RLS or management-role permissions.
-
-The new [`tests/refinement_annotations.sql`](tests/refinement_annotations.sql) suite passed before and after deployment; every synthetic fixture rolled back. Existing refinement, structured-CV and workspace-security suites also passed with the upgrade. Security advisors reported no new findings; the previously documented backend-only history-table informational notice and leaked-password-protection warning remain. Frontend verification passed 438 tests and the production build, plus desktop/mobile and English/German browser checks for answers, persistence, privacy filtering, separate document previews and invalidated letter references.
-
-
-On **2026-10-02** (Europe/Tirane), **phd-workflow** received `refinement_privacy_legend`, migration version `20261001224820` (UTC), from [`changes/refinement_privacy_legend.sql`](changes/refinement_privacy_legend.sql). It validates optional approved context descriptions on existing request tokens and prevents legacy edits from moving individual tokens across content lines. No tables, RLS, saved documents or private reverse mappings were added or changed.
-
-The privacy-legend, CV-adjustment, refinement, structured-CV, annotation and workspace-security suites passed within the migration transaction. Each suite's synthetic fixtures were rolled back before commit. The privacy suite passed again after deployment. Security advisors reported no new findings; the existing [backend-only history table notice](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy) and [leaked-password protection warning](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) remain. See the [privacy contract](REFINEMENT.md#privacy-preview-and-approved-context-ticket-6). Frontend deployment is separate.
-
-Frontend verification for Ticket 6 passed **472 tests** and the production build. Browser checks covered explicit approval/removal, filtered instructions/examples/feedback, visible versus pseudonymized text, English/German labels and the 390px layout. The temporary test fixture was removed.
-
-
-## Application status history
-
-Apply [`changes/application_status_history.sql`](changes/application_status_history.sql) to existing databases; new setups include it in `schema.sql`. It was applied to **phd-workflow** on **2026-10-02** as `application_status_history` (`20261002011837` UTC).
-
-`applications.status_history` is an ordered JSON array of `{status, changedAt}` entries under the application's existing owner RLS. An invoker trigger records the initial status and every actual change with a server timestamp, including updates through existing RPCs and other clients. A repeated value or unrelated edit adds nothing. Clients cannot replace or forge the array. Transitions back to an earlier status append another entry. No new table, elevated function, grant or policy is needed.
-
-Existing applications receive one entry for their current status with `changedAt: null`: past transitions and their times were never recorded. The UI marks those times as unknown, rather than deriving them from general update timestamps or legacy contact/submission fields. Those old fields remain stored for compatibility, but the Tracking UI no longer edits them. Status editing appears only in Tracking. The saved application stage determines the tab reopened; explicit tracking status is maintained separately (see the workflow-state upgrade below).
-
-The upgrade and [`tests/application_status_history.sql`](tests/application_status_history.sql) passed in a rolled-back preflight. The synthetic SQL suite passed again after deployment and rolled back all fixtures. It verifies server timestamps, order, revisited states, unchanged-status retries, forged-history rejection, invalid-write rollback, direct/RPC updates, unrelated edits, owner isolation and function permissions. The checksum of all pre-existing application fields remained `64735a3800195676d33b217e1d22c2bf` before and after deployment across all **8** applications. Security advisors reported only the existing [history-table notice](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy) and [leaked-password protection warning](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
-
-
-### Letter-template research interests and question guidance
-
-On **2026-10-03** (Europe/Tirane), **phd-workflow** received `letter_template_guidance`, migration version `20261002221554` (UTC), from [`changes/letter_template_guidance.sql`](changes/letter_template_guidance.sql). It extends the existing setup validator with optional research-interest and follow-up-question strings, each limited to 4,000 UTF-16 units. Existing requests, document state, grants, RLS and protocol versions remain unchanged. Fresh built-in templates use revision 2; existing local templates and pinned application copies keep their original versions.
-
-The new [`tests/letter_template_guidance.sql`](tests/letter_template_guidance.sql) passed before and after deployment. Existing annotation, structured-CV and application-refinement SQL suites also passed with the validator update in a rolled-back preflight. All synthetic users and application records rolled back. Advisors reported only the existing [backend-only history-table notice](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy) and [leaked-password-protection warning](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection). The frontend requires its separate release.
-
-
-## Application workflow state
-
-Apply [`changes/application_workflow_state.sql`](changes/application_workflow_state.sql) to existing databases before using saved application stages; new setups include it in `schema.sql`. It was applied to **phd-workflow** on **2026-10-10** as `application_workflow_state` (`20261010182509` UTC), with rolled-back live checks for stage mappings, the first Ready selection, history, CV assignment and owner isolation. Do not rerun it there. New applications start in Preparation. `workflow_stage` persists Preparation, Refinement, Attachments (stored as `review`) and Tracking. Until explicit tracking begins, the active tab derives the current status: `preparation`, `refinement`, `attachments` or `ready`.
-
-The first Tracking dropdown choice sets the sticky `tracking_started` flag, including selecting Ready when the status is already Ready. Subsequent navigation still saves the active tab but preserves the explicit tracking state. The owner-authenticated `set_job_application_stage` invoker RPC and a row trigger make stage/status updates atomic; clients cannot clear the tracking flag. Notes autosaves and CV assignment alone do not start tracking. All client mutations are serialized and fenced to the signed-in account. A missing database upgrade reports an error rather than claiming a stage was saved. Clicking the selected tab retries its save after a failure.
-
-The upgrade renames existing Shortlist rows and historical entries to Ready while preserving their recorded timestamps. Existing rows start on Tracking because their previous active tabs were only available in browser session storage. Existing Contacted and later statuses are treated as explicit tracking. The [`workflow-state SQL suite`](tests/application_workflow_state.sql) covers new defaults, tab mappings, same-value Ready selection, sticky tracking, history, CV assignments, invalid input, owner isolation and function permissions.
+1. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env.local`, using
+   the root [`.env.example`](../.env.example). Use a publishable key, never a secret
+   or `service_role` key. Restart Vite after changes. Existing `NEXT_PUBLIC_*`
+   equivalents remain accepted. Configure the same values in the deployment environment.
+2. For a **new database**, apply [`schema.sql`](schema.sql) once. It contains the
+   current schema and excludes retired standalone drafting APIs. It is not a
+   repeatable upgrade script: never replay it over an existing workspace.
+3. For an **existing database**, inspect its applied migrations and deployed
+   definitions before applying missing changes. Follow the schema maintenance guidance below.
+4. Provision existing email/password users through Supabase Authentication. The
+   app has no signup or recovery flow. For this restricted workspace, keep public
+   signup disabled and configure recovery, rate limits and password protection.
+5. Maintain `public.opportunities` through trusted administrative tooling. The
+   frontend reads shared research and changes only the signed-in owner's records.
+
+## Schema maintenance
+
+[`schema.sql`](schema.sql) is the current fresh-install baseline. Applied and superseded upgrade scripts have been removed from the
+repository; Supabase retains the deployed migration history, and Git retains previously committed scripts. No upgrade is pending for
+**phd-workflow** as of 2026-10-11 (Europe/Tirane).
+
+The confirmed cleanup migrations are `20261010231056` (`retire_legacy_drafting`), `20261010231602`
+(`retire_legacy_refinement_formats`), `20261010231941` (`current_refinement_privacy`) and `20261010232812`
+(`retire_legacy_application_creation`). They retired the standalone APIs, storage and outer version-1 protocol while preserving
+opportunities, applications and current history. Application creation and CV assignment use separate current APIs.
+
+For future schema changes, compare the deployed definitions with the desired baseline and prepare a targeted, reviewed migration.
+Preserve data, ownership, grants and RLS; apply and verify the migration, then update the fresh-install schema. Never replay the baseline
+or historical scripts over an existing workspace.
+
+The baseline installs atomically, with one definition per function and no historical data backfills. Its consolidated definitions,
+constraints, permissions, policies, triggers and indexes were checked against the pre-cleanup baseline.
+
+## Current data contract
+
+| Table | Access and purpose |
+| --- | --- |
+| `opportunities` | Shared read-only research for authenticated, non-anonymous users. |
+| `opportunity_reviews` | Owner-only interest, optional private comment and viewed-source receipt. |
+| `cv_variants` | Owner-only immutable privacy-filtered CV/configuration snapshots. |
+| `applications` | Owner-only captured research, CV reference, notes, checklist, saved stage and status history. |
+| `application_refinement_state` | Owner-only settings, current request, approval hashes and optimistic revision. |
+| `application_refinement_requests` | Immutable public CV/letter source context, scope and accumulated feedback. |
+| `application_refinement_protocols` | Immutable connected instructions bound to an exact request and protocol hash. |
+| `application_refinement_proposals` | Owner-readable, management-appended v2 operations, comments, annotations and letter text. |
+| `application_refinement_reviews` | Append-only feedback, annotation responses, CV decisions and approval/reopen records. |
+| `local_attachment_metadata` | Owner-only attachment `id`, `user_id`, manually entered `name` and `description`. |
+
+One owner can have one application per opportunity. Server-assigned application codes are immutable; exact codes or complete UUIDs
+resolve without title guessing. Captured research stays stable until an explicit context refresh. Composite foreign keys prevent
+cross-owner references. Removing an application retains shared research and CV snapshots while cascading its refinement state/history;
+account deletion removes the owner's private records. Backend-only `opportunity_history` is outside frontend access and is not part of
+this cleanup.
+
+## Active APIs and security model
+
+Browser RPCs use `SECURITY INVOKER`, owner RLS and non-anonymous account checks. `create_job_application(uuid,uuid)` creates without a
+CV and returns the existing application on repeated creation. `assign_job_application_cv` atomically publishes a privacy snapshot and
+applies permitted edits. Authoritative capture rejects forged research context.
+
+`review_job_opportunity` records interest/source receipts; `save_opportunity_comment` changes private reasoning. `strong_interest` is
+independent of fit scores. Checklist, stage, context-refresh and removal RPCs retain their scoped contracts. Saved stages and explicit
+tracking are separate; server-maintained status history leaves unknown historical times unrecorded.
+
+Refinement uses `save_refinement_state`, `publish_refinement_request`, `publish_refinement_protocol`, `save_refinement_review` and
+`clear_refinement_history`. Private management helpers resolve an exact reference, read its request/protocol and append a proposal with
+a stable retry UUID and verified receipt. They require `postgres`; no JWT impersonation or wider browser grants are used. The MCP still
+has administrative access beyond this supported workflow.
+
+History clearing uses a separate owner-checked private definer helper behind its public invoker wrapper, with revision checks. It
+grants no access to management read/save helpers. See [the complete refinement contract](REFINEMENT.md).
+
+The active helpers `job_drafting_redact_samples`, `cv_adjustment_validate_request` and `cv_adjustment_validate_response` keep their
+earlier names. Current structured shortening still uses them. Inner `cv.schemaVersion` and `cvStructure.schemaVersion` remain **1**;
+only the retired outer request/proposal format was version 1. Private reverse mappings stay local. Database validation cannot detect
+every identity inside arbitrary prose, so every publication must retain the frontend privacy projection.
+
+## Verification
+
+Run each complete [`tests/*.sql`](tests) file as the administrative SQL role. Suites create synthetic users and records, exercise
+authenticated/anonymous boundaries, and roll back their fixtures. An exception fails the run; a final PASS confirms it. The retired
+standalone API suites were removed; current suites cover their surviving application, privacy, access-control and deletion
+responsibilities.
+
+Cleanup verification completed locally: fresh schema plus **18 SQL suites**, **770 Node tests**, the production build, and **six
+browser flows across verification runs**. All **16 live SQL suites** also passed with their synthetic fixtures rolled back.
+
+The updated workspace-security and retirement suites passed again after the fourth migration, including absence of the old creation
+signature and availability of both current APIs.
+
+Postflight retained **150 opportunities** with the unchanged catalogue checksum `f710bf0b6d1b763555df48991bbeb21a` and **8
+applications**. Concurrent owner activity created a CV snapshot and v2 request during deployment; totals are **15 CV snapshots** and
+**10 refinement requests**. Application-field checksums changed alongside that activity. The scoped migrations preserved application
+and opportunity records.
+
+The original **14 CV snapshots** and **9 refinement requests** retain their exact checksums
+`47dc553d28f6a757f1505bba5d12040a` and `98137e9ad01658c3d0b34fdb8ca0dbec` respectively; the later records are additional activity.

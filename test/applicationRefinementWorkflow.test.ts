@@ -4,19 +4,18 @@ import { cloneCv, loadApplicationCv } from '../src/composables/applicationCv';
 import { finalizeLetter } from '../src/composables/motivationLetters';
 import type { ApplicationLetter } from '../src/letterTypes';
 import type { ApplicationStage } from '../src/cloudTypes';
-import { account, applicationId, refinementKey, mount, prepare, idle, documents, loadHistoricalProposal } from './refinementWorkflowHarness';
+import { account, applicationId, refinementKey, mount, prepare, idle, documents } from './refinementWorkflowHarness';
 
-test('loading an existing local proposal activates the complete temporary candidate without a cloud write or document save', async t => {
+test('loading connected proposal history activates the complete temporary candidate without a cloud write or document save', async t => {
   const fixture = mount(t); const setup = await prepare(fixture);
-  const incoming = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Imported proposed letter.' });
-  fixture.database.application_refinement_proposals = [];
+  fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Connected proposed letter.' });
   const savedDocuments = documents(setup), savedPrivate = JSON.stringify(setup.localRequests), savedCloud = JSON.stringify(fixture.database);
-  await loadHistoricalProposal(setup, incoming);
+  await setup.checkProposals();
   assert.equal(setup.error, '');
   assert.equal(setup.reviewActive, true);
   assert.ok(setup.selectedProposalId);
   assert.notDeepEqual(setup.previewCvState?.bodyOrder, setup.record?.state.bodyOrder);
-  assert.equal(setup.previewLetterContent?.body, 'Imported proposed letter.');
+  assert.equal(setup.previewLetterContent?.body, 'Connected proposed letter.');
   assert.equal(documents(setup), savedDocuments);
   assert.equal(JSON.stringify(setup.localRequests), savedPrivate);
   assert.equal(JSON.stringify(fixture.database), savedCloud);
@@ -266,27 +265,37 @@ test('a failed local commit restores both documents and retries without any libr
   assert.equal(setup.letterText, 'Proposed document pair.');
 });
 
-test('accepting a historical local proposal commits locally and persists its idempotent receipt across reload', async t => {
+test('retired local refinement history is dropped while current snapshots, documents and approvals survive reload', async t => {
   const fixture = mount(t); let setup = await prepare(fixture);
-  const incoming = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Locally accepted imported proposal.' });
-  fixture.database.application_refinement_proposals = [];
-  const beforeCloud = JSON.stringify(fixture.database);
-  await loadHistoricalProposal(setup, incoming);
-  const proposalId = setup.selectedProposalId, previewState = cloneCv(setup.previewCvState!);
-  await setup.acceptSelectedChanges();
+  await setup.approve('cv'); await setup.approve('letter');
   assert.equal(setup.error, '');
-  assert.deepEqual(setup.record?.state, previewState);
-  assert.equal(setup.letterText, 'Locally accepted imported proposal.');
-  assert.equal(JSON.stringify(fixture.database), beforeCloud);
-  assert.equal(fixture.creations.length, 0);
-  assert.ok(JSON.parse(fixture.storage.getItem(refinementKey)!).requests[incoming.proposal_json.requestId].acceptances.some((receipt: { proposalId: string }) => receipt.proposalId === proposalId));
-  setup = fixture.reopen(); await idle(setup);
-  assert.equal(setup.selectedProposalId, proposalId);
-  setup.openProposal(); await setup.acceptSelectedChanges();
-  assert.equal(fixture.creations.length, 0);
-  assert.equal(JSON.stringify(fixture.database), beforeCloud);
-});
+  const requestId = setup.requests[0].id;
+  const snapshot = JSON.stringify(setup.localRequests[requestId]);
+  const before = documents(setup), approvals = JSON.stringify(setup.approvals);
+  const saved = JSON.parse(fixture.storage.getItem(refinementKey)!);
+  const retiredRequestId = crypto.randomUUID(), retiredProposalId = crypto.randomUUID();
+  const retired = structuredClone(saved.requests[requestId]);
+  retired.request = { ...retired.request, requestId: retiredRequestId, schemaVersion: 1 };
+  delete retired.request.cvStructure;
+  delete retired.structureBindings;
+  saved.requests[retiredRequestId] = retired;
+  saved.importedProposals = [{ id: retiredProposalId, request_id: retiredRequestId, proposal_json: { schemaVersion: 1 } }];
+  saved.importedReviews = [{ id: crypto.randomUUID(), request_id: retiredRequestId, kind: 'feedback', payload: { text: 'Retired imported advice.', scope: 'both' } }];
+  saved.parentProposalId = retiredProposalId;
+  fixture.storage.setItem(refinementKey, JSON.stringify(saved));
 
+  setup = fixture.reopen(); await idle(setup);
+
+  assert.equal(setup.error, ''); assert.equal(setup.saveError, '');
+  assert.deepEqual(JSON.parse(documents(setup)), JSON.parse(before)); assert.equal(JSON.stringify(setup.approvals), approvals);
+  assert.equal(JSON.stringify(setup.localRequests[requestId]), snapshot, 'the current full private reconstruction snapshot stays intact');
+  assert.deepEqual(Object.keys(setup.localRequests), [requestId]);
+  assert.deepEqual(setup.feedbackHistory(), []); assert.deepEqual(setup.proposals, []);
+  assert.equal(setup.parentProposalId, null);
+  const stored = JSON.parse(fixture.storage.getItem(refinementKey)!);
+  assert.deepEqual(Object.keys(stored.requests), [requestId]);
+  assert.equal('importedProposals' in stored, false); assert.equal('importedReviews' in stored, false);
+});
 
 test('refinement scope changes preserve working documents and independent application status', async t => {
   const fixture = mount(t), setup = await prepare(fixture);
@@ -385,7 +394,7 @@ test('copy task does not copy a protocol locator when publication fails or retur
       return { ...result, data: { ...result.data, protocol_text: 'Wrong protocol' } };
     }) as unknown as typeof fixture.cloud.client.rpc;
     await setup.copyTask();
-    assert.match(setup.error, mode === 'missing' ? /pending migration/ : /protocol could not be confirmed/);
+    assert.match(setup.error, mode === 'missing' ? /database setup is incomplete/ : /protocol could not be confirmed/);
     assert.equal(copied.length, 0);
   }
 });

@@ -24,7 +24,7 @@ interface WorkspaceSetup {
   record: ApplicationCvRecord | null; selectedCvId: string; letter: ApplicationLetter | null;
   busy: boolean; refreshing: boolean; syncing: boolean; error: string; saveError: string; letterText: string;
   selectedTemplateId: string; missingLetterTemplate: boolean;
-  cvApproved: boolean; letterApproved: boolean; feedbackScope: RefinementScope; feedback: string;
+  cvApproved: boolean; letterApproved: boolean; feedbackScope: RefinementScope;
   requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; selectedProposalId: string; prompt: string;
   shortInstruction: string; shortInstructionNotice: string; shortInstructionError: string;
   preparedSource: LocalRefinementRequest | null; sourceError: string; outgoingFeedback: string;
@@ -45,7 +45,7 @@ interface WorkspaceSetup {
   saveAnnotation(id: string, status: AnnotationStatus, response: string, previousReviewId: string | null): Promise<boolean>;
   includeAnnotationFeedback(id: string): Promise<void>;
   copyShortInstruction(): Promise<void>;
-  updateLetter(text: string): void; approve(kind: 'cv' | 'letter', reopen?: boolean): Promise<void>; requestImprovement(): Promise<void>;
+  updateLetter(text: string): void; approve(kind: 'cv' | 'letter', reopen?: boolean): Promise<void>;
 }
 async function idle(setup: WorkspaceSetup) {
   for (let count = 0; count < 30; count++) {
@@ -269,23 +269,26 @@ test('refinement preserves manual fixes and accumulates letter-only feedback whi
   assert.equal(setup.error, '');
   assert.equal(setup.cvApproved, true);
   assert.equal(setup.feedbackScope, 'letter');
-  setup.feedback = 'Avoid generic claims and retain my manual corrections.';
-  await setup.requestImprovement(); await setup.publishSources();
+  assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'Avoid generic claims and retain my manual corrections.', null), true);
+  await setup.publishSources();
   assert.equal(setup.error, '');
   const second = setup.requests[0];
   assert.equal(second.request_json.scope, 'letter');
   assert.equal(second.request_json.feedback.length, 1);
+  assert.equal(second.request_json.feedback[0].scope, 'letter');
+  assert.equal(second.request_json.feedback[0].annotation?.proposalId, firstProposal.id);
   assert.ok(second.request_json.letter.text.includes('Manual letter correction retained.'));
   assert.ok(second.request_json.cv.fields.some(field => field.text.includes('Manual CV correction retained.')));
   const secondProposal = cloud.seedProposal(second.id);
-  assert.deepEqual(secondProposal.proposal_json.schemaVersion === 2 ? secondProposal.proposal_json.cvOperations : secondProposal.proposal_json.cvEdits, []);
+  assert.deepEqual(secondProposal.proposal_json.cvOperations, []);
   await setup.checkProposals(); setup.selectedProposalId = secondProposal.id; setup.openProposal(); await setup.acceptSelectedChanges();
   assert.equal(setup.error, '');
   assert.equal(setup.cvApproved, true, 'letter-only revisions preserve CV approval');
-  setup.feedback = 'Keep the closing concise as well.';
-  await setup.requestImprovement(); await setup.publishSources();
+  assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'Keep the closing concise as well.', null), true);
+  await setup.publishSources();
   assert.equal(setup.error, '');
   assert.equal(setup.requests[0].request_json.feedback.length, 2);
+  assert.deepEqual(setup.requests[0].request_json.feedback.map(item => item.annotation?.proposalId), [firstProposal.id, secondProposal.id]);
   const thirdProposal = cloud.seedProposal(setup.requests[0].id, { overLimit: true });
   await setup.checkProposals(); setup.selectedProposalId = thirdProposal.id; setup.openProposal(); await setup.acceptSelectedChanges();
   await setup.approve('letter');
@@ -323,20 +326,21 @@ test('CV-only refinement preserves private letter wording and its approval', asy
   assert.equal(JSON.stringify(setup.letter), approved, 'unchanged approved letters retain their exact final revision and history');
 });
 
-test('requesting improvements never applies an unopened proposal over newer manual corrections', async (t) => {
+test('answering an annotation never applies an unopened proposal over newer manual corrections', async (t) => {
   const { setup, cloud } = mount(t);
   await idle(setup);
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.updateLetter('A manually drafted letter before the request.');
+  setup.feedbackScope = 'letter';
   await setup.publishSources();
   const proposed = cloud.seedProposal(setup.requests[0].id);
   await setup.checkProposals(); setup.selectedProposalId = proposed.id;
   setup.discardReview();
   setup.updateLetter('Newer manual correction must be the starting point.');
   setup.record!.state.about.text += '\nNewer CV correction.';
-  setup.feedback = 'Keep my updated wording and make the closing more precise.';
-  await setup.requestImprovement(); await setup.publishSources();
+  assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'Keep my updated wording and make the closing more precise.', null), true);
+  await setup.publishSources();
   assert.equal(setup.error, '');
   assert.equal(setup.letterText, 'Newer manual correction must be the starting point.');
   assert.equal(setup.requests[0].request_json.letter.text, setup.letterText);
@@ -350,6 +354,7 @@ test('superseded feedback rounds remain viewable but cannot replace documents wi
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.updateLetter('The current manual letter stays unchanged until I open an eligible proposal.');
+  setup.feedbackScope = 'letter';
   await setup.publishSources();
   const firstRequest = setup.requests[0];
   const olderProposal = cloud.seedProposal(firstRequest.id);
@@ -359,8 +364,8 @@ test('superseded feedback rounds remain viewable but cannot replace documents wi
 
   // Feedback alone supersedes the request: the CV and letter baseline remains identical.
   setup.discardReview();
-  setup.feedback = 'Do not use the generic opening from the previous proposal.';
-  await setup.requestImprovement(); await setup.publishSources();
+  assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'Do not use the generic opening from the previous proposal.', null), true);
+  await setup.publishSources();
   assert.equal(setup.error, '');
   const currentRequest = setup.requests[0];
   assert.notEqual(currentRequest.id, firstRequest.id);

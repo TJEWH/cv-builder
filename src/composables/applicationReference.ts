@@ -23,7 +23,7 @@ export function buildShortRefinementInstruction(application: ApplicationReferenc
   const task = initialLetter ? scope === 'letter' ? 'create an initial motivation-letter draft' : 'refine the CV and create an initial motivation-letter draft' : `refine ${document}`;
   const protocol = refinementProtocolDocument(request, projectId);
   return `phd-workflow: ${reference} — ${task}.
-This connected task requires Supabase execute_sql. If it is unavailable, report the missing capability and ask me to use Copy full prompt with sources in the app; query_logs cannot run this workflow. Do not try another access path.
+This connected task requires Supabase execute_sql. If it is unavailable, report the missing capability, explain that the connected SQL tool is required, and stop; query_logs cannot run this workflow. Do not try another access path.
 Use my connected Supabase project ${projectId} to read published request ${request.requestId} (schemaVersion ${request.schemaVersion}, scope ${scope}) for application ${application.id}: its privacy-filtered CV, opportunity, letter settings and feedback.
 First resolve the application using exactly this SQL through execute_sql:
 ${refinementSql('resolve', [reference], 'application_reference')}

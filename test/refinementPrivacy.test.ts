@@ -145,12 +145,14 @@ test('manual privacy prose is useful public context but only original sections a
 });
 
 
-test('legacy responses cannot rewrite protected privacy fields and exclamation marks remain valid proposal text', () => {
+test('protected privacy fields remain comments-only and exclamation marks remain valid proposal text', () => {
   const source = state();
   source.anonymization.fieldOverrides = { '["about","text"]': 'Worked with a qualified person.' };
-  const local = prepare({ schemaVersion: 1, state: source });
+  const local = prepare({ state: source });
   const profile = local.request.cv.fields.find(field => field.label.startsWith('Profile'))!;
-  const proposal = { schemaVersion: 1, requestId: local.request.requestId, summary: 'Literal !!punctuation!!', cvEdits: [], letterText: 'Literal !!punctuation!!' };
-  assert.doesNotThrow(() => parseRefinementProposal(proposal, local.request));
-  assert.throws(() => parseRefinementProposal({ ...proposal, cvEdits: [{ fieldId: profile.id, text: 'Changed public wording.' }] }, local.request), /comments only/);
+  const incoming = { ...proposal(local), summary: 'Literal !!punctuation!!', letterText: 'Literal !!punctuation!!',
+    cvComments: [{ id: 'comment-1', fieldId: profile.id, explanation: 'Review the public wording.' }] };
+  assert.doesNotThrow(() => parseRefinementProposal(incoming, local.request));
+  assert.equal(local.request.cvStructure.ranges.some(range => range.fieldId === profile.id), false);
+  assert.deepEqual(reconstructRefinementProposal(local, incoming, [], APP).state, source);
 });

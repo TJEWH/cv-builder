@@ -56,7 +56,7 @@ function required(root: HostNode, predicate: (child: HostNode) => boolean) {
 function content(child: HostNode): string { return child.tag === '#comment' ? '' : child.text + child.children.map(content).join(''); }
 function hasClass(child: HostNode, value: string) { return String(child.props.class || '').split(/\s+/).includes(value); }
 function mount(t: TestContext) {
-  const props = reactive({ changes: structuredClone(changes), selected: ['change-1', 'change-2'], comments: [] as { id: string; target: string; explanation: string }[], legacy: false, lang: 'en', disabled: false, locked: false });
+  const props = reactive({ changes: structuredClone(changes), selected: ['change-1', 'change-2'], comments: [] as { id: string; target: string; explanation: string }[], lang: 'en', disabled: false, locked: false });
   const toggles: [string, boolean][] = [];
   let accepted = 0;
   const root = node('root');
@@ -133,16 +133,10 @@ test('unsupported content remains a manual-review comment without an acceptance 
   assert.ok(content(root).includes('No CV changes proposed.'));
 });
 
-test('legacy replacements are explicitly labelled and German review labels remain accessible', async (t) => {
+test('German review labels remain accessible', async (t) => {
   const { props, root, change } = mount(t);
-  const legacyHint = () => required(root, item => item.tag === 'p' && /^(Legacy text suggestions|Frühere Textvorschläge)/.test(content(item)));
-  props.legacy = true;
-  await nextTick();
-  assert.match(content(legacyHint()), /Legacy text suggestions.*not validated structural operations/);
-  assert.ok(hasClass(legacyHint(), 'app-hint'));
   props.lang = 'de'; await nextTick();
   assert.equal(required(root, item => item.tag === 'section').props['aria-label'], 'Prüfung der CV-Änderungen');
-  assert.match(content(legacyHint()), /Frühere Textvorschläge.*keine validierten strukturellen Operationen/);
   assert.ok(content(required(change('change-1'), item => item.tag === 'label')).includes('Einbeziehen change-1'));
   assert.equal(content(required(change('change-1'), item => hasClass(item, 'badge'))), 'Vorgeschlagen');
 });

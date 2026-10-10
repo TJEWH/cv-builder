@@ -1,289 +1,116 @@
 # Application refinement integration
 
-Apply [`changes/application_refinement.sql`](changes/application_refinement.sql) once after `cv_adjustments.sql`, before releasing the new application frontend. [`schema.sql`](schema.sql) includes the same additive schema for new databases. No legacy records, templates, drafting tables, authentication policies or drafting APIs are rewritten. Run [`tests/application_refinement.sql`](tests/application_refinement.sql) as `postgres`; its synthetic users, applications and proposals roll back.
+The supported exchange is the connected Supabase workflow: **Sync / Copy task → ChatGPT → Sync**. It uses version-2 requests and proposals. Standalone letter-drafting/CV-adjustment APIs, version-1 refinement and manual proposal imports are retired. Opportunities, applications, current refinement history and private working documents are preserved.
 
-**Deployed:** **phd-workflow** (`ehkfzvjgesomteqpwrwa`) received `add_application_refinement_workflow`, migration version `20260922224611` (UTC), on **2026-09-23** in Europe/Tirane. Do not rerun this migration there. The complete expanded SQL suite passed after deployment, including CV-only letter preservation and removal of an account with active refinement records; every fixture rolled back.
+For a new database use [`schema.sql`](schema.sql). The deployed workspace is current; future changes to existing installations require targeted migrations as described in [setup](README.md). Applied and superseded upgrade scripts have been removed. The source contract is [`src/refinementTypes.ts`](../src/refinementTypes.ts); copied instructions are generated from the same contract and verified by [`test/refinementProtocol`](../test/refinementProtocol).
 
-The application stages are Preparation, Refinement, PDF review and Tracking. Complete application CV copies, private identity reconstruction, supporting files and final PDFs remain local. Letter template setup, anonymized current text, feedback and proposals are owner-scoped cloud records. Changing the reusable CV or letter library does not update an application's saved copy. Missing cloud schema must be shown as an actionable setup error without deleting local work.
+## Workflow and storage
 
-## CV Privacy editor
+Preparation freezes an independent application CV and letter-template revision. The app publishes privacy-filtered wording and settings. Copy task publishes and verifies the associated protocol document before copying a short instruction. ChatGPT reads the exact request and protocol through the project's management connection and saves a validated proposal. Sync applies an eligible proposal to the current working document, subject to exact baseline, scope and approval checks. The user reviews the result, answers annotations, edits wording and separately approves CV and letter.
 
-**CV Studio → Privacy** uses the Content form and original field values. Users can replace
-specific wording for shared previews, exports and AI sources while retaining the original
-CV. Existing contact masking, field-type proxies and exclusions remain available. Automatic
-masking runs first, then explicit field replacements apply last. Only differences are stored
-in the local `anonymization.fieldOverrides` map; unchanged fields follow their current content.
-Resetting a replacement restores that behavior. The map uses stable item/section identities,
-so reordering does not move a replacement onto another entry. See the [JSON contract](../docs/json-format.md).
+Current cloud history remains available. Selecting a historical proposal opens a comparison against its frozen local source; a stale proposal cannot replace newer working documents. Template-library edits do not update application copies. Missing schema or local reconstruction data produces an error without deleting working documents.
 
-Default content imports preserve local originals behind existing replacements and update the
-replacement wording instead. Configuration backups retain the sparse map. Public snapshots
-and requests include resolved privacy wording, without the replaced originals or reverse mappings.
-Manual replacement fields are source context for AI comments; accepting a proposal does not
-substitute their public wording into the private CV. Exclamation punctuation such as
-`!!text!!` is ordinary text and has no masking, rendering or validation semantics.
-
-Existing databases need [`changes/explicit_privacy_text.sql`](changes/explicit_privacy_text.sql)
-after `refinement_privacy_legend.sql` and `letter_template_guidance.sql`, including their earlier
-dependencies. Fresh installs use `schema.sql`. This idempotent upgrade changes privacy text
-validation and contact shape checks, and captures the already projected CV verbatim. It does
-not rewrite saved snapshots or proposals, or change ownership, RLS or existing function grants.
-The eight workspace/drafting/adjustment/refinement SQL suites pass against both fresh schema
-and the upgraded prior schema in isolated local PostgreSQL; applying the upgrade twice also
-preserves existing function grants. This is local verification, not a remote deployment record.
+Complete CVs, private letter text, token/structure mappings and source signatures remain in browser storage. Supporting files and generated PDF packages remain in IndexedDB. Supabase stores anonymized source snapshots, frozen settings, proposals, feedback and approval hashes. Cloud records cannot reconstruct missing private originals. Application notes and supporting files are not included in refinement requests.
 
 ## Browser contract
 
-### Protocol location for copied tasks
-
-**Deployed:** `refinement_protocol_documents` was applied to **phd-workflow** (`ehkfzvjgesomteqpwrwa`) on **2026-10-10**. Its rollback-only SQL tests passed, including owner isolation, management reads, immutability, idempotent publication and history cleanup. Security advisors found no additional issues compared with the existing baseline.
-
-Apply [`changes/refinement_protocol_documents.sql`](changes/refinement_protocol_documents.sql) before releasing the updated Copy task action. The same schema is included in `schema.sql`. Run [`tests/refinement_protocol_documents.sql`](tests/refinement_protocol_documents.sql) as `postgres`.
-
-**Copy task** first stores and verifies the complete connected prompt in `public.application_refinement_protocols.protocol_text`. Each immutable document is keyed by `request_id` and `protocol_id` (the frontend's SHA-256 revision fingerprint). It contains the source-read query, exact proposal JSON contract, validation rules, save query and receipt checks. It does not embed CV or letter source text. Existing published requests can receive a protocol document without changing their snapshots; repeated copies reuse the same document, while revised instructions receive a different protocol ID.
-
-Every copied CV, letter, initial-draft or combined task names this table and column, both keys and the exact read query:
-
-```sql
-SELECT private.read_refinement_protocol('<request UUID>'::uuid, '<protocol ID>') AS refinement_protocol;
-```
-
-ChatGPT uses the private resolver first, verifies the current request, then retrieves this protocol and follows its `protocol_text`. No function-definition inspection is needed. The management read remains `SECURITY INVOKER`, executable only by `postgres`. Browser publication uses `public.publish_refinement_protocol(p_request_id, p_protocol_id, p_protocol_text)`, with signed-in non-anonymous owner checks and RLS; missing storage or an invalid receipt prevents copying. Clearing refinement history also removes its protocol documents through the request foreign key, preserving the application and opportunity.
-
-The three preparation/publication RPCs are `SECURITY INVOKER`, require a signed-in non-anonymous owner and use the existing owner RLS model. They return one JSON row, not an array. History clearing uses a separate, narrowly scoped endpoint described below.
+Signed-in non-anonymous owners use these RPCs with existing RLS. They return a JSON row, not an array.
 
 | RPC | Arguments | Behavior |
 | --- | --- | --- |
-| `public.save_refinement_state` | `p_application_id`, `p_setup`, `p_approvals`, `p_expected_revision` | Save frozen template/settings with optimistic concurrency. Initial expected revision is `0`; subsequent saves require the current revision. Existing approval hashes may be preserved or cleared, but new approvals require a recorded review. |
-| `public.publish_refinement_request` | `p_request` | On first insertion, freeze a request, capture authoritative application research and assigned privacy CV, and advance the current request atomically. Repeating the exact UUID and payload returns the original receipt without changing the current request. |
-| `public.save_refinement_review` | `p_application_id`, nullable `p_request_id`, `p_kind`, `p_payload`, `p_id` | Append feedback, annotation updates or CV decisions, or atomically record an approval/reopening and update state. Identical retries return the stored row. |
-| `public.clear_refinement_history` | `p_application_id`, `p_expected_revision` | Remove this owner's application refinement requests, proposals and reviews atomically; preserve setup/approval hashes, clear the current request and increment the state revision. Return the updated state, or JSON `null` for an owned application with no state and expected revision `0`. |
+| `public.save_refinement_state` | `p_application_id`, `p_setup`, `p_approvals`, `p_expected_revision` | Save frozen setup with optimistic concurrency. Initial revision is `0`; new approval hashes require a recorded approval review. |
+| `public.publish_refinement_request` | `p_request` | Freeze a request, capture the assigned public CV and application research, and atomically advance the current request. |
+| `public.publish_refinement_protocol` | `p_request_id`, `p_protocol_id`, `p_protocol_text` | Store the immutable connected protocol; verify its receipt before copying the task. |
+| `public.save_refinement_review` | `p_application_id`, nullable `p_request_id`, `p_kind`, `p_payload`, `p_id` | Append feedback, annotations or CV decisions; approvals/reopenings also update state atomically. |
+| `public.clear_refinement_history` | `p_application_id`, `p_expected_revision` | Clear one application's refinement history while retaining setup, approval hashes and the application itself. |
 
-Read `application_refinement_state`, `application_refinement_requests`, `application_refinement_proposals` and `application_refinement_reviews` through the signed-in client. Order request/review history by `created_at, id` and always load **all** feedback before publishing another request. Proposal refresh only adds history; it never changes working documents automatically.
+Read the owner-scoped `application_refinement_state`, `application_refinement_requests`, `application_refinement_proposals` and `application_refinement_reviews` tables. Load all pages and order history by `created_at, id`. Validate ownership and application/request identities on every page. Use `current_request_id` to identify the active source; the newest timestamp alone does not establish freshness.
 
-Review payloads:
+Requests have `schemaVersion: 2`, request/application IDs, `cv`, `cvStructure`, frozen `letter`, `scope`, ordered `feedback`, `parentProposalId` and optional `privacyLegend`. The nested `cv.schemaVersion: 1` describes the current privacy-field format; it is not the retired outer refinement protocol. Source paths and reverse mappings never enter request JSON.
 
-```json
-{"text":"Keep the technical evidence and shorten the opening.","scope":"letter"}
-{"revision":"v1:<64 lowercase SHA-256 hex characters>","expectedRevision":4}
-{"expectedRevision":5}
-```
+Exact UUID/payload retries return the original receipt. They do not recapture inputs or reactivate an old request. New inputs, scope, research or feedback require a new request. Reuse requires both the server's current pointer and matching local inputs. Feedback must contain every saved reply exactly once, in order, with unchanged text, scope, ID and equivalent timestamp. Publication fails if privacy rechecking would alter an immutable saved reply or if the complete history exceeds the size limit; it never truncates context silently.
 
-The respective review kinds are `feedback`, `approve_cv`/`approve_letter`, and `reopen_cv`/`reopen_letter`. Approval hashes identify exact local document revisions without storing raw private content. After approval or reopening, reload state for its new revision. Manual changes clear the affected approval through state save. A letter setup change also clears letter approval and current request. Approved documents must be explicitly reopened before requesting edits to them.
-
-### Clearing refinement history
-
-**Deployed:** **phd-workflow** received `refinement_clear_history` (`20261009164510`) and `refinement_clear_history_private_execution` (`20261009164753`) on **2026-10-09**. Both the clear-history and existing application-refinement SQL suites passed; synthetic fixtures rolled back. Security advisors report no new findings compared with the pre-upgrade baseline. Installing these endpoints did not clear existing application history.
-
-Apply [`changes/refinement_clear_history.sql`](changes/refinement_clear_history.sql) after the annotations upgrade, followed by [`changes/refinement_clear_history_private_execution.sql`](changes/refinement_clear_history_private_execution.sql), before enabling **Clear refinement history**. The consolidated schema includes both changes. They do not modify existing data when installed. Run [`tests/refinement_clear_history.sql`](tests/refinement_clear_history.sql) as `postgres`; all synthetic fixtures roll back.
-
-The danger action permanently removes the selected application's unified refinement snapshots, proposals, feedback, annotation responses and approval event history. Current documents, assigned CV snapshots, preparation settings and approval hashes are preserved. The caller must provide the current state revision; stale calls fail before any deletion. An empty-history retry with the new revision is safe, while retrying an old revision fails and requires a reload. A missing state accepts revision `0` and returns JSON `null` without creating preparation. Other applications, research records and legacy CV/letter drafting archives remain unchanged.
-
-The public endpoint is `SECURITY INVOKER`; only its helper in the non-exposed `private` schema is `SECURITY DEFINER`, owned by `postgres`. Authenticated users receive schema `USAGE` and `EXECUTE` on this helper only; existing management helpers remain inaccessible. The implementation checks the non-anonymous signed-in owner and revision under the same transaction advisory lock as publication. Ordinary table deletion remains revoked; immutable triggers permit the scoped RPC only when the actual executing role is `postgres`, `auth.uid()` matches the row owner, and the transaction-local deletion scope matches the application. The helper restores the prior scope on success; failures roll back the setting and data together. No table/RLS privileges are broadened and no triggers are disabled. Management proposal writes acquire the same application lock and recheck the request, so a proposal arriving after its request was cleared is rejected.
-
-`request_json` preserves the exact versioned `RefinementRequest` in `src/refinementTypes.ts`: IDs, editable privacy CV fields, frozen letter setup/current text, requested scope, parent proposal and accumulated feedback. Build feedback entries using the stored review ID, text, scope and `created_at`; every saved feedback row must appear exactly once in creation order. Missing, altered or reordered history is rejected. If complete history exceeds the bounded request size, publication fails explicitly rather than truncating context.
-
-Each request row additionally contains server-captured `opportunity_snapshot` and `cv_snapshot`. These exclude application notes and files. The CV contains the exact assigned privacy-filtered content, including explicit field replacements; current editable fields in `request_json.cv.fields` include later manual wording corrections. Client-supplied opportunity text is already anonymized and must be treated as source material. The browser anonymizes every shared text boundary; the database additionally validates allowed structure and the remaining identity/token boundaries. Arbitrary prose cannot be proven anonymous by SQL checks alone.
-
-### Snapshot metadata and local availability
-
-The existing request/state APIs support snapshot inspection and reuse without an additional database endpoint. The available metadata has distinct meanings:
-
-| Source | Durable server metadata | Not supplied by this source |
-| --- | --- | --- |
-| Request row | Immutable request UUID, application/owner UUIDs and server `created_at`; frozen scope, inputs, parent proposal and ordered feedback | A sequential document version, original device or private reconstruction baseline |
-| `cv_snapshot` | Assigned cloud CV `snapshotId`, cloud row `revision` and anonymized content captured on publication | Original CV Studio variant/base ID, original name or base revision, application CV working revision |
-| `request_json.letter` | Frozen template ID, name, revision, `updatedAt`, guidance/settings and anonymized working text | Working letter revision ID, working timestamp, private text or final revision ID |
-| `opportunity_snapshot` | The application's authoritative saved `context_json` at publication | A separate frozen `context_captured_at`; source-record dates inside the JSON are not the application's capture time |
-| Refinement state | Current request UUID, approval hashes, state revision and `updated_at` | A document revision counter, guaranteed local file availability or proof that this device can reconstruct the request |
-
-Original CV provenance (`baseId`, `variantId`, `baseName`, `baseRevision`), application CV working revision, full baselines, privacy-token bindings and local baseline signatures live in browser application records/backups. Letter working/history/final revision IDs also remain local. A cloud CV snapshot revision must not be labeled as the source template revision. Unknown original version or device availability should be displayed as unavailable rather than inferred from cloud timestamps or IDs.
-
-The snapshot overview uses local `baseName`/`baseRevision` for CV source provenance, the local working-letter `updatedAt` and fingerprint for letter state, and the saved request's anonymized wording and `created_at` for the published copy. New local request records may freeze these source details in optional `LocalRefinementRequest.source`; this stays alongside local reconstruction data and is never inserted into `request_json`. Legacy requests and other devices may lack it. Freshness is verified only when the matching local baseline is available; missing local evidence is an unknown state, not proof that the snapshot is current or stale.
-
-Use `current_request_id` to identify the active request, then its own `created_at` for the publication time. The most recent request by date is not necessarily current: saving changed letter setup clears the current pointer, and older immutable requests remain available. State revision/time may advance for settings, publication or approval actions; they do not identify the version of either working document.
-
-### Reusing requests and retained feedback
-
-An identical retry of `publish_refinement_request` returns the saved row before running capture/activation triggers. It does not recapture changed research/CV data, add later feedback, or reactivate an older request. Reusing a published snapshot for another prompt therefore requires that its UUID is still the server's current request and its frozen scope/inputs/history match the intended work. Applying a resulting proposal additionally requires the matching local baseline and reconstruction data. To make historical content current again, publish a new UUID through the existing API; do not overwrite history or set the pointer directly. After an uncertain publication result, first retry the same UUID and exact payload and reload current state before deciding whether a new round is needed.
-
-The client fixes historical-request reactivation by reusing only the current published request and allocating a new UUID for a historical baseline. It continues to use the existing publication, state and request-reading APIs; no backend metadata, SQL or authentication changes are required. When the local letter record is genuinely absent, it may be initialized from the current request's anonymized letter text and frozen template/settings. This restores shared wording, not missing private identity data or prior local history. Never replace an existing local letter—even an empty one—and never silently treat a corrupt/unreadable local record as absent.
-
-Feedback is anonymized before its review row is saved. A subsequent request must retain every saved reply's exact ID, text and scope in `created_at, id` order; its timestamp must represent the same instant. The server rejects missing, altered or additional entries. Rechecking old feedback against current privacy information must not silently change or discard it: if anonymization would now alter an immutable saved reply, stop publication and report that incompatibility. An already saved request's idempotent retry still requires its original JSON payload, including the original timestamp representation. Both request versions reject additional keys (version 2 adds only `cvStructure`), so durable source-version metadata cannot be added to the upload payload without a separate contract/database change.
-
-## Existing ChatGPT Supabase MCP
+The server-captured CV snapshot ID/revision is distinct from the local CV Studio source revision. State timestamps/revisions can change for setup and approvals and are not document version counters. Local source metadata may be unavailable on another device; show that as unknown instead of inferring it from cloud timestamps.
 
 ### Application reference codes
 
-[`changes/application_codes.sql`](changes/application_codes.sql) adds `applications.application_code` after the refinement migration. **phd-workflow** received it on **2026-10-01** as `add_persistent_application_codes`, migration version `20261001195548` (UTC); do not rerun it there. For other targets, confirm migration history before using the short-code workflow. New-database [`schema.sql`](schema.sql) includes it.
+Each application has an immutable, globally unique server-generated code such as `APP-7D60E4A912`. Resolve the complete code or UUID; never guess from a title. Browser resolution is owner-scoped. The management resolver is restricted to `postgres` and returns the application identity and current request pointer.
 
-The server assigns each application a persistent code such as `APP-7D60E4A912`, including existing applications during the one-time upgrade. Codes are globally unique and immutable. Both supported creation RPCs retry random code collisions without changing their existing UUID-based idempotency. Browser-supplied codes are ignored on insertion; existing applications cannot be renamed by editing their code. Backfill preserves all other application fields and timestamps. The application UUID remains the internal identity. Treat the returned code as an opaque reference; do not synthesize codes from UUIDs, titles or list order.
+### Protocol location for copied tasks
 
-The browser can resolve a reference through owner-scoped `public.resolve_application_reference(p_reference)`. The existing management MCP uses:
+Protocol documents live in `public.application_refinement_protocols.protocol_text`, keyed by `request_id` and the frontend's SHA-256 `protocol_id`. They contain rules and SQL operations, without embedding CV/letter source text. Repeated copies reuse an identical document; changed instructions get a new protocol ID.
 
-```sql
-select private.resolve_application_reference('APP-7D60E4A912');
-```
-
-Both resolvers accept a complete application code or a complete application UUID, trim surrounding whitespace and normalize letter case. Partial values, title searches and wildcard lookup are not supported. They return only `application_id`, `application_code` and nullable `current_request_id`. The public resolver retains owner RLS; the private resolver is an invoker function restricted to `postgres`. A code is a reference, not a permission or secret.
-
-For a short ChatGPT prompt, resolve the provided code in the explicitly configured project, then read its `current_request_id` using `private.read_refinement_request`. Confirm the returned request belongs to the resolved application and its frozen scope matches the short instruction; preserve privacy tokens and accumulated feedback before saving a proposal. A missing `current_request_id` or different scope means the owner must publish a matching round in the app first. Copying the identifier in the list/header alone does not publish a request. In Refinement, **Sync Snapshot & copy task** and **Sync Snapshot & copy full prompt** use the same publication flow; once current they reuse that exact request and offer **Copy application & task** or **Copy full prompt with sources**. Failed publication copies neither format. These actions do not approve edits or authorize changing another application. The copied task includes the project, application UUID, exact request UUID, schema version and scope; the resolved current request must match these references. It explicitly requests initial-draft generation when the published letter is empty, or refinement of the complete existing letter otherwise. The connected setup prompt under History / Details continues to read that exact immutable request rather than silently selecting a newer round.
-
-A ChatGPT tool-security or approval rejection before the request is read is distinct from a database error or invalid proposal. The prompts require reporting the exact blocked operation and error without switching roles, expanding permissions or trying another access path. Empty source letters are valid for first-draft generation; letter proposals must still contain a complete nonempty letter. The connected prompt checks for `execute_sql` before attempting the protocol. If it is absent, report missing capability, not an execution failure; `query_logs` cannot invoke database functions. These checks do not change Supabase privileges or guarantee that the installed ChatGPT plugin exposes a particular action.
-
-**Copy full prompt with sources** uses the same prompt builder and versioned validation rules, with an explicitly selected inline delivery mode. It embeds only validated `request_json`, including the complete current letter, settings, template, opportunity, feedback, CV structure and approved privacy legend. It includes no local request envelope or reverse mappings. ChatGPT is asked to return one proposal JSON object, with no SQL read/write, application resolver or claimed cloud save. The user imports it through the existing proposal input, which activates the temporary candidate and enforces the same source checks at acceptance. The app still publishes and reuses an immutable request through its authenticated repository; no new table, server endpoint or database permission is needed. Switching between connected and inline copy modes does not create duplicate requests.
-
-[`tests/application_codes.sql`](tests/application_codes.sql) verifies backfill validity, generated values, immutable updates, exact creation retries, actual forced code collisions across owners for both creation APIs, bounded allocation failure without orphaned CVs, owner isolation, admin-only management access, full UUID fallback and current request mapping. The transaction removes every synthetic fixture and its temporary collision trigger/sequence.
-
-The full code suite and existing workspace-security/refinement SQL suites passed after deployment, with all fixtures rolled back. All **8 existing applications** received distinct, non-null codes, and a before/after checksum confirmed every non-code field remained unchanged. Advisors reported no new finding; the existing history-table notices, leaked-password-protection warning and older unused-index notices remain.
-
-### Draft request and proposal operations
-
-The selected management MCP connection was verified to run as database role `postgres` with no app-user JWT. It uses these two private-schema, `SECURITY INVOKER` operations:
+The copied task names the project, application, exact request/version/scope and protocol ID. ChatGPT must use the connected Supabase `execute_sql` capability and these management functions:
 
 ```sql
-select private.read_refinement_request('<request UUID>'::uuid);
-select private.save_refinement_proposal(
-  '<request UUID>'::uuid,
-  '<new proposal UUID>'::uuid,
-  '<proposal JSON>'::jsonb
-);
+SELECT private.resolve_application_reference('<application code or UUID>');
+SELECT private.read_refinement_protocol('<request UUID>'::uuid, '<protocol ID>');
+SELECT private.read_refinement_request('<request UUID>'::uuid);
+SELECT private.save_refinement_proposal('<request UUID>'::uuid, '<proposal UUID>'::uuid, '<escaped proposal JSON>'::jsonb);
 ```
 
-Only `postgres` receives execution privileges, and both helpers check `current_user`. `anon`, `authenticated`, `service_role` and `PUBLIC` have no helper access. Do not manufacture an application JWT or change legacy authentication triggers. These helpers do **not** reduce the existing management connection's wider administrative permissions. Follow the generated prompt's exact project/request identifiers; do not scan other applications.
+Verify all returned identities, scope and schema version. If the current request differs, the protocol is missing, permissions fail or `execute_sql` is unavailable, stop and report the problem. Do not switch roles, use logs as a SQL channel, broaden permissions or substitute another request. Supabase management helpers are invoker functions executable only by `postgres`; browser publication does not authorize management impersonation.
 
-`read_refinement_request` returns the frozen row. `save_refinement_proposal` derives owner and application from that request, validates the joint proposal, appends it, and returns a receipt containing IDs, `proposal_json` and creation time. Verify persistence by repeating the same proposal UUID and equivalent JSON value; it returns the same receipt. The same UUID with different input is rejected. A correction uses a new UUID.
+Generate one proposal UUID per logical proposal. Use proper SQL escaping or a collision-free dollar quote. Retry an uncertain save with the same UUID and identical payload. Confirm the persisted receipt's ID, application, request and complete proposal before reporting success. Do not write proposal tables directly or approve documents through this external exchange.
+
+## Structured CV and letter proposals
+
+Version-2 proposals contain `schemaVersion`, `requestId`, `summary`, `cvOperations`, `cvComments`, `letterText` and optional `annotations`. Allowed operations target only references in the published topology:
+
+- `reorder_sections`, `reorder_entries`, `reorder_bullets`: provide the complete existing sibling order.
+- `shorten_text`: nonempty extractive shortening of an existing range, retaining exact whitespace-separated words in their original order.
+- `omit_bullet`: omit a nonessential complete bullet without destroying its frozen private source.
+
+Each operation has a unique change ID and an explanation. Unknown IDs, duplicate targets of the same operation, cross-parent moves, new sections/entries and omission plus shortening of the same bullet are rejected. Reordering plus omission uses the complete original order, then removes selected omissions. Existing privacy tokens and links must remain intact. Comments use existing field IDs and do not mutate content.
+
+Topology and operation/comment lists are bounded at 1,000 entries; field/range text at 20,000 UTF-16 units; labels at 200; explanations at 1,000. Extractive shortening separately counts Unicode code points and must be strictly shorter. CV-only proposals preserve the entire letter byte-for-byte; letter-only proposals have no CV operations. Approved documents must be reopened before changes. No qualifications, evidence, dates or facts may be invented.
+
+CV decision reviews have this shape:
 
 ```json
-{
-  "schemaVersion": 1,
-  "requestId": "<request UUID>",
-  "summary": "Short summary of proposed changes and missing evidence.",
-  "cvEdits": [{"fieldId": "field-1", "text": "Improved wording with {{PRIVATE_1}} preserved."}],
-  "letterText": "Complete motivation letter, including its subject/greeting/closing."
-}
+{"proposalId":"<UUID>","accepted":["change-1"],"rejected":["change-2"],"revision":"v1:<64 lowercase SHA-256 hex characters>"}
 ```
 
-CV field IDs, token order/count, links and structure must stay valid under the existing CV adjustment validator. Empty edits mean unchanged. A letter-only request requires empty CV edits; a CV-only request must return its existing letter text exactly. Letter text may include unresolved applicant placeholders for local reconstruction, but may not contain CV `PRIVATE_n` tokens, images or HTML. Letter text is capped at 50,000 characters and summary at 8,000. The requested word target remains advisory: a 401-word letter for a 400-word request can be saved and reviewed.
+The lists partition all operation IDs exactly once. `revision` is the current signature format, not a refinement schema version. Decisions must reference the owner's current request. SQL validates scope, ownership and approvals; the browser additionally verifies private local baselines and commits the reconstructed document. Decisions do not themselves approve documents.
 
-Historical proposals can arrive after another round was published and remain readable for comparison. Before applying any proposal, the browser must verify its request is still current and its full local baseline signature matches. A stale proposal never replaces manual work. Editing the baseline requires a new request.
+Approval reviews use `{"revision":"v1:<hash>","expectedRevision":4}` with kind `approve_cv` or `approve_letter`; reopening uses `{"expectedRevision":5}`. Reload state after either operation. Manual changes clear the affected approval. A setup change also clears letter approval and the current request.
 
-Generated initial and improvement prompts share a versioned contract: source content is untrusted data; use evidenced qualifications, preserve privacy tokens and manual corrections, obey accumulated feedback and frozen scope, save through the dedicated helper, and verify the receipt. Publishing does not launch ChatGPT: the user copies the prompt into the connected conversation and returns to check results.
+## Annotations and feedback
 
-## Structured CV refinement, version 2
+Annotations remain outside document text, word counts and PDF rendering. Each has exactly `id`, `type`, `document`, `location` and `text`. Types are `comment`, `todo`, `question`; documents are `cv` or `letter`. Location is null, an existing CV `{fieldId}`, or a letter `{start,quote}` anchored by zero-based Unicode code-point offset. Text is limited to 4,000 UTF-16 units; quotes to 2,000; at most 100 annotations are accepted. Changed letter text invalidates the displayed anchor; the app never silently relocates it.
 
-**Applied to phd-workflow on 2026-10-01:** [`changes/structured_cv_refinement.sql`](changes/structured_cv_refinement.sql), migration `structured_cv_refinement` / `20261001205721` UTC. Other targets must apply this additive upgrade before the version-2 frontend publishes requests. It replaces the existing request/proposal/review validation functions and extends the allowed review kinds; tables, RLS, management-role checks, immutable history and existing RPC signatures remain unchanged. [`schema.sql`](schema.sql) includes the same upgrade. Do not apply it twice. Existing version-1 requests and proposals remain readable with their original JSON; a proposal must use the same version as its request.
-
-A version-2 request retains the existing identifiers, nested version-1 `cv` fields, letter, scope and accumulated feedback, and adds `cvStructure`. That structure carries only public opaque references: body/sidebar areas; sections and their area; entries and their section; bullets and their editable field; exact shortenable ranges; and unsupported fields with an explanation. All parent lists are complete, unique permutations of their children. An entry's bullets come from one editable field. A range matches either one entire bullet or one entire non-bullet field; duplicate ranges and unsupported/supported overlap are rejected. Paths, private binding data and full application CVs remain local.
-
-The matching proposal shape is:
-
-```json
-{
-  "schemaVersion": 2,
-  "requestId": "<request UUID>",
-  "summary": "Prioritize relevant evidence and remove redundant wording.",
-  "cvOperations": [
-    {"id":"change-1","type":"reorder_sections","targetId":"body","order":["section-2","section-1"],"explanation":"Prioritize relevant evidence."},
-    {"id":"change-2","type":"shorten_text","targetId":"range-1","text":"Research evidence.","explanation":"Remove redundant words."}
-  ],
-  "cvComments": [{"id":"comment-1","fieldId":"field-4","explanation":"Review this unsupported block manually."}],
-  "letterText": "Complete motivation letter."
-}
-```
-
-Allowed operations are `reorder_sections`, `reorder_entries`, `reorder_bullets`, `omit_bullet` and `shorten_text`. Reordering requires every original child exactly once within its original parent; it cannot move sections between body and sidebar. A proposal may reorder and omit bullets: its order still contains the original complete list, and the local reconstruction removes selected omissions afterward. Duplicate targets of the same operation type, unknown references, extra properties and omission plus shortening of the same bullet are rejected. Comments refer to an authorized field and do not mutate content. Letter-only requests require empty `cvOperations`; read-only comments remain allowed. CV-only requests preserve the complete letter exactly.
-
-Shortening is deliberately extractive. The replacement must be nonempty, strictly shorter by Unicode character count, and a case-sensitive subsequence of original whitespace-separated tokens in their original order. It may remove words, not invent or paraphrase them. Punctuation belongs to its token. Existing privacy-token order/count, link, HTML and image safeguards also apply. The backend bounds each graph list and operations/comments list to 1,000, field/range text to 20,000 UTF-16 units, labels to 200 and explanations/reasons to 1,000, matching JavaScript string bounds. The strictly-shorter comparison separately counts Unicode code points. Source content and explanations are untrusted data.
-
-Loading a refinement immediately shows its proposed CV and letter in temporary previews. Checkbox changes update that temporary state immediately; working documents, published sources and approvals stay unchanged until explicit acceptance. The browser reconstructs the application copy against its exact saved baseline and records decisions only when the user accepts the selection. Older proposals can be previewed against their original local baseline, but stale proposals cannot replace newer working documents. Temporary previews cannot be exported as finalized documents. `save_refinement_review` supports `p_kind='cv_decisions'` with this exact payload:
-
-```json
-{"proposalId":"<proposal UUID>","accepted":["change-1"],"rejected":["change-2"],"revision":"v1:<64 lowercase SHA-256 hex characters>"}
-```
-
-The two lists must partition all proposal operation IDs exactly once; version-1 proposals instead use their `cvEdits` field IDs. The linked proposal must belong to this owner, application and non-null current request. An approved CV must be reopened before accepting any change; recording all changes as rejected is allowed. Decisions append audit history and do not mutate cloud state or approve the document. Their revision is an opaque signature of the committed local CV. Because the private CV lives locally, SQL cannot prove that local revision from cloud text; the browser must verify the baseline and perform the local commit. Exact review-ID retries return the original receipt. Publishing a newer round makes old proposals viewable, but prevents new decisions against their stale request.
-
-Run [`tests/structured_cv_refinement.sql`](tests/structured_cv_refinement.sql) as `postgres`, then rerun the existing refinement and workspace-security suites. The new transaction covers every operation, malformed topology, unsupported targets, duplicate/conflicting operations, extractive shortening, privacy/link preservation, scope/version matching, exact retries, decision partitions, approved/stale/cross-owner refusal and legacy decisions. Every fixture rolls back. Before deployment, the upgrade and the existing `application_refinement.sql`, `workspace_security.sql` and new structured suite passed together in one rolled-back transaction. The structured suite passed again after deployment, including Unicode bounds and URL whitespace checks. Security advisors showed no new findings; previously documented notices remain unchanged. Frontend deployment is separate from this database upgrade.
-
-## Verification and rollout
-
-The transactional SQL suite exercises template setup, optimistic concurrency, authoritative capture, omitted feedback rejection, letter-only scope, unchanged private tokens, over-target letters, owner isolation, denied browser/admin helper access, direct-write validation, immutable history, exact retries, atomic approval/reopening, and application/account cascades. All fixture data rolls back. Run Supabase security advisors after applying the migration; the explicit grants account for the [current Data API exposure policy](https://supabase.com/changelog/45329-breaking-change-tables-not-exposed-to-data-and-graphql-api-automatically) and [function privileges](https://supabase.com/docs/guides/database/functions#function-privileges).
-
-Post-deployment advisors reported no new security findings. The existing [leaked-password-protection warning](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) and backend-only `opportunity_history` [missing-policy notice](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy) remain. Performance notices include the existing history-table [unindexed foreign key](https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys), older unused indexes, and the new `refinement_reviews_request_idx` [unused-index notice](https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index). The new index is retained to support its composite request foreign key before normal traffic begins.
-
-Frontend verification must also cover local template independence, baseline mismatch refusal, accumulated feedback, privacy reconstruction, unavailable local files, placeholder export blocking, advisory word counts, and the complete desktop/mobile preparation → proposal → feedback → approval → combined PDF → submitted tracking flow.
-
-
-## Shared annotation extension
-
-**Deployed:** **phd-workflow** received `refinement_annotations`, version `20261001213228` (UTC), on **2026-10-01**. Post-deployment transactional checks passed; do not reapply it there.
-
-Apply [`changes/refinement_annotations.sql`](changes/refinement_annotations.sql) after the structured CV upgrade, before releasing this frontend. The consolidated schema includes it. No new tables, document fields or history streams are introduced, and existing proposals are immutable. Existing v1 and v2 proposals without annotations remain readable; neither their summaries nor `cvComments` are automatically reinterpreted.
-
-Version-2 proposals may additionally provide `annotations` (an array, at most 100 entries). The generated prompt includes it, using `[]` when no notes are needed. Each entry has exactly these fields:
-
-```json
-{"id":"annotation-1","type":"question","document":"cv","location":{"fieldId":"field-1"},"text":"Which research methods did you use?"}
-{"id":"annotation-2","type":"todo","document":"letter","location":{"start":0,"quote":"Dear committee,"},"text":"Confirm the addressee before submission."}
-```
-
-`type` is `comment`, `todo` or `question`; `document` is `cv` or `letter`. `location` can be `null` for a whole-document annotation. CV fields must exist in the exact request. Letter `start` is a zero-based Unicode code-point offset in the returned `letterText`, and `quote` must match there exactly. Text is nonempty and limited to 4,000 UTF-16 units; quotes to 2,000. Unknown keys, IDs, invalid locations and privacy violations are rejected. Notes never enter CV operation application, letter rendering, word counts or PDF export.
-
-Initial status is `open`, with no response. The signed-in browser uses the existing `save_refinement_review` RPC with `kind: "annotation"`, the proposal's request ID and this payload:
+An annotation review has this shape:
 
 ```json
 {"proposalId":"<UUID>","annotationId":"annotation-1","status":"resolved","response":"Used controlled experiments.","previousReviewId":null}
 ```
 
-Status may be `open`, `resolved` or `ignored`. Response is null or nonempty text up to 12,000 UTF-16 units. The browser applies known-identity and protected-field filtering before saving. Later updates must supply the last annotation review UUID as `previousReviewId`. The state-row lock serializes these checks; stale updates fail without changing documents. Identical review UUID/payload retries return the original receipt. Historical proposals remain answerable, and opening them projects the latest status from existing reviews. Unsaved component responses survive a failed save or a conflicting refresh until the user explicitly loads the saved annotation.
+Status is `open`, `resolved` or `ignored`. Response is null or nonempty text up to 12,000 UTF-16 units. Later updates must name the most recent review UUID. Stale writes fail; exact review-ID retries are idempotent. Responses are privacy-filtered before saving.
 
-“Included as feedback” is a separate, explicit action. Open or answered annotations can append an ordinary `feedback` review with its existing `text`/`scope`, plus:
+The current interface saves annotation actions and includes their relevant feedback through the connected review API. Feedback includes text, scope and an `annotation` reference with proposal/annotation/review IDs. The server verifies the referenced version, owner, request and document scope. A next request contains the complete ordered feedback history. Later explicit corrections supersede earlier answers; ignored or open annotations must not be treated as confirmed evidence. Answering an annotation does not change CV or letter text directly.
 
-```json
-{"annotation":{"proposalId":"<UUID>","annotationId":"annotation-1","reviewId":"<annotation review UUID, or null for untouched open notes>"}}
-```
+Frozen letter templates can include optional `researchInterests` and `questionGuidance`, each up to 4,000 UTF-16 units. Interests are aspirations, not qualifications. Questions should seek concrete missing evidence without inferring that absent CV detail means absent experience. Draft from confirmed evidence and put questions in separate letter annotations; never fabricate an answer.
 
-The backend validates proposal ownership, application/request membership, the annotation ID, latest response revision and document scope. The browser composes the note, original reference, status and answer, applies outgoing privacy checks again, and stores the resulting feedback. Include this same `annotation` reference in each frozen request's corresponding feedback entry. Earlier entries remain unchanged and must occur exactly once in chronological order, even when a later answer supersedes them. Annotation status updates alone do not publish feedback or change source documents; selecting “Include as feedback” makes an existing request outdated until the user publishes the next round.
+## CV Privacy editor
 
-Letter references conservatively identify the originally proposed document version (normalizing only the existing letter parser/serializer). Any changed rendered version displays **Referenced text has changed**, while the original quote remains available separately. The app never searches for another occurrence and silently moves the annotation. Document-wide notes have no text anchor.
+CV Studio Privacy preserves original fields locally and applies automatic masking followed by explicit replacements. Only changed values are stored in `anonymization.fieldOverrides`, keyed by stable item/section identities. Public snapshots contain resolved wording without originals or reverse mappings. Replacement fields are comments-only for AI; applying a proposal never substitutes their public replacement into private CV text. `!!text!!` is ordinary punctuation, not a privacy instruction.
 
-All operations retain owner-authenticated invoker RPCs and existing RLS. Private proposal writes remain restricted to the `postgres` management connection. Helper validation functions have explicit revokes/grants. Run [`tests/refinement_annotations.sql`](tests/refinement_annotations.sql) as `postgres`; synthetic fixtures roll back. It checks strict payloads, Unicode offsets/bounds, exact retries, stale updates, unchanged state, referenced feedback preservation, legacy summaries, historical notes, cross-user isolation and anonymous denial.
+### Privacy preview and approved context (Ticket 6)
 
+Optional `privacyLegend` entries contain `fieldId`, `token`, `type`, `description`. Supported types are person, organization, location, link, contact, confidential and other. Descriptions are nonempty, at most 500 UTF-16 units and cannot contain original values, mappings, controls, placeholders or HTML. Each token must occur in its field and appear at most once in the legend.
 
-## Privacy preview and approved context (Ticket 6)
+Descriptions are locally approved against the exact private source, path and token occurrence. Changed sources require new approval. Descriptions provide context only; they do not replace tokens or enable reconstruction. The preview distinguishes visible, pseudonymized and unshared content. The app filters known identities and protected originals in free text, while SQL validates the public shape and token boundaries. Arbitrary prose cannot be proven anonymous by SQL alone.
 
-`privacyLegend` is an optional extension to either request schema version. Omit it when no descriptions have been approved. Each entry contains exactly `fieldId`, `token`, `type`, and `description`, for example:
+## Clearing refinement history
 
-```json
-{"fieldId":"field-4","token":"{{PRIVATE_1}}","type":"organization","description":"Engineering company specializing in sensor technology"}
-```
+Clear refinement history permanently removes the selected application's current refinement requests, protocols, proposals, feedback, annotations and approval events. It retains working documents, assigned CV snapshots, frozen preparation settings and approval hashes. Other applications and opportunities are unaffected.
 
-Allowed types are `person`, `organization`, `location`, `link`, `contact`, `confidential`, and `other`. Descriptions are nonempty plain text, at most 500 UTF-16 units. A token must occur in the referenced field and appear at most once in the legend. Unknown keys (including originals or mappings), controls, placeholders, and HTML delimiters are rejected. The server validates this public contract; only the local application has originals available for privacy filtering. No reverse mapping or local approval fingerprint is uploaded.
+The owner supplies the current state revision. The helper uses the same application advisory lock as publication/proposal writes, clears the pointer and increments revision atomically. A missing state accepts revision `0` and returns JSON null. An empty-history retry with the new revision is safe; stale revisions fail.
 
-Users enter descriptions and click **Approve & include**. Approval is saved in the existing local application store and backups, bound to the exact variant, field path, private source and token occurrence. Numbering changes cannot assign context to a different original. Changed sources need renewed approval. Removing a description affects the next request; immutable published history remains unchanged. Descriptions supply context only and never replace tokens, originals, or reconstruction mappings. Reconstruction does not depend on a description.
+The public endpoint is invoker-only. Its narrowly granted `private.clear_refinement_history` helper is a `postgres`-owned security-definer function with explicit non-anonymous owner checks. Scoped immutable triggers permit only this controlled deletion; ordinary table deletion remains revoked. Failures restore the prior scope and roll back the data together.
 
-The preview distinguishes **Visible**, **Pseudonymized**, and **Not shared**. Visible employers, locations and links are not described as masked. CV fields, the complete letter, instructions, opportunity context, template guidance/examples, and saved feedback can be inspected. Unsaved feedback and annotation responses also have outgoing privacy previews. Known identities and protected field originals are filtered in outgoing free text. Explicit CV field replacements are shown as authored, after automatic masking. No automatic context enrichment is performed.
+## Verification and rollout
 
-Structured operations move complete bullets with their tokens; omission only removes them from the derived candidate. Frozen local originals and mappings remain intact. Legacy wording edits additionally cannot transfer a token across content lines; use structured operations for complete bullet moves.
+Run `npm test`, `npm run refinement:prompts:check`, `npm run test:refinement-protocol` and `npm run build`. Browser checks use synthetic data; see [testing](../test/REFINEMENT_TESTING.md).
 
-**Applied to phd-workflow:** `refinement_privacy_legend`, version `20261001224820` UTC (2026-10-02 local time), from [`changes/refinement_privacy_legend.sql`](changes/refinement_privacy_legend.sql). Apply this additive upgrade after annotations on other targets. The consolidated schema includes it. Tables, RLS, existing API signatures and prior rows are unchanged. All six SQL regression suites passed within the migration transaction; synthetic fixtures were rolled back before commit. [`tests/refinement_privacy_legend.sql`](tests/refinement_privacy_legend.sql) also passed after deployment. It covers publication/readback, exact retries, optional/legacy requests, invalid legends, Unicode bounds, token attachment and grants.
-
-## Shared entry points and history (Ticket 7)
-
-CV tailoring, letter drafting and combined refinement now enter the same application workspace with the corresponding scope selected. Template, language and writing instructions have one preparation form. Publication, proposal loading, review and acceptance use the existing refinement repository and temporary candidate previews. Refresh preserves the active proposal; selecting a historical proposal explicitly opens its exact baseline comparison, with acceptance blocked when outdated. Application tracking status remains independent.
-
-The main view shows the current request and its proposals. **History / Details** contains prior requests/proposals, public exports, frozen source versions, template revision, prompt version and published additional instructions. Prompt versions are recorded on new local request receipts; missing historical metadata is shown as unknown, without using current settings. Histories use ordered, paginated reads of existing tables and retain owner validation on every page. No migration, extra cloud write for preview, parallel tables or realtime service is introduced.
-
-Earlier standalone CV requests/responses and letter drafting contexts/drafts remain accessible in the history archive. Legacy CV responses are viewable/exportable there; the archive does not guess missing private mappings to apply them. Incoming raw letter text and earlier cloud letters can be retained as local revisions, then explicitly restored as working drafts after closing review and reopening any finalized letter. Existing versioned refinement proposals, including v1, still use the common preview and acceptance flow. Manual JSON/file import and application/letter backups remain secondary alternatives. Private source receipts and reverse mappings stay local.
-
-
-## Letter research interests and contextual questions
-
-Apply [`changes/letter_template_guidance.sql`](changes/letter_template_guidance.sql) to existing installations after the structured refinement upgrade. The existing setup validator accepts optional `request_json.letter.template.researchInterests` and `questionGuidance` strings, each at most 4,000 UTF-16 units. Empty or absent fields remain valid; existing requests and frozen templates are not rewritten. Both fields go through the same outgoing privacy filtering and appear explicitly in the privacy preview. No schema-version bump, new table or permission change is required. The legacy drafting API folds these sections into its existing `structure` field.
-
-Research interests express the applicant's own intentions beyond documented experience. Drafting selects useful connections to the opportunity, need not mention every interest and cannot treat an interest as a qualification. Question guidance applies to both initial drafting and refinement. The default example asks about required or beneficial opportunity criteria without CV evidence, explaining why an answer might strengthen the letter and inviting a concrete example. Missing CV evidence does not establish a lack of experience. Questions remain outside letter text as v2 `question` annotations, with `document: "letter"` and a null location where no passage applies. Already answered or declined questions should not be repeated. Legacy v1 proposals keep clarification in `summary`, without silently adopting v2 annotations.
-
-Connected annotation answers retain the existing owner-scoped review contract. Imported proposal answers use the existing local `importedReviews` store because the proposal has no cloud identity. Explicit **Include as feedback** writes ordinary sanitized feedback through the existing RPC and stores its annotation association locally; that local-only reference never enters the cloud request. The feedback ID is deterministic per answer version for safe retries. New requests include the exact ordered cloud feedback; the local receipt avoids duplicate inclusion and makes edited answers require renewed inclusion. Answering alone never changes the documents or PDF. Application backups preserve imported answers and feedback associations; restoration validates their proposal, annotation, scope and response-chain references before changing local state. Local backup reviews cannot restore cloud approvals.
-
-[`tests/letter_template_guidance.sql`](tests/letter_template_guidance.sql) covers optional/legacy fields, Unicode and length bounds, multiline input, privacy rejection, preserved grants, immutable publication, and a contextual question → answer → explicit feedback → next request. Every synthetic fixture rolls back.
+SQL suites under [`tests`](tests) exercise real database functions and RLS with synthetic users/JWT claims and roll all fixtures back. Cover workspace security, current structured refinement, privacy, annotations, protocol publication, review retries, history clearing, approval concurrency and application removal. Run security/performance advisors after DDL and compare against the pre-migration baseline. Browser mocks do not prove deployed RLS or live Auth/PostgREST transport.

@@ -24,7 +24,7 @@ declare
   user_a uuid:=gen_random_uuid(); user_b uuid:=gen_random_uuid();
   opportunity_a uuid:=gen_random_uuid(); opportunity_b uuid:=gen_random_uuid(); opportunity_c uuid:=gen_random_uuid(); opportunity_d uuid:=gen_random_uuid();
   app_a uuid:=gen_random_uuid(); app_b uuid:=gen_random_uuid(); app_c uuid:=gen_random_uuid(); app_d uuid:=gen_random_uuid(); direct_app uuid:=gen_random_uuid();
-  legacy_cv uuid:=gen_random_uuid(); failed_cv uuid:=gen_random_uuid(); request_id uuid:=gen_random_uuid();
+  snapshot_cv uuid:=gen_random_uuid(); request_id uuid:=gen_random_uuid();
   code_a text; code_b text; code_c text; direct_code text; result jsonb; baseline jsonb; request jsonb;
   setup jsonb:='{"template":{"id":"research","name":"Research","revision":1,"structure":"Opening and evidence","tone":"Professional","language":"en","maxWords":400,"updatedAt":"2026-10-01T00:00:00Z"},"language":"en","maxWords":400}';
   content jsonb:='{"contact":{"name":"Alex Muster","location":"","role":"","email":"muster-ex@mp.le","phone":"","website":"","linkedin":"","github":""},"about":{"text":"Research experience."}}';
@@ -65,7 +65,7 @@ begin
   if direct_code=code_a or direct_code !~ '^APP-[A-F0-9]{10}$' then raise exception 'FAIL: browser supplied code accepted'; end if;
   begin perform private.resolve_application_reference(code_a); raise exception 'FAIL: owner accessed management resolver'; exception when insufficient_privilege then null; end;
 
-  -- Both creation overloads recover an actual UNIQUE violation, including a code
+  -- Application creation recovers an actual UNIQUE violation, including a code
   -- belonging to a different user and therefore invisible through owner RLS.
   perform set_config('request.jwt.claims',jsonb_build_object('sub',user_b,'role','authenticated','is_anonymous',false)::text,true);
   perform set_config('test.application_code.target',app_b::text,true);
@@ -81,27 +81,31 @@ begin
   alter sequence pg_temp.application_code_collision_attempts restart with 1;
   execute 'set local role authenticated';
   perform set_config('test.application_code.target',app_c::text,true);
-  perform public.create_job_application(app_c,opportunity_b,legacy_cv,'employer@example.org','Legacy code fixture',content,'{}',7);
+  perform public.create_job_application(app_c,opportunity_b);
   select application_code into code_c from public.applications where id=app_c;
-  if code_c=code_a or currval('pg_temp.application_code_collision_attempts')<>2 then raise exception 'FAIL: legacy collision retry'; end if;
-  if public.create_job_application(app_c,opportunity_b,legacy_cv,'employer@example.org','Legacy code fixture',content,'{}',7)<>app_c
-    or (select application_code from public.applications where id=app_c)<>code_c then raise exception 'FAIL: legacy retry changed code'; end if;
-  begin perform public.create_job_application(app_c,opportunity_b,legacy_cv,'different@example.org','Legacy code fixture',content,'{}',7); raise exception 'FAIL: changed legacy retry accepted'; exception when unique_violation then null; end;
+  if code_c=code_a or currval('pg_temp.application_code_collision_attempts')<>2 then raise exception 'FAIL: second opportunity collision retry'; end if;
+  perform public.assign_job_application_cv(app_c,snapshot_cv,'Assigned code fixture',content,'{}',7,'{"contact_email":"employer@example.org"}');
+  select to_jsonb(a) into baseline from public.applications a where id=app_c;
+  if public.create_job_application(app_c,opportunity_b)<>app_c
+    or (select to_jsonb(a) from public.applications a where id=app_c)<>baseline then raise exception 'FAIL: creation retry changed assigned application'; end if;
+  if public.assign_job_application_cv(app_c,snapshot_cv,'Assigned code fixture',content,'{}',7,'{"contact_email":"employer@example.org"}')<>snapshot_cv
+    or (select application_code from public.applications where id=app_c)<>code_c then raise exception 'FAIL: assignment retry changed code'; end if;
+  begin perform public.create_job_application(app_c,opportunity_c); raise exception 'FAIL: changed opportunity retry accepted'; exception when unique_violation then null; end;
   perform set_config('test.application_code.target',app_d::text,true);
   perform set_config('test.application_code.mode','always',true);
   begin
-    perform public.create_job_application(app_d,opportunity_c,failed_cv,'employer@example.org','Failed code fixture',content,'{}',7);
+    perform public.create_job_application(app_d,opportunity_c);
     raise exception 'FAIL: exhausted allocation succeeded';
   exception when unique_violation then null; end;
-  if exists(select 1 from public.cv_variants where id=failed_cv) or exists(select 1 from public.applications where id=app_d) then raise exception 'FAIL: collision exhaustion left partial application/CV'; end if;
+  if exists(select 1 from public.applications where id=app_d) or (select count(*) from public.cv_variants)<>1 then raise exception 'FAIL: collision exhaustion changed application/CV records'; end if;
   perform set_config('test.application_code.target','',true);
 
   -- Resolution selects the explicitly current immutable request without exposing
   -- private notes or acting as an instruction to publish any new request.
   perform public.save_refinement_state(app_c,setup,'{"cv":null,"letter":null}',0);
-  request:=jsonb_build_object('schemaVersion',1,'requestId',request_id,'applicationId',app_c,
+  request:=jsonb_build_object('schemaVersion',2,'requestId',request_id,'applicationId',app_c,
     'cv',jsonb_build_object('schemaVersion',1,'requestId',request_id,'fields','[]'::jsonb,'opportunity','{}'::jsonb,'instructions',''),
-    'letter',setup||'{"text":""}','scope','both','feedback','[]'::jsonb,'parentProposalId',null);
+    'letter',setup||'{"text":""}','scope','both','feedback','[]'::jsonb,'parentProposalId',null,'cvStructure','{"schemaVersion":1,"areas":[{"id":"body","sectionIds":[]},{"id":"sidebar","sectionIds":[]}],"sections":[],"entries":[],"bullets":[],"ranges":[],"unsupported":[]}'::jsonb);
   perform public.publish_refinement_request(request);
   result:=public.resolve_application_reference(code_c);
   if result->>'current_request_id'<>request_id::text or result-array['application_id','application_code','current_request_id']<>'{}'::jsonb then raise exception 'FAIL: current request mapping/privacy'; end if;
@@ -121,4 +125,4 @@ begin
 end;
 $$;
 rollback;
-select 'PASS: server application codes, immutable identity, both creation retries, cross-owner forced collisions, bounded allocation rollback, owner RLS, admin-only resolution, code/UUID matching and current request mapping. All synthetic fixtures rolled back.' as result;
+select 'PASS: server application codes, immutable identity, creation and assignment retries, cross-owner forced collisions, bounded allocation rollback, owner RLS, admin-only resolution, code/UUID matching and current request mapping. All synthetic fixtures rolled back.' as result;

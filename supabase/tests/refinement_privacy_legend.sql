@@ -63,18 +63,18 @@ begin
   end loop;
   if invalid_count<>17 then raise exception 'FAIL: incomplete invalid-legend coverage'; end if;
   perform public.refinement_validate_privacy_legend(jsonb_set(legend,'{0,description}',to_jsonb(repeat('😀',250))),fields);
-  -- Both schema versions still publish without a legend, or with an explicitly empty legend.
+  -- Version-2 requests publish without a legend, or with an explicitly empty legend.
   for current_revision in 1..2 loop
     candidate:=gen_random_uuid();
     item:=jsonb_set(jsonb_set(request-'privacyLegend','{requestId}',to_jsonb(candidate::text)),'{cv,requestId}',to_jsonb(candidate::text));
-    if current_revision=1 then item:=(item-'cvStructure')||'{"schemaVersion":1}'; else item:=item||'{"privacyLegend":[]}'; end if;
+    if current_revision=2 then item:=item||'{"privacyLegend":[]}'; end if;
     perform public.publish_refinement_request(item);
   end loop;
-  -- A legacy edit cannot transfer a token to an unrelated bullet, even within the same field.
+  -- The shared field validator cannot transfer a token to an unrelated bullet, even within the same field.
   proposal:=jsonb_build_object('schemaVersion',1,'requestId',request_a,'edits',jsonb_build_array(jsonb_build_object('fieldId','field-1','text',E'Built research tools.\nDocumented workflows with {{PRIVATE_1}}.')));
   begin
     perform public.cv_adjustment_validate_response(proposal,request->'cv',request_a);
-    raise exception 'FAIL: moved legacy token accepted';
+    raise exception 'FAIL: moved field token accepted';
   exception when invalid_parameter_value then null; end;
   proposal:=jsonb_set(proposal,'{edits,0,text}',to_jsonb(E'Built tools with {{PRIVATE_1}}.\r\nDocumented workflows.'::text));
   perform public.cv_adjustment_validate_response(proposal,request->'cv',request_a);

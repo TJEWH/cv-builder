@@ -30,16 +30,16 @@ begin
     perform public.create_job_application(app_ids[idx],opportunity_ids[idx]);
     perform public.assign_job_application_cv(app_ids[idx],gen_random_uuid(),'History CV '||idx::text,content,'{}',7,'{"notes":"Keep application notes"}');
     perform public.save_refinement_state(app_ids[idx],setup,'{"cv":null,"letter":null}',0);
-    request:=jsonb_build_object('schemaVersion',1,'requestId',request_ids[idx],'applicationId',app_ids[idx],
+    request:=jsonb_build_object('schemaVersion',2,'requestId',request_ids[idx],'applicationId',app_ids[idx],
       'cv',jsonb_build_object('schemaVersion',1,'requestId',request_ids[idx],
         'fields',jsonb_build_array(jsonb_build_object('id','field-1','label','Profile','text','Robotics research.')),
         'opportunity','{}'::jsonb,'instructions','Preserve evidence.'),
-      'letter',setup||'{"text":"Original letter."}','scope','letter','feedback','[]'::jsonb,'parentProposalId',null);
+      'letter',setup||'{"text":"Original letter."}','scope','letter','feedback','[]'::jsonb,'parentProposalId',null,'cvStructure','{"schemaVersion":1,"areas":[{"id":"body","sectionIds":[]},{"id":"sidebar","sectionIds":[]}],"sections":[],"entries":[],"bullets":[],"ranges":[],"unsupported":[{"fieldId":"field-1","reason":"Keep source evidence unchanged."}]}'::jsonb);
     perform public.publish_refinement_request(request);
     perform public.save_refinement_review(app_ids[idx],request_ids[idx],'feedback','{"text":"Focus on research.","scope":"letter"}',gen_random_uuid());
     execute 'reset role';
-    proposal:=jsonb_build_object('schemaVersion',1,'requestId',request_ids[idx],'summary','Research draft.',
-      'cvEdits','[]'::jsonb,'letterText','A complete research letter.');
+    proposal:=jsonb_build_object('schemaVersion',2,'requestId',request_ids[idx],'summary','Research draft.',
+      'cvOperations','[]'::jsonb,'cvComments','[]'::jsonb,'letterText','A complete research letter.');
     perform private.save_refinement_proposal(request_ids[idx],proposal_ids[idx],proposal);
   end loop;
   perform set_config('request.jwt.claims',jsonb_build_object('sub',owner_a,'role','authenticated','is_anonymous',false)::text,true);
@@ -113,7 +113,7 @@ begin
     or (select jsonb_agg(to_jsonb(r) order by r.id) from public.application_refinement_reviews r where r.application_id in (app_b,app_c))<>saved_reviews then
     raise exception 'FAIL: clear changed application documents or another history';
   end if;
-  proposal:=jsonb_build_object('schemaVersion',1,'requestId',request_ids[1],'summary','Late draft.', 'cvEdits','[]'::jsonb,'letterText','Late complete letter.');
+  proposal:=jsonb_build_object('schemaVersion',2,'requestId',request_ids[1],'summary','Late draft.', 'cvOperations','[]'::jsonb,'cvComments','[]'::jsonb,'letterText','Late complete letter.');
   begin perform private.save_refinement_proposal(request_ids[1],gen_random_uuid(),proposal); raise exception 'FAIL: late proposal revived cleared history'; exception when invalid_parameter_value then null; end;
   begin delete from public.application_refinement_requests where id=request_ids[3]; raise exception 'FAIL: deletion scope leaked after RPC'; exception when check_violation then null; end;
   if has_table_privilege('authenticated','public.application_refinement_requests','DELETE')

@@ -5,10 +5,17 @@ do $$
 declare
   user_a uuid := gen_random_uuid(); user_b uuid := gen_random_uuid();
   opportunity uuid := gen_random_uuid(); app_a uuid := gen_random_uuid(); app_b uuid := gen_random_uuid();
-  cv_a uuid := gen_random_uuid(); draft_a uuid := gen_random_uuid();
+  cv_a uuid := gen_random_uuid();
+  retired_table text;
   saved_context jsonb; saved_source jsonb; got jsonb;
+  setup jsonb := '{"template":{"id":"removal","name":"Removal fixture","revision":1,"structure":"Opening, evidence, closing","tone":"Professional","language":"en","maxWords":400,"updatedAt":"2026-10-11T00:00:00Z"},"language":"en","maxWords":400}';
   content jsonb := '{"contact":{"name":"Alex Muster","location":"","role":"","email":"muster-ex@mp.le","phone":"","website":"","linkedin":"","github":""}}';
 begin
+  foreach retired_table in array array['drafts','drafting_contexts','motivation_letter_drafts','cv_adjustment_requests','cv_adjustment_responses'] loop
+    if to_regclass('public.' || retired_table) is not null then
+      raise exception 'FAIL: retired table public.% still exists', retired_table;
+    end if;
+  end loop;
   insert into auth.users(id, aud, role, email, raw_app_meta_data, raw_user_meta_data)
     values (user_a, 'authenticated', 'authenticated', user_a::text || '@example.invalid', '{}', '{}'),
            (user_b, 'authenticated', 'authenticated', user_b::text || '@example.invalid', '{}', '{}');
@@ -19,8 +26,7 @@ begin
   execute 'set local role authenticated';
   perform public.create_job_application(app_a, opportunity);
   perform public.assign_job_application_cv(app_a, cv_a, 'Checklist test snapshot', content, '{}', 7, '{"notes":"Keep these notes"}');
-  insert into public.drafts(id, user_id, application_id, draft_type, content)
-    values (draft_a, user_a, app_a, 'motivation_letter', 'Test draft');
+  perform public.save_refinement_state(app_a, setup, '{"cv":null,"letter":null}', 0);
   insert into public.opportunity_reviews(user_id, opportunity_id, state) values(user_a, opportunity, 'not_interested');
   select context_json into saved_context from public.applications where id = app_a;
   if (select completed_checklist_keys from public.applications where id = app_a) <> '{}'::text[] then raise exception 'FAIL: nonempty checklist default'; end if;
@@ -78,8 +84,8 @@ begin
   end if;
   perform public.remove_job_application(app_a);
   perform public.remove_job_application(app_a);
-  if exists(select 1 from public.applications where id = app_a) or exists(select 1 from public.drafts where id = draft_a) then
-    raise exception 'FAIL: removal or draft cascade';
+  if exists(select 1 from public.applications where id = app_a) or exists(select 1 from public.application_refinement_state where application_id = app_a) then
+    raise exception 'FAIL: removal or refinement-state cascade';
   end if;
   if not exists(select 1 from public.cv_variants where id = cv_a) then raise exception 'FAIL: removal deleted CV snapshot'; end if;
   if not exists(select 1 from public.opportunity_reviews where opportunity_id = opportunity and state = 'unreviewed') then
@@ -95,4 +101,4 @@ begin
 end;
 $$;
 rollback;
-select 'PASS: private checklist persistence, per-item/idempotent updates, refresh preservation, bounds, account isolation, anonymous denial, removal retries, draft cascade, retained CVs, unchanged opportunities and recreation. All fixtures rolled back.' as result;
+select 'PASS: private checklist persistence, per-item/idempotent updates, refresh preservation, bounds, account isolation, anonymous denial, removal retries, refinement-state cascade, retired-table removal, retained CVs, unchanged opportunities and recreation. All fixtures rolled back.' as result;

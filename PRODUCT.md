@@ -24,14 +24,14 @@ The product connects a reusable document library with independent application co
 
 - **CV Studio** maintains independent career variants, CV content, document design, privacy settings, letter templates, and local attachments. It works without an account.
 - **Opportunities** presents an externally maintained research catalogue. The user reviews research and requirements, records interest, and creates applications. The app does not conduct searches itself.
-- **Applications** provides Preparation, Refinement, PDF review, and Tracking. These stages allow free navigation and iteration.
+- **Applications** provides Preparation, Refinement, Attachments, and Tracking. These stages allow free navigation and iteration.
 - Selecting CV and letter templates creates independent application copies pinned to their source revisions. Later library edits do not silently change those copies.
-- Refinement uses an explicit external ChatGPT handoff through a connected workspace or copied sources and proposal import. The user reviews proposals, supplies feedback, edits wording, and approves the CV and letter independently.
-- PDF review assembles the CV, letter, and selected supporting documents into an ordered package for preview, download, and a fixed local archive. Submission occurs through the institution's portal or email; application status is updated manually.
+- Refinement hands privacy-filtered sources to ChatGPT through the connected Supabase workflow. A valid proposal for the current snapshot updates the selected document's working copy. The user reviews the result, answers annotations, edits wording, and approves the CV and letter independently.
+- Attachments assembles the CV, letter, and selected supporting documents into an ordered PDF package for preview and download. Submission occurs through the institution's portal or email; application status is updated manually.
 
 ## Capabilities and Constraints
 
-The following describes the existing implementation, as documented in the repository at initialization:
+The following describes the existing implementation:
 
 - The app is a static Vue 3 and TypeScript frontend built with Vite, using local tab navigation and a GitHub Pages-compatible base path. Local CV work does not require an application server.
 - The optional Supabase workspace provides signed-in opportunity and application features. Signing in does not automatically upload a CV.

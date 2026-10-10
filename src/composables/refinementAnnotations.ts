@@ -42,7 +42,7 @@ export interface AnnotationView {
 }
 /** Status is projected from the same immutable review history used for feedback and approvals. */
 export function annotationViews(proposal: RefinementProposalRow | undefined, reviews: RefinementReviewRow[]): AnnotationView[] {
-  if (!proposal || proposal.proposal_json.schemaVersion !== 2) return [];
+  if (!proposal) return [];
   return (proposal.proposal_json.annotations || []).map(annotation => {
     const review = [...reviews].reverse().find(row => row.kind === 'annotation' && row.payload.proposalId === proposal.id && row.payload.annotationId === annotation.id);
     return { annotation, proposalId: proposal.id, requestId: proposal.request_id, status: (review?.payload.status as AnnotationStatus) || 'open', response: (review?.payload.response as string | null) || null, reviewId: review?.id || null };

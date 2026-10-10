@@ -64,15 +64,12 @@ const cloudState = ref<RefinementState | null>(null);
 const requests = ref<RefinementRequestRow[]>([]);
 const proposals = ref<RefinementProposalRow[]>([]);
 const reviews = ref<RefinementReviewRow[]>([]);
-const importedProposals = ref<RefinementProposalRow[]>([]);
-const importedReviews = ref<RefinementReviewRow[]>([]);
 const selectedProposalId = ref('');
 // Review selections are transient: neither previewing nor toggling writes working documents.
 const selectedChangeIds = ref<string[]>([]);
 const includeProposedLetter = ref(true);
 const reviewActive = ref(false);
 const reviewComparison = ref<'original' | 'proposed'>('proposed');
-const feedback = ref('');
 const feedbackScope = ref<RefinementScope>('cv');
 const pane = computed(() => feedbackScope.value === 'letter' ? 'letter' : 'cv');
 let scopeWasChosen = false;
@@ -101,7 +98,6 @@ const repository = createRefinementRepository(props.client, () => props.userId);
 const letterRepository = createLetterRepository(localStorage, props.userId);
 let disposed = false;
 let loadingCloud: Promise<void> | null = null;
-let pendingReview: { key: string; id: string } | null = null;
 let localReadError = '';
 let committingSelection = false;
 
@@ -120,10 +116,14 @@ try {
       id: value.savedVariant.id, name: value.savedVariant.name, revision: value.savedVariant.revision,
       previousIds: Array.isArray(value.savedVariant.previousIds) ? value.savedVariant.previousIds.filter((id: unknown) => typeof id === 'string') : undefined,
     };
-    localRequests.value = value.requests || {};
+    // Retired imports and v1 requests cannot take part in the connected v2 workflow.
+    // Keep each current request's full private reconstruction snapshot intact.
+    localRequests.value = Object.fromEntries(Object.entries(value.requests || {})
+      .filter((entry): entry is [string, LocalRefinementRequest] => {
+        const local = entry[1] as Partial<LocalRefinementRequest> | null;
+        return !!local && local.request?.schemaVersion === 2;
+      }));
     privacyContexts.value = value.privacyContexts || {};
-    importedProposals.value = value.importedProposals || [];
-    importedReviews.value = value.importedReviews || [];
     parentProposalId.value = value.parentProposalId || null;
     resetRequestIds.value = Array.isArray(value.resetRequestIds) ? value.resetRequestIds : [];
     if (['cv', 'letter'].includes(value.scope)) { feedbackScope.value = value.scope; scopeWasChosen = true; }
@@ -209,17 +209,11 @@ const proposalChanges = computed(() => {
   if (!proposal || !request) return [];
   const decision = [...reviews.value].reverse().find(item => item.kind === 'cv_decisions' && item.payload.proposalId === selectedProposal.value?.id);
   const status = (id: string): 'proposed' | 'accepted' | 'rejected' => (decision?.payload.accepted as string[] | undefined)?.includes(id) ? 'accepted' : (decision?.payload.rejected as string[] | undefined)?.includes(id) ? 'rejected' : 'proposed';
-  if (proposal.schemaVersion === 2 && request.schemaVersion === 2) return proposal.cvOperations.map(operation => ({
+  return proposal.cvOperations.map(operation => ({
     ...describeCvOperation(operation, request.cvStructure), id: operation.id, type: operation.type, explanation: operation.explanation, status: status(operation.id),
   }));
-  if (proposal.schemaVersion !== 1) return [];
-  return proposal.cvEdits.map(edit => {
-    const field = request.cv.fields.find(item => item.id === edit.fieldId);
-    return { id: edit.fieldId, type: 'legacy_text_replacement', target: field?.label || edit.fieldId, before: field?.text || '', after: edit.text,
-      explanation: text('General wording replacement from a legacy proposal. Review the text and qualifications explicitly.', 'Allgemeine Textersetzung aus einem früheren Vorschlag. Wortlaut und Qualifikationen ausdrücklich prüfen.'), status: status(edit.fieldId) };
-  });
 });
-const proposalComments = computed(() => selectedProposal.value?.proposal_json.schemaVersion === 2 ? selectedProposal.value.proposal_json.cvComments.map(comment => ({
+const proposalComments = computed(() => selectedProposal.value ? selectedProposal.value.proposal_json.cvComments.map(comment => ({
   ...comment, target: selectedRequest.value?.request_json.cv.fields.find(field => field.id === comment.fieldId)?.label || comment.fieldId,
 })) : []);
 const summaryCounts = computed(() => selectedProposal.value ? refinementSummaryCounts(selectedProposal.value.proposal_json, pane.value) : { automaticChanges: 0, todos: 0, questions: 0 });
@@ -229,7 +223,7 @@ const availableProposals = computed(() => visibleRefinementProposals(proposals.v
 const originalRequest = computed(() => [...requests.value].sort((a, b) => a.created_at.localeCompare(b.created_at))[0]);
 const canResetOriginal = computed(() => !!record.value && !!letter.value && !!originalRequest.value && !!localRequests.value[originalRequest.value.id]?.letterBaseline);
 const canClearHistory = computed(() => cloudLoaded.value && !!(requests.value.length || proposals.value.length || reviews.value.length
-  || Object.keys(localRequests.value).length || importedProposals.value.length || importedReviews.value.length));
+  || Object.keys(localRequests.value).length));
 const scopeLocked = computed(() => pane.value === 'cv' ? cvApproved.value : letterApproved.value);
 const hasActiveProposal = computed(() => !!selectedProposal.value && availableProposals.value.some(row => row.id === selectedProposalId.value));
 // The refinement phase survives selection changes and waiting for a later proposal.
@@ -334,7 +328,7 @@ function persist() {
     const stagedStore = { getItem: (key: string) => localStorage.getItem(key), setItem: (key: string, value: string) => { writes.set(key, value); }, removeItem() {} };
     if (record.value) saveApplicationCv(record.value, stagedStore);
     if (letter.value) createLetterRepository(stagedStore, props.userId).save(letter.value);
-    writes.set(storageKey, JSON.stringify({ version: 1, privacyContexts: privacyContexts.value, approvals: approvals.value, savedVariant: savedVariant.value, requests: localRequests.value, parentProposalId: parentProposalId.value, scope: feedbackScope.value, resetRequestIds: resetRequestIds.value, importedProposals: importedProposals.value, importedReviews: importedReviews.value }));
+    writes.set(storageKey, JSON.stringify({ version: 1, privacyContexts: privacyContexts.value, approvals: approvals.value, savedVariant: savedVariant.value, requests: localRequests.value, parentProposalId: parentProposalId.value, scope: feedbackScope.value, resetRequestIds: resetRequestIds.value }));
     for (const [key, value] of writes) {
       const saved = localStorage.getItem(key);
       if (saved === value) continue;
@@ -375,32 +369,29 @@ async function refreshCloud() {
     // Validate target references before the review UI can describe or preview them.
     const requestById = new Map(nextRequests.map(row => [row.id, row]));
     const requestIds = new Set(requestById.keys());
-    // Shared history can be cleared on another device. Do not resurrect its local imports or snapshots.
-    const remainingImports = importedProposals.value.filter(item => requestIds.has(item.request_id));
-    const remainingImportedReviews = importedReviews.value.filter(item => item.request_id !== null && requestIds.has(item.request_id));
+    // Shared history can be cleared on another device. Do not resurrect its local snapshots.
     const remainingLocalRequests = Object.fromEntries(Object.entries(localRequests.value)
       .filter(([id, local]) => !local.publishedAt || requestIds.has(id))
       .map(([id, local]) => [id, requestById.has(id) && !local.publishedAt ? { ...local, publishedAt: requestById.get(id)!.created_at } : local]));
-    const combinedProposals = [...nextProposals, ...remainingImports.filter(item => !nextProposals.some(row => row.id === item.id))];
-    for (const proposal of combinedProposals) {
+    for (const proposal of nextProposals) {
       const source = nextRequests.find(request => request.id === proposal.request_id);
       if (!source) throw new Error('The proposal source request is unavailable. Reload refinement history.');
       if (proposal.application_id !== props.application.id || proposal.user_id !== props.userId) throw new Error('The proposal belongs to another application or account.');
       parseRefinementProposal(proposal.proposal_json, source.request_json);
     }
-    cloudState.value = state; requests.value = nextRequests; proposals.value = combinedProposals; reviews.value = mergeReviews(nextReviews, remainingImportedReviews);
-    importedProposals.value = remainingImports; importedReviews.value = remainingImportedReviews;
+    cloudState.value = state; requests.value = nextRequests; proposals.value = nextProposals;
+    reviews.value = mergeReviews(nextReviews.filter(review => review.request_id === null || requestIds.has(review.request_id)));
     localRequests.value = remainingLocalRequests;
     resetRequestIds.value = resetRequestIds.value.filter(id => requestIds.has(id));
-    if (parentProposalId.value && !combinedProposals.some(item => item.id === parentProposalId.value)) parentProposalId.value = null;
-    if (selectedProposalId.value && !combinedProposals.some(item => item.id === selectedProposalId.value)) reviewActive.value = false;
+    if (parentProposalId.value && !nextProposals.some(item => item.id === parentProposalId.value)) parentProposalId.value = null;
+    if (selectedProposalId.value && !nextProposals.some(item => item.id === selectedProposalId.value)) reviewActive.value = false;
     if (state && initialSignature === baselineSignature.value) approvals.value = clone(state.approvals_json);
     if (!scopeWasChosen && currentPublishedRequest.value) {
       const scope = currentPublishedRequest.value.request_json.scope === 'letter' ? 'letter' : 'cv';
       if ((!cvApproved.value || scope === 'letter') && (!letterApproved.value || scope === 'cv')) feedbackScope.value = scope;
     }
     cloudLoaded.value = true;
-    if (!selectedProposalId.value || !combinedProposals.some(item => item.id === selectedProposalId.value)) selectedProposalId.value = combinedProposals.find(item => item.request_id === state?.current_request_id && !resetRequestIds.value.includes(item.request_id))?.id || '';
+    if (!selectedProposalId.value || !nextProposals.some(item => item.id === selectedProposalId.value)) selectedProposalId.value = nextProposals.find(item => item.request_id === state?.current_request_id && !resetRequestIds.value.includes(item.request_id))?.id || '';
     persist();
   })();
   try { await loadingCloud; }
@@ -480,25 +471,9 @@ function mergeReviews(...groups: RefinementReviewRow[][]): RefinementReviewRow[]
 function feedbackHistory(): RefinementFeedback[] {
   return mergeReviews(reviews.value).filter(item => item.kind === 'feedback').map(item => {
     const annotation = item.payload.annotation as AnnotationReference | undefined;
-    // Imported proposals have no cloud identity. Their approved question/answer is
-    // ordinary feedback in the protocol; its review association stays local.
-    const sharedReference = annotation && !importedProposals.value.some(proposal => proposal.id === annotation.proposalId);
     return { id: item.id, text: String(item.payload.text), scope: item.payload.scope as RefinementScope, createdAt: item.created_at,
-      ...(sharedReference ? { annotation: clone(annotation) } : {}) };
+      ...(annotation ? { annotation: clone(annotation) } : {}) };
   });
-}
-function storedImportedReviews(): RefinementReviewRow[] {
-  return JSON.parse(localStorage.getItem(storageKey) || '{}').importedReviews || [];
-}
-function persistImportedReview(row: RefinementReviewRow) {
-  const previousImported = importedReviews.value, previousReviews = reviews.value;
-  importedReviews.value = mergeReviews(storedImportedReviews(), importedReviews.value, [row]);
-  reviews.value = mergeReviews(reviews.value, importedReviews.value);
-  persist();
-  if (saveError.value) {
-    importedReviews.value = previousImported; reviews.value = previousReviews;
-    throw new Error(saveError.value);
-  }
 }
 async function saveAnnotation(id: string, status: AnnotationStatus, response: string, previousReviewId: string | null): Promise<boolean> {
   let saved = false;
@@ -508,18 +483,10 @@ async function saveAnnotation(id: string, status: AnnotationStatus, response: st
     const safeResponse = response.trim() ? sanitizeRefinementText(response.trim(), record.value.state) : null;
     const payload = { proposalId: view.proposalId, annotationId: id, status, response: safeResponse, previousReviewId };
     validateAnnotationReview(payload);
-    const imported = importedProposals.value.find(proposal => proposal.id === view.proposalId);
-    const latest = imported ? annotationViews(imported, storedImportedReviews()).find(item => item.annotation.id === id) : view;
-    if (latest?.reviewId !== previousReviewId || view.reviewId !== previousReviewId) throw new Error('Annotation changed elsewhere; reload the saved annotation.');
+    if (view.reviewId !== previousReviewId) throw new Error('Annotation changed elsewhere; reload the saved annotation.');
     // A retry after feedback failed must reuse the saved response and its exact reference.
     if (view.status !== status || view.response !== safeResponse) {
-      let row: RefinementReviewRow;
-      if (imported) {
-        const createdAt = new Date(Math.max(Date.now(), ...storedImportedReviews().map(item => Date.parse(item.created_at) + 1))).toISOString();
-        row = { id: crypto.randomUUID(), application_id: props.application.id, user_id: props.userId, request_id: view.requestId,
-          kind: 'annotation', payload, created_at: createdAt };
-        persistImportedReview(row);
-      } else row = await repository.saveReview(props.application.id, view.requestId, 'annotation', payload);
+      const row = await repository.saveReview(props.application.id, view.requestId, 'annotation', payload);
       if (disposed) return;
       if (!reviews.value.some(item => item.id === row.id)) reviews.value.push(row);
     }
@@ -544,19 +511,16 @@ async function includeAnnotationFeedback(id: string) {
   const resolved = view.status === 'resolved' && !!view.response;
   if (!resolved && !previouslyIncluded) return;
   const safeText = sanitizeRefinementText(annotationFeedback(view), record.value.state);
-  const imported = importedProposals.value.find(proposal => proposal.id === view.proposalId);
-  if (imported && annotationViews(imported, storedImportedReviews()).find(item => item.annotation.id === id)?.reviewId !== view.reviewId) throw new Error('Annotation changed elsewhere; reload the saved annotation.');
   const hash = refinementSignature(['annotation-feedback', props.application.id, annotation]).slice(3, 35);
   const reviewId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20)}`;
   if (reviews.value.some(row => row.id === reviewId)) return;
   // Review history is immutable. A cancellation supersedes the older answer;
   // it does not send that answer again or rewrite an already published request.
   const row = await repository.saveReview(props.application.id, view.requestId, 'feedback', {
-    text: safeText, scope: view.annotation.document, ...(resolved && !imported ? { annotation } : {}),
+    text: safeText, scope: view.annotation.document, ...(resolved ? { annotation } : {}),
   }, reviewId);
   if (disposed) return;
-  if (imported && resolved) persistImportedReview({ ...row, payload: { ...row.payload, annotation } });
-  else if (!reviews.value.some(item => item.id === row.id)) reviews.value.push(row);
+  if (!reviews.value.some(item => item.id === row.id)) reviews.value.push(row);
 }
 async function copyPrompt() {
   notice.value = '';
@@ -675,7 +639,6 @@ async function copyIterationTask() {
   if (busy.value || refreshing.value || scopeLocked.value) return;
   // The comparison is temporary; every iteration starts from the saved working document.
   reviewActive.value = false;
-  if (feedback.value.trim()) { await requestImprovement(); if (error.value) return; }
   await publishSources(true);
   if (error.value) return;
   await copyTask();
@@ -692,7 +655,7 @@ async function copyTask() { await run(async () => {
 }); }
 async function connectedPrompt() { await run(async () => {
   const request = requestToCopy();
-  prompt.value = buildRefinementPrompt(request.request_json, refinementProjectId(), 'connected');
+  prompt.value = buildRefinementPrompt(request.request_json, refinementProjectId());
   await copyPrompt();
 }); }
 function checkedProposalResult() {
@@ -757,23 +720,19 @@ async function acceptSelectedChanges() {
       nextLetter = openLetterRevision(incoming, revision.id);
     }
     const payload = { proposalId: row.id, accepted: selected, rejected: proposalChanges.value.filter(change => !selected.includes(change.id)).map(change => change.id), revision: refinementSignature([result.state, props.application.context_json]) };
-    const imported = importedProposals.value.some(item => item.id === row.id);
-    const decision: RefinementReviewRow = imported
-      ? { id: crypto.randomUUID(), application_id: props.application.id, user_id: props.userId, request_id: row.request_id, kind: 'cv_decisions', payload, created_at: new Date().toISOString() }
-      : await repository.saveReview(props.application.id, row.request_id, 'cv_decisions', payload);
+    const decision = await repository.saveReview(props.application.id, row.request_id, 'cv_decisions', payload);
     if (disposed) return;
     if (!reviews.value.some(item => item.id === decision.id)) reviews.value.push(decision);
     if (signature !== baselineSignature.value || selectionKey(row) !== key || selectedProposal.value?.id !== row.id) throw new Error('The working documents or selection changed while saving your decision. They were preserved. Review the proposal again.');
     checkedProposalResult();
     // The recorded decision does not grant document approval; review the saved result separately.
     const previousRecord = record.value, previousLetter = letter.value, previousParent = parentProposalId.value;
-    const previousAcceptances = local.acceptances, previousImportedReviews = [...importedReviews.value];
+    const previousAcceptances = local.acceptances;
     committingSelection = true;
     try {
       record.value = nextRecord; letter.value = nextLetter;
       local.acceptances = [...(local.acceptances || []), { key, proposalId: row.id, variantId: null, reviewId: decision.id, acceptedAt: new Date().toISOString() }];
-      if (imported) importedReviews.value.push(decision);
-      parentProposalId.value = imported ? null : row.id;
+      parentProposalId.value = row.id;
       reviewActive.value = false;
     } finally { committingSelection = false; }
     persist();
@@ -781,25 +740,11 @@ async function acceptSelectedChanges() {
       committingSelection = true;
       try {
         record.value = previousRecord; letter.value = previousLetter; parentProposalId.value = previousParent;
-        local.acceptances = previousAcceptances; importedReviews.value = previousImportedReviews; reviewActive.value = true;
+        local.acceptances = previousAcceptances; reviewActive.value = true;
       } finally { committingSelection = false; }
       throw new Error(saveError.value);
     }
     notice.value = text('Selection accepted into this application. Excluded CV changes were recorded as rejected. Review and approve each document.', 'Auswahl in diese Bewerbung übernommen. Ausgeschlossene CV-Änderungen wurden als abgelehnt protokolliert. Jedes Dokument prüfen und freigeben.');
-  });
-}
-async function requestImprovement() {
-  await run(async () => {
-    if (reviewActive.value) throw new Error('Accept or close the temporary review before requesting improvements.');
-    if (!record.value || !feedback.value.trim()) return;
-    await saveSetup();
-    const safeFeedback = sanitizeRefinementText(feedback.value.trim(), record.value.state);
-    const key = refinementSignature([safeFeedback, feedbackScope.value, parentProposalId.value]);
-    if (pendingReview?.key !== key) pendingReview = { key, id: crypto.randomUUID() };
-    await repository.saveReview(props.application.id, selectedProposal.value?.request_id || null, 'feedback', { text: safeFeedback, scope: feedbackScope.value }, pendingReview.id);
-    reviews.value = mergeReviews(await repository.listReviews(props.application.id), importedReviews.value);
-    feedback.value = ''; pendingReview = null;
-    notice.value = text('Feedback saved. Sync, then copy the updated task.', 'Feedback gespeichert. Synchronisieren und die aktualisierte Aufgabe kopieren.');
   });
 }
 async function approve(kind: 'cv' | 'letter', reopen = false) {
@@ -900,10 +845,10 @@ async function clearRefinementHistory() {
     try {
       cloudState.value = nextState;
       requests.value = []; proposals.value = []; reviews.value = [];
-      localRequests.value = {}; importedProposals.value = []; importedReviews.value = [];
+      localRequests.value = {};
       resetRequestIds.value = []; parentProposalId.value = null; selectedProposalId.value = '';
       selectedChangeIds.value = []; reviewActive.value = false; reviewComparison.value = 'proposed';
-      feedback.value = ''; prompt.value = ''; pendingReview = null;
+      prompt.value = '';
     } finally { committingSelection = false; }
     persist();
     if (saveError.value) throw new Error(text('Shared history was cleared, but local cleanup could not be saved. Retry saving before continuing.', 'Der geteilte Verlauf wurde gelöscht, aber die lokale Bereinigung konnte nicht gespeichert werden. Vor dem Fortfahren erneut speichern.'));
@@ -1003,7 +948,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
                 <p v-if="pane === 'cv'" class="proposal-summary">{{ summaryCounts.automaticChanges }} {{ text('automatic changes', 'automatische Änderungen') }} · {{ summaryCounts.todos }} {{ text('todos', 'Aufgaben') }} · {{ summaryCounts.questions }} {{ text('questions', 'Fragen') }}</p>
                 <template v-else><p class="proposal-summary">{{ summaryCounts.questions }} {{ text('questions', 'Fragen') }}</p><p>{{ draftSummary }}</p></template>
                 <section v-if="pane === 'cv' && proposalChanges.length" class="proposal-changes">
-                <RefinementChangeReview :changes="proposalChanges" :selected="selectedChangeIds" :comments="proposalComments" :legacy="selectedProposal.proposal_json.schemaVersion === 1" :lang="lang" :disabled="busy || proposalAlreadyApplied" :locked="cvApproved" @toggle="toggleProposedChange" />
+                <RefinementChangeReview :changes="proposalChanges" :selected="selectedChangeIds" :comments="proposalComments" :lang="lang" :disabled="busy || proposalAlreadyApplied" :locked="cvApproved" @toggle="toggleProposedChange" />
                 </section>
                 <RefinementAnnotations :items="proposalAnnotations.filter(item => item.annotation.document === pane)" :lang="lang" :disabled="busy || !record" :save="saveAnnotation" :privacy-preview="previewOutgoingText" />
                 <section v-if="pane === 'letter'" class="proposed-letter"><h4>{{ text('Proposed letter', 'Vorgeschlagener Brief') }}</h4><p class="pre-wrap">{{ selectedProposal.proposal_json.letterText }}</p></section>

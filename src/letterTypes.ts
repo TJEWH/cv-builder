@@ -58,9 +58,3 @@ export interface ApplicationLetter {
   revisions: LetterRevision[];
   updatedAt: string;
 }
-
-export interface LetterReadiness {
-  record: ApplicationLetter | null;
-  ready: boolean;
-  unresolvedPlaceholders: string[];
-}

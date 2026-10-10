@@ -25,7 +25,5 @@ export function refinementSql(command: RefinementCommand, values: string[], alia
   return `SELECT ${definition.name}(${args.join(', ')})${alias ? ` AS ${alias}` : ''};`;
 }
 export function proposalContractExample(request: RefinementRequest, summary: string) {
-  return request.schemaVersion === 1
-    ? { schemaVersion: 1, requestId: request.requestId, summary, cvEdits: [{ fieldId: 'field-1', text: 'complete replacement text' }], letterText: 'complete letter text' }
-    : { schemaVersion: 2, requestId: request.requestId, summary, cvOperations: [], cvComments: [], annotations: [], letterText: 'complete letter text' };
+  return { schemaVersion: 2, requestId: request.requestId, summary, cvOperations: [], cvComments: [], annotations: [], letterText: 'complete letter text' };
 }

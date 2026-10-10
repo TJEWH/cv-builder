@@ -21,11 +21,3 @@ export interface LocalCvAdjustmentRequest {
   /** Never upload this map or the baselineState. */
   bindings: { fieldId: string; path: (string | number)[]; tokens: Record<string, string> }[];
 }
-export interface CvAdjustmentRequestRow {
-  id: string; user_id: string; application_id: string | null;
-  request_json: CvAdjustmentRequest; created_at: string;
-}
-export interface CvAdjustmentResponseRow {
-  id: string; user_id: string; request_id: string;
-  response_json: CvAdjustmentResponse; created_at: string;
-}

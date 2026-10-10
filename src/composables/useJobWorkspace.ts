@@ -49,7 +49,7 @@ export function normalizeOpportunity(value: unknown): Opportunity {
 
 function errorMessage(reason: unknown, fallback: string): string {
   if (isRecord(reason) && reason.code === '23505') return 'An application already exists for this opportunity. Refresh to view it.';
-  if (isRecord(reason) && (reason.code === 'PGRST202' || reason.code === '42P01')) return 'The job workspace database setup is incomplete. Apply the Supabase migration and try again.';
+  if (isRecord(reason) && (reason.code === 'PGRST202' || reason.code === '42P01')) return 'The job workspace database setup is incomplete. Ask the workspace administrator to check its schema.';
   if (isRecord(reason) && (reason.code === '42501' || reason.code === 'PGRST301')) return 'Your session cannot access this workspace. Sign in again and retry.';
   return reason instanceof Error ? reason.message : fallback;
 }

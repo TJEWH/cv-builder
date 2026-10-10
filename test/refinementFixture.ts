@@ -120,7 +120,7 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
           const reference = kind === 'annotation' ? { proposalId: payload.proposalId, annotationId: payload.annotationId, reviewId: payload.previousReviewId } : payload.annotation as Row;
           const proposal = database.application_refinement_proposals.find(row => row.id === reference.proposalId && row.application_id === app.id && row.request_id === args.p_request_id);
           const content = proposal?.proposal_json as RefinementProposal | undefined;
-          const annotation = content?.schemaVersion === 2 && content.annotations?.find(item => item.id === reference.annotationId);
+          const annotation = content?.annotations?.find(item => item.id === reference.annotationId);
           if (!annotation) throw new Error('Annotation unavailable.');
           const previous = [...database.application_refinement_reviews].reverse().find(row => row.kind === 'annotation' && (row.payload as Row).proposalId === reference.proposalId && (row.payload as Row).annotationId === reference.annotationId);
           if ((previous?.id || null) !== reference.reviewId) throw new Error('Annotation changed elsewhere; reload the saved annotation.');
@@ -130,7 +130,7 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
           const proposal = database.application_refinement_proposals.find(row => row.id === payload.proposalId && row.application_id === app.id && row.request_id === args.p_request_id);
           if (!proposal || args.p_request_id !== state.current_request_id) throw new Error('CV decisions must refer to the current proposal.');
           const content = proposal.proposal_json as RefinementProposal;
-          const available = content.schemaVersion === 2 ? content.cvOperations.map(operation => operation.id) : content.cvEdits.map(edit => edit.fieldId);
+          const available = content.cvOperations.map(operation => operation.id);
           const accepted = payload.accepted as string[]; const rejected = payload.rejected as string[];
           if (!Array.isArray(accepted) || !Array.isArray(rejected) || typeof payload.revision !== 'string' || !/^v1:[a-f0-9]{64}$/.test(payload.revision)
             || new Set([...accepted, ...rejected]).size !== accepted.length + rejected.length
@@ -163,10 +163,8 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
       summary: `Synthetic ${request.scope} proposal. ${request.scope === 'letter' ? 'The approved CV remains unchanged.' : 'Minor profile wording adjustment and a complete motivation letter.'} ${request.feedback.length} feedback entries considered.`,
       letterText: request.scope === 'cv' ? request.letter.text : options.letterText || (request.feedback.length && request.letter.text ? `${request.letter.text}\n\nThis revision reflects the requested improvements.` : draft),
     };
-    const proposal: RefinementProposal = request.schemaVersion === 1 ? {
-      ...common, schemaVersion: 1, cvEdits: request.scope === 'letter' || !field ? [] : [{ fieldId: field.id, text: `${field.text}\nI am interested in research on safe human–robot collaboration.` }],
-    } : { ...common, schemaVersion: 2, cvOperations: [], cvComments: [] };
-    if (request.schemaVersion === 2 && proposal.schemaVersion === 2 && request.scope !== 'letter') {
+    const proposal: RefinementProposal = { ...common, schemaVersion: 2, cvOperations: [], cvComments: [] };
+    if (request.scope !== 'letter') {
       proposal.summary = `Synthetic structured CV proposal and complete motivation letter. ${request.feedback.length} feedback entries considered.`;
       const addOperation = (operation: CvOperation) => {
         try {
@@ -202,7 +200,7 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
       }
     }
     if (options.overLimit && request.scope !== 'cv') proposal.letterText += '\n\n' + 'research '.repeat(request.letter.maxWords + 1);
-    if (proposal.schemaVersion === 2) proposal.annotations = [
+    proposal.annotations = [
       { id: 'annotation-1', type: 'question', document: 'cv', location: field ? { fieldId: field.id } : null, text: 'Which research methods did you use? Add only details you can confirm.' },
       { id: 'annotation-2', type: 'todo', document: 'letter', location: proposal.letterText ? { start: 0, quote: [...proposal.letterText].slice(0, 30).join('') } : null, text: 'Confirm the project-specific research interest before the next round.' },
     ];

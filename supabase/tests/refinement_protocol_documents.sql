@@ -18,11 +18,11 @@ begin
   perform public.assign_job_application_cv(app_id,gen_random_uuid(),'Protocol CV',
     '{"contact":{"name":"Alex Muster","location":"Neustadt","role":"Software Engineer","email":"muster-ex@mp.le","phone":"+49 123 456789","website":"https://alexmuster.dev","linkedin":"https://link.com/in/alexmuster","github":"https://git.com/musterlex"},"about":{"text":"Robotics research."}}','{}',7,'{}');
   perform public.save_refinement_state(app_id,setup,'{"cv":null,"letter":null}',0);
-  request:=jsonb_build_object('schemaVersion',1,'requestId',request_id,'applicationId',app_id,
+  request:=jsonb_build_object('schemaVersion',2,'requestId',request_id,'applicationId',app_id,
     'cv',jsonb_build_object('schemaVersion',1,'requestId',request_id,
       'fields',jsonb_build_array(jsonb_build_object('id','field-1','label','Profile','text','Robotics research.')),
       'opportunity','{}'::jsonb,'instructions','Preserve evidence.'),
-    'letter',setup||'{"text":""}','scope','cv','feedback','[]'::jsonb,'parentProposalId',null);
+    'letter',setup||'{"text":""}','scope','cv','feedback','[]'::jsonb,'parentProposalId',null,'cvStructure','{"schemaVersion":1,"areas":[{"id":"body","sectionIds":[]},{"id":"sidebar","sectionIds":[]}],"sections":[],"entries":[],"bullets":[],"ranges":[],"unsupported":[{"fieldId":"field-1","reason":"Keep source evidence unchanged."}]}'::jsonb);
   perform public.publish_refinement_request(request);
   select to_jsonb(a) into before_app from public.applications a where id=app_id;
   select to_jsonb(r) into before_request from public.application_refinement_requests r where id=request_id;

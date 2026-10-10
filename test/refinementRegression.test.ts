@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cloneCv } from '../src/composables/applicationCv';
 import { letterToEditableText } from '../src/composables/motivationLetters';
-import type { RefinementRequestV1, RefinementProposalV2 } from '../src/refinementTypes';
+import type { RefinementProposalV2 } from '../src/refinementTypes';
 import { createPrivateRefinementCv } from './refinementFixture';
 import { applicationId, mount, prepare, idle, documents } from './refinementWorkflowHarness';
 
@@ -127,18 +127,6 @@ test('answering an annotation changes only its saved review and leaves document/
   assert.equal(setup.proposalAnnotations.find(item => item.annotation.id === 'annotation-1')?.status, 'resolved');
   assert.equal(documents(setup), before); assert.equal(JSON.stringify([setup.previewCvState, setup.previewLetterCvState, setup.previewLetterContent]), pdfInputs);
   assert.equal(fixture.creations.length, 0);
-});
-
-test('opening a legacy proposal keeps its schema and frozen fields without structural conversion', async t => {
-  const fixture = mount(t), setup = await prepare(fixture), request = setup.requests[0], local = setup.localRequests[request.id];
-  const { cvStructure: _structure, ...v2 } = local.request as import('../src/refinementTypes').RefinementRequestV2;
-  const legacy: RefinementRequestV1 = { ...v2, schemaVersion: 1 };
-  local.request = legacy; delete local.structureBindings;
-  fixture.database.application_refinement_requests[0].request_json = JSON.parse(JSON.stringify(legacy));
-  fixture.cloud.seedProposal(request.id, { letterText: 'Legacy letter result.' }); const before = documents(setup);
-  await setup.checkProposals(); assert.equal(setup.error, ''); assert.equal(setup.proposals[0].proposal_json.schemaVersion, 1);
-  assert.match(setup.previewCvState!.about.text, /safe human/); assert.equal(setup.previewLetterContent!.body, 'Legacy letter result.');
-  assert.equal(documents(setup), before); assert.equal(local.request.schemaVersion, 1);
 });
 
 test('normal export cannot serialize an unaccepted candidate and Attachments exports only approved working inputs', async t => {

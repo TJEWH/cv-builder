@@ -52,7 +52,6 @@ test('annotation status and response are projected only from explicitly referenc
   assert.equal(result[0].status, 'resolved'); assert.equal(result[0].reviewId, review.id); assert.equal(result[1].status, 'open');
   assert.equal(annotationViews(row, [{ ...review, payload: { ...review.payload, proposalId: crypto.randomUUID() } }])[0].status, 'open');
   assert.deepEqual(annotationViews({ ...row, proposal_json: { ...row.proposal_json, annotations: undefined } as RefinementProposalV2 }, []), []);
-  assert.deepEqual(annotationViews({ ...row, proposal_json: { schemaVersion: 1, requestId: row.request_id, summary: 'TODO: add details?', cvEdits: [], letterText: 'Legacy letter.' } }, []), []);
 });
 test('annotation references and review payloads are strict, with optional private-filtered response', () => {
   const payload = { proposalId, annotationId: 'annotation-1', status: 'resolved', response: 'Confirmed evidence.', previousReviewId: null };

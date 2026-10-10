@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { LocalRefinementRequest, RefinementFeedback, RefinementProposalV1, RefinementProposalV2, RefinementRequest, RefinementSetup } from '../src/refinementTypes';
+import type { LocalRefinementRequest, RefinementFeedback, RefinementProposalV2, RefinementRequest, RefinementSetup } from '../src/refinementTypes';
 import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText, validateLocalRefinementSource } from '../src/composables/applicationRefinement';
 import { DEFAULT_LETTER_TEMPLATES, letterToEditableText } from '../src/composables/motivationLetters';
 import { createTestState, stub } from './helpers';
@@ -22,12 +22,12 @@ function setup(): RefinementSetup {
   return { template: { ...DEFAULT_LETTER_TEMPLATES[0], exampleText: 'Taylor Green writes !!private example!!. Contact taylor@example.com.' }, language: 'en', maxWords: 400 };
 }
 function local(options: Partial<Parameters<typeof prepareRefinement>[0]> = {}): LocalRefinementRequest {
-  return prepareRefinement({ schemaVersion: 1, applicationId: APP, state: state(), variantId: 'private variant name', setup: setup(), letterText: '',
+  return prepareRefinement({ schemaVersion: 2, applicationId: APP, state: state(), variantId: 'private variant name', setup: setup(), letterText: '',
     opportunity: { title: 'PhD in robotics', requirements: 'CV, motivation letter of 400 words, transcript' },
     scope: 'both', feedback: [], parentProposalId: null, baselineSignature: refinementSignature({ cv: state(), letter: '' }), ...options });
 }
-function proposal(request: LocalRefinementRequest, edits: RefinementProposalV1['cvEdits'] = []): RefinementProposalV1 {
-  return { schemaVersion: 1, requestId: request.request.requestId, summary: 'Emphasized relevant measurement work and drafted the letter.', cvEdits: edits,
+function proposal(request: LocalRefinementRequest): RefinementProposalV2 {
+  return { schemaVersion: 2, requestId: request.request.requestId, summary: 'Emphasized relevant measurement work and drafted the letter.', cvOperations: [], cvComments: [],
     letterText: '# PhD application\n\nDear selection committee,\n\nMy research interests connect to your robotics project.\n\nSincerely,\n{{APPLICANT_NAME}}' };
 }
 function profile(request: LocalRefinementRequest) {
@@ -65,7 +65,7 @@ test('template interests and question context are filtered in public requests wh
   assert.match(prepared.request.letter.template.researchInterests!, /\{\{APPLICANT_NAME\}\} wants to explore sensor fusion/);
   assert.match(prepared.request.letter.template.researchInterests!, /!!private research focus!!/);
   assert.match(prepared.request.letter.template.questionGuidance!, /Ask \{\{APPLICANT_EMAIL\}\} about missing evidence for \[!!confidential project!!\]/);
-  const prompt = buildRefinementPrompt(prepared.request, '', 'inline');
+  const prompt = buildRefinementPrompt(prepared.request, 'test-project');
   for (const privateValue of ['Taylor Green', 'taylor@example.com', 'private variant name']) {
     assert.equal(JSON.stringify(prepared.request).includes(privateValue), false, privateValue);
     assert.equal(prompt.includes(privateValue), false, privateValue);
@@ -117,14 +117,13 @@ test('blank structured letter originals use the same empty-draft normalization a
   }
 });
 
-test('source validation permits blank originals in both protocols without relaxing proposal draft requirements', () => {
-  for (const schemaVersion of [1, 2] as const) for (const scope of ['letter', 'both'] as const) {
+test('source validation permits blank originals without relaxing proposal draft requirements', () => {
+  for (const scope of ['letter', 'both'] as const) {
     for (const letterText of ['', ' \n\t']) {
-      const request = local({ schemaVersion, scope, letterText });
+      const request = local({ scope, letterText });
       const before = structuredClone(request);
       assert.doesNotThrow(() => validateLocalRefinementSource(request, APP));
-      const incoming = schemaVersion === 1 ? proposal(request) : structuredProposal(request);
-      if (incoming.schemaVersion === 2) incoming.cvOperations = [];
+      const incoming = proposal(request);
       assert.throws(() => parseRefinementProposal({ ...incoming, letterText }, request.request), /complete letter draft/);
       assert.deepEqual(request, before);
     }
@@ -152,20 +151,11 @@ test('privacy sanitizer preserves literal exclamation marks and respects identit
   assert.throws(() => sanitizeRefinementText('bad\u0000text', cv), /control/);
 });
 
-test('reviewed joint proposal preserves identities, private fragments and CV structure', () => {
-  const request = local(); const field = profile(request);
-  const incoming = proposal(request, [{ fieldId: field.id, text: field.text.replace('researches', 'studies') }]);
-  const result = applyRefinementProposal(request, incoming, state(), request.baselineSignature);
-  const expected = state(); expected.about.text = expected.about.text.replace('researches', 'studies');
-  assert.deepEqual(result.state, expected); assert.equal(result.letterText, incoming.letterText);
-  assert.notEqual(result.state, request.cv.baselineState); assert.deepEqual(request.cv.baselineState, state());
-});
-
 test('proposal scope protects approved documents and allows advisory word-limit overruns', () => {
   const letterRound = local({ scope: 'letter' });
   const longLetter = { ...proposal(letterRound), letterText: 'word '.repeat(401).trim() };
   assert.equal(parseRefinementProposal(longLetter, letterRound.request).letterText.split(' ').length, 401);
-  assert.throws(() => parseRefinementProposal({ ...longLetter, cvEdits: [{ fieldId: 'field-1', text: 'Changed' }] }, letterRound.request), /only change the letter/);
+  assert.throws(() => parseRefinementProposal({ ...longLetter, cvOperations: [{ id: 'change-1', type: 'omit_bullet', targetId: 'bullet-1', explanation: 'Remove unrelated detail.' }] }, letterRound.request), /only change the letter/);
   const cvRound = local({ scope: 'cv', letterText: 'The approved letter remains exactly as written.\n' });
   assert.throws(() => parseRefinementProposal(proposal(cvRound), cvRound.request), /approved letter must remain unchanged/);
   const valid = { ...proposal(cvRound), letterText: cvRound.request.letter.text };
@@ -181,14 +171,15 @@ test('stale CV or application baseline cannot overwrite manual edits or changed 
   assert.throws(() => applyRefinementProposal(tampered, incoming, state(), request.baselineSignature), /inconsistent/);
 });
 
-test('public proposal validation rejects cross-request, structural, token and link changes before application', () => {
-  const request = local(); const field = profile(request); const incoming = proposal(request);
+test('public proposal validation rejects cross-request, unsupported and unsafe changes before application', () => {
+  const request = local(); const incoming = proposal(request);
   assert.throws(() => parseRefinementProposal({ ...incoming, requestId: crypto.randomUUID() }, request.request), /another refinement/);
   assert.throws(() => parseRefinementProposal({ ...incoming, extra: 'unrecognized' }, request.request), /Invalid/);
-  for (const edit of [{ fieldId: 'field-999', text: 'Unavailable' }, { fieldId: field.id, text: field.text.replace(/\{\{PRIVATE_\d+\}\}/, '') },
-    { fieldId: field.id, text: `${field.text} {{PRIVATE_99}}` }, { fieldId: field.id, text: `${field.text} https://evil.example` },
-    { fieldId: field.id, text: `${field.text} <img src=x>` }]) {
-    assert.throws(() => parseRefinementProposal({ ...incoming, cvEdits: [edit] }, request.request), /unavailable|placeholders|cannot add/);
+  const range = request.request.cvStructure.ranges[0]; assert.ok(range);
+  for (const change of [{ targetId: 'range-999', text: 'Unavailable' },
+    { targetId: range.id, text: `${range.text} {{PRIVATE_99}}` }, { targetId: range.id, text: `${range.text} https://evil.example` },
+    { targetId: range.id, text: `${range.text} <img src=x>` }]) {
+    assert.throws(() => parseRefinementProposal({ ...incoming, cvOperations: [{ id: 'change-1', type: 'shorten_text', explanation: 'Invalid change.', ...change }] }, request.request), /unavailable|shorten|extractive|token|private/i);
   }
   for (const letterText of ['{{PRIVATE_1}}', '<script>evil</script>', '']) {
     assert.throws(() => parseRefinementProposal({ ...incoming, letterText }, request.request), /Letters cannot|complete letter/);
@@ -268,66 +259,53 @@ test('full prompts explain empty versus existing source letters and stop at tool
 });
 
 test('draft and refinement prompts distinguish research goals from qualifications and keep contextual questions scoped to letter review', () => {
-  for (const delivery of ['connected', 'inline'] as const) {
-    for (const scope of ['letter', 'both'] as const) {
-      for (const letterText of ['', 'An existing working letter.']) {
-        const prepared = local({ schemaVersion: 2, scope, letterText });
-        const prompt = buildRefinementPrompt(prepared.request, 'test-project', delivery);
-        for (const rule of [
-          'researchInterests as the applicant\'s explicitly stated research direction',
-          'interests can go beyond past experience',
-          'not every interest needs to appear',
-          'interests or learning goals, never as proven experience or qualifications',
-          'do not invent a personal research agenda',
-          'questionGuidance to decide when contextual follow-up questions would materially improve',
-          'required or beneficial opportunity criteria',
-          'name the criterion, explain why an answer could help this letter',
-          'Missing evidence in the CV is not proof of missing experience',
-          'do not repeat answered or explicitly declined questions',
-          'Return a complete draft based on available evidence while keeping unconfirmed claims out',
-          'type question, document letter annotation',
-          'location null when no exact proposed passage fits',
-          'only after the user resolves the annotation and its saved response is included as feedback',
-          'Annotations are separate review material, never document text',
-        ]) assert.ok(prompt.includes(rule), `${delivery}/${scope}/${letterText ? 'refinement' : 'initial draft'}: ${rule}`);
-        if (scope === 'letter') assert.match(prompt, /letter-only round MUST have cvOperations: \[\]/);
-      }
+  for (const scope of ['letter', 'both'] as const) {
+    for (const letterText of ['', 'An existing working letter.']) {
+      const prepared = local({ schemaVersion: 2, scope, letterText });
+      const prompt = buildRefinementPrompt(prepared.request, 'test-project');
+      for (const rule of [
+        'researchInterests as the applicant\'s explicitly stated research direction',
+        'interests can go beyond past experience',
+        'not every interest needs to appear',
+        'interests or learning goals, never as proven experience or qualifications',
+        'do not invent a personal research agenda',
+        'questionGuidance to decide when contextual follow-up questions would materially improve',
+        'required or beneficial opportunity criteria',
+        'name the criterion, explain why an answer could help this letter',
+        'Missing evidence in the CV is not proof of missing experience',
+        'do not repeat answered or explicitly declined questions',
+        'Return a complete draft based on available evidence while keeping unconfirmed claims out',
+        'type question, document letter annotation',
+        'location null when no exact proposed passage fits',
+        'only after the user resolves the annotation and its saved response is included as feedback',
+        'Annotations are separate review material, never document text',
+      ]) assert.ok(prompt.includes(rule), `${scope}/${letterText ? 'refinement' : 'initial draft'}: ${rule}`);
+      if (scope === 'letter') assert.match(prompt, /letter-only round MUST have cvOperations: \[\]/);
     }
-    const cvPrompt = buildRefinementPrompt(local({ schemaVersion: 2, scope: 'cv', letterText: 'Keep this letter unchanged.' }).request, 'test-project', delivery);
-    assert.match(cvPrompt, /CV-only round MUST return the current letter text byte-for-byte unchanged/);
-    assert.doesNotMatch(cvPrompt, /questionGuidance to decide when contextual follow-up questions|type question, document letter annotation/);
-    const legacyPrompt = buildRefinementPrompt(local({ scope: 'letter' }).request, 'test-project', delivery);
-    assert.match(legacyPrompt, /legacy format has no structured question annotations/);
-    assert.match(legacyPrompt, /proposal summary, never in letterText/);
-    assert.match(legacyPrompt, /do not add unsupported annotations or infer an answer/);
-    assert.doesNotMatch(legacyPrompt, /type question, document letter annotation|"annotations":\[\]/);
   }
+  const cvPrompt = buildRefinementPrompt(local({ schemaVersion: 2, scope: 'cv', letterText: 'Keep this letter unchanged.' }).request, 'test-project');
+  assert.match(cvPrompt, /CV-only round MUST return the current letter text byte-for-byte unchanged/);
+  assert.doesNotMatch(cvPrompt, /questionGuidance to decide when contextual follow-up questions|type question, document letter annotation/);
 });
 
-test('self-contained prompts include the exact filtered request and require no connected read or write', () => {
+test('connected prompts reference filtered sources without embedding documents or local reconstruction data', () => {
   const target = privacyContextTargets(local().cv, refinementSignature)[0];
-  for (const schemaVersion of [1, 2] as const) {
-    for (const scope of ['cv', 'letter', 'both'] as const) {
-      for (const letterText of ['', 'Existing letter by Taylor Green with !!Private rationale!!.']) {
-        const prepared = local({ schemaVersion, scope, letterText,
-          feedback: [{ id: crypto.randomUUID(), scope, text: 'Keep the letter concise for Taylor Green.', createdAt: CREATED }],
-          privacyContexts: { [target.sourceKey]: { type: 'organization', description: 'Approved sensor research context' } } });
-        const before = structuredClone(prepared);
-        const prompt = buildRefinementPrompt(prepared.request, '', 'inline');
-        const embedded = JSON.parse(prompt.split('\nBEGIN_APPROVED_REQUEST_JSON\n')[1].split('\nEND_APPROVED_REQUEST_JSON')[0]);
-        assert.deepEqual(embedded, prepared.request, 'all source fields, approved context and history must match the published request');
-        assert.deepEqual(prepared, before, 'copying cannot modify private reconstruction data');
-        assert.match(prompt, /No Supabase connection, SQL action, RPC, application lookup or other tool is required/);
-        assert.match(prompt, /Return exactly one complete proposal JSON object/);
-        assert.match(prompt, /Import a refinement proposal/);
-        assert.doesNotMatch(prompt, /private\.(?:read_refinement_request|save_refinement_proposal|resolve_application_reference)|execute_sql|persisted receipt/);
-        for (const secret of ['Taylor Green', 'taylor@example.com', 'private variant name', 'baselineState', 'bindings', 'structureBindings']) assert.ok(!prompt.includes(secret), secret);
-        assert.equal(embedded.privacyLegend?.[0].description, 'Approved sensor research context');
-        assert.equal(embedded.letter.text, prepared.request.letter.text);
-      }
-    }
+  for (const scope of ['cv', 'letter', 'both'] as const) for (const letterText of ['', 'Existing letter by Taylor Green with !!Private rationale!!.']) {
+    const prepared = local({ scope, letterText,
+      feedback: [{ id: crypto.randomUUID(), scope, text: 'Keep the letter concise for Taylor Green.', createdAt: CREATED }],
+      privacyContexts: { [target.sourceKey]: { type: 'organization', description: 'Approved sensor research context' } } });
+    const before = structuredClone(prepared);
+    const prompt = buildRefinementPrompt(prepared.request, 'test-project');
+    assert.deepEqual(prepared, before, 'building a prompt cannot modify private reconstruction data');
+    assert.match(prompt, /read_refinement_request/);
+    assert.match(prompt, /execute_sql/);
+    assert.match(prompt, /connected SQL tool is required, and stop/);
+    assert.doesNotMatch(prompt, /Import a refinement proposal|Copy full prompt|BEGIN_APPROVED_REQUEST_JSON/);
+    for (const secret of ['Taylor Green', 'taylor@example.com', 'private variant name', 'baselineState', 'bindings', 'structureBindings', 'Private rationale']) assert.ok(!prompt.includes(secret), secret);
+    assert.equal(prepared.request.privacyLegend?.[0].description, 'Approved sensor research context');
+    assert.ok(!JSON.stringify(prepared.request).includes('Taylor Green'));
   }
-  assert.throws(() => buildRefinementPrompt(local() as unknown as RefinementRequest, '', 'inline'), /Invalid refinement request/);
+  assert.throws(() => buildRefinementPrompt(local() as unknown as RefinementRequest, 'test-project'), /Invalid refinement request/);
 });
 
 test('revision fingerprints match SHA-256 canonical JSON and conceal private values', () => {
@@ -444,7 +422,7 @@ test('feedback saves are append-only, retries use the same ID, and read order pr
 test('missing schema and authentication produce actionable errors while leaving local documents intact', async () => {
   const request = local(); const before = structuredClone(request);
   const missing = fakeClient(() => ({ data: null, error: { code: 'PGRST202' } }));
-  await assert.rejects(createRefinementRepository(missing.client, () => 'owner').publishRequest(request.request), /pending migration.*local documents are preserved/);
+  await assert.rejects(createRefinementRepository(missing.client, () => 'owner').publishRequest(request.request), /database setup is incomplete.*local documents are preserved/);
   await assert.rejects(createRefinementRepository(null, () => null).listRequests(APP), /Sign in/);
   assert.deepEqual(request, before);
 });
@@ -468,7 +446,7 @@ test('new requests default to v2 with public topology and local-only reconstruct
   assert.ok(request.structureBindings);
   const publicJson = JSON.stringify(request.request);
   for (const secret of ['local-job', 'local-education', 'Taylor Green', 'baselineState', 'entriesPath', 'bindings']) assert.equal(publicJson.includes(secret), false, secret);
-  assert.equal(local().request.schemaVersion, 1, 'explicit legacy requests remain legacy');
+  assert.throws(() => local({ schemaVersion: 1 as 2 }), /Unsupported.*version/);
   assert.throws(() => local({ schemaVersion: 3 as 2 }), /Unsupported.*version/);
 });
 
@@ -505,7 +483,7 @@ test('local reconstruction checks application, request and protocol references b
   const request = local({ schemaVersion: 2 }); const incoming = structuredProposal(request);
   assert.throws(() => reconstructRefinementProposal(request, incoming, [], crypto.randomUUID()), /another application/);
   assert.throws(() => reconstructRefinementProposal(request, { ...incoming, requestId: crypto.randomUUID() }, [], APP), /another refinement request/);
-  assert.throws(() => reconstructRefinementProposal(request, { schemaVersion: 1, requestId: incoming.requestId, cvEdits: [], summary: incoming.summary, letterText: incoming.letterText }, [], APP), /protocol version/);
+  assert.throws(() => parseRefinementProposal({ schemaVersion: 1, requestId: incoming.requestId, cvEdits: [], summary: incoming.summary, letterText: incoming.letterText }, request.request), /Invalid refinement proposal/);
   const mismatched = structuredClone(request); mismatched.cv.publicRequest.requestId = crypto.randomUUID();
   assert.throws(() => reconstructRefinementProposal(mismatched, incoming, [], APP), /privacy snapshot.*inconsistent/);
 });
@@ -571,20 +549,24 @@ test('structured protocol rejects invalid targets, unsupported operations, missi
   assert.throws(() => parseRefinementProposal({ ...withComment, cvComments: [{ ...withComment.cvComments[0], fieldId: 'field-999' }] }, request.request));
 });
 
-test('legacy wording proposals remain readable and selectively applicable without automatic structural promotion', async () => {
-  const legacy = local(); const field = profile(legacy);
-  const incoming = proposal(legacy, [{ fieldId: field.id, text: field.text.replace('researches', 'studies') }]);
-  const row = { id: crypto.randomUUID(), application_id: APP, user_id: 'owner', request_id: legacy.request.requestId, proposal_json: incoming, created_at: CREATED };
-  const client = fakeClient(() => ({ data: [row], error: null }));
-  const [loaded] = await createRefinementRepository(client.client, () => 'owner').listProposals(APP);
-  assert.equal(loaded.proposal_json.schemaVersion, 1);
-  assert.deepEqual(applyRefinementProposal(legacy, loaded.proposal_json, state(), legacy.baselineSignature, []).state, state());
-  assert.match(applyRefinementProposal(legacy, loaded.proposal_json, state(), legacy.baselineSignature, [field.id]).state.about.text, /studies/);
-  assert.throws(() => applyRefinementProposal(legacy, incoming, state(), legacy.baselineSignature, ['field-999']), /available legacy/);
-  const modern = local({ schemaVersion: 2 });
-  assert.throws(() => parseRefinementProposal({ ...incoming, requestId: modern.request.requestId }, modern.request), /protocol version/);
-  assert.throws(() => parseRefinementProposal({ ...structuredProposal(modern), requestId: legacy.request.requestId }, legacy.request), /protocol version/);
-  assert.match(buildRefinementPrompt(legacy.request, 'test-project'), /Legacy wording-only protocol/);
+test('cloud history rejects unsupported formats and foreign records while reading current records', async () => {
+  const current = local();
+  const retiredRequest = { ...current.request, schemaVersion: 1 }; delete (retiredRequest as Partial<typeof retiredRequest>).cvStructure;
+  const retiredProposal = { schemaVersion: 1, requestId: current.request.requestId, summary: 'Old wording.', cvEdits: [], letterText: 'Old letter.' };
+  assert.throws(() => buildRefinementPrompt(retiredRequest as unknown as RefinementRequest, 'test-project'), /Invalid refinement request/);
+  const currentRow = requestRow(current.request);
+  const invalidRequestRow = { ...currentRow, request_json: retiredRequest };
+  const requests = fakeClient(() => ({ data: [invalidRequestRow, currentRow], error: null }));
+  await assert.rejects(createRefinementRepository(requests.client, () => 'owner').listRequests(APP), /Invalid refinement request/);
+  const currentProposalRow = { id: crypto.randomUUID(), application_id: APP, user_id: 'owner', request_id: current.request.requestId, proposal_json: proposal(current), created_at: CREATED };
+  const proposals = fakeClient(() => ({ data: [{ ...currentProposalRow, proposal_json: retiredProposal }, currentProposalRow], error: null }));
+  await assert.rejects(createRefinementRepository(proposals.client, () => 'owner').listProposals(APP), /Invalid refinement proposal/);
+  const valid = fakeClient(({ name }) => ({ data: name === 'application_refinement_requests' ? [currentRow] : [currentProposalRow], error: null }));
+  const repository = createRefinementRepository(valid.client, () => 'owner');
+  assert.deepEqual(await repository.listRequests(APP), [currentRow]);
+  assert.deepEqual(await repository.listProposals(APP), [currentProposalRow]);
+  const foreign = fakeClient(() => ({ data: [{ ...invalidRequestRow, user_id: 'another-owner' }], error: null }));
+  await assert.rejects(createRefinementRepository(foreign.client, () => 'owner').listRequests(APP), /account and application/);
 });
 
 test('v2 prompt limits operations to existing references and requires extractive shortening, explanations and verified saving', () => {
@@ -603,18 +585,18 @@ test('CV decision logs validate their exact shape, preserve receipt data and rej
   const row = await repo.saveReview(APP, request.request.requestId, 'cv_decisions', decisions);
   assert.deepEqual(row.payload, decisions);
   assert.equal(queries[0].params?.p_kind, 'cv_decisions');
-  for (const bad of [ { ...decisions, rejected: ['change-1'] }, { ...decisions, accepted: ['unknown'] }, { ...decisions, revision: 'plain text' }, { ...decisions, extra: true } ]) await assert.rejects(repo.saveReview(APP, request.request.requestId, 'cv_decisions', bad), /CV review decisions/);
+  for (const bad of [ { ...decisions, rejected: ['change-1'] }, { ...decisions, accepted: ['unknown'] }, { ...decisions, accepted: ['field-1'] }, { ...decisions, revision: 'plain text' }, { ...decisions, extra: true } ]) await assert.rejects(repo.saveReview(APP, request.request.requestId, 'cv_decisions', bad), /CV review decisions/);
   await assert.rejects(repo.saveReview(APP, null, 'cv_decisions', decisions), /request ID/);
 });
 
-test('v2 publication reports a required backend migration without downgrading or changing the local request', async () => {
+test('publication preserves backend validation errors without changing the local request', async () => {
   const request = local({ schemaVersion: 2 }); const before = structuredClone(request);
   const missing = fakeClient(() => ({ data: null, error: { code: '22023', message: 'Invalid refinement request schemaVersion.' } }));
-  await assert.rejects(createRefinementRepository(missing.client, () => 'owner').publishRequest(request.request), /protocol v2.*migration.*local documents are preserved/);
+  await assert.rejects(createRefinementRepository(missing.client, () => 'owner').publishRequest(request.request), /^Error: Invalid refinement request schemaVersion\.$/);
   assert.deepEqual(request, before);
 });
 
-test('annotation reviews retain retry identity and explain a missing annotation database upgrade', async () => {
+test('annotation reviews preserve validation errors and retain retry identity', async () => {
   const request = local();
   const payload = { proposalId: crypto.randomUUID(), annotationId: 'annotation-1', status: 'resolved', response: 'Confirmed evidence.', previousReviewId: null };
   let fail = true;
@@ -623,7 +605,7 @@ test('annotation reviews retain retry identity and explain a missing annotation 
     return { data: { id: params?.p_id, application_id: APP, user_id: 'owner', request_id: params?.p_request_id, kind: params?.p_kind, payload: params?.p_payload, created_at: CREATED }, error: null };
   });
   const repository = createRefinementRepository(backend.client, () => 'owner');
-  await assert.rejects(repository.saveReview(APP, request.request.requestId, 'annotation', payload), /annotations database migration.*unsaved response are preserved/);
+  await assert.rejects(repository.saveReview(APP, request.request.requestId, 'annotation', payload), /^Error: Invalid review kind\.$/);
   await repository.saveReview(APP, request.request.requestId, 'annotation', payload);
   assert.equal(backend.queries[0].params?.p_id, backend.queries[1].params?.p_id);
   await assert.rejects(repository.saveReview(APP, null, 'annotation', payload), /proposal request ID/);

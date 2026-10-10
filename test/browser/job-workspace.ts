@@ -24,7 +24,6 @@ import AppToaster from '../../src/components/AppToaster.vue';
 import DesktopSidebar from '../../src/components/DesktopSidebar.vue';
 import { provideDesktopSidebar } from '../../src/composables/desktopSidebar';
 import { createSampleDocument } from '../../src/composables/builtinConfigurations';
-import { DRAFTING_IDENTITY_PLACEHOLDERS } from '../../src/composables/cloudDrafting';
 import { createLetterRepository, DEFAULT_LETTER_TEMPLATES } from '../../src/composables/motivationLetters';
 import { createRefinementFixture, REFINEMENT_TABLES } from '../refinementFixture';
 import '../../src/assets/cv.css';
@@ -84,8 +83,6 @@ const database: Record<string, Row[]> = {
     { user_id: account, opportunity_id: '10000000-0000-4000-8000-000000000007', state: 'unreviewed', reviewed_updated_at: '2025-01-01T12:00:00Z', created_at: '2025-01-01T12:00:00Z', updated_at: now },
     { user_id: account, opportunity_id: '10000000-0000-4000-8000-000000000008', state: 'interested', reviewed_updated_at: recent, created_at: now, updated_at: recent },
   ],
-  drafting_contexts: [],
-  motivation_letter_drafts: [],
 };
 const refinement = createRefinementFixture(database, account);
 
@@ -200,7 +197,7 @@ const client = {
       } else if (name === 'remove_job_application') {
         const application = database.applications.find((row) => row.id === parameters.p_application_id && row.user_id === account);
         database.applications = database.applications.filter((row) => row !== application);
-        for (const table of [...REFINEMENT_TABLES, 'drafting_contexts', 'motivation_letter_drafts']) database[table] = database[table].filter(row => row.application_id !== application?.id);
+        for (const table of REFINEMENT_TABLES) database[table] = database[table].filter(row => row.application_id !== application?.id);
         const review = database.opportunity_reviews.find((row) => row.opportunity_id === application?.opportunity_id && row.user_id === account);
         if (review?.state === 'not_interested') review.state = 'unreviewed';
       } else if (name === 'assign_job_application_cv') {
@@ -213,35 +210,6 @@ const client = {
         if (!application) return { error: new Error('Missing fixture application') };
         application.context_json = structuredClone(database.opportunities.find((row) => row.id === application.opportunity_id));
         application.context_captured_at = new Date().toISOString();
-      } else if (name === 'publish_application_drafting_context') {
-        const application = database.applications.find((row) => row.id === parameters.p_application_id && row.user_id === account);
-        const cv = database.cv_variants.find((row) => row.id === application?.cv_variant_id && row.user_id === account);
-        if (!application || !cv) return { data: null, error: new Error('Assign and publish the fixture application CV first.') };
-        const existing = database.drafting_contexts.find((row) => row.id === parameters.p_context_id);
-        if (existing) return { data: structuredClone(existing), error: null };
-        const content = structuredClone(cv.content_json) as Row;
-        content.contact = { ...DRAFTING_IDENTITY_PLACEHOLDERS };
-        const context = {
-          id: parameters.p_context_id, user_id: account, application_id: application.id,
-          cv_variant_id: cv.id, created_at: new Date().toISOString(), context_json: {
-            schemaVersion: 1, opportunity: structuredClone(application.context_json),
-            opportunityCapturedAt: application.context_captured_at,
-            cv: { snapshotId: cv.id, revision: cv.revision, content, theme: (cv.config_json as Row).design },
-            template: structuredClone(parameters.p_template), language: parameters.p_language,
-            instructions: parameters.p_instructions, maxWords: parameters.p_max_words,
-            identityPlaceholders: { ...DRAFTING_IDENTITY_PLACEHOLDERS },
-          },
-        };
-        database.drafting_contexts.push(context);
-        return { data: structuredClone(context), error: null };
-      } else if (name === 'save_application_letter_draft') {
-        const context = database.drafting_contexts.find((row) => row.id === parameters.p_context_id && row.application_id === parameters.p_application_id && row.user_id === account);
-        if (!context) return { data: null, error: new Error('Publish a fixture context before returning a draft.') };
-        const existing = database.motivation_letter_drafts.find((row) => row.id === parameters.p_draft_id);
-        if (existing) return { data: structuredClone(existing), error: null };
-        const draft = { id: parameters.p_draft_id, user_id: account, application_id: parameters.p_application_id, context_id: parameters.p_context_id, body: parameters.p_body, created_at: new Date().toISOString() };
-        database.motivation_letter_drafts.push(draft);
-        return { data: structuredClone(draft), error: null };
       } else return { error: new Error(`Unsupported fixture RPC: ${name}`) };
       return { data: parameters.p_application_id, error: null };
     };
@@ -350,22 +318,8 @@ const Fixture = defineComponent({
     function returnRefinementProposal(overLimit = false) {
       try {
         const returned = refinement.seedProposal(undefined, { overLimit });
-        draftStatus.value = `Synthetic proposal returned (${(returned.proposal_json.schemaVersion === 2 ? returned.proposal_json.cvOperations : returned.proposal_json.cvEdits).length} CV changes). Use “Check for proposal”, then select the latest proposal.`;
+        draftStatus.value = `Synthetic proposal returned (${returned.proposal_json.cvOperations.length} CV changes). Use “Check for proposal”, then select the latest proposal.`;
       } catch (cause) { draftStatus.value = cause instanceof Error ? cause.message : String(cause); }
-    }
-    async function simulateChatGptDraft() {
-      const context = database.drafting_contexts.at(-1);
-      if (!context) { draftStatus.value = 'Publish an application context first.'; return; }
-      const { error } = await client.rpc('save_application_letter_draft', {
-        p_draft_id: crypto.randomUUID(), p_application_id: context.application_id,
-        p_context_id: context.id, p_body: JSON.stringify({
-          subject: 'Application for PhD in Human-Centred Robotics',
-          salutation: 'Dear selection committee,',
-          body: 'I am applying to your doctoral programme because its focus on safe human–robot collaboration closely matches my research interests. My experience developing software and evaluating technical systems has prepared me to contribute to practical experiments and reproducible research.\n\nI would welcome the opportunity to study robot learning from demonstrations and contribute to the laboratory’s interdisciplinary work. I am particularly motivated by the combination of algorithm development and experiments that address real collaboration challenges.\n\nThank you for considering my application. I look forward to discussing how my experience and interests align with the project.',
-          closing: 'Kind regards,\n{{APPLICANT_NAME}}',
-        }),
-      });
-      draftStatus.value = error ? String(error) : 'Synthetic draft returned. Use “Refresh cloud drafts” in the letter tab.';
     }
     return () => h('main', { class: ['browser-workspace-fixture', { 'has-desktop-sidebar': desktop.value }], style: 'display:grid;grid-template-rows:auto minmax(0,1fr);height:100dvh;overflow:hidden;padding:16px;max-width:1440px;margin:auto' }, [
       h(AppToaster, { lang: lang.value }),
@@ -374,7 +328,6 @@ const Fixture = defineComponent({
         h('strong', 'Browser fixture · In-memory data only'),
         ...(['opportunities', 'applications'] as const).map((value) => h('button', { class: 'btn', onClick: () => { tab.value = value; } }, value)),
         h('button', { class: 'btn', onClick: () => { lang.value = lang.value === 'en' ? 'de' : 'en'; } }, lang.value === 'en' ? 'Deutsch' : 'English'),
-        h('button', { class: 'btn', onClick: simulateChatGptDraft }, 'Simulate returned ChatGPT draft'),
         h('button', { class: 'btn', onClick: select400WordScenario }, '400-word PhD scenario'),
         h('button', { class: 'btn', onClick: () => { workspaceKey.value++; draftStatus.value = 'Workspace reopened with existing browser documents and cloud data.'; } }, 'Reopen workspace'),
         h('button', { class: 'btn', onClick: () => returnRefinementProposal() }, 'Return refinement proposal'),

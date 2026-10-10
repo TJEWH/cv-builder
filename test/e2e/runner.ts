@@ -57,7 +57,7 @@ async function disclose(name: string) {
 }
 async function field(name: string, value: string) {
   const label = [...root.querySelectorAll('label')].find(node => node.firstChild?.textContent?.trim() === name);
-  const control = label?.querySelector<HTMLSelectElement | HTMLTextAreaElement | HTMLInputElement>('select,textarea,input');
+  const control = (label?.control ?? label?.querySelector('select,textarea,input')) as HTMLSelectElement | HTMLTextAreaElement | HTMLInputElement | null;
   assert(control, `Missing field: ${name}`); assert(!control.disabled, `Disabled field: ${name}`);
   control.value = value; control.dispatchEvent(new Event(control.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); await settle();
 }

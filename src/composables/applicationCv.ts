@@ -92,18 +92,6 @@ export function cvDifferences(base: CvState, current: CvState): CvDifference[] {
   return result;
 }
 
-export function resetCvDifference(record: ApplicationCvRecord, difference: CvDifference): CvState {
-  const allowed = cvDifferences(record.baseState, record.state).find((entry) => same(entry.path, difference.path));
-  if (!allowed) throw new Error('This adjustment no longer exists.');
-  const next = cloneCv(record.state);
-  let target: Record<string, unknown> = next as unknown as Record<string, unknown>;
-  for (const part of allowed.path.slice(0, -1)) target = target[part] as Record<string, unknown>;
-  const key = allowed.path.at(-1)!;
-  if (allowed.before === undefined) delete target[key];
-  else target[key] = cloneValue(allowed.before);
-  return readCvState(next);
-}
-
 export function copyCvSection(target: CvState, source: CvState, key: string): CvState {
   const next = cloneCv(target);
   const from = cloneCv(source);
