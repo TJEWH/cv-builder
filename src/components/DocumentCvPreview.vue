@@ -56,7 +56,7 @@ defineExpose({ getPdfBlob, download, open });
       <template #html><CvPreview :state="state" /></template>
     </FullDocumentPreview>
     <div ref="source" class="document-preview__source" aria-hidden="true"><CvPreview :state="state" export-source /></div>
-    <div ref="privacySource" class="document-preview__source" aria-hidden="true"><CvPreview :state="privacyState" export-source anonymized /></div>
+    <div ref="privacySource" class="document-preview__source" aria-hidden="true"><CvPreview :state="privacyState" export-source /></div>
   </div>
 </template>
 

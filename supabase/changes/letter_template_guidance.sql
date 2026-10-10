@@ -28,7 +28,7 @@ begin
       raise exception 'Invalid refinement template text.' using errcode='22023';
     end if;
   end loop;
-  if value is distinct from public.job_drafting_redact_samples(value) or value::text like '%!!%' then
+  if value is distinct from public.job_drafting_redact_samples(value) then
     raise exception 'Anonymize refinement text before publishing.' using errcode='22023';
   end if;
 end;

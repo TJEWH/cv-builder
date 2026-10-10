@@ -34,7 +34,7 @@ function profile(request: LocalRefinementRequest) {
   const result = request.request.cv.fields.find((field) => field.label === 'Profile'); assert.ok(result); return result;
 }
 
-test('preparation freezes templates and current CV without leaking private names, markers or bindings', () => {
+test('preparation freezes templates and current CV without leaking private identity or reconstruction bindings', () => {
   const source = state(); const template = setup(); const before = structuredClone({ source, template });
   const request = local({ state: source, setup: template, letterText: 'Taylor Green is interested. !!Private rationale!!',
     opportunity: { title: 'PhD', notes: 'Email taylor@example.com. !!Private note!!' } });
@@ -44,9 +44,9 @@ test('preparation freezes templates and current CV without leaking private names
   assert.equal(request.request.letter.template.structure, before.template.template.structure);
   assert.notEqual(request.cv.baselineState.about.text, source.about.text);
   const wire = JSON.stringify(request.request);
-  for (const secret of ['Taylor Green', 'taylor@example.com', 'private collaboration', 'private example', 'Private rationale', 'Private note', 'private variant name', 'local-job', 'baselineState', 'bindings']) assert.equal(wire.includes(secret), false, secret);
+  for (const secret of ['Taylor Green', 'taylor@example.com', 'private variant name', 'local-job', 'baselineState', 'bindings']) assert.equal(wire.includes(secret), false, secret);
   assert.match(request.request.letter.text, /\{\{APPLICANT_NAME\}\}/);
-  assert.match(request.request.letter.template.exampleText!, /\{\{CONFIDENTIAL\}\}/);
+  assert.match(request.request.letter.template.exampleText!, /!!private example!!/);
   assert.equal(request.request.cv.requestId, request.request.requestId);
   assert.equal(request.letterBaseline?.text, 'Taylor Green is interested. !!Private rationale!!');
   assert.deepEqual(request.letterBaseline?.setup, before.template);
@@ -63,10 +63,10 @@ test('template interests and question context are filtered in public requests wh
   const before = structuredClone(original);
   const prepared = local({ schemaVersion: 2, scope: 'letter', setup: original });
   assert.match(prepared.request.letter.template.researchInterests!, /\{\{APPLICANT_NAME\}\} wants to explore sensor fusion/);
-  assert.match(prepared.request.letter.template.researchInterests!, /\{\{CONFIDENTIAL\}\}/);
-  assert.match(prepared.request.letter.template.questionGuidance!, /Ask \{\{APPLICANT_EMAIL\}\} about missing evidence for \{\{CONFIDENTIAL\}\}/);
+  assert.match(prepared.request.letter.template.researchInterests!, /!!private research focus!!/);
+  assert.match(prepared.request.letter.template.questionGuidance!, /Ask \{\{APPLICANT_EMAIL\}\} about missing evidence for \[!!confidential project!!\]/);
   const prompt = buildRefinementPrompt(prepared.request, '', 'inline');
-  for (const privateValue of ['Taylor Green', 'taylor@example.com', 'private collaboration', 'private research focus', 'confidential project', 'private-project.example']) {
+  for (const privateValue of ['Taylor Green', 'taylor@example.com', 'private variant name']) {
     assert.equal(JSON.stringify(prepared.request).includes(privateValue), false, privateValue);
     assert.equal(prompt.includes(privateValue), false, privateValue);
   }
@@ -95,7 +95,7 @@ test('exact structured letter originals retain field boundaries locally and must
   const request = local({ letterText: letterToEditableText(content), letterContent: content });
   assert.deepEqual(request.letterBaseline?.content, content);
   assert.equal(request.sourceSignatures!.letter, refinementSignature(request.letterBaseline));
-  assert.equal(JSON.stringify(request.request).includes('Private evidence'), false);
+  assert.equal(JSON.stringify(request.request).includes('!!Private evidence!!'), true);
   assert.equal(JSON.stringify(request.request).includes('letterBaseline'), false);
   content.closing = 'Later manual closing';
   assert.deepEqual(request.letterBaseline?.content, before, 'the exact original is frozen independently of the working letter');
@@ -134,7 +134,7 @@ test('source validation permits blank originals in both protocols without relaxi
 test('existing application instructions remain anonymized in initial and improvement requests', () => {
   const instructions = 'Describe Taylor Green’s experience in concise language. Avoid !!private requirement!! and taylor@example.com.';
   const initial = local({ instructions });
-  assert.equal(initial.request.cv.instructions, 'Describe {{APPLICANT_NAME}}’s experience in concise language. Avoid {{CONFIDENTIAL}} and {{APPLICANT_EMAIL}}.');
+  assert.equal(initial.request.cv.instructions, 'Describe {{APPLICANT_NAME}}’s experience in concise language. Avoid !!private requirement!! and {{APPLICANT_EMAIL}}.');
   assert.equal(initial.cv.publicRequest.instructions, initial.request.cv.instructions);
   const improved = local({ instructions, parentProposalId: crypto.randomUUID(), feedback: [{ id: crypto.randomUUID(), scope: 'letter', text: 'Use a warmer opening.', createdAt: CREATED }] });
   assert.equal(improved.request.cv.instructions, initial.request.cv.instructions);
@@ -144,9 +144,9 @@ test('existing application instructions remain anonymized in initial and improve
   assert.throws(() => local({ instructions: 'x'.repeat(20001) }), /too long/);
 });
 
-test('privacy sanitizer handles private links, unclosed markers and identity boundaries', () => {
+test('privacy sanitizer preserves literal exclamation marks and respects identity boundaries', () => {
   const cv = state(); cv.contact.name = 'Ann';
-  assert.equal(sanitizeRefinementText('Ann writes an annual report. [!!Private label!!](https://private.example) !!unclosed', cv), '{{APPLICANT_NAME}} writes an annual report. {{CONFIDENTIAL}} {{CONFIDENTIAL}}');
+  assert.equal(sanitizeRefinementText('Ann writes an annual report. [!!Private label!!](https://private.example) !!unclosed', cv), '{{APPLICANT_NAME}} writes an annual report. [!!Private label!!](https://private.example) !!unclosed');
   const settings = sanitizeRefinementSetup(setup(), state());
   assert.equal(JSON.stringify(settings).includes('taylor@example.com'), false);
   assert.throws(() => sanitizeRefinementText('bad\u0000text', cv), /control/);
@@ -190,7 +190,7 @@ test('public proposal validation rejects cross-request, structural, token and li
     { fieldId: field.id, text: `${field.text} <img src=x>` }]) {
     assert.throws(() => parseRefinementProposal({ ...incoming, cvEdits: [edit] }, request.request), /unavailable|placeholders|cannot add/);
   }
-  for (const letterText of ['{{PRIVATE_1}}', '<script>evil</script>', '!!private!!', '']) {
+  for (const letterText of ['{{PRIVATE_1}}', '<script>evil</script>', '']) {
     assert.throws(() => parseRefinementProposal({ ...incoming, letterText }, request.request), /Letters cannot|complete letter/);
   }
 });
@@ -321,7 +321,7 @@ test('self-contained prompts include the exact filtered request and require no c
         assert.match(prompt, /Return exactly one complete proposal JSON object/);
         assert.match(prompt, /Import a refinement proposal/);
         assert.doesNotMatch(prompt, /private\.(?:read_refinement_request|save_refinement_proposal|resolve_application_reference)|execute_sql|persisted receipt/);
-        for (const secret of ['Taylor Green', 'taylor@example.com', 'private collaboration', 'private example', 'Private rationale', 'private variant name', 'baselineState', 'bindings', 'structureBindings']) assert.ok(!prompt.includes(secret), secret);
+        for (const secret of ['Taylor Green', 'taylor@example.com', 'private variant name', 'baselineState', 'bindings', 'structureBindings']) assert.ok(!prompt.includes(secret), secret);
         assert.equal(embedded.privacyLegend?.[0].description, 'Approved sensor research context');
         assert.equal(embedded.letter.text, prepared.request.letter.text);
       }
@@ -391,7 +391,7 @@ test('request publication only uploads public data and retries with the same imm
   assert.deepEqual(await repo.publishRequest(request.request), requestRow(request.request));
   assert.deepEqual(queries[0].params, queries[1].params);
   assert.deepEqual(Object.keys(queries[0].params!), ['p_request']);
-  assert.equal(JSON.stringify(queries).includes('private collaboration'), false);
+  assert.equal(JSON.stringify(queries).includes('!!private collaboration!!'), true);
   await assert.rejects(repo.publishRequest(stub(request)), /Invalid/);
 });
 
@@ -467,7 +467,7 @@ test('new requests default to v2 with public topology and local-only reconstruct
   assert.equal(request.request.cvStructure.schemaVersion, 1);
   assert.ok(request.structureBindings);
   const publicJson = JSON.stringify(request.request);
-  for (const secret of ['local-job', 'local-education', 'private collaboration', 'Taylor Green', 'baselineState', 'entriesPath', 'bindings']) assert.equal(publicJson.includes(secret), false, secret);
+  for (const secret of ['local-job', 'local-education', 'Taylor Green', 'baselineState', 'entriesPath', 'bindings']) assert.equal(publicJson.includes(secret), false, secret);
   assert.equal(local().request.schemaVersion, 1, 'explicit legacy requests remain legacy');
   assert.throws(() => local({ schemaVersion: 3 as 2 }), /Unsupported.*version/);
 });

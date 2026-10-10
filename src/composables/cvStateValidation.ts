@@ -1,6 +1,7 @@
 import type { Contact, CvDesign, CvState, CustomFont, CustomSection, CvItem, SidebarSection, CvContent, CvContentItem, CvConfig } from '../types';
 import { CV_STATE_VERSION, FIELD_PRIVACY_TYPES } from '../types';
 import { SUPPORTED_LANGUAGES } from '../defaults';
+import { isPrivacyFieldOverrides } from './privacyOverrides';
 import { normalizeProxyFields } from './fieldPrivacy';
 
 type Guard<T> = (value: unknown) => value is T;
@@ -82,7 +83,7 @@ const sidebarSection = object<SidebarSection>({
 const currentState = object<CvState>({
   version: number, lang: literals(...SUPPORTED_LANGUAGES), disabled: strings,
   completedSections: strings, keepTogetherSections: strings, design, contact,
-  anonymization: object<CvState['anonymization']>({ excludedSections: strings, excludedItems: strings, proxyFields: optional(array(literals(...FIELD_PRIVACY_TYPES))) }),
+  anonymization: object<CvState['anonymization']>({ excludedSections: strings, excludedItems: strings, proxyFields: optional(array(literals(...FIELD_PRIVACY_TYPES))), fieldOverrides: optional(isPrivacyFieldOverrides) }),
   about: object<CvState['about']>({ text: string }),
   education: items,
   experience: object<CvState['experience']>({ jobs: items }),
@@ -128,7 +129,7 @@ const contentShape: { [K in keyof CvContent]-?: Guard<CvContent[K]> } = {
 const configShape: { [K in keyof CvConfig]-?: Guard<CvConfig[K]> } = {
   lang: literals(...SUPPORTED_LANGUAGES), design: partialObject<CvDesign>(designShape, true),
   disabled: strings, completedSections: strings, keepTogetherSections: strings,
-  anonymization: object<CvConfig['anonymization']>({ excludedSections: strings, excludedItems: strings, proxyFields: optional(array(literals(...FIELD_PRIVACY_TYPES))) }, true),
+  anonymization: object<CvConfig['anonymization']>({ excludedSections: strings, excludedItems: strings, proxyFields: optional(array(literals(...FIELD_PRIVACY_TYPES))), fieldOverrides: optional(isPrivacyFieldOverrides) }, true),
   sectionHeaderSizes: stringRecord, bodyOrder: strings, sidebarOrder: strings, hiddenItems: strings,
 };
 

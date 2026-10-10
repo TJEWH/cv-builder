@@ -5,23 +5,12 @@ import type { DraftingContext, DraftingContextBundle, MotivationLetterDraft, Pub
 import { SAMPLE_CONTACT } from '../defaults';
 import type { CvState } from '../types';
 import { createCloudCvSnapshot } from './cloudCvPrivacy';
-import { IDENTITY_PLACEHOLDERS, redactKnownIdentityText } from './identityRedaction';
+import { IDENTITY_PLACEHOLDERS, redactKnownIdentityText, redactKnownIdentityValues } from './identityRedaction';
 
 export const DRAFTING_IDENTITY_PLACEHOLDERS = IDENTITY_PLACEHOLDERS;
 
 function privateText(text: string, state?: CvState): string {
-  const result = text.replace(/\[([^\]]*)\]\(([^\s)]+)\)/g, (link, label: string, href: string) => (
-    /!![\s\S]*?!!/.test(label + href) ? '{{CONFIDENTIAL}}' : link
-  )).replace(/!![\s\S]*?!!/g, '{{CONFIDENTIAL}}');
-  return redactKnownIdentityText(result, [SAMPLE_CONTACT, ...(state ? [state.contact] : [])]);
-}
-
-function mapText<T>(value: T, state?: CvState): T {
-  if (typeof value === 'string') return privateText(value, state) as T;
-  if (Array.isArray(value)) return value.map((entry) => mapText(entry, state)) as T;
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value)
-    .map(([key, entry]) => [key, mapText(entry, state)])) as T;
-  return value;
+  return redactKnownIdentityText(text, [SAMPLE_CONTACT, ...(state ? [state.contact] : [])]);
 }
 
 function bounded(value: string, label: string, min: number, max: number): string {
@@ -74,9 +63,12 @@ export function sanitizeDraftingInput(input: PublishDraftingInput, cvState?: CvS
 
 /** Offline counterpart of the server projection. It never includes application notes or contact email. */
 export function prepareDraftingContext(input: PublishDraftingInput & { application: Application; cvState: CvState }): DraftingContextBundle {
-  const snapshot = createCloudCvSnapshot(input.cvState);
-  const content = mapText(snapshot.content_json, input.cvState);
-  content.contact = { ...DRAFTING_IDENTITY_PLACEHOLDERS };
+  const snapshot = createCloudCvSnapshot(input.cvState, { transformPublicContent: (projection) => {
+    const content = redactKnownIdentityValues(projection, [SAMPLE_CONTACT, input.cvState.contact]);
+    content.contact = { ...DRAFTING_IDENTITY_PLACEHOLDERS };
+    return content;
+  } });
+  const content = snapshot.content_json;
   return {
     schemaVersion: 1,
     opportunity: JSON.parse(JSON.stringify(input.application.context_json)) as Record<string, unknown>,

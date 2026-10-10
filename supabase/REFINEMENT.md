@@ -6,6 +6,32 @@ Apply [`changes/application_refinement.sql`](changes/application_refinement.sql)
 
 The application stages are Preparation, Refinement, PDF review and Tracking. Complete application CV copies, private identity reconstruction, supporting files and final PDFs remain local. Letter template setup, anonymized current text, feedback and proposals are owner-scoped cloud records. Changing the reusable CV or letter library does not update an application's saved copy. Missing cloud schema must be shown as an actionable setup error without deleting local work.
 
+## CV Privacy editor
+
+**CV Studio → Privacy** uses the Content form and original field values. Users can replace
+specific wording for shared previews, exports and AI sources while retaining the original
+CV. Existing contact masking, field-type proxies and exclusions remain available. Automatic
+masking runs first, then explicit field replacements apply last. Only differences are stored
+in the local `anonymization.fieldOverrides` map; unchanged fields follow their current content.
+Resetting a replacement restores that behavior. The map uses stable item/section identities,
+so reordering does not move a replacement onto another entry. See the [JSON contract](../docs/json-format.md).
+
+Default content imports preserve local originals behind existing replacements and update the
+replacement wording instead. Configuration backups retain the sparse map. Public snapshots
+and requests include resolved privacy wording, without the replaced originals or reverse mappings.
+Manual replacement fields are source context for AI comments; accepting a proposal does not
+substitute their public wording into the private CV. Exclamation punctuation such as
+`!!text!!` is ordinary text and has no masking, rendering or validation semantics.
+
+Existing databases need [`changes/explicit_privacy_text.sql`](changes/explicit_privacy_text.sql)
+after `refinement_privacy_legend.sql` and `letter_template_guidance.sql`, including their earlier
+dependencies. Fresh installs use `schema.sql`. This idempotent upgrade changes privacy text
+validation and contact shape checks, and captures the already projected CV verbatim. It does
+not rewrite saved snapshots or proposals, or change ownership, RLS or existing function grants.
+The eight workspace/drafting/adjustment/refinement SQL suites pass against both fresh schema
+and the upgraded prior schema in isolated local PostgreSQL; applying the upgrade twice also
+preserves existing function grants. This is local verification, not a remote deployment record.
+
 ## Browser contract
 
 ### Protocol location for copied tasks
@@ -57,7 +83,7 @@ The public endpoint is `SECURITY INVOKER`; only its helper in the non-exposed `p
 
 `request_json` preserves the exact versioned `RefinementRequest` in `src/refinementTypes.ts`: IDs, editable privacy CV fields, frozen letter setup/current text, requested scope, parent proposal and accumulated feedback. Build feedback entries using the stored review ID, text, scope and `created_at`; every saved feedback row must appear exactly once in creation order. Missing, altered or reordered history is rejected. If complete history exceeds the bounded request size, publication fails explicitly rather than truncating context.
 
-Each request row additionally contains server-captured `opportunity_snapshot` and `cv_snapshot`. These exclude application notes and files. The CV has identity placeholders and only existing privacy-filtered content; current editable fields in `request_json.cv.fields` include later manual wording corrections. Client-supplied opportunity text is already anonymized and must be treated as source material. The browser anonymizes every shared text boundary; the database additionally rejects inline confidentiality markers, sample identities and unknown structural fields. Arbitrary prose cannot be proven anonymous by SQL checks alone.
+Each request row additionally contains server-captured `opportunity_snapshot` and `cv_snapshot`. These exclude application notes and files. The CV contains the exact assigned privacy-filtered content, including explicit field replacements; current editable fields in `request_json.cv.fields` include later manual wording corrections. Client-supplied opportunity text is already anonymized and must be treated as source material. The browser anonymizes every shared text boundary; the database additionally validates allowed structure and the remaining identity/token boundaries. Arbitrary prose cannot be proven anonymous by SQL checks alone.
 
 ### Snapshot metadata and local availability
 
@@ -138,7 +164,7 @@ Only `postgres` receives execution privileges, and both helpers check `current_u
 }
 ```
 
-CV field IDs, token order/count, links and structure must stay valid under the existing CV adjustment validator. Empty edits mean unchanged. A letter-only request requires empty CV edits; a CV-only request must return its existing letter text exactly. Letter text may include unresolved applicant placeholders for local reconstruction, but may not contain CV `PRIVATE_n` tokens, confidentiality markers, images or HTML. Letter text is capped at 50,000 characters and summary at 8,000. The requested word target remains advisory: a 401-word letter for a 400-word request can be saved and reviewed.
+CV field IDs, token order/count, links and structure must stay valid under the existing CV adjustment validator. Empty edits mean unchanged. A letter-only request requires empty CV edits; a CV-only request must return its existing letter text exactly. Letter text may include unresolved applicant placeholders for local reconstruction, but may not contain CV `PRIVATE_n` tokens, images or HTML. Letter text is capped at 50,000 characters and summary at 8,000. The requested word target remains advisory: a 401-word letter for a 400-word request can be saved and reviewed.
 
 Historical proposals can arrive after another round was published and remain readable for comparison. Before applying any proposal, the browser must verify its request is still current and its full local baseline signature matches. A stale proposal never replaces manual work. Editing the baseline requires a new request.
 
@@ -210,7 +236,7 @@ Initial status is `open`, with no response. The signed-in browser uses the exist
 {"proposalId":"<UUID>","annotationId":"annotation-1","status":"resolved","response":"Used controlled experiments.","previousReviewId":null}
 ```
 
-Status may be `open`, `resolved` or `ignored`. Response is null or nonempty text up to 12,000 UTF-16 units. The browser scrubs known identity and confidential markers before saving. Later updates must supply the last annotation review UUID as `previousReviewId`. The state-row lock serializes these checks; stale updates fail without changing documents. Identical review UUID/payload retries return the original receipt. Historical proposals remain answerable, and opening them projects the latest status from existing reviews. Unsaved component responses survive a failed save or a conflicting refresh until the user explicitly loads the saved annotation.
+Status may be `open`, `resolved` or `ignored`. Response is null or nonempty text up to 12,000 UTF-16 units. The browser applies known-identity and protected-field filtering before saving. Later updates must supply the last annotation review UUID as `previousReviewId`. The state-row lock serializes these checks; stale updates fail without changing documents. Identical review UUID/payload retries return the original receipt. Historical proposals remain answerable, and opening them projects the latest status from existing reviews. Unsaved component responses survive a failed save or a conflicting refresh until the user explicitly loads the saved annotation.
 
 “Included as feedback” is a separate, explicit action. Open or answered annotations can append an ordinary `feedback` review with its existing `text`/`scope`, plus:
 
@@ -233,11 +259,11 @@ All operations retain owner-authenticated invoker RPCs and existing RLS. Private
 {"fieldId":"field-4","token":"{{PRIVATE_1}}","type":"organization","description":"Engineering company specializing in sensor technology"}
 ```
 
-Allowed types are `person`, `organization`, `location`, `link`, `contact`, `confidential`, and `other`. Descriptions are nonempty plain text, at most 500 UTF-16 units. A token must occur in the referenced field and appear at most once in the legend. Unknown keys (including originals or mappings), controls, privacy markers, placeholders, and HTML delimiters are rejected. The server validates this public contract; only the local application has originals available for privacy filtering. No reverse mapping or local approval fingerprint is uploaded.
+Allowed types are `person`, `organization`, `location`, `link`, `contact`, `confidential`, and `other`. Descriptions are nonempty plain text, at most 500 UTF-16 units. A token must occur in the referenced field and appear at most once in the legend. Unknown keys (including originals or mappings), controls, placeholders, and HTML delimiters are rejected. The server validates this public contract; only the local application has originals available for privacy filtering. No reverse mapping or local approval fingerprint is uploaded.
 
 Users enter descriptions and click **Approve & include**. Approval is saved in the existing local application store and backups, bound to the exact variant, field path, private source and token occurrence. Numbering changes cannot assign context to a different original. Changed sources need renewed approval. Removing a description affects the next request; immutable published history remains unchanged. Descriptions supply context only and never replace tokens, originals, or reconstruction mappings. Reconstruction does not depend on a description.
 
-The preview distinguishes **Visible**, **Pseudonymized**, and **Not shared**. Visible employers, locations and links are not described as masked. CV fields, the complete letter, instructions, opportunity context, template guidance/examples, and saved feedback can be inspected. Unsaved feedback and annotation responses also have outgoing privacy previews. Known identities, marked secrets, and unmarked repetitions of marked CV secrets are filtered in outgoing free text. No automatic context enrichment is performed.
+The preview distinguishes **Visible**, **Pseudonymized**, and **Not shared**. Visible employers, locations and links are not described as masked. CV fields, the complete letter, instructions, opportunity context, template guidance/examples, and saved feedback can be inspected. Unsaved feedback and annotation responses also have outgoing privacy previews. Known identities and protected field originals are filtered in outgoing free text. Explicit CV field replacements are shown as authored, after automatic masking. No automatic context enrichment is performed.
 
 Structured operations move complete bullets with their tokens; omission only removes them from the derived candidate. Frozen local originals and mappings remain intact. Legacy wording edits additionally cannot transfer a token across content lines; use structured operations for complete bullet moves.
 

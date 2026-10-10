@@ -39,7 +39,7 @@ begin
 
   proposal:=jsonb_build_object('schemaVersion',2,'requestId',request_a,'summary','Legacy summary remains plain text; TODO is not an annotation.',
     'cvOperations','[]'::jsonb,'cvComments','[]'::jsonb,'letterText','😀 Evidence is documented.',
-    'annotations','[{"id":"annotation-1","type":"question","document":"cv","location":{"fieldId":"field-1"},"text":"Which methods did you use?"},{"id":"annotation-2","type":"todo","document":"letter","location":{"start":2,"quote":"Evidence is documented."},"text":"Confirm the research interest."},{"id":"annotation-3","type":"comment","document":"letter","location":null,"text":"Consider a documented example."}]'::jsonb);
+    'annotations','[{"id":"annotation-1","type":"question","document":"cv","location":{"fieldId":"field-1"},"text":"Which methods did you use?"},{"id":"annotation-2","type":"todo","document":"letter","location":{"start":2,"quote":"Evidence is documented."},"text":"Confirm the research interest."},{"id":"annotation-3","type":"comment","document":"letter","location":null,"text":"Consider a documented example!!"}]'::jsonb);
   execute 'reset role'; perform set_config('request.jwt.claims','{}',true);
   receipt:=private.save_refinement_proposal(request_a,proposal_a,proposal);
   if private.save_refinement_proposal(request_a,proposal_a,proposal)<>receipt then raise exception 'FAIL: annotation proposal retry'; end if;
@@ -50,7 +50,7 @@ begin
     jsonb_set(proposal->'annotations','{0,document}','"both"'),jsonb_set(proposal->'annotations','{0,location,fieldId}','"field-999"'),
     jsonb_set(proposal->'annotations','{1,location,start}','3'),jsonb_set(proposal->'annotations','{1,location,start}','-1'),
     jsonb_set(proposal->'annotations','{1,location,quote}','"Invented quote"'),jsonb_set(proposal->'annotations','{0,text}','""'),
-    jsonb_set(proposal->'annotations','{0,text}',to_jsonb(repeat('😀',2001))),jsonb_set(proposal->'annotations','{0,text}','"!!secret!!"'),
+    jsonb_set(proposal->'annotations','{0,text}',to_jsonb(repeat('😀',2001))),jsonb_set(proposal->'annotations','{0,text}','"Alex Muster"'),
     jsonb_set(proposal->'annotations','{0,status}','"resolved"'),jsonb_set(proposal->'annotations','{0,response}','"Not user input"')
   )) loop
     begin
@@ -66,18 +66,18 @@ begin
   -- Unanswered open annotations can be explicitly included as ordinary referenced feedback.
   perform public.save_refinement_review(app_a,request_a,'feedback',jsonb_build_object('text','Open question: Which methods did you use?','scope','cv',
     'annotation',jsonb_build_object('proposalId',proposal_a,'annotationId','annotation-1','reviewId',null)),gen_random_uuid());
-  review_payload:=jsonb_build_object('proposalId',proposal_a,'annotationId','annotation-1','status','resolved','response','Controlled experiments.','previousReviewId',null);
+  review_payload:=jsonb_build_object('proposalId',proposal_a,'annotationId','annotation-1','status','resolved','response','Controlled experiments!!','previousReviewId',null);
   receipt:=public.save_refinement_review(app_a,request_a,'annotation',review_payload,first_review);
   if public.save_refinement_review(app_a,request_a,'annotation',review_payload,first_review)<>receipt then raise exception 'FAIL: review retry'; end if;
   if prior_state<>(select to_jsonb(s) from public.application_refinement_state s where application_id=app_a) then raise exception 'FAIL: annotation changed document approvals/state'; end if;
   if (select payload->>'status' from public.application_refinement_reviews where id=first_review)<>'resolved' then raise exception 'FAIL: status persistence'; end if;
   begin perform public.save_refinement_review(app_a,request_a,'annotation',review_payload,gen_random_uuid()); raise exception 'FAIL: stale concurrent update'; exception when serialization_failure then null; end;
-  begin perform public.save_refinement_review(app_a,request_a,'annotation',review_payload||jsonb_build_object('previousReviewId',first_review,'response','!!private!!'),gen_random_uuid()); raise exception 'FAIL: private response'; exception when invalid_parameter_value then null; end;
+  begin perform public.save_refinement_review(app_a,request_a,'annotation',review_payload||jsonb_build_object('previousReviewId',first_review,'response','Alex Muster'),gen_random_uuid()); raise exception 'FAIL: private response'; exception when invalid_parameter_value then null; end;
   begin perform public.save_refinement_review(app_a,request_a,'annotation',review_payload||jsonb_build_object('previousReviewId',first_review,'response',repeat('😀',6001)),gen_random_uuid()); raise exception 'FAIL: response bound'; exception when invalid_parameter_value then null; end;
   begin perform public.save_refinement_review(app_a,request_a,'annotation',review_payload||jsonb_build_object('annotationId','annotation-999'),gen_random_uuid()); raise exception 'FAIL: unknown annotation'; exception when invalid_parameter_value then null; end;
   begin perform public.save_refinement_review(app_a,request_a,'annotation',review_payload||jsonb_build_object('proposalId',gen_random_uuid()),gen_random_uuid()); raise exception 'FAIL: unknown proposal'; exception when insufficient_privilege then null; end;
   note:=jsonb_build_object('proposalId',proposal_a,'annotationId','annotation-1','reviewId',first_review);
-  saved_feedback:=jsonb_build_object('text','Question: Which methods did you use? User response: Controlled experiments.','scope','cv','annotation',note);
+  saved_feedback:=jsonb_build_object('text','Question: Which methods did you use? User response: Controlled experiments!!','scope','cv','annotation',note);
   receipt:=public.save_refinement_review(app_a,request_a,'feedback',saved_feedback,feedback_review);
   if public.save_refinement_review(app_a,request_a,'feedback',saved_feedback,feedback_review)<>receipt then raise exception 'FAIL: feedback retry'; end if;
   begin perform public.save_refinement_review(app_a,request_a,'feedback',saved_feedback||'{"scope":"letter"}',gen_random_uuid()); raise exception 'FAIL: annotation scope'; exception when invalid_parameter_value then null; end;

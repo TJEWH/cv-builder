@@ -95,7 +95,7 @@ for (const [status, error] of [
 
 test('invalid local annotation responses and changed sessions never use compatibility retry', async () => {
   const invalid = fakeClient(() => ({ data: null, error: legacyRejection }));
-  await assert.rejects(createRefinementRepository(invalid.client, () => 'owner').saveReview(applicationId, requestId, 'annotation', { ...annotation(), response: '!!Private detail!!' }), /Invalid annotation review/);
+  await assert.rejects(createRefinementRepository(invalid.client, () => 'owner').saveReview(applicationId, requestId, 'annotation', { ...annotation(), response: 'Invalid\u0000detail' }), /Invalid annotation review/);
   assert.equal(invalid.calls.length, 0);
   let owner = 'owner';
   const switched = fakeClient(() => { owner = 'other'; return { data: null, error: legacyRejection }; });

@@ -50,11 +50,11 @@ test('offline drafting context excludes private state and sample identity while 
   });
   assert.deepEqual(result.opportunity, application.context_json);
   assert.deepEqual(result.cv.content.contact, DRAFTING_IDENTITY_PLACEHOLDERS);
-  assert.equal(result.cv.content.about.text, '{{APPLICANT_NAME}} studies robotics. {{CONFIDENTIAL}}');
-  assert.equal(result.template.structure, 'Present {{APPLICANT_NAME}}, then fit. {{CONFIDENTIAL}}');
-  assert.equal(result.instructions, 'Reply to {{APPLICANT_EMAIL}}; hide {{CONFIDENTIAL}}.');
+  assert.equal(result.cv.content.about.text, '{{APPLICANT_NAME}} studies robotics. !!Secret project!!');
+  assert.equal(result.template.structure, 'Present {{APPLICANT_NAME}}, then fit. [!!Private link!!](https://secret.example)');
+  assert.equal(result.instructions, 'Reply to {{APPLICANT_EMAIL}}; hide !!another secret!!.');
   assert.deepEqual(result.cv.theme, { fontBody: 'Inter' });
-  for (const secret of ['Secret Institute', 'Secret project', 'Private Person', 'private@example.org', 'Never send these notes', 'Private Font', 'secret.example', 'Alex Muster']) {
+  for (const secret of ['Secret Institute', 'Private Person', 'private@example.org', 'Never send these notes', 'Private Font', 'Alex Muster']) {
     assert.equal(JSON.stringify(result).includes(secret), false, secret);
   }
   assert.deepEqual(state, before);
@@ -77,7 +77,7 @@ test('all template guidance reaches the existing cloud structure after privacy r
     salutationInstructions: 'Use the contact in the tender; omit !!Secret contact!!.',
     closingInstructions: 'Sign Private Person. Contact private@example.org.',
   } }, state);
-  assert.equal(safe.template.structure, `${input.template.structure}\n\nSubject instructions:\nName the position for {{APPLICANT_NAME}}.\n\nSalutation instructions:\nUse the contact in the tender; omit {{CONFIDENTIAL}}.\n\nClosing instructions:\nSign {{APPLICANT_NAME}}. Contact {{APPLICANT_EMAIL}}.`);
+  assert.equal(safe.template.structure, `${input.template.structure}\n\nSubject instructions:\nName the position for {{APPLICANT_NAME}}.\n\nSalutation instructions:\nUse the contact in the tender; omit !!Secret contact!!.\n\nClosing instructions:\nSign {{APPLICANT_NAME}}. Contact {{APPLICANT_EMAIL}}.`);
   assert.deepEqual(sanitizeDraftingInput(safe), safe);
   assert.deepEqual(Object.keys(safe.template).sort(), ['id', 'name', 'revision', 'structure', 'tone']);
   const { client, queries } = fakeClient(({ params }) => ({ data: context(String(params?.p_context_id)), error: null }));
@@ -91,8 +91,8 @@ test('template examples share only anonymized style guidance through the legacy 
   const exampleText = 'Private Person wrote to private@example.org about !!Secret work!!. [!!Private letter!!](https://secret.example).';
   const safe = sanitizeDraftingInput({ ...input, template: { ...input.template, exampleText } }, state);
   assert.ok(safe.template.structure.includes('wording, style and structure only; never use its claims as applicant evidence'));
-  assert.ok(safe.template.structure.includes('{{APPLICANT_NAME}} wrote to {{APPLICANT_EMAIL}} about {{CONFIDENTIAL}}. {{CONFIDENTIAL}}.'));
-  for (const secret of ['Private Person', 'private@example.org', 'Secret work', 'secret.example']) assert.ok(!JSON.stringify(safe).includes(secret));
+  assert.ok(safe.template.structure.includes('{{APPLICANT_NAME}} wrote to {{APPLICANT_EMAIL}} about !!Secret work!!. [!!Private letter!!](https://secret.example).'));
+  for (const secret of ['Private Person', 'private@example.org']) assert.ok(!JSON.stringify(safe).includes(secret));
   assert.deepEqual(Object.keys(safe.template).sort(), ['id', 'name', 'revision', 'structure', 'tone']);
   assert.deepEqual(sanitizeDraftingInput(safe), safe, 'repeated sanitization must not append the example twice');
   assert.equal(exampleText.includes('Private Person'), true, 'local source wording stays unchanged');
@@ -112,9 +112,9 @@ test('research and question guidance uses the existing five-key cloud template p
   assert.match(safe.template.structure, /Applicant research interests \(intent, not evidence of experience; select relevant interests/);
   assert.match(safe.template.structure, /Follow-up question guidance \(ask only when useful; keep questions separate from letter text/);
   assert.match(safe.template.structure, /never assume missing CV evidence means no experience/);
-  assert.match(safe.template.structure, /\{\{APPLICANT_NAME\}\} is interested in sensor fusion and \{\{CONFIDENTIAL\}\}/);
-  assert.match(safe.template.structure, /Ask \{\{APPLICANT_EMAIL\}\} about evidence for field testing and \{\{CONFIDENTIAL\}\}/);
-  for (const privateValue of ['Private Person', 'private@example.org', 'Private research direction', 'Private project', 'secret.example']) {
+  assert.match(safe.template.structure, /\{\{APPLICANT_NAME\}\} is interested in sensor fusion and !!Private research direction!!/);
+  assert.match(safe.template.structure, /Ask \{\{APPLICANT_EMAIL\}\} about evidence for field testing and \[!!Private project!!\]/);
+  for (const privateValue of ['Private Person', 'private@example.org']) {
     assert.equal(JSON.stringify(safe).includes(privateValue), false, privateValue);
   }
   assert.deepEqual(sanitizeDraftingInput(safe), safe);
@@ -196,4 +196,22 @@ test('session changes reject stale responses and missing schema has an actionabl
   const unavailable = fakeClient(() => ({ data: null, error: { code: 'PGRST202' } }));
   await assert.rejects(createDraftingRepository(unavailable.client, () => 'owner-a').publishContext('app-a', input), /database update/);
   await assert.rejects(createDraftingRepository(null, () => null).listDrafts('app-a'), /Sign in/);
+});
+
+
+test('drafting CV text applies manual privacy replacements after contact and field-type masking', () => {
+  const state = createTestState({ contact: { ...createTestState().contact, name: 'Private Person' }, about: { text: 'Worked with John Doe.' },
+    experience: { jobs: [{ id: 'Private Person-job', company: 'Private Company' }] },
+    anonymization: { excludedSections: [], excludedItems: [], proxyFields: ['company'], fieldOverrides: {
+      '["contact","name"]': 'Approved Private Person',
+      '["about","text"]': 'Worked with a qualified person.',
+      '["item","Private Person-job","company"]': 'Approved Private Company',
+    } },
+  });
+  const result = prepareDraftingContext({ ...input, application, cvState: state });
+  assert.equal(result.cv.content.contact.name, 'Approved Private Person');
+  assert.equal(result.cv.content.about.text, 'Worked with a qualified person.');
+  assert.equal(result.cv.content.experience.jobs[0].company, 'Approved Private Company');
+  assert.ok(!JSON.stringify(result).includes('John Doe'));
+  assert.equal(state.about.text, 'Worked with John Doe.');
 });

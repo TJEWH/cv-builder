@@ -18,7 +18,7 @@ async function importQuestion(fixture: ReturnType<typeof mount>) {
 
 for (const imported of [true, false]) test(`${imported ? 'imported' : 'connected'} resolved contextual question automatically feeds a fresh privacy-safe request without changing documents`, async t => {
   const fixture = mount(t, createPrivateRefinementCv()); let setup = await prepare(fixture, 'base', { scope: 'letter' });
-  setup.letter!.templateSnapshot!.researchInterests = 'Reliable robot sensing and reproducible calibration, inspired by !!E2E North Lab!!.';
+  setup.letter!.templateSnapshot!.researchInterests = 'Reliable robot sensing and reproducible calibration, inspired by E2E North Lab.';
   setup.letter!.templateSnapshot!.questionGuidance = 'Ask about undocumented robot calibration experience when a required or beneficial qualification is relevant to the letter.';
   await setup.publishSources(); assert.equal(setup.error, '');
   const source = setup.requests[0];

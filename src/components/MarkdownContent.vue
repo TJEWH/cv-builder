@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { parseInlineMarkdown, parseMarkdownText, renderConfidentialText } from '../composables/markdownText.ts';
+import { parseInlineMarkdown, parseMarkdownText } from '../composables/markdownText.ts';
 
 const props = defineProps({
   value: { type: String, default: '' },
-  anonymized: { type: Boolean, default: false },
 });
 
 const content = computed(() => {
-  const parsed = parseMarkdownText(renderConfidentialText(props.value, { anonymized: props.anonymized }));
+  const parsed = parseMarkdownText(props.value);
   return {
     prose: parseInlineMarkdown(parsed.prose),
     bullets: parsed.bullets.map((bullet) => parseInlineMarkdown(bullet)),
@@ -20,7 +19,6 @@ const content = computed(() => {
   <p v-if="content.prose.length" class="markdown-content__prose">
     <template v-for="(token, index) in content.prose" :key="index">
       <strong v-if="token.type === 'bold'">{{ token.value }}</strong>
-      <s v-else-if="token.type === 'strike'">{{ token.value }}</s>
       <a v-else-if="token.type === 'link'" :href="token.href" target="_blank" rel="noopener noreferrer">{{ token.value }}</a>
       <template v-else>{{ token.value }}</template>
     </template>
@@ -29,7 +27,6 @@ const content = computed(() => {
     <li v-for="(bullet, bulletIndex) in content.bullets" :key="bulletIndex">
       <template v-for="(token, tokenIndex) in bullet" :key="tokenIndex">
         <strong v-if="token.type === 'bold'">{{ token.value }}</strong>
-        <s v-else-if="token.type === 'strike'">{{ token.value }}</s>
         <a v-else-if="token.type === 'link'" :href="token.href" target="_blank" rel="noopener noreferrer">{{ token.value }}</a>
         <template v-else>{{ token.value }}</template>
       </template>

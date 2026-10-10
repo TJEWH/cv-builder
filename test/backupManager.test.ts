@@ -338,7 +338,7 @@ test('configuration import replaces settings without changing the selected versi
   assert.equal(setup.backupMsg, 'versionConfigImported');
 });
 
-test('the default content import preserves private local fields and imports textarea placeholders', async (t) => {
+test('the default content import preserves private local fields and imports ordinary textarea text', async (t) => {
   const { props, setup, instance, storage } = savedVersionFixture(t);
   assert.equal(setup.bypassPrivacyProxy, false);
   props.state.anonymization.excludedSections = ['jobs'];
@@ -359,7 +359,8 @@ test('the default content import preserves private local fields and imports text
 test('the content checkbox controls export privacy and resets when the selected version changes', async (t) => {
   const { props, setup, global } = savedVersionFixture(t);
   props.state.anonymization.excludedSections = ['jobs'];
-  props.state.about.text = 'Built !!Private Product!!.';
+  props.state.about.text = 'Built a private product.';
+  props.state.anonymization.fieldOverrides = { '["about","text"]': 'Built a research prototype.' };
   const blobs: Blob[] = [];
   global('document', { createElement: () => ({ click() {}, remove() {} }), body: { appendChild() {} } });
   global('window', { setTimeout: (fn: () => void) => fn(), removeEventListener() {} });
@@ -371,7 +372,7 @@ test('the content checkbox controls export privacy and resets when the selected 
   const [privateExport, completeExport] = await Promise.all(blobs.map(async (blob) => JSON.parse(await blob.text())));
   assert.notEqual(privateExport.data.contact.name, 'Private Person');
   assert.deepEqual(privateExport.data.experience.jobs, []);
-  assert.equal(privateExport.data.about.text, 'Built !!confidential text!!.');
+  assert.equal(privateExport.data.about.text, 'Built a research prototype.');
   assert.equal(completeExport.data.contact.name, 'Private Person');
   assert.ok(completeExport.data.experience.jobs.length > 0);
   assert.equal(completeExport.data.about.text, props.state.about.text);

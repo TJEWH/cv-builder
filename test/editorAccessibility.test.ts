@@ -6,7 +6,11 @@ import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive, type Component } from 'vue';
 import { createSampleDocument } from '../src/composables/builtinConfigurations';
+import { createAnonymizedState } from '../src/composables/anonymization';
+import { applyPrivacyEditorChanges, createPrivacyEditorState } from '../src/composables/privacyOverrides';
+import { createTestState } from './helpers';
 import type { CustomSection } from '../src/types';
+const { PRIVACY_EDITOR } = createRequire(import.meta.url)('../src/composables/privacyEditorContext');
 
 function loadComponent(name: string, inlineTemplate = false): Component {
   const filename = new URL(`../src/components/${name}.vue`, import.meta.url);
@@ -31,6 +35,32 @@ const renderer = createRenderer<Node, Node>({
 const FormBuilder = loadComponent('FormBuilder');
 const SectionHeading = loadComponent('SectionHeading', true);
 const SectionList = loadComponent('SectionList');
+const CvPreview = loadComponent('CvPreview');
+const PrivacySectionHeading = loadComponent('PrivacySectionHeading');
+
+test('inline privacy headings display defaults without storing them and preserve intentionally empty edits', t => {
+  const owner = reactive<Record<string, string>>({});
+  let mounted: unknown;
+  const app = renderer.createApp({ render: () => h(PrivacySectionHeading, {
+    owner, field: 'about', title: 'Profile', placeholder: 'Profile', lang: 'en', collapsed: true, controls: 'about-content',
+    ref: (value: unknown) => { mounted = value; },
+  }) });
+  app.provide(PRIVACY_EDITOR, { language: () => 'en', hiddenInContent: () => false,
+    field: () => ({ original: '', changed: Object.hasOwn(owner, 'about'), reset() { delete owner.about; } }),
+  });
+  app.mount(node('root'));
+  t.after(() => app.unmount());
+  const setup = (mounted as { $: { setupState: { value: string } } }).$.setupState;
+  assert.equal(setup.value, 'Profile');
+  assert.deepEqual(owner, {});
+  setup.value = 'Public profile';
+  assert.equal(owner.about, 'Public profile');
+  setup.value = '';
+  assert.equal(setup.value, '');
+  assert.equal(owner.about, '');
+  setup.value = 'Profile';
+  assert.deepEqual(owner, {});
+});
 
 interface EditorSetup {
   activeContentTab: string;
@@ -67,6 +97,35 @@ function mountEditor(t: TestContext) {
   });
   return (mounted as { $: { setupState: EditorSetup } }).$.setupState;
 }
+
+test('CV preview preserves intentionally blank privacy headings while missing headings keep their defaults', t => {
+  const previousCancelFrame = Object.getOwnPropertyDescriptor(globalThis, 'cancelAnimationFrame');
+  Object.defineProperty(globalThis, 'cancelAnimationFrame', { configurable: true, value() {} });
+  const state = createTestState({
+    about: { text: 'Profile text' }, sectionNames: { about: 'Private profile heading' },
+    customSections: [{ id: 'private-section-id', name: 'Private research heading', entries: [] }],
+  });
+  const draft = createPrivacyEditorState(state);
+  draft.sectionNames.about = '';
+  draft.customSections[0].name = '';
+  applyPrivacyEditorChanges(state, draft);
+  let mounted: unknown;
+  const app = renderer.createApp({ render: () => h(CvPreview, {
+    state: createAnonymizedState(state), exportSource: true, ref: (value: unknown) => { mounted = value; },
+  }) });
+  app.mount(node('root'));
+  t.after(() => {
+    app.unmount();
+    if (previousCancelFrame) Object.defineProperty(globalThis, 'cancelAnimationFrame', previousCancelFrame);
+    else Reflect.deleteProperty(globalThis, 'cancelAnimationFrame');
+  });
+  const preview = (mounted as { $: { setupState: { getSectionDisplayName(key: string): string } } }).$.setupState;
+  assert.equal(preview.getSectionDisplayName('about'), '');
+  assert.equal(preview.getSectionDisplayName('private-section-id'), '');
+  assert.equal(preview.getSectionDisplayName('education'), 'Education');
+  assert.equal(state.sectionNames.about, 'Private profile heading');
+  assert.equal(state.customSections[0].name, 'Private research heading');
+});
 
 test('content tabs support arrow wrapping and Home/End without changing document data', t => {
   const editor = mountEditor(t);

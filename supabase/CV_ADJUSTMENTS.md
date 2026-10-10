@@ -10,7 +10,7 @@ Select CV and letter templates and attach supporting files in Preparation. Copy 
 
 ## Legacy external client workflow
 
-1. Prepare an application-specific privacy snapshot using the legacy public-field contract below. Only visible, non-excluded text fields belong in the request. Mask or omit names, contact values, inline `!!private text!!` fragments and identifying links. Review unmarked prose before sharing it.
+1. Prepare an application-specific privacy snapshot using the legacy public-field contract below. Only visible, non-excluded text fields belong in the request. Apply automatic contact/field masks, then the user's explicit field replacements from **CV Studio → Privacy**. Review the resulting prose before sharing it; punctuation has no special masking meaning. The local sparse replacement map and original text stay off the wire.
 2. Publish through the owner-authenticated legacy RPC. Publishing stores the request; it does not run ChatGPT.
 3. Ask the external client to return the specified JSON response. An authenticated integration can append it to Supabase using the legacy response RPC.
 4. Keep the exact private source and token mappings locally. Any client that applies returned changes must validate and reconstruct them against that source before the owner accepts them. The current app starts new work through the shared refinement flow and exposes old records only in its archive view.

@@ -12,7 +12,7 @@ const STRUCTURAL_KEYS = new Set(['id', 'state', 'entryMode', 'levelType', 'field
 
 /**
  * Replace known names and contact destinations, preserving roles and cities as
- * professional evidence. Unknown personal prose still needs !!...!! marking.
+ * professional evidence. Use CV Studio Privacy to replace other identifying prose.
  */
 export function redactKnownIdentityText(text: string, contacts: readonly Partial<Contact>[]): string {
   const replacements = contacts.flatMap((contact) => IDENTITY_KEYS.flatMap((key) => {

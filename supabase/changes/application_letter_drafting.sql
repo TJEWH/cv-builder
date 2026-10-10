@@ -25,7 +25,7 @@ create table public.motivation_letter_drafts (
     references public.drafting_contexts(user_id, application_id, id) on delete cascade
 );
 
-comment on table public.drafting_contexts is 'Immutable owner-only drafting bundles. Opportunity and assigned privacy CV are captured by the server; applicant identity uses explicit placeholders.';
+comment on table public.drafting_contexts is 'Immutable owner-only drafting bundles. Opportunity and assigned privacy CV wording are captured by the server unchanged.';
 comment on table public.motivation_letter_drafts is 'Append-only draft source text tied to its exact context. Local edited/final letters are never overwritten by generated drafts.';
 
 create index drafting_contexts_recent_idx on public.drafting_contexts(user_id, application_id, created_at desc);
@@ -48,8 +48,8 @@ create policy "Read own returned letter drafts" on public.motivation_letter_draf
 create policy "Insert own returned letter drafts" on public.motivation_letter_drafts for insert to authenticated
   with check ((select auth.uid()) = user_id and not coalesce(((select auth.jwt())->>'is_anonymous')::boolean, false));
 
--- Defense in depth for inline confidentiality markers and the previous fictional
--- sample identity. Free prose still requires the browser privacy projection.
+-- Defense in depth for the previous fictional sample identity.
+-- Free prose still requires the browser privacy projection.
 create function public.job_drafting_redact_samples(value jsonb)
 returns jsonb language plpgsql immutable security invoker set search_path = '' as $$
 declare result jsonb; item record; plain text;
@@ -65,9 +65,6 @@ begin
         into result from jsonb_array_elements(value) with ordinality as e(val, ordinality);
     when 'string' then
       plain := value #>> '{}';
-      -- Remove the whole Markdown link if either label or destination is confidential.
-      plain := regexp_replace(plain, '\[[^]]*!![^]]*\]\([^)]*\)|\[[^]]*\]\([^)]*!![^)]*\)', '{{CONFIDENTIAL}}', 'g');
-      plain := regexp_replace(plain, '!!.*?!!', '{{CONFIDENTIAL}}', 'g');
       for item in select * from (values
         ('https://link[.]com/in/alexmuster', '{{APPLICANT_LINKEDIN}}'),
         ('https://git[.]com/musterlex', '{{APPLICANT_GITHUB}}'),
@@ -123,7 +120,7 @@ begin
   select * into cv from public.cv_variants where id = app.cv_variant_id and user_id = actor;
   if not found then raise exception 'Assigned CV unavailable.' using errcode = '42501'; end if;
   placeholders := '{"name":"{{APPLICANT_NAME}}","location":"{{APPLICANT_LOCATION}}","role":"{{APPLICANT_ROLE}}","email":"{{APPLICANT_EMAIL}}","phone":"{{APPLICANT_PHONE}}","website":"{{APPLICANT_WEBSITE}}","linkedin":"{{APPLICANT_LINKEDIN}}","github":"{{APPLICANT_GITHUB}}"}'::jsonb;
-  content := public.job_drafting_redact_samples(cv.content_json) || jsonb_build_object('contact', placeholders);
+  content := cv.content_json;
   -- Styling is selected from the assigned privacy CV; custom font metadata and arbitrary strings cannot enter context.
   for item in select key, value from jsonb_each(coalesce(cv.config_json->'design', '{}'::jsonb)) loop
     if item.key in ('fontBody','fontHead') and item.value #>> '{}' = any(array['','Inter','Source Sans 3','IBM Plex Sans','Noto Sans','Work Sans','Nunito Sans','Rubik','Merriweather Sans','Hind','Browallia New','Century Gothic','Montserrat','Poppins','Raleway','Space Grotesk'])

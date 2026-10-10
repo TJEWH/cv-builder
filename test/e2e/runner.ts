@@ -125,7 +125,7 @@ async function cvFlow() {
   const row = fixture.cloud.seedProposal(request.id, { persist: false });
   await loadProposal(row); await rendered('cv', 'E2E South Lab');
   const job = setup.record!.state.experience.jobs.find(job => job.id === 'local-private-job-a')!;
-  assert(job.bullets === '- Evaluated robots with !!E2E South Lab!!.\n- Built sensors with !!E2E North Lab!!.', 'Automatic application reconstructed tokens incorrectly');
+  assert(job.bullets === '- Evaluated robots with E2E South Lab.\n- Built sensors with E2E North Lab.', 'Automatic application reconstructed tokens incorrectly');
   assert(setup.letter!.working.body === 'Original working letter.', 'CV application changed the letter');
   assert(fixture.creations.length === 0, 'Automatic CV application must keep changes within this application');
   assert(originals === refinementSignature(local.cv), 'Automatic application changed the original private mappings');

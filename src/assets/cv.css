@@ -82,6 +82,8 @@ details.disclosure-row{
 /* Reserve the same separator space for the first row as for every other row. */
 .builder .content-tab-panel > .content-section-card:first-child > .content-section{border-top-color:transparent}
 .builder .content-section > .section-head{
+    position:relative;
+    isolation:isolate;
     /* Fit the normal controls even when versions/reorder mode hides them. */
     min-height:40px;
     margin:0 0 8px;
@@ -146,23 +148,29 @@ details.disclosure-row[open] > summary{margin-bottom:12px}
 .section-complete-toggle{display:inline-flex;align-items:center;cursor:pointer}
 .section-complete-toggle input{width:16px;height:16px;accent-color:#86efac;cursor:pointer}
 /* Shared by built-in section lists and custom section headers. */
-.builder .section-head__actions{margin-left:auto;display:flex;align-items:center;gap:6px}
+.builder .section-head__actions{margin-left:auto;display:flex;flex:0 0 auto;flex-wrap:nowrap;align-items:center;gap:6px}
+.builder .section-head__actions > *{flex-shrink:0}
+.builder .section-head > :is(.visibility-toggle,.section-head__actions,.section-version-select,.section-name-input){position:relative;z-index:1}
+.builder .section-head__actions .header-size-select{width:78px;min-width:0}
+.builder .section-head__actions .section-level-select{width:112px;min-width:0}
 .builder .section-header-control{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:8px;border:1px solid var(--ui-border);border-radius:8px;background:var(--ui-control);color:var(--ui-text);cursor:pointer;font:inherit}
 .builder .section-header-control:hover{border-color:var(--ui-accent-border);background:var(--ui-surface-hover)}
 .builder .section-header-control--danger{color:#fee2e2;border-color:#7f1d1d}
 .builder .section-header-control--danger:hover{border-color:#ef4444}
 .builder .section-break-toggle{min-width:38px}
 .builder .section-break-toggle--active{border-color:var(--ui-accent-border);background:var(--ui-active);color:var(--ui-accent)}
-.builder .section-name-label{margin:0;padding:4px 8px;border:1px solid transparent;border-radius:4px;color:var(--ui-text);font-size:1rem;font-weight:600;cursor:pointer;user-select:none}
-.builder .section-name-label:not(.section-name-label--static):hover{background:var(--ui-surface-hover);border-color:var(--ui-divider)}
+.builder .section-name-label{flex:1 1 0;min-width:0;margin:0;padding:0;color:var(--ui-text);font-size:1rem;font-weight:600;cursor:pointer;user-select:none}
 .builder .section-name-label--static{cursor:default}
-.builder .section-name-input{width:30%;min-width:200px}
+.builder .section-head > .section-name-input{flex:0 1 auto;field-sizing:content;width:max-content;max-width:100%;min-width:2ch;font-size:1rem;font-weight:600}
 @media (max-width:760px){
     .builder .content-section > .section-head{gap:4px}
-    .builder .section-name-label{flex:1 1 0;min-width:0;padding:4px 2px;font-size:16px;line-height:1.3;letter-spacing:0;overflow-wrap:anywhere}
-    .builder .section-name-input{flex:1 1 0;width:0;min-width:0;padding:6px 3px;font-size:16px}
+    .builder .section-name-label{font-size:16px;line-height:1.3;letter-spacing:0;overflow-wrap:anywhere}
+    .builder .section-head > .section-name-input{padding:6px 3px;font-size:16px}
     .builder .content-section > .section-head > .visibility-toggle{flex:0 0 28px;min-width:28px;padding:4px}
-    .builder .section-head__actions{flex:0 1 auto;flex-wrap:wrap;justify-content:flex-end;gap:4px;max-width:62%}
+    .builder .section-head__actions{gap:4px}
+    .builder .section-head__actions .section-level-select{width:82px;font-size:12px}
+    .builder .section-level-select .p-select-label{padding:7px 4px}
+    .builder .section-level-select .p-select-dropdown{width:20px}
     .builder .section-header-control{min-width:32px;min-height:36px;padding:5px;font-size:12px}
     .builder .section-head__actions .header-size-select{flex:0 0 56px;width:56px;min-width:0;min-height:36px;font-size:12px}
     .builder .header-size-select .p-select-label{padding:7px 4px}

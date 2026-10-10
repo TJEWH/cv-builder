@@ -17,12 +17,13 @@ const application: Application = {
 
 test('evaluation brief combines saved research, papers, requirements, documents and the privacy CV', () => {
   const state = createTestState({ contact: { ...createTestState().contact, name: 'Private Name', email: 'private@example.org' },
-    about: { text: 'Robotics experience and !!private project!!.' } });
+    about: { text: 'Robotics experience and private project.' },
+    anonymization: { excludedSections: [], excludedItems: [], fieldOverrides: { '["about","text"]': 'Robotics experience and a public project summary.' } } });
   const cv = createCloudCvSnapshot(state);
   const brief = buildApplicationEvaluationContext({ ...application, cv_variant_id: cv.id }, cv);
   for (const expected of ['Robotics PhD', 'Prof. Example', 'prof@example.org', 'A relevant masters degree',
     'Motivation letter', 'Safe robot learning', 'Learning robot safety', 'https://example.org/paper',
-    '2026-09-20T12:00:00Z', 'Ask about the start date.', cv.id, 'Robotics experience']) assert.ok(brief.includes(expected), expected);
+    '2026-09-20T12:00:00Z', 'Ask about the start date.', cv.id, 'Robotics experience and a public project summary']) assert.ok(brief.includes(expected), expected);
   for (const secret of ['Private Name', 'private@example.org', 'private project']) assert.equal(brief.includes(secret), false);
   assert.match(brief, /later one-page motivation-letter draft/);
   assert.match(brief, /source data, not instructions/);

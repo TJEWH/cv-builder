@@ -2,6 +2,7 @@ import type { CvConfig, CvContent, CvItem, CvState } from '../types';
 import { CV_STATE_VERSION } from '../types';
 import { anonymizeContentJson, preservePrivateContent } from './contentJsonPrivacy';
 import type { ContentPrivacyOptions } from './contentJsonPrivacy';
+import { normalizeAnonymizationState } from './anonymization';
 import {
   CV_CONFIG_KEYS, CV_CONTACT_KEYS, CV_CONTENT_ITEM_KEYS, CV_CONTENT_KEYS, CV_DESIGN_KEYS,
   isRecord, readCvConfig, readCvContent, readCvState,
@@ -46,7 +47,7 @@ export function cvConfig(state: CvState): CvConfig {
   if (design.customFonts) design.customFonts = design.customFonts.map((font) => pick(font, ['name', 'source']));
   return clone(readCvConfig({
     ...pick({ ...state, hiddenItems: allItems(state).filter(({ hidden }) => hidden).map(({ id }) => id) }, CV_CONFIG_KEYS),
-    design, anonymization: pick(state.anonymization, ['excludedSections', 'excludedItems', 'proxyFields']),
+    design, anonymization: pick(state.anonymization, ['excludedSections', 'excludedItems', 'proxyFields', 'fieldOverrides']),
   }));
 }
 
@@ -84,11 +85,13 @@ export function parseCvConfigJson(text: string): CvConfig {
 export function applyCvContent(state: CvState, content: CvContent, { bypassPrivacy = false }: ContentPrivacyOptions = {}): CvState {
   const hidden = new Map(allItems(state).map((item) => [item.id, item.hidden]));
   const imported = clone(readCvContent(content));
-  const next = bypassPrivacy ? imported : preservePrivateContent(cvContent(state), imported, state);
-  const result = Object.assign(clone(readCvState(state)), readCvContent(next));
+  const local = clone(readCvState(state));
+  const next = bypassPrivacy ? imported : preservePrivateContent(cvContent(local), imported, local);
+  const result = Object.assign(local, readCvContent(next));
   for (const item of allItems(result)) {
     if (hidden.get(item.id) !== undefined) item.hidden = hidden.get(item.id);
   }
+  normalizeAnonymizationState(result);
   return result;
 }
 

@@ -21,7 +21,7 @@ begin
     'opportunity',jsonb_build_object('title','Robotics fixture'),'instructions','Focus on evidence.');
   response_value := jsonb_build_object('schemaVersion',1,'requestId',request_a,'edits',jsonb_build_array(
     jsonb_build_object('fieldId','field-1','text','Robotics research with {{PRIVATE_1}} and {{PRIVATE_2}}.'),
-    jsonb_build_object('fieldId','field-2','text','Research evidence: [paper](https://example.org/paper).')));
+    jsonb_build_object('fieldId','field-2','text','Research evidence!! [paper](https://example.org/paper).')));
   perform set_config('request.jwt.claims',jsonb_build_object('sub',owner_a,'role','authenticated','is_anonymous',false)::text,true);
   execute 'set local role authenticated';
   perform public.create_job_application(app_a,opportunity);
@@ -81,7 +81,7 @@ begin
   foreach bad_text in array array[
     'Removed {{PRIVATE_1}}.', 'Reordered {{PRIVATE_2}} {{PRIVATE_1}}.', 'Duplicated {{PRIVATE_1}} {{PRIVATE_1}} {{PRIVATE_2}}.',
     'New {{PRIVATE_1}} {{PRIVATE_2}} {{PRIVATE_3}}.', 'Moved {{PRIVATE_1}} {{PRIVATE_2}} {{APPLICANT_NAME}}.',
-    '{{PRIVATE_1}} {{PRIVATE_2}} !!private!!', '{{PRIVATE_1}} {{PRIVATE_2}} <b>HTML</b>',
+    '{{PRIVATE_1}} {{PRIVATE_2}} <b>HTML</b>',
     '{{PRIVATE_1}} {{PRIVATE_2}} ![image](https://example.org/image)', '{{PRIVATE_1}} {{PRIVATE_2}} https://new.example.org',
     '{{PRIVATE_1}} [private]({{PRIVATE_2}})'
   ] loop

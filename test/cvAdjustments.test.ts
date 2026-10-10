@@ -28,10 +28,10 @@ test('adjustment projection omits identity, local metadata, hidden/excluded and 
   const state = fixture(); const before = structuredClone(state);
   const request = prepareCvAdjustment({ state, variantId: 'Private local variant', instructions: 'Tailor Taylor [Q] for !!secret target!!.', opportunity: { title: 'Robotics', requirement: 'Contact taylor@example.org. !!hidden note!!' } });
   const wire = JSON.stringify(request.publicRequest);
-  for (const secret of ['Taylor [Q]', 'taylor@example.org', 'secret robotics', 'secret target', 'hidden note', 'private-', 'Hidden employer', 'Excluded employer', 'Secret section', 'Excluded body', 'Inactive form content', 'Private font', 'Private local variant', 'private fragment']) assert.equal(wire.includes(secret), false, secret);
+  for (const secret of ['Taylor [Q]', 'taylor@example.org', 'private-', 'Hidden employer', 'Excluded employer', 'Secret section', 'Excluded body', 'Inactive form content', 'Private font', 'Private local variant']) assert.equal(wire.includes(secret), false, secret);
   assert.ok(wire.includes('Public university')); assert.ok(wire.includes('Research assistant'));
   assert.equal(field(request, 'Professional headline').text, 'Researcher');
-  assert.equal(request.publicRequest.instructions, 'Tailor {{APPLICANT_NAME}} for {{CONFIDENTIAL}}.');
+  assert.equal(request.publicRequest.instructions, 'Tailor {{APPLICANT_NAME}} for !!secret target!!.');
   assert.deepEqual(state, before);
 });
 
@@ -50,7 +50,7 @@ test('accepted wording reconstructs private fragments exactly and preserves CV I
 test('selected field types use restorable tokens everywhere in adjustment sources', () => {
   const state = fixture();
   state.anonymization.proxyFields = ['company', 'institution', 'place', 'dates'];
-  state.education[0].institution = '  !!Private university!!  ';
+  state.education[0].institution = '  Private university  ';
   state.education[0].place = 'Secret City';
   state.experience.jobs[0].company = 'Taylor [Q] Works';
   state.experience.jobs[1].company = 'Hidden Research Firm';
@@ -66,7 +66,7 @@ test('selected field types use restorable tokens everywhere in adjustment source
   const institution = field(request, 'Education 1: institution');
   const company = field(request, 'Experience 1: company');
   for (const projected of [institution, company, field(request, 'Education 1: place')]) assert.match(projected.text, /^\{\{PRIVATE_[1-9][0-9]*\}\}$/);
-  assert.equal(request.bindings.find(binding => binding.fieldId === institution.id)!.tokens[institution.text], '  !!Private university!!  ');
+  assert.equal(request.bindings.find(binding => binding.fieldId === institution.id)!.tokens[institution.text], '  Private university  ');
   assert.equal(request.bindings.find(binding => binding.fieldId === company.id)!.tokens[company.text], 'Taylor [Q] Works');
   const bullets = field(request, 'Experience 1: bullets');
   const restored = reconstructCvAdjustment(request, response(request, [{ fieldId: bullets.id, text: bullets.text.replace('Built prototypes', 'Developed prototypes') }]), state);
@@ -95,7 +95,7 @@ test('field switches protect institutions while titles, item names and levels re
   assert.deepEqual(reconstructCvAdjustment(request, response(request), state).state, state);
 });
 
-test('selected field proxies preserve unrelated words and capture marked composite values as a whole', () => {
+test('selected field proxies preserve unrelated words and capture complete composite values as a whole', () => {
   const state = createTestState({
     anonymization: { excludedSections: [], excludedItems: [], proxyFields: ['company', 'institution'] },
     education: [{ id: 'degree', institution: 'Public !!Private!! University' }],
@@ -110,11 +110,41 @@ test('selected field proxies preserve unrelated words and capture marked composi
 
 test('private Markdown links, existing token literals and repeated identities restore without token collisions', () => {
   const state = fixture();
-  state.about.text = '[!!Private label!!](https://secret.example) {{PRIVATE_1}} {{OTHER}} TAYLOR [Q] Taylor [Q] and [Portfolio](https://taylor.example.org)';
+  state.about.text = '[{{PRIVATE_LABEL}}](https://secret.example) {{PRIVATE_1}} {{OTHER}} TAYLOR [Q] Taylor [Q] and [Portfolio](https://taylor.example.org)';
   const request = prepareCvAdjustment({ state, variantId: 'base' }); const profile = field(request, 'Profile');
   assert.equal(profile.text.includes('secret.example'), false); assert.equal(profile.text.includes('taylor.example'), false);
   const result = reconstructCvAdjustment(request, response(request, [{ fieldId: profile.id, text: `Evidence: ${profile.text}` }]), state);
   assert.equal(result.state.about.text, `Evidence: ${state.about.text}`);
+});
+
+test('manual field privacy text is shared on top of automatic masks and never replaces local originals', () => {
+  const state = fixture();
+  state.about.text = 'Worked under supervision of John Doe.';
+  state.experience.jobs[0].company = 'Private University';
+  state.anonymization.proxyFields = ['company'];
+  state.anonymization.fieldOverrides = {
+    '["about","text"]': 'Worked under supervision of a qualified person.',
+    '["item","private-job-id","company"]': 'Publicly approved Private University',
+    '["item","private-job-id","desc"]': 'Additional public description',
+    '["heading","jobs"]': 'Relevant roles',
+  };
+  const request = prepareCvAdjustment({ state, variantId: 'base' });
+  const profile = field(request, 'Profile [privacy replacement; comments only]');
+  const company = field(request, 'Experience 1: company [privacy replacement; comments only]');
+  assert.equal(profile.text, 'Worked under supervision of a qualified person.');
+  assert.equal(field(request, 'Section heading [privacy replacement; comments only]').text, 'Relevant roles');
+  assert.equal(company.text, 'Publicly approved Private University', 'explicit text takes precedence over automatic company masking');
+  assert.equal(field(request, 'Experience 1: desc [privacy replacement; comments only]').text, 'Additional public description');
+  assert.equal(JSON.stringify(request.publicRequest).includes('John Doe'), false);
+  const title = field(request, 'Experience 1: title');
+  const result = reconstructCvAdjustment(request, response(request, [{ fieldId: title.id, text: 'Robotics assistant' }]), state);
+  assert.equal(result.state.about.text, state.about.text);
+  assert.deepEqual(result.state.anonymization.fieldOverrides, state.anonymization.fieldOverrides);
+  assert.throws(() => reconstructCvAdjustment(request, response(request, [{ fieldId: profile.id, text: 'Short public text' }]), state), /comments only/);
+  state.anonymization.fieldOverrides['["about","text"]'] = '';
+  const empty = prepareCvAdjustment({ state, variantId: 'base' });
+  assert.equal(field(empty, 'Profile [privacy replacement; comments only]').text, '');
+  assert.deepEqual(reconstructCvAdjustment(empty, response(empty), state).state, state);
 });
 
 test('disabled sections and excluded header are neither uploaded nor adjustable', () => {
@@ -150,7 +180,7 @@ test('private tokens cannot be removed, duplicated, reordered, invented or moved
   const state = fixture(); const request = prepareCvAdjustment({ state, variantId: 'base' }); const profile = field(request, 'Profile');
   const tokens = profile.text.match(/\{\{PRIVATE_\d+\}\}/g)!;
   const unsafe = [profile.text.replace(tokens[0], ''), `${profile.text} ${tokens[0]}`, profile.text.replace(tokens[0], '{{PRIVATE_999}}'),
-    profile.text.replace(tokens[0], 'SWAP').replace(tokens[1], tokens[0]).replace('SWAP', tokens[1]), `${profile.text} {{APPLICANT_NAME}}`, `${profile.text} !!new secret!!`];
+    profile.text.replace(tokens[0], 'SWAP').replace(tokens[1], tokens[0]).replace('SWAP', tokens[1]), `${profile.text} {{APPLICANT_NAME}}`];
   for (const text of unsafe) assert.throws(() => reconstructCvAdjustment(request, response(request, [{ fieldId: profile.id, text }]), state), /Private placeholders/);
   const headline = field(request, 'Professional headline');
   assert.throws(() => reconstructCvAdjustment(request, response(request, [{ fieldId: headline.id, text: `Engineer ${tokens[0]}` }]), state), /Private placeholders/);
@@ -184,15 +214,15 @@ test('persisted local bindings cannot redirect edits into identity or alter secr
   assert.throws(() => reconstructCvAdjustment(request, response(request), state), /inconsistent/);
 });
 
-test('JSON bounds, controls, unmatched privacy markers and short identity boundaries are safe', () => {
+test('JSON bounds, controls, literal punctuation and short identity boundaries are safe', () => {
   const state = createTestState({ contact: { ...fixture().contact, name: 'Ann' }, about: { text: 'Ann writes an annual report. !!unclosed secret' } });
   const request = prepareCvAdjustment({ state, variantId: 'base' });
-  assert.ok(field(request, 'Profile').text.includes('annual report')); assert.equal(JSON.stringify(request.publicRequest).includes('unclosed secret'), false);
+  assert.ok(field(request, 'Profile').text.includes('annual report')); assert.equal(JSON.stringify(request.publicRequest).includes('unclosed secret'), true);
   assert.throws(() => prepareCvAdjustment({ state, variantId: 'base', instructions: 'x'.repeat(20001) }), /too long/);
   assert.throws(() => parseCvAdjustmentResponse(response(request, [{ fieldId: 'field-1', text: 'a\u0000b' }])), /Invalid/);
   assert.throws(() => parseCvAdjustmentResponse('x'.repeat(1048577)), /too large/);
   assert.throws(() => parseCvAdjustmentResponse('```json\n{}\n```'), /Markdown/);
-  const prompt = buildCvAdjustmentPrompt(request.publicRequest); assert.ok(prompt.includes(request.publicRequest.requestId)); assert.equal(prompt.includes('unclosed secret'), false);
+  const prompt = buildCvAdjustmentPrompt(request.publicRequest); assert.ok(prompt.includes(request.publicRequest.requestId)); assert.equal(prompt.includes('unclosed secret'), true);
 });
 
 type Query = { name: string; params?: Record<string, unknown>; filters: Record<string, unknown> };
@@ -219,7 +249,7 @@ test('repository upload accepts only public request and preserves retry identity
   await assert.rejects(repo.publishRequest(request.publicRequest, 'app'), /Network/); await repo.publishRequest(request.publicRequest, 'app');
   assert.deepEqual(queries[0].params, queries[1].params);
   assert.deepEqual(Object.keys(queries[0].params!).sort(), ['p_application_id', 'p_request', 'p_request_id']);
-  for (const secret of ['baselineState', 'sourceVariantId', 'bindings', 'private-variant', 'secret robotics']) assert.equal(JSON.stringify(queries).includes(secret), false);
+  for (const secret of ['baselineState', 'sourceVariantId', 'bindings', 'private-variant']) assert.equal(JSON.stringify(queries).includes(secret), false);
   await assert.rejects(repo.publishRequest(stub(request), 'app'), /Invalid/);
 });
 

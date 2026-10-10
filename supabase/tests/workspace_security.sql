@@ -99,8 +99,8 @@ begin
   exception when check_violation then null; end;
   begin
     insert into public.cv_variants(user_id, name, content_json, config_json)
-      values (user_a, 'Leaky snapshot', jsonb_set(content, '{contact,email}', '"private@example.org"'), config);
-    raise exception 'FAIL: private contact data was accepted';
+      values (user_a, 'Malformed contact', jsonb_set(content, '{contact,email}', '42'), config);
+    raise exception 'FAIL: non-string contact data was accepted';
   exception when check_violation then null; end;
   begin
     insert into public.cv_variants(user_id, name, content_json, config_json)
@@ -256,4 +256,4 @@ end;
 $$;
 
 rollback;
-select 'PASS: shared read-only catalogue, tenant CRUD isolation, cross-tenant FKs, private contact rejection, immutable snapshots, atomic/idempotent RPCs, anonymous denial, deletion cascades. All fixtures rolled back.' as result;
+select 'PASS: shared read-only catalogue, tenant CRUD isolation, cross-tenant FKs, contact shape validation, immutable snapshots, atomic/idempotent RPCs, anonymous denial, deletion cascades. All fixtures rolled back.' as result;

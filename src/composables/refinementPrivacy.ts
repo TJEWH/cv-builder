@@ -1,7 +1,7 @@
 import type { CvAdjustmentField, LocalCvAdjustmentRequest } from '../cvAdjustmentTypes';
-import type { ApprovedPrivacyContexts, PrivacyContextType, PrivacyLegendEntry } from '../refinementTypes';
 import type { CvState } from '../types';
 import { selectedProxyFieldValues } from './fieldPrivacy';
+import type { ApprovedPrivacyContexts, PrivacyContextType, PrivacyLegendEntry } from '../refinementTypes';
 
 export const PRIVACY_CONTEXT_TYPES: readonly PrivacyContextType[] = ['person', 'organization', 'location', 'link', 'contact', 'confidential', 'other'];
 const TOKEN = /\{\{PRIVATE_[1-9][0-9]*\}\}/g;
@@ -15,7 +15,7 @@ export function validatePrivacyLegend(value: unknown, fields: CvAdjustmentField[
       || typeof entry.fieldId !== 'string' || typeof entry.token !== 'string' || !/^\{\{PRIVATE_[1-9][0-9]*\}\}$/.test(entry.token)
       || !PRIVACY_CONTEXT_TYPES.includes(entry.type as PrivacyContextType) || typeof entry.description !== 'string'
       || !entry.description.trim() || entry.description.length > PRIVACY_DESCRIPTION_LIMIT
-      || /[\u0000-\u001f\u007f]|!!|\{\{|\}\}|<|>/u.test(entry.description)) throw new Error('Invalid approved privacy context. Use a type and a short plain-text description.');
+      || /[\u0000-\u001f\u007f]|\{\{|\}\}|<|>/u.test(entry.description)) throw new Error('Invalid approved privacy context. Use a type and a short plain-text description.');
     if (seen.has(entry.token) || !fields.find(field => field.id === entry.fieldId)?.text.match(TOKEN)?.includes(entry.token)) throw new Error('The privacy legend must reference each token once in its original content field.');
     seen.add(entry.token);
   }
@@ -45,31 +45,19 @@ export function preparePrivacyLegend(local: LocalCvAdjustmentRequest, approved: 
   return entries;
 }
 
-/** Preserve placeholders while filtering marked and field-protected originals in outgoing free text. */
-export function redactMarkedOriginals(text: string, state: CvState): string {
-  const selectedValues = selectedProxyFieldValues(state);
-  const secrets = new Set<string>();
-  function visit(value: unknown) {
-    if (typeof value === 'string') {
-      for (const match of value.matchAll(/!!([\s\S]*?)(?:!!|$)/g)) if (match[1].trim()) { secrets.add(match[1]); secrets.add(match[1].trim()); }
-      for (const match of value.matchAll(/\[([^\]]*)\]\(([^\s)]+)\)/g)) if (/!!/.test(match[1] + match[2])) secrets.add(match[2].replaceAll('!!', ''));
-    } else if (Array.isArray(value)) value.forEach(visit);
-    else if (isRecord(value)) Object.values(value).forEach(visit);
-  }
-  visit(state);
-  const originals = [...new Set([...secrets, ...selectedValues])].sort((a, b) => b.length - a.length);
-  const selectedPattern = selectedValues.length ? new RegExp(`(?<![\\p{L}\\p{N}])(?:${selectedValues.map(value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?![\\p{L}\\p{N}])`, 'giu') : null;
-  if (selectedPattern) text = text.replace(/\[([^\]]*)\]\(([^\s)]+)\)/g, link => {
-    selectedPattern.lastIndex = 0;
-    return selectedPattern.test(link) ? '{{CONFIDENTIAL}}' : link;
-  });
-  return originals.reduce((value, original) => value.split(/(\{\{[A-Z_0-9]+\}\})/g)
-    .map(part => {
-      if (/^\{\{[A-Z_0-9]+\}\}$/.test(part)) return part;
-      const escaped = original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const pattern = secrets.has(original) ? escaped : `(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`;
-      return part.replace(new RegExp(pattern, 'giu'), '{{CONFIDENTIAL}}');
-    }).join(''), text);
+/** Preserve placeholders while filtering originals protected by automatic field-type settings. */
+export function redactFieldOriginals(text: string, state: CvState): string {
+  const originals = selectedProxyFieldValues(state).sort((a, b) => b.length - a.length);
+  const pattern = originals.length ? new RegExp(`(?<![\\p{L}\\p{N}])(?:${originals.map(value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?![\\p{L}\\p{N}])`, 'giu') : null;
+  if (!pattern) return text;
+  return text.split(/(\[[^\]]*\]\([^\s)]+\)|\{\{[A-Z_0-9]+\}\})/g).map(part => {
+    if (/^\{\{[A-Z_0-9]+\}\}$/.test(part)) return part;
+    if (/^\[([^\]]*)\]\(([^\s)]+)\)$/.test(part)) {
+      pattern.lastIndex = 0;
+      if (pattern.test(part)) return '{{CONFIDENTIAL}}';
+    }
+    return part.replace(pattern, '{{CONFIDENTIAL}}');
+  }).join('');
 }
 
 /** Classification describes the public projection, not guesses about employers, cities or links. */

@@ -11,7 +11,7 @@ begin
       or coalesce(item->>'type','') not in ('comment','todo','question') or coalesce(item->>'document','') not in ('cv','letter')
       or jsonb_typeof(item->'text') is distinct from 'string' or btrim(item->>'text')=''
       or public.refinement_utf16_length(item->>'text')>4000
-      or translate(item->>'text',E'\t\n\r','')~'[[:cntrl:]]' or item::text like '%!!%'
+      or translate(item->>'text',E'\t\n\r','')~'[[:cntrl:]]'
       or item is distinct from public.job_drafting_redact_samples(item) then raise exception 'Invalid refinement annotation.' using errcode='22023'; end if;
     ids:=array_append(ids,item->>'id'); location:=item->'location';
     if location='null'::jsonb then continue; end if;
@@ -43,7 +43,7 @@ create or replace function public.refinement_capture_request()
 returns trigger language plpgsql security invoker set search_path='' as $$
 declare
   app public.applications; cv public.cv_variants; state public.application_refinement_state;
-  value jsonb:=new.request_json; feedback jsonb; review record; item jsonb; idx integer:=0;
+  value jsonb:=new.request_json; privacy_input jsonb; feedback jsonb; review record; item jsonb; idx integer:=0;
 begin
   if auth.uid() is null or auth.uid()<>new.user_id or coalesce((auth.jwt()->>'is_anonymous')::boolean,false) then
     raise exception 'A signed-in owner is required.' using errcode='42501';
@@ -65,7 +65,10 @@ begin
   perform public.cv_adjustment_validate_request(value->'cv',new.id);
   if value->'schemaVersion'='2'::jsonb then perform public.refinement_validate_cv_structure(value->'cvStructure',value#>'{cv,fields}'); end if;
   perform public.refinement_validate_setup((value->'letter')-'text');
-  if value is distinct from public.job_drafting_redact_samples(value) or value::text like '%!!%' then
+  -- CV fields and structure already contain the user's final privacy wording.
+  -- Keep identity checks on the remaining template, letter, feedback and context inputs.
+  privacy_input := (value-array['cv','cvStructure']) || jsonb_build_object('cv',(value->'cv')-'fields');
+  if privacy_input is distinct from public.job_drafting_redact_samples(privacy_input) then
     raise exception 'Anonymize refinement content before publishing.' using errcode='22023';
   end if;
   select * into app from public.applications where user_id=new.user_id and id=new.application_id for share;
@@ -99,7 +102,7 @@ begin
   if not found then raise exception 'Assign an anonymized CV before requesting refinement.' using errcode='22023'; end if;
   new.opportunity_snapshot:=app.context_json;
   new.cv_snapshot:=jsonb_build_object('snapshotId',cv.id,'revision',cv.revision,'content',
-    public.job_drafting_redact_samples(cv.content_json)||'{"contact":{"name":"{{APPLICANT_NAME}}","location":"{{APPLICANT_LOCATION}}","role":"{{APPLICANT_ROLE}}","email":"{{APPLICANT_EMAIL}}","phone":"{{APPLICANT_PHONE}}","website":"{{APPLICANT_WEBSITE}}","linkedin":"{{APPLICANT_LINKEDIN}}","github":"{{APPLICANT_GITHUB}}"}}'::jsonb);
+    cv.content_json);
   new.created_at:=clock_timestamp();
   return new;
 end;
@@ -144,7 +147,7 @@ begin
       or coalesce(new.payload->>'status','') not in ('open','resolved','ignored')
       or (new.payload->'response'<>'null'::jsonb and (jsonb_typeof(new.payload->'response') is distinct from 'string' or btrim(new.payload->>'response')='' or public.refinement_utf16_length(new.payload->>'response')>12000))
       or translate(coalesce(new.payload->>'response',''),E'\t\n\r','')~'[[:cntrl:]]'
-      or new.payload is distinct from public.job_drafting_redact_samples(new.payload) or new.payload::text like '%!!%' then
+      or new.payload is distinct from public.job_drafting_redact_samples(new.payload) then
       raise exception 'Invalid or unanonymized annotation review.' using errcode='22023';
     end if;
   elsif new.kind='feedback' then
@@ -152,7 +155,7 @@ begin
       or jsonb_typeof(new.payload->'text') is distinct from 'string' or char_length(btrim(new.payload->>'text')) not between 1 and 20000
       or coalesce(new.payload->>'scope','') not in ('cv','letter','both')
       or translate(new.payload->>'text',E'\t\n\r','')~'[[:cntrl:]]'
-      or new.payload is distinct from public.job_drafting_redact_samples(new.payload) or new.payload::text like '%!!%' then
+      or new.payload is distinct from public.job_drafting_redact_samples(new.payload) then
       raise exception 'Invalid or unanonymized feedback.' using errcode='22023';
     end if;
   elsif new.kind='cv_decisions' then
@@ -202,9 +205,9 @@ begin
     or jsonb_typeof(value->'summary') is distinct from 'string' or char_length(btrim(value->>'summary')) not between 1 and 8000
     or jsonb_typeof(value->'letterText') is distinct from 'string' or char_length(value->>'letterText')>50000
     or (request.request_json->>'scope'<>'cv' and btrim(value->>'letterText')='')
-    or value->>'letterText' ~* '\{\{PRIVATE_|!!|!\[|</?[a-z]'
+    or value->>'letterText' ~* '\{\{PRIVATE_|!\[|</?[a-z]'
     or translate((value->>'summary')||(value->>'letterText'),E'\t\n\r','')~'[[:cntrl:]]'
-    or value is distinct from public.job_drafting_redact_samples(value) or value::text like '%!!%' then
+    or value is distinct from public.job_drafting_redact_samples(value) then
     raise exception 'Invalid or unanonymized refinement proposal.' using errcode='22023';
   end if;
   if value->'schemaVersion'='2'::jsonb then

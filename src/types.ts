@@ -5,9 +5,11 @@ export type ItemState = 'planned' | 'ongoing' | 'complete';
 export type SaveStatus = 'saving' | 'saved' | 'error';
 export type ContentArea = 'body' | 'sidebar';
 export type CustomBodyField = 'title' | 'institution' | 'place' | 'start' | 'end' | 'state' | 'desc';
-/** Structured text that can be replaced with a proxy in privacy-filtered output. */
+/** Structured fields that can be replaced with an automatic privacy proxy. */
 export const FIELD_PRIVACY_TYPES = ['company', 'institution', 'place', 'dates'] as const;
 export type FieldPrivacyType = typeof FIELD_PRIVACY_TYPES[number];
+/** Only fields whose privacy wording differs from the original CV are stored. */
+export type PrivacyFieldOverrides = Record<string, string | number>;
 export interface CvItem {
   id: string;
   hidden?: boolean;
@@ -76,7 +78,7 @@ export interface CvState {
   completedSections: string[];
   keepTogetherSections: string[];
   design: CvDesign;
-  anonymization: { excludedSections: string[]; excludedItems: string[]; proxyFields?: FieldPrivacyType[] };
+  anonymization: { excludedSections: string[]; excludedItems: string[]; proxyFields?: FieldPrivacyType[]; fieldOverrides?: PrivacyFieldOverrides };
   contact: Contact;
   about: { text: string };
   education: CvItem[];

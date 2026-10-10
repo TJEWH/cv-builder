@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { hasMarkdownText, normalizeMarkdownText, parseInlineMarkdown, parseMarkdownText, renderConfidentialText, safeMarkdownUrl } from '../src/composables/markdownText.ts';
+import { hasMarkdownText, normalizeMarkdownText, parseInlineMarkdown, parseMarkdownText, safeMarkdownUrl } from '../src/composables/markdownText.ts';
 
 test('parses multiline prose before markdown bullets', () => {
   const parsed = parseMarkdownText('First line\nSecond line\n- First bullet\n- Second bullet');
@@ -45,34 +45,15 @@ test('keeps bare and unsafe URLs as text', () => {
   assert.equal(safeMarkdownUrl('mailto:person@example.com'), null);
 });
 
-test('renders paired confidential markers normally or as anonymous content', () => {
-  const source = 'Built !!a private **prototype**!! for [a client](https://example.com).';
-
-  assert.equal(
-    renderConfidentialText(source),
-    'Built a private **prototype** for [a client](https://example.com).',
-  );
-  assert.equal(
-    renderConfidentialText(source, { anonymized: true }),
-    'Built !!confidential text!! for [a client](https://example.com).',
-  );
-});
-
-test('handles multiple and malformed confidential markers safely', () => {
-  assert.equal(
-    renderConfidentialText('!!One!! and !!Two!!', { anonymized: true }),
-    '!!confidential text!! and !!confidential text!!',
-  );
-  assert.equal(renderConfidentialText('Unpaired !! marker', { anonymized: true }), 'Unpaired !! marker');
-});
-
-test('parses the anonymous confidential placeholder as strikethrough', () => {
-  assert.deepEqual(parseInlineMarkdown('A !!confidential phrase!!.'), [
-    { type: 'text', value: 'A ' },
-    { type: 'strike', value: 'confidential phrase' },
-    { type: 'text', value: '.' },
+test('preserves exclamation punctuation as ordinary text alongside supported markdown', () => {
+  assert.deepEqual(parseInlineMarkdown('A !!literal phrase!!.'), [{ type: 'text', value: 'A !!literal phrase!!.' }]);
+  assert.deepEqual(parseInlineMarkdown('!!A **prototype**!!'), [
+    { type: 'text', value: '!!A ' },
+    { type: 'bold', value: 'prototype' },
+    { type: 'text', value: '!!' },
   ]);
-  assert.deepEqual(parseInlineMarkdown('!!confidential text!!'), [
-    { type: 'strike', value: 'confidential text' },
+  assert.deepEqual(parseInlineMarkdown('[!!Reference!!](https://example.com/!!notes!!)'), [
+    { type: 'link', value: '!!Reference!!', href: 'https://example.com/!!notes!!' },
   ]);
+  assert.equal(parseMarkdownText('Literal !! text\n- !!Point!!').prose, 'Literal !! text');
 });

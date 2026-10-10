@@ -11,7 +11,7 @@ function fixture() {
     about: { text: 'I develop highly reliable robot sensing systems.' },
     education: [{ id: 'local-degree', title: 'Physics', institution: 'Public university', start: '2019', end: '2023', desc: 'Studied experimental measurement and practical analysis.' }],
     experience: { jobs: [
-      { id: 'local-job-a', title: 'Engineer A', company: 'Public laboratory', bullets: '- Built highly reliable robots.  \r\n- Led !!private lab!! experiments.\r\n- Shared public results.\r\n' },
+      { id: 'local-job-a', title: 'Engineer A', company: 'Public laboratory', bullets: '- Built highly reliable robots.  \r\n- Led {{private lab}} experiments.\r\n- Shared public results.\r\n' },
       { id: 'local-hidden-job', title: 'Hidden job', bullets: 'Never disclose this work.', hidden: true },
       { id: 'local-job-b', title: 'Engineer B', bullets: 'Tested many robust sensors.\nPublished reproducible results.' },
       { id: 'local-excluded-job', title: 'Excluded job', bullets: 'Never disclose this either.' },
@@ -125,7 +125,7 @@ test('shortenings preserve exact private fragments and tampered reconstruction p
   const privateRange = structure.ranges.find(item => item.bulletId === engineer.bulletIds[1])!;
   const shortened = privateRange.text.replace('Led ', '');
   const result = applyCvOperations(local, structure, [operation(1, { type: 'shorten_text', targetId: privateRange.id, text: shortened })], state);
-  assert.equal(result.experience.jobs[0].bullets, '- Built highly reliable robots.  \r\n- !!private lab!! experiments.\r\n- Shared public results.\r\n');
+  assert.equal(result.experience.jobs[0].bullets, '- Built highly reliable robots.  \r\n- {{private lab}} experiments.\r\n- Shared public results.\r\n');
   assert.equal(result.contact.name, 'Ada Example');
   local.bindings.forEach(binding => { binding.path = ['contact', 'name']; Object.keys(binding.tokens).forEach(key => { binding.tokens[key] = 'tampered'; }); });
   assert.throws(() => applyCvOperations(local, structure, [operation(1, { type: 'shorten_text', targetId: privateRange.id, text: shortened })], state), /reconstruction mappings.*inconsistent/);
@@ -161,11 +161,11 @@ test('omitting a private bullet only changes the candidate and retains originals
   const result = applyCvOperations(local, structure, [operation(1, { type: 'omit_bullet', targetId: job.bulletIds[1] })], state);
   assert.equal(result.experience.jobs[0].bullets?.includes('private lab'), false);
   assert.deepEqual({ state, local, structure }, before);
-  assert.ok(local.baselineState.experience.jobs[0].bullets?.includes('!!private lab!!'));
-  assert.ok(local.bindings.some(binding => Object.values(binding.tokens).includes('!!private lab!!')));
+  assert.ok(local.baselineState.experience.jobs[0].bullets?.includes('{{private lab}}'));
+  assert.ok(local.bindings.some(binding => Object.values(binding.tokens).includes('{{private lab}}')));
   const missing = structuredClone(local);
-  const binding = missing.bindings.find(item => Object.values(item.tokens).includes('!!private lab!!'))!;
-  delete binding.tokens[Object.keys(binding.tokens).find(key => binding.tokens[key] === '!!private lab!!')!];
+  const binding = missing.bindings.find(item => Object.values(item.tokens).includes('{{private lab}}'))!;
+  delete binding.tokens[Object.keys(binding.tokens).find(key => binding.tokens[key] === '{{private lab}}')!];
   assert.throws(() => applyCvOperations(missing, structure, [operation(1, { type: 'omit_bullet', targetId: job.bulletIds[1] })], state), /reconstruction mappings/);
 });
 
@@ -190,7 +190,7 @@ test('hidden and excluded entries stay fixed when reordering sidebar and custom-
 });
 
 test('ambiguous bullet formatting is comments-only and never guessed into editable list structure', () => {
-  const unsupported = ['- First\n  - Nested', '- First\ncontinuation line', '- First\n\n- Second', '- First\n* Mixed marker', '1. First\n2. Second', '- **Rich** text\n- Second', '  Indented content\nMore text', '- First\r\n- Second\n- Third', '- First !!private\n- nested!! content\n- Second'];
+  const unsupported = ['- First\n  - Nested', '- First\ncontinuation line', '- First\n\n- Second', '- First\n* Mixed marker', '1. First\n2. Second', '- **Rich** text\n- Second', '  Indented content\nMore text', '- First\r\n- Second\n- Third', '- First {{private\n- nested}} content\n- Second'];
   for (const bullets of unsupported) {
     const state = createTestState({ experience: { jobs: [{ id: 'job', title: 'Job', bullets }] } });
     const local = prepareCvAdjustment({ state, variantId: 'template' }); const { structure } = prepareCvStructure(local);
@@ -238,7 +238,7 @@ test('shortening is extractive, strictly shorter and limited to published prose 
 });
 
 test('shortening cannot remove, duplicate, rewrite or reorder private placeholders or links', () => {
-  const state = createTestState({ about: { text: 'Worked with !!first secret!! and !!second secret!! on public [research](https://example.org).' } });
+  const state = createTestState({ about: { text: 'Worked with {{first secret}} and {{second secret}} on public [research](https://example.org).' } });
   const local = prepareCvAdjustment({ state, variantId: 'template' }); const { structure } = prepareCvStructure(local); const range = structure.ranges[0];
   const bad = [range.text.replace(/\{\{PRIVATE_1\}\}/, ''), range.text.replace('and {{PRIVATE_2}}', '{{PRIVATE_1}}'), range.text.replace('{{PRIVATE_1}}', '{{PRIVATE_3}}'),
     range.text.replace('{{PRIVATE_1}}', 'SWAP').replace('{{PRIVATE_2}}', '{{PRIVATE_1}}').replace('SWAP', '{{PRIVATE_2}}').replace('Worked ', ''),
@@ -246,7 +246,7 @@ test('shortening cannot remove, duplicate, rewrite or reorder private placeholde
   for (const text of bad) assert.throws(() => validateCvOperations([operation(1, { type: 'shorten_text', targetId: range.id, text })], [], structure, local.publicRequest.fields), /placeholders|links|shorter/);
   const good = range.text.replace('Worked with ', '').replace(' on public', '');
   const result = applyCvOperations(local, structure, [operation(1, { type: 'shorten_text', targetId: range.id, text: good })], state);
-  assert.equal(result.about.text, '!!first secret!! and !!second secret!! [research](https://example.org).');
+  assert.equal(result.about.text, '{{first secret}} and {{second secret}} [research](https://example.org).');
 });
 
 test('complete permutations forbid adding, duplicating, dropping and moving items across containers', () => {

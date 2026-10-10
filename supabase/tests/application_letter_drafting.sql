@@ -10,7 +10,7 @@ declare
   context_b uuid := gen_random_uuid(); draft_a uuid := gen_random_uuid(); draft_b uuid := gen_random_uuid();
   result jsonb; original jsonb; saved_source jsonb; count_before integer;
   template jsonb := '{"id":"research","name":"Research","revision":1,"structure":"Opening, evidence, fit, closing","tone":"Professional"}';
-  content jsonb := '{"contact":{"name":"Alex Muster","location":"Neustadt","role":"Software Engineer","email":"muster-ex@mp.le","phone":"+49 123 456789","website":"https://alexmuster.dev","linkedin":"https://link.com/in/alexmuster","github":"https://git.com/musterlex"},"about":{"text":"Alex Muster researches !!private research!!."},"experience":{"jobs":[{"id":"job-1","title":"Software Engineer","place":"Neustadt"}]}}';
+  content jsonb := '{"contact":{"name":"Alex Muster","location":"European region","role":"Research profile","email":"muster-ex@mp.le","phone":"+49 123 456789","website":"https://alexmuster.dev","linkedin":"https://link.com/in/alexmuster","github":"https://git.com/musterlex"},"about":{"text":"Alex Muster researches !!research!!."},"experience":{"jobs":[{"id":"job-1","title":"Software Engineer","place":"Neustadt"}]}}';
 begin
   insert into auth.users(id, aud, role, email, raw_app_meta_data, raw_user_meta_data)
     values (user_a, 'authenticated', 'authenticated', user_a::text || '@example.invalid', '{}', '{}'),
@@ -29,21 +29,23 @@ begin
   perform public.assign_job_application_cv(app_a, cv_a, 'Drafting fixture CV', content,
     '{"design":{"fontBody":"Inter","fontHead":"Private name","ink":"#123456","customFonts":[{"name":"Private font"}],"pageMarginTop":"12mm"}}', 7,
     '{"notes":"Private notes must remain out of context","contact_email":"employer@example.org"}');
-  result := public.publish_application_drafting_context(context_a, app_a, template, 'en', 'Mention !!secret!!. Sign as Alex Muster.', 450);
+  result := public.publish_application_drafting_context(context_a, app_a, template, 'en', 'Mention !!details!!. Sign as Alex Muster.', 450);
   original := result;
   if result #>> '{context_json,opportunity,title}' <> 'Original research role'
     or result->>'cv_variant_id' <> cv_a::text
-    or result #>> '{context_json,cv,content,contact,name}' <> '{{APPLICANT_NAME}}'
-    or result #>> '{context_json,cv,content,about,text}' <> '{{APPLICANT_NAME}} researches {{CONFIDENTIAL}}.'
+    or result #>> '{context_json,cv,content,contact,name}' <> 'Alex Muster'
+    or result #>> '{context_json,cv,content,contact,location}' <> 'European region'
+    or result #>> '{context_json,cv,content,contact,role}' <> 'Research profile'
+    or result #>> '{context_json,cv,content,about,text}' <> 'Alex Muster researches !!research!!.'
     or result #>> '{context_json,cv,content,experience,jobs,0,title}' <> 'Software Engineer'
     or result #>> '{context_json,cv,content,experience,jobs,0,place}' <> 'Neustadt'
-    or result #>> '{context_json,instructions}' <> 'Mention {{CONFIDENTIAL}}. Sign as {{APPLICANT_NAME}}.'
+    or result #>> '{context_json,instructions}' <> 'Mention !!details!!. Sign as {{APPLICANT_NAME}}.'
     or result #> '{context_json,cv,theme}' <> '{"fontBody":"Inter","ink":"#123456","pageMarginTop":"12mm"}'::jsonb
-    or result::text like '%Private%' or result::text like '%Alex Muster%' then
+    or result::text like '%Private%' or result #> '{context_json,cv,content}' <> content then
     raise exception 'FAIL: authoritative capture or privacy projection';
   end if;
   if public.read_application_drafting_context(context_a) <> original then raise exception 'FAIL: read API changed captured context'; end if;
-  if public.publish_application_drafting_context(context_a, app_a, template, 'en', 'Mention !!secret!!. Sign as Alex Muster.', 450) <> original then
+  if public.publish_application_drafting_context(context_a, app_a, template, 'en', 'Mention !!details!!. Sign as Alex Muster.', 450) <> original then
     raise exception 'FAIL: context retry changed data';
   end if;
   begin

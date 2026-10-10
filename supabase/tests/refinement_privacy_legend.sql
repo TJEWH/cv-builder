@@ -34,7 +34,7 @@ begin
   request:=jsonb_build_object('schemaVersion',2,'requestId',request_a,'applicationId',app_a,
     'cv',jsonb_build_object('schemaVersion',1,'requestId',request_a,'fields',fields,'opportunity','{}'::jsonb,'instructions','Preserve evidence.'),
     'letter',setup||'{"text":"Existing letter."}','scope','both','feedback','[]'::jsonb,'parentProposalId',null,'cvStructure',structure);
-  legend:='[{"fieldId":"field-1","token":"{{PRIVATE_1}}","type":"organization","description":"Engineering company specializing in sensor technology"}]';
+  legend:='[{"fieldId":"field-1","token":"{{PRIVATE_1}}","type":"organization","description":"Engineering company specializing in sensor technology!!"}]';
   request:=request||jsonb_build_object('privacyLegend',legend);
   original:=public.publish_refinement_request(request);
   if original->'request_json'<>request or public.publish_refinement_request(request)<>original then raise exception 'FAIL: legend request retry'; end if;
@@ -49,7 +49,7 @@ begin
     jsonb_set(legend,'{0,originalValue}','"Private original"'),jsonb_set(legend,'{0,fieldId}','"field-2"'),
     jsonb_set(legend,'{0,token}','"{{PRIVATE_9}}"'),jsonb_set(legend,'{0,type}','"automatic"'),
     jsonb_set(legend,'{0,description}','""'),jsonb_set(legend,'{0,description}','"   "'),
-    jsonb_set(legend,'{0,description}',to_jsonb(repeat('😀',251))),jsonb_set(legend,'{0,description}','"!!private!!"'),
+    jsonb_set(legend,'{0,description}',to_jsonb(repeat('😀',251))),jsonb_set(legend,'{0,description}','"Alex Muster"'),
     jsonb_set(legend,'{0,description}','"{{PRIVATE_1}}"'),jsonb_set(legend,'{0,description}','"<b>HTML</b>"'),
     jsonb_set(legend,'{0,description}',to_jsonb(E'two\nlines'::text)),jsonb_set(legend,'{0,description}','null'),
     jsonb_set(legend,'{0,type}','null'),jsonb_set(legend,'{0,description}',to_jsonb(E'\u00a0\ufeff'::text))

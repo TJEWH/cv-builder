@@ -5,7 +5,7 @@ const UUID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/;
 const ID = /^annotation-[1-9][0-9]*$/;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const exact = (value: unknown, keys: string[]): value is Record<string, unknown> => object(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
-const validText = (value: unknown, max: number): value is string => typeof value === 'string' && value.length <= max && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]|!!/.test(value);
+const validText = (value: unknown, max: number): value is string => typeof value === 'string' && value.length <= max && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value);
 export function validAnnotationReference(value: unknown): value is AnnotationReference {
   return exact(value, ['proposalId', 'annotationId', 'reviewId']) && typeof value.proposalId === 'string' && UUID.test(value.proposalId)
     && typeof value.annotationId === 'string' && ID.test(value.annotationId) && (value.reviewId === null || typeof value.reviewId === 'string' && UUID.test(value.reviewId));

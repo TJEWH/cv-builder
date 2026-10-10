@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildRefinementPrompt, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementText } from '../src/composables/applicationRefinement';
-import { privacyContextTargets, privacySegments, redactMarkedOriginals, validatePrivacyLegend } from '../src/composables/refinementPrivacy';
+import { privacyContextTargets, privacySegments, redactFieldOriginals, validatePrivacyLegend } from '../src/composables/refinementPrivacy';
 import { validatePrivateTokenLines } from '../src/composables/cvAdjustments';
 import { DEFAULT_LETTER_TEMPLATES } from '../src/composables/motivationLetters';
 import type { ApprovedPrivacyContexts, RefinementProposalV2 } from '../src/refinementTypes';
@@ -11,7 +11,7 @@ const APP = 'a0000000-0000-4000-8000-000000000001';
 const state = () => createTestState({
   contact: { name: 'Taylor Secret', email: 'private@example.invalid', role: 'Engineer', location: 'Berlin', phone: '', website: '', linkedin: '', github: '' },
   about: { text: 'Public employer in Berlin. [Public report](https://public.example.invalid).' },
-  experience: { jobs: [{ id: 'local-job', title: 'Engineer', bullets: '- Built precise sensors at !!Secret Works!!.\n- Evaluated existing results with !!Secret Lab!!.' }, { id: 'hidden-job', title: 'Unshared job', hidden: true }] },
+  experience: { jobs: [{ id: 'local-job', title: 'Engineer', bullets: '- Built precise sensors at {{Secret Works}}.\n- Evaluated existing results with {{Secret Lab}}.' }, { id: 'hidden-job', title: 'Unshared job', hidden: true }] },
 });
 function prepare(overrides: Partial<Parameters<typeof prepareRefinement>[0]> = {}) {
   return prepareRefinement({ applicationId: APP, state: state(), variantId: 'local-variant', setup: { template: DEFAULT_LETTER_TEMPLATES[0], language: 'en', maxWords: 400 },
@@ -37,7 +37,7 @@ test('approvals follow the exact private source rather than reused public token 
   const source = state(), local = prepare({ state: source });
   const target = privacyContextTargets(local.cv, refinementSignature)[0];
   const privacyContexts: ApprovedPrivacyContexts = { [target.sourceKey]: { type: 'organization', description: 'Sensor company' } };
-  source.about.text = 'Research with !!New first secret!!.';
+  source.about.text = 'Research with {{New first secret}}.';
   const renumbered = prepare({ state: source, privacyContexts });
   assert.equal(renumbered.request.privacyLegend?.[0].token, '{{PRIVATE_2}}');
   assert.equal(renumbered.request.privacyLegend?.length, 1);
@@ -46,23 +46,20 @@ test('approvals follow the exact private source rather than reused public token 
   assert.equal(prepare({ privacyContexts, variantId: 'other-variant' }).request.privacyLegend, undefined);
 });
 
-test('marked originals are filtered from feedback, instructions, template examples and descriptions', () => {
-  const local = prepare(), target = privacyContextTargets(local.cv, refinementSignature)[0];
-  const text = 'Taylor Secret worked at Secret Works. private@example.invalid !!Extra secret!!';
-  const request = prepare({ instructions: text, letterText: text, opportunity: { notes: text },
-    setup: { template: { ...DEFAULT_LETTER_TEMPLATES[0], exampleText: text, tone: text }, language: 'en', maxWords: 400 },
-    feedback: [{ id: crypto.randomUUID(), text, scope: 'both', createdAt: '2026-10-02T00:00:00Z' }] }).request;
-  assert.equal(JSON.stringify(request).includes('Secret Works'), false);
-  assert.equal(JSON.stringify(request).includes('Extra secret'), false);
-  assert.match(request.cv.instructions, /CONFIDENTIAL/);
-  assert.equal(sanitizeRefinementText('Secret Works', state()), '{{CONFIDENTIAL}}');
-  for (const description of ['Work at Secret Works', 'private@example.invalid', 'Taylor Secret', '!!private!!']) {
-    assert.throws(() => prepare({ privacyContexts: { [target.sourceKey]: { type: 'organization', description } } }), /protected text|Invalid approved/);
-  }
-  const minimal = state(); minimal.about.text = '!!A!! and !!a longer secret!!';
-  assert.equal(redactMarkedOriginals('a longer secret {{PRIVATE_1}} {{CONFIDENTIAL}} A', minimal), '{{CONFIDENTIAL}} {{PRIVATE_1}} {{CONFIDENTIAL}} {{CONFIDENTIAL}}');
-  minimal.about.text = 'Evidence from !!  Secret Works  !!.';
-  assert.equal(sanitizeRefinementText('Secret Works', minimal), '{{CONFIDENTIAL}}');
+test('exclamation marks are ordinary text in feedback, instructions, templates and descriptions', () => {
+  const source = state();
+  const text = 'Taylor Secret worked with !!John Doe!!. private@example.invalid';
+  const local = prepare({ state: source, instructions: text, letterText: text, opportunity: { notes: text },
+    setup: { template: { ...DEFAULT_LETTER_TEMPLATES[0], exampleText: text }, language: 'en', maxWords: 400 },
+    feedback: [{ id: crypto.randomUUID(), text, scope: 'both', createdAt: '2026-10-02T00:00:00Z' }] });
+  assert.ok(local.request.cv.instructions.includes('!!John Doe!!'));
+  assert.ok(local.request.letter.text.includes('!!John Doe!!'));
+  assert.ok(local.request.letter.template.exampleText!.includes('!!John Doe!!'));
+  assert.ok(local.request.feedback[0].text.includes('!!John Doe!!'));
+  assert.equal(sanitizeRefinementText(text, source), '{{APPLICANT_NAME}} worked with !!John Doe!!. {{APPLICANT_EMAIL}}');
+  const target = privacyContextTargets(local.cv, refinementSignature)[0];
+  assert.doesNotThrow(() => prepare({ privacyContexts: { [target.sourceKey]: { type: 'organization', description: 'Literal !!punctuation!!' } } }));
+  assert.equal(redactFieldOriginals('!!John Doe!!', source), '!!John Doe!!');
 });
 
 test('field-type protection reaches refinement instructions, opportunities, letters, feedback and approved descriptions', () => {
@@ -91,7 +88,7 @@ test('field-type protection reaches refinement instructions, opportunities, lett
 test('legend validation rejects invented references, hidden mappings, invalid types and unsafe descriptions', () => {
   const local = prepare(), field = local.request.cv.fields.find(field => field.text.includes('{{PRIVATE_1}}'))!;
   const entry = { fieldId: field.id, token: '{{PRIVATE_1}}', type: 'organization', description: 'Sensor company' };
-  for (const value of [null, {}, [entry, entry], [{ ...entry, original: 'Private original' }], [{ ...entry, fieldId: 'field-999' }], [{ ...entry, token: '{{PRIVATE_999}}' }], [{ ...entry, type: 'inferred' }], ...['', ' '.repeat(3), 'a'.repeat(501), '😀'.repeat(251), '!!private!!', '{{PRIVATE_1}}', '<b>HTML</b>', 'two\nlines'].map(description => [{ ...entry, description }])]) {
+  for (const value of [null, {}, [entry, entry], [{ ...entry, original: 'Private original' }], [{ ...entry, fieldId: 'field-999' }], [{ ...entry, token: '{{PRIVATE_999}}' }], [{ ...entry, type: 'inferred' }], ...['', ' '.repeat(3), 'a'.repeat(501), '😀'.repeat(251), '{{PRIVATE_1}}', '<b>HTML</b>', 'two\nlines'].map(description => [{ ...entry, description }])]) {
     assert.throws(() => validatePrivacyLegend(value, local.request.cv.fields));
     assert.throws(() => parseRefinementProposal(proposal(local), { ...local.request, privacyLegend: value } as typeof local.request));
   }
@@ -110,7 +107,7 @@ test('whole bullets carry their private tokens; omission never deletes local ori
   const local = prepare(); assert.equal(local.request.schemaVersion, 2); if (local.request.schemaVersion !== 2) return;
   const before = structuredClone(local), entry = local.request.cvStructure.entries.find(entry => entry.bulletIds.length === 2)!;
   const reordered = reconstructRefinementProposal(local, proposal(local, [{ id: 'change-1', type: 'reorder_bullets', targetId: entry.id, order: [...entry.bulletIds].reverse(), explanation: 'Prioritize evaluation.' }]), undefined, APP);
-  assert.match(reordered.state.experience.jobs[0].bullets!, /^- Evaluated existing results with !!Secret Lab!!\./);
+  assert.match(reordered.state.experience.jobs[0].bullets!, /^- Evaluated existing results with {{Secret Lab}}\./);
   const omitted = reconstructRefinementProposal(local, proposal(local, [{ id: 'change-1', type: 'omit_bullet', targetId: entry.bulletIds[0], explanation: 'Omit unrelated work.' }]), undefined, APP);
   assert.equal(omitted.state.experience.jobs[0].bullets!.includes('Secret Works'), false);
   assert.deepEqual(local, before);
@@ -118,4 +115,42 @@ test('whole bullets carry their private tokens; omission never deletes local ori
   assert.throws(() => parseRefinementProposal(proposal(local, [{ id: 'change-1', type: 'shorten_text', targetId: range.id, text: range.text.replace('{{PRIVATE_1}}', '{{PRIVATE_2}}'), explanation: 'Invalid token transfer.' }]), local.request), /token|shorten|extractive/i);
   assert.throws(() => validatePrivateTokenLines('Work {{PRIVATE_1}}.\nUnrelated work.', 'Work.\nUnrelated work {{PRIVATE_1}}.'), /attached/);
   validatePrivateTokenLines('Work {{PRIVATE_1}}.\r\nOther.', 'Relevant work {{PRIVATE_1}}.\nOther.');
+});
+
+
+test('manual privacy prose is useful public context but only original sections and entries can be reordered', () => {
+  const source = state();
+  source.about.text = 'Worked under supervision of John Doe.';
+  source.anonymization.fieldOverrides = {
+    '["about","text"]': 'Worked under supervision of a qualified person.',
+    '["item","local-job","bullets"]': '- Built precise sensors with a qualified person.\n- Evaluated existing results.',
+  };
+  const local = prepare({ state: source });
+  assert.equal(local.request.schemaVersion, 2); if (local.request.schemaVersion !== 2) return;
+  const profile = local.request.cv.fields.find(field => field.label.startsWith('Profile'))!;
+  const bullets = local.request.cv.fields.find(field => field.label.startsWith('Experience 1: bullets'))!;
+  assert.equal(profile.text, 'Worked under supervision of a qualified person.');
+  assert.match(bullets.text, /qualified person/);
+  for (const field of [profile, bullets]) {
+    assert.ok(local.request.cvStructure.unsupported.some(item => item.fieldId === field.id && item.reason.includes('Privacy replacement')));
+    assert.ok(!local.request.cvStructure.ranges.some(item => item.fieldId === field.id));
+    assert.ok(!local.request.cvStructure.bullets.some(item => item.fieldId === field.id));
+  }
+  assert.equal(JSON.stringify(local.request).includes('John Doe'), false);
+  const area = local.request.cvStructure.areas.find(area => area.id === 'body')!;
+  const reordered = reconstructRefinementProposal(local, proposal(local, [{ id: 'change-1', type: 'reorder_sections', targetId: 'body', order: [...area.sectionIds].reverse(), explanation: 'Prioritize experience.' }]), undefined, APP);
+  assert.equal(reordered.state.about.text, source.about.text);
+  assert.equal(reordered.state.experience.jobs[0].bullets, source.experience.jobs[0].bullets);
+  assert.deepEqual(reordered.state.anonymization.fieldOverrides, source.anonymization.fieldOverrides);
+});
+
+
+test('legacy responses cannot rewrite protected privacy fields and exclamation marks remain valid proposal text', () => {
+  const source = state();
+  source.anonymization.fieldOverrides = { '["about","text"]': 'Worked with a qualified person.' };
+  const local = prepare({ schemaVersion: 1, state: source });
+  const profile = local.request.cv.fields.find(field => field.label.startsWith('Profile'))!;
+  const proposal = { schemaVersion: 1, requestId: local.request.requestId, summary: 'Literal !!punctuation!!', cvEdits: [], letterText: 'Literal !!punctuation!!' };
+  assert.doesNotThrow(() => parseRefinementProposal(proposal, local.request));
+  assert.throws(() => parseRefinementProposal({ ...proposal, cvEdits: [{ fieldId: profile.id, text: 'Changed public wording.' }] }, local.request), /comments only/);
 });

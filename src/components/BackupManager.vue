@@ -434,11 +434,11 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
           <button type="button" class="btn" :disabled="isImporting" @click="chooseJsonFile('content')">{{ t('versionImportContent') }}</button>
         </div>
         <label class="backup-manager__privacy-option">
-          <input v-model="bypassPrivacyProxy" type="checkbox" :disabled="isImporting" aria-describedby="content-json-privacy-help content-json-text-limit" />
+          <input v-model="bypassPrivacyProxy" type="checkbox" :disabled="isImporting" aria-describedby="content-json-privacy-help content-json-privacy-edits" />
           <span>{{ t('versionBypassPrivacy') }}</span>
         </label>
         <p id="content-json-privacy-help" class="backup-manager__hint app-hint">{{ t(bypassPrivacyProxy ? 'versionBypassPrivacyHelp' : 'versionRespectPrivacyHelp') }}</p>
-        <p v-if="!bypassPrivacyProxy" id="content-json-text-limit" class="backup-manager__hint app-hint">{{ t('versionInlinePrivacyLimit') }}</p>
+        <p v-if="!bypassPrivacyProxy" id="content-json-privacy-edits" class="backup-manager__hint app-hint">{{ t('versionPrivacyEditsHelp') }}</p>
       </div>
       <div class="backup-manager__json-group">
         <h3>{{ t('versionConfigJson') }}</h3>

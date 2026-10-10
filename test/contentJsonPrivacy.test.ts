@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createTestState } from './helpers';
 import { createAnonymizedContact } from '../src/composables/anonymization';
+import { applyPrivacyEditorChanges, createPrivacyEditorState } from '../src/composables/privacyOverrides';
 import { applyCvContent, createCvContentJson, cvContent, parseCvContentJson } from '../src/composables/cvJsonBackup';
 
 function privateState() {
-  return createTestState({
+  const state = createTestState({
     contact: {
       name: 'SECRET_NAME', role: 'SECRET_ROLE', location: 'SECRET_LOCATION', email: 'SECRET_EMAIL@example.com',
       phone: 'SECRET_PHONE', website: 'https://example.com/SECRET_WEBSITE', linkedin: 'https://example.com/SECRET_LINKEDIN', github: 'https://example.com/SECRET_GITHUB',
@@ -30,27 +31,35 @@ function privateState() {
     disabled: ['hobbies'],
     anonymization: { excludedSections: ['jobs', 'body-private', 'sidebar-private'], excludedItems: ['degree-private', 'lang-private', 'project-private', 'skill-private'] },
   });
+  const draft = createPrivacyEditorState(state);
+  draft.about.text = 'Worked for a confidential client and an external partner.';
+  draft.education[0].thesis = 'A public thesis';
+  draft.customSections[1].text = 'Public project';
+  draft.customSections[1].entries[1].desc = 'Built a public product';
+  draft.sectionNames.about = 'About';
+  applyPrivacyEditorChanges(state, draft);
+  return state;
 }
 
-test('default content export anonymizes the header, omits hidden/private data, and redacts inline text', () => {
+test('default content export anonymizes the header, omits hidden/private data, and uses edited privacy wording', () => {
   const state = privateState();
   const before = structuredClone(state);
   const exported = createCvContentJson(state);
   const content = parseCvContentJson(JSON.stringify(exported));
   assert.equal(JSON.stringify(exported).includes('SECRET_'), false);
   assert.deepEqual(content.contact, createAnonymizedContact(state.contact));
-  assert.equal(content.about.text, 'Worked for !!confidential text!! and !!confidential text!!.');
+  assert.equal(content.about.text, 'Worked for a confidential client and an external partner.');
   assert.deepEqual(content.education.map(({ id }) => id), ['degree-public']);
   assert.deepEqual(content.experience.jobs, []);
   assert.deepEqual(content.hobbies, []);
   assert.deepEqual(content.customSections.map(({ id }) => id), ['body-public']);
   assert.deepEqual(content.sidebarSections.map(({ id }) => id), ['sidebar-public']);
-  assert.equal(content.education[0].thesis, 'A !!confidential text!! thesis');
-  assert.equal(content.customSections[0].text, 'Project !!confidential text!!');
+  assert.equal(content.education[0].thesis, 'A public thesis');
+  assert.equal(content.customSections[0].text, 'Public project');
   assert.deepEqual(state, before);
 });
 
-test('default import preserves local protected data and imports redacted textarea text literally', () => {
+test('default import preserves local originals and updates privacy wording', () => {
   const state = privateState();
   const before = structuredClone(state);
   const content = createCvContentJson(state).data;
@@ -67,17 +76,17 @@ test('default import preserves local protected data and imports redacted textare
   assert.deepEqual(result.hobbies, state.hobbies);
   assert.deepEqual(result.education.slice(1), state.education.slice(1));
   assert.equal(result.education[0].title, 'Updated public degree');
-  assert.equal(result.education[0].thesis, 'A !!confidential text!! thesis');
+  assert.equal(result.education[0].thesis, state.education[0].thesis);
   assert.deepEqual(result.languages, [state.languages[0]]);
   assert.deepEqual(result.customSections[0], state.customSections[0]);
   assert.deepEqual(result.customSections[1].entries[0], state.customSections[1].entries[0]);
   assert.deepEqual(result.sidebarSections[0], state.sidebarSections[0]);
   assert.deepEqual(result.sidebarSections[1].items[0], state.sidebarSections[1].items[0]);
   assert.equal(result.sectionNames.jobs, state.sectionNames.jobs);
-  assert.equal(result.about.text, content.about.text);
-  assert.equal(result.about.text.includes('SECRET_CLIENT'), false);
-  assert.equal(result.customSections[1].text, 'Project !!confidential text!!');
-  assert.deepEqual(result.anonymization, state.anonymization);
+  assert.equal(result.about.text, state.about.text);
+  assert.equal(createPrivacyEditorState(result).about.text, content.about.text);
+  assert.equal(result.customSections[1].text, state.customSections[1].text);
+  assert.notDeepEqual(result.anonymization.fieldOverrides, state.anonymization.fieldOverrides);
   assert.deepEqual(result.design, state.design);
   assert.deepEqual(content, imported);
   assert.deepEqual(state, before);
@@ -126,13 +135,13 @@ test('bypass exports all original content, including header, hidden sections and
   assert.deepEqual(result.design, state.design);
 });
 
-test('neither import mode attempts to deanonymize textarea placeholders', () => {
+test('public imports keep local originals while bypass imports literal text', () => {
   for (const bypassPrivacy of [false, true]) {
     const state = privateState();
     const content = createCvContentJson(state).data;
     content.about.text = 'Changed order: !!confidential text!!. New paragraph: !!literal marker!!.';
     const result = applyCvContent(state, content, { bypassPrivacy });
-    assert.equal(result.about.text, content.about.text);
-    assert.equal(result.about.text.includes('SECRET_CLIENT'), false);
+    assert.equal(result.about.text, bypassPrivacy ? content.about.text : state.about.text);
+    if (!bypassPrivacy) assert.equal(createPrivacyEditorState(result).about.text, content.about.text);
   }
 });

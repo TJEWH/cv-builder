@@ -102,8 +102,7 @@ begin
     select coalesce(array_agg(parts[1] order by ordinal), '{}') into replacement_tokens
       from regexp_matches(replacement, '(\{\{PRIVATE_[1-9][0-9]*\}\})', 'g') with ordinality as tokens(parts, ordinal);
     if original_tokens <> replacement_tokens
-      or regexp_replace(replacement, '\{\{PRIVATE_[1-9][0-9]*\}\}', '', 'g') ~ '\{\{|\}\}'
-      or position('!!' in replacement) > 0 then
+      or regexp_replace(replacement, '\{\{PRIVATE_[1-9][0-9]*\}\}', '', 'g') ~ '\{\{|\}\}' then
       raise exception 'Private placeholders must remain in their original field, order and count.' using errcode = '22023';
     end if;
     select coalesce(array_agg(coalesce(parts[1], parts[2]) order by coalesce(parts[1], parts[2])), '{}') into original_links

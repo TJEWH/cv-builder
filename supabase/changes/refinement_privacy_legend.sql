@@ -13,7 +13,7 @@ begin
       or coalesce(item->>'type','') not in ('person','organization','location','link','contact','confidential','other')
       or jsonb_typeof(item->'description') is distinct from 'string'
       or coalesce(btrim(item->>'description', E' \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff'),'')='' or public.refinement_utf16_length(item->>'description')>500
-      or item->>'description' ~ '[[:cntrl:]]|!!|\{\{|\}\}|<|>' then
+      or item->>'description' ~ '[[:cntrl:]]|\{\{|\}\}|<|>' then
       raise exception 'Invalid approved privacy context.' using errcode='22023';
     end if;
     select field->>'text' into source_text from jsonb_array_elements(fields) field where field->>'id'=item->>'fieldId';
@@ -31,7 +31,7 @@ create or replace function public.refinement_capture_request()
 returns trigger language plpgsql security invoker set search_path='' as $$
 declare
   app public.applications; cv public.cv_variants; state public.application_refinement_state;
-  value jsonb:=new.request_json; feedback jsonb; review record; item jsonb; idx integer:=0;
+  value jsonb:=new.request_json; privacy_input jsonb; feedback jsonb; review record; item jsonb; idx integer:=0;
 begin
   if auth.uid() is null or auth.uid()<>new.user_id or coalesce((auth.jwt()->>'is_anonymous')::boolean,false) then
     raise exception 'A signed-in owner is required.' using errcode='42501';
@@ -54,7 +54,10 @@ begin
   if value->'schemaVersion'='2'::jsonb then perform public.refinement_validate_cv_structure(value->'cvStructure',value#>'{cv,fields}'); end if;
   if value?'privacyLegend' then perform public.refinement_validate_privacy_legend(value->'privacyLegend',value#>'{cv,fields}'); end if;
   perform public.refinement_validate_setup((value->'letter')-'text');
-  if value is distinct from public.job_drafting_redact_samples(value) or value::text like '%!!%' then
+  -- CV fields and structure already contain the user's final privacy wording.
+  -- Keep identity checks on the remaining template, letter, feedback and context inputs.
+  privacy_input := (value-array['cv','cvStructure']) || jsonb_build_object('cv',(value->'cv')-'fields');
+  if privacy_input is distinct from public.job_drafting_redact_samples(privacy_input) then
     raise exception 'Filter private refinement content before publishing.' using errcode='22023';
   end if;
   select * into app from public.applications where user_id=new.user_id and id=new.application_id for share;
@@ -88,7 +91,7 @@ begin
   if not found then raise exception 'Assign a privacy-filtered CV before requesting refinement.' using errcode='22023'; end if;
   new.opportunity_snapshot:=app.context_json;
   new.cv_snapshot:=jsonb_build_object('snapshotId',cv.id,'revision',cv.revision,'content',
-    public.job_drafting_redact_samples(cv.content_json)||'{"contact":{"name":"{{APPLICANT_NAME}}","location":"{{APPLICANT_LOCATION}}","role":"{{APPLICANT_ROLE}}","email":"{{APPLICANT_EMAIL}}","phone":"{{APPLICANT_PHONE}}","website":"{{APPLICANT_WEBSITE}}","linkedin":"{{APPLICANT_LINKEDIN}}","github":"{{APPLICANT_GITHUB}}"}}'::jsonb);
+    cv.content_json);
   new.created_at:=clock_timestamp();
   return new;
 end;
@@ -127,8 +130,7 @@ begin
     select coalesce(array_agg(parts[1] order by ordinal), '{}') into replacement_tokens
       from regexp_matches(replacement, '(\{\{PRIVATE_[1-9][0-9]*\}\})', 'g') with ordinality as tokens(parts, ordinal);
     if original_tokens <> replacement_tokens
-      or regexp_replace(replacement, '\{\{PRIVATE_[1-9][0-9]*\}\}', '', 'g') ~ '\{\{|\}\}'
-      or position('!!' in replacement) > 0 then
+      or regexp_replace(replacement, '\{\{PRIVATE_[1-9][0-9]*\}\}', '', 'g') ~ '\{\{|\}\}' then
       raise exception 'Private placeholders must remain in their original field, order and count.' using errcode = '22023';
     end if;
     select coalesce(jsonb_agg(jsonb_build_array(line_number,parts[1]) order by line_number,token_number),'[]') into original_lines

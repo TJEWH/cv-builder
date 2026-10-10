@@ -11,7 +11,7 @@ const applicationId = '83000000-0000-4000-8000-000000000001';
 const template: LetterTemplate = { ...DEFAULT_LETTER_TEMPLATES[0], language: 'de', maxWords: 450, exampleText: 'A style example.' };
 const empty: LetterContent = { subject: '', salutation: '', body: '', closing: '' };
 function prepare(overrides: Partial<Parameters<typeof prepareRefinement>[0]> = {}) {
-  const state = createTestState({ about: { text: 'Public research with !!private partner!!.' } });
+  const state = createTestState({ about: { text: 'Public research with {{private partner}}.' } });
   return prepareRefinement({ applicationId, state, variantId: 'local-cv-template', setup: resolveRefinementSettings(template).setup,
     letterText: 'Dear committee,\n\nCurrent draft.\n\nKind regards', opportunity: { title: 'PhD opportunity' },
     scope: 'both', feedback: [], parentProposalId: null, baselineSignature: refinementSignature([state, 'working letter baseline']), ...overrides });
@@ -56,7 +56,7 @@ test('the complete serialized draft passes through the existing privacy boundary
   const draft = serializeRefinementDraft(working);
   const local = prepare({ state, letterText: draft.text });
   assert.equal(draft.empty, false);
-  assert.equal(local.request.letter.text, '# {{APPLICANT_NAME}} — PhD application\n\nDear committee,\n\nEvidence from {{CONFIDENTIAL}}. Contact {{APPLICANT_EMAIL}}.\n\nKind regards,\n{{APPLICANT_NAME}}');
+  assert.equal(local.request.letter.text, '# {{APPLICANT_NAME}} — PhD application\n\nDear committee,\n\nEvidence from !!private experiment!!. Contact {{APPLICANT_EMAIL}}.\n\nKind regards,\n{{APPLICANT_NAME}}');
   assert.equal(working.closing, 'Kind regards,\nTaylor Example', 'the local original is unchanged');
 });
 
@@ -93,7 +93,7 @@ test('changes to every source, effective setting, selected scope, feedback or li
     ['feedback', next => { next.request.feedback = [feedback]; }],
     ['parent proposal', next => { next.request.parentProposalId = crypto.randomUUID(); }],
     ['local document baseline', next => { next.baselineSignature = refinementSignature('new local letter'); }],
-    ['private reconstruction baseline', next => { next.cv.baselineState.about.text = 'Public research with !!different private partner!!.'; }],
+    ['private reconstruction baseline', next => { next.cv.baselineState.about.text = 'Public research with {{different private partner}}.'; }],
     ['selected CV template', next => { next.cv.sourceVariantId = 'another-local-template'; }],
     ['local public projection', next => { next.cv.publicRequest.fields[0].text = 'Inconsistent local projection'; }],
     ['missing privacy mappings', next => { next.cv.bindings = []; }],

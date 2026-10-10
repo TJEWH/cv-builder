@@ -15,7 +15,6 @@ import { applyCvDesign } from '../composables/useCvDesign';
 const props = defineProps({
   state: { type: Object as PropType<CvState>, required: true },
   exportSource: { type: Boolean, default: false },
-  anonymized: { type: Boolean, default: false },
 });
 const langRef = computed(() => props.state.lang);
 const t = makeT(langRef);
@@ -34,13 +33,13 @@ const bodyRows = computed(() => bodyKeys.value.map((key) => {
 const sidebarRows = computed(() => sidebarKeys.value.map((key) => ({ key, section: getSidebarSection(key) })));
 const getSectionHeaderSize = (key: string) => props.state.sectionHeaderSizes?.[key] ?? DEFAULT_SECTION_HEADER_SIZE;
 const isSectionHeaderHidden = (key: string) => props.state.sectionHeaderSizes?.[key] === 'null';
-const getSectionDisplayName = (key: string) => getBodySection(key)?.name || props.state.sectionNames?.[key] || ({
+const getSectionDisplayName = (key: string) => getBodySection(key)?.name ?? props.state.sectionNames?.[key] ?? ({
   about: t('aboutTitle'),
   education: t('educationTitle'),
   jobs: t('expJobTitle'),
   languages: t('languagesTitle'),
   hobbies: t('hobbiesTitle'),
-}[key] || key);
+}[key] ?? key);
 const isHiddenFor = (key: string) => {
   if (isDisabled(key)) return true;
   if (key === 'about') return !hasMarkdownText(props.state.about?.text);
@@ -176,30 +175,30 @@ onBeforeUnmount(() => {
           <template v-if="key === 'about'">
             <div class="section-lead">
               <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
-              <MarkdownContent :value="state.about.text" :anonymized="anonymized" />
+              <MarkdownContent :value="state.about.text" />
             </div>
           </template>
           <template v-else-if="key === 'jobs'">
             <div class="section-lead">
               <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
-              <div class="timeline" id="cv_exp_job"><CvBodyItem v-if="visibleItems(state.experience.jobs).length" kind="jobs" :item="visibleItems(state.experience.jobs)[0]" :meta="formatMeta(visibleItems(state.experience.jobs)[0])" :anonymized="anonymized" /></div>
+              <div class="timeline" id="cv_exp_job"><CvBodyItem v-if="visibleItems(state.experience.jobs).length" kind="jobs" :item="visibleItems(state.experience.jobs)[0]" :meta="formatMeta(visibleItems(state.experience.jobs)[0])" /></div>
             </div>
-            <div v-if="visibleItems(state.experience.jobs).length > 1" class="timeline timeline--continued"><CvBodyItem v-for="item in visibleItems(state.experience.jobs).slice(1)" :key="item.id" kind="jobs" :item="item" :meta="formatMeta(item)" :anonymized="anonymized" /></div>
+            <div v-if="visibleItems(state.experience.jobs).length > 1" class="timeline timeline--continued"><CvBodyItem v-for="item in visibleItems(state.experience.jobs).slice(1)" :key="item.id" kind="jobs" :item="item" :meta="formatMeta(item)" /></div>
           </template>
           <template v-else-if="key === 'education'">
             <div class="section-lead">
               <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
-              <div class="timeline"><CvBodyItem v-if="visibleItems(state.education).length" kind="education" :item="visibleItems(state.education)[0]" :meta="formatMeta(visibleItems(state.education)[0])" :anonymized="anonymized" /></div>
+              <div class="timeline"><CvBodyItem v-if="visibleItems(state.education).length" kind="education" :item="visibleItems(state.education)[0]" :meta="formatMeta(visibleItems(state.education)[0])" /></div>
             </div>
-            <div v-if="visibleItems(state.education).length > 1" class="timeline timeline--continued"><CvBodyItem v-for="item in visibleItems(state.education).slice(1)" :key="item.id" kind="education" :item="item" :meta="formatMeta(item)" :anonymized="anonymized" /></div>
+            <div v-if="visibleItems(state.education).length > 1" class="timeline timeline--continued"><CvBodyItem v-for="item in visibleItems(state.education).slice(1)" :key="item.id" kind="education" :item="item" :meta="formatMeta(item)" /></div>
           </template>
           <template v-else-if="section">
             <div class="section-lead">
               <component :is="getSectionHeaderSize(key)" v-if="!isSectionHeaderHidden(key)">{{ getSectionDisplayName(key) }}</component>
-              <MarkdownContent v-if="section.entryMode === 'textarea'" :value="section.text" :anonymized="anonymized" />
-              <CvBodyItem v-else-if="entries.length" kind="custom" :item="entries[0]" :meta="formatCustomMeta(section, entries[0])" :institution="hasCustomInstitution(section, entries[0])" :show-title="customFieldEnabled(section, 'title')" :show-description="customFieldEnabled(section, 'desc')" :anonymized="anonymized" />
+              <MarkdownContent v-if="section.entryMode === 'textarea'" :value="section.text" />
+              <CvBodyItem v-else-if="entries.length" kind="custom" :item="entries[0]" :meta="formatCustomMeta(section, entries[0])" :institution="hasCustomInstitution(section, entries[0])" :show-title="customFieldEnabled(section, 'title')" :show-description="customFieldEnabled(section, 'desc')" />
             </div>
-            <div v-if="section.entryMode !== 'textarea' && entries.length > 1"><CvBodyItem v-for="entry in entries.slice(1)" :key="entry.id" kind="custom" :item="entry" :meta="formatCustomMeta(section, entry)" :institution="hasCustomInstitution(section, entry)" :show-title="customFieldEnabled(section, 'title')" :show-description="customFieldEnabled(section, 'desc')" :anonymized="anonymized" /></div>
+            <div v-if="section.entryMode !== 'textarea' && entries.length > 1"><CvBodyItem v-for="entry in entries.slice(1)" :key="entry.id" kind="custom" :item="entry" :meta="formatCustomMeta(section, entry)" :institution="hasCustomInstitution(section, entry)" :show-title="customFieldEnabled(section, 'title')" :show-description="customFieldEnabled(section, 'desc')" /></div>
           </template>
         </section>
       </div>

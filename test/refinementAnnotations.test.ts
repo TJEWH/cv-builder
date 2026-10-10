@@ -32,7 +32,7 @@ test('structured annotations validate without altering CV or letter document con
 test('unknown targets, non-exact references, duplicate IDs, embedded state and invalid annotations are rejected', () => {
   const { local, proposal } = fixture();
   const cv = proposal.annotations![0], letter = proposal.annotations![1];
-  for (const annotations of [null, {}, [cv, cv], [{ ...cv, id: 'unknown' }], [{ ...cv, type: 'replacement' }], [{ ...cv, type: ['question'] }], [{ ...cv, document: 'both' }], [{ ...cv, document: ['letter'] }], [{ ...cv, status: 'resolved' }], [{ ...cv, response: 'injected' }], [{ ...cv, text: '' }], [{ ...cv, text: '😀'.repeat(2001) }], [{ ...cv, text: '!!private!!' }], [{ ...cv, location: { fieldId: 'field-9999' } }], [{ ...letter, location: { start: 3, quote: 'Proposed letter.' } }], [{ ...letter, location: { start: -1, quote: 'Proposed letter.' } }], [{ ...letter, location: { start: 2, quote: 'Different text.' } }], [{ ...letter, location: { start: 2, quote: 'Proposed letter.', other: true } }]]) {
+  for (const annotations of [null, {}, [cv, cv], [{ ...cv, id: 'unknown' }], [{ ...cv, type: 'replacement' }], [{ ...cv, type: ['question'] }], [{ ...cv, document: 'both' }], [{ ...cv, document: ['letter'] }], [{ ...cv, status: 'resolved' }], [{ ...cv, response: 'injected' }], [{ ...cv, text: '' }], [{ ...cv, text: '😀'.repeat(2001) }], [{ ...cv, location: { fieldId: 'field-9999' } }], [{ ...letter, location: { start: 3, quote: 'Proposed letter.' } }], [{ ...letter, location: { start: -1, quote: 'Proposed letter.' } }], [{ ...letter, location: { start: 2, quote: 'Different text.' } }], [{ ...letter, location: { start: 2, quote: 'Proposed letter.', other: true } }]]) {
     assert.throws(() => parseRefinementProposal({ ...proposal, annotations }, local.request), /annotation/i);
   }
 });
@@ -58,7 +58,7 @@ test('annotation references and review payloads are strict, with optional privat
   const payload = { proposalId, annotationId: 'annotation-1', status: 'resolved', response: 'Confirmed evidence.', previousReviewId: null };
   validateAnnotationReview(payload);
   validateAnnotationReview({ ...payload, response: null });
-  for (const invalid of [{ ...payload, status: 'accepted' }, { ...payload, status: ['open'] }, { ...payload, response: '' }, { ...payload, response: '!!private!!' }, { ...payload, response: '😀'.repeat(6001) }, { ...payload, previousReviewId: 'not-uuid' }, { ...payload, text: 'extra' }]) assert.throws(() => validateAnnotationReview(invalid), /annotation/);
+  for (const invalid of [{ ...payload, status: 'accepted' }, { ...payload, status: ['open'] }, { ...payload, response: '' }, { ...payload, response: '😀'.repeat(6001) }, { ...payload, previousReviewId: 'not-uuid' }, { ...payload, text: 'extra' }]) assert.throws(() => validateAnnotationReview(invalid), /annotation/);
   assert.equal(validAnnotationReference({ proposalId, annotationId: 'annotation-1', reviewId: null }), true);
   assert.equal(validAnnotationReference({ proposalId, annotationId: 'annotation-1' }), false);
 });

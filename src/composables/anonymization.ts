@@ -1,6 +1,7 @@
 import type { CvState, CvItem, Contact } from '../types';
 import { SAMPLE_CONTACT } from '../defaults';
 import { anonymizeFieldContent, normalizeProxyFields } from './fieldPrivacy';
+import { applyPrivacyOverrides, normalizePrivacyOverrides } from './privacyOverrides';
 const BUILT_IN_BODY_SECTION_KEYS = ['about', 'education', 'jobs'];
 const BUILT_IN_SIDEBAR_SECTION_KEYS = ['languages', 'hobbies'];
 
@@ -15,6 +16,7 @@ function uniqueKnownIds(value: unknown, knownIds: Set<string | undefined>) {
 
 function sectionKeys(state: CvState) {
   return [
+    'header', 'sidebar-contact',
     ...BUILT_IN_BODY_SECTION_KEYS,
     ...BUILT_IN_SIDEBAR_SECTION_KEYS,
     ...(state.customSections || []).map((section) => section.id),
@@ -35,10 +37,12 @@ function itemIds(state: CvState) {
 
 export function normalizeAnonymizationState(state: CvState) {
   const settings = state.anonymization || { excludedSections: [], excludedItems: [] };
+  const fieldOverrides = normalizePrivacyOverrides(state);
   state.anonymization = {
     excludedSections: uniqueKnownIds(settings.excludedSections, new Set(sectionKeys(state))),
     excludedItems: uniqueKnownIds(settings.excludedItems, new Set(itemIds(state))),
     ...(settings.proxyFields !== undefined ? { proxyFields: normalizeProxyFields(settings.proxyFields) } : {}),
+    ...(Object.keys(fieldOverrides).length ? { fieldOverrides } : {}),
   };
 }
 
@@ -55,8 +59,7 @@ function hideMatchingItems(items: CvItem[], excludedItems: Set<string>) {
 
 export function createAnonymizedContact(contact: Partial<Contact> = {}): Contact {
   return Object.fromEntries(Object.entries(SAMPLE_CONTACT).map(([key, dummyValue]) => [
-    key,
-    contact?.[key as keyof Contact] ? dummyValue : '',
+    key, contact?.[key as keyof Contact] ? dummyValue : '',
   ])) as unknown as Contact;
 }
 
@@ -86,5 +89,5 @@ export function createAnonymizedState(state: CvState): CvState {
     items: hideMatchingItems(section.items, excludedItems),
   }));
 
-  return anonymizeFieldContent(anonymized, state);
+  return applyPrivacyOverrides(anonymizeFieldContent(anonymized, state), state);
 }

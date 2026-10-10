@@ -26,11 +26,11 @@ function allItems(content: CvContent | CvState): CvContentItem[] {
 
 /** Also protect readable labels and destinations when a selected field contains Markdown. */
 function originalValues(value: string): string[] {
-  const values = new Set([value, value.trim(), value.replaceAll('!!', '').trim()]);
+  const values = new Set([value, value.trim()]);
   for (const match of value.matchAll(/\[([^\]]*)\]\(([^\s)]+)\)/g)) {
     values.add(match[1].trim()); values.add(match[2].trim());
   }
-  let plain = value.replaceAll('!!', '').replaceAll('**', '');
+  let plain = value.replaceAll('**', '');
   plain = plain.replace(/\[([^\]]*)\]\(([^\s)]+)\)/g, (_link, label: string, href: string) => {
     values.add(label.trim()); values.add(href.trim()); return label;
   });
@@ -127,7 +127,7 @@ export function preservePrivateFields(current: CvContent, incoming: CvContent, s
   const projected = anonymizeFieldContent(structuredClone(current), state);
   // An untouched exported value is unambiguous at its original ID/path. Edited
   // prose stays literal: reverse-matching generic proxies could replace public
-  // wording accidentally, and inline confidential markers have no such binding.
+  // wording accidentally.
   function restoreUnchanged(original: object, publicValue: object, imported: object) {
     for (const [key, value] of Object.entries(original)) {
       if (typeof value === 'string' && Reflect.get(publicValue, key) !== value

@@ -7,22 +7,21 @@ design and other settings remain in place. Public entries absent from the file a
 Importing into the empty template opens an editable draft.
 
 **Bypass privacy proxy** is off by default and applies to both content export and import.
-With it off, exports replace header/contact values with anonymous examples and omit hidden
-or privacy-excluded sections and entries. Paired `!!private text!!` markers become the
-static `!!confidential text!!` placeholder. Private Markdown link labels lose their link
-destination as well. Content imports preserve the current version's real header/contact,
-protected sections, and protected entries, even if absent or changed in the file. Keep IDs
-stable so those entries can be identified. If a public section containing a private entry
-is removed from the file, its container is retained for that private entry.
+With it off, exports apply contact samples, selected field-type masks, and manual wording
+from **CV Studio → Privacy**, then omit hidden or privacy-excluded sections and entries.
+Manual replacements apply last. Fields without a replacement continue to use the current
+content and applicable automatic masking.
 
-Textarea redaction cannot reliably be reversed after external editing. Imported text is
-always used literally, including `!!confidential text!!`: it replaces the old textarea
-value and does not restore the original secret words. This applies with bypass either on
-or off; a wholly protected section or entry still remains untouched when bypass is off.
+Content imports preserve the current version's original contacts, automatically protected
+fields, protected sections and protected entries. For an existing manual replacement,
+imported text updates the replacement while retaining its original CV field. Keep section
+and item IDs stable so privacy settings follow the same content. If a public section
+containing a private entry is removed from the file, its container is retained for that entry.
+Other editable text imports are literal; exclamation punctuation has no privacy meaning.
 
-With bypass enabled, exports contain all original content, including header/contact fields,
-hidden sections/entries and original inline markers. Imports can overwrite all those fields.
-The checkbox resets to off when switching versions and never changes configuration imports.
+With bypass enabled, exports contain all original content, including header/contact fields
+and hidden sections/entries. Imports can overwrite those originals. The checkbox resets to
+off when switching versions and never changes configuration imports.
 
 **Import configuration** replaces design and settings while retaining the CV's text,
 entries and custom sections. Each action accepts only its matching format. Invalid files
@@ -88,8 +87,10 @@ must be unique and cannot use the built-in IDs `header`, `about`, `education`, `
 from section IDs. New sections are added to the layout automatically; settings tied
 to removed IDs may be discarded when the document is normalized.
 
-Unsafe web/email values remain text rather than active links. Unmarked public content is
-retained in privacy-respecting exports; the checkbox does not automatically identify PII.
+Unsafe web/email values remain text rather than active links. Other public content is
+retained in privacy-respecting exports; automatic masks do not identify every private detail.
+Use the Privacy editor to replace specific wording, such as changing "supervised by John Doe"
+to "supervised by a qualified person", without changing the Content field.
 
 ## Configuration file
 
@@ -103,15 +104,46 @@ Their `data` object contains exactly:
 | `disabled` | Hidden section IDs |
 | `completedSections` | Completed/locked section IDs |
 | `keepTogetherSections` | Sections kept together during pagination |
-| `anonymization` | `excludedSections` and `excludedItems` ID arrays |
+| `anonymization` | Excluded section/item IDs, optional `proxyFields`, and sparse `fieldOverrides` |
 | `sectionHeaderSizes` | Section ID to heading-size setting |
 | `bodyOrder`, `sidebarOrder` | Section ordering |
 | `hiddenItems` | Hidden item IDs |
 
-Configuration files do not include contacts, CV text or entry contents. Section/item
-IDs can still carry user-chosen labels. Applying configuration to different content
-preserves the content, with ID-specific settings applying where IDs match. Unspecified
-design properties use the app defaults rather than retaining the previous design.
+Configuration files contain privacy replacement values, but do not copy original contacts,
+CV text or entry contents. Section/item IDs can still carry user-chosen labels. Applying
+configuration to different content preserves its originals, with ID-specific settings
+applying where IDs match. Unspecified design properties use the app defaults rather than
+retaining the previous design.
+
+`anonymization.proxyFields` accepts `company`, `institution`, `place`, and `dates`; `dates`
+covers both start and end values. `anonymization.fieldOverrides` is an optional object that
+stores only fields whose privacy value differs from their original. An absent key uses the
+current original and applicable automatic masking; an empty string is an intentional blank.
+Resetting a replacement, or setting it equal to its original, removes the stored key. Changes
+to other original fields do not create overrides.
+
+Keys are JSON-encoded logical identities, rather than array positions:
+
+```json
+{
+  "excludedSections": [],
+  "excludedItems": [],
+  "proxyFields": ["company", "dates"],
+  "fieldOverrides": {
+    "[\"about\",\"text\"]": "Worked under the supervision of a qualified person.",
+    "[\"item\",\"job-1\",\"place\"]": "European region"
+  }
+}
+```
+
+Supported key forms are `["contact", field]`, `["about", "text"]`,
+`["item", itemId, field]`, `["section", sectionId, "name" or "text"]`, and
+`["heading", sectionId]`. Text replacements are strings; an item's `levelValue` can also
+be a finite number, and `state` retains its supported enum values. Invalid keys and value
+types are rejected. Removed items/sections lose their overrides during normalization;
+reordering or moving an existing item retains its override through the stable item ID.
+This map stays in local state and configuration backups; cloud snapshots contain only the
+resolved privacy content, never the original-to-replacement map.
 
 Both files are unencrypted JSON, limited to 5 MiB per import. For a complete backup,
 enable bypass when exporting content and export configuration too. To restore everything,

@@ -1,7 +1,7 @@
 import type { CvContent, CvContentItem, CvState } from '../types';
 import { createAnonymizedContact } from './anonymization';
-import { renderConfidentialText } from './markdownText';
 import { anonymizeFieldContent, preservePrivateFields } from './fieldPrivacy';
+import { applyPrivacyOverrides, preservePrivacyOverrides } from './privacyOverrides';
 
 export interface ContentPrivacyOptions { bypassPrivacy?: boolean }
 
@@ -20,39 +20,32 @@ function protectedContent(state: CvState) {
   return { sections, items };
 }
 
-function redactedText(value: string): string {
-  // Redacting a link label must not leave its identifying destination behind.
-  const withoutPrivateLinks = value.replace(/\[([^\]]*)\]\(([^\s)]+)\)/g, (link, label: string, href: string) => (
-    /!![\s\S]*?!!/.test(label + href) ? label : link
-  ));
-  return renderConfidentialText(withoutPrivateLinks, { anonymized: true });
-}
-
 /** Mutate only the isolated content projection; never the editor's private state. */
 export function anonymizeContentJson(content: CvContent, state: CvState): CvContent {
   anonymizeFieldContent(content, state);
-  const { sections, items } = protectedContent(state);
-  const visible = (values: CvContentItem[]) => values.filter(({ id }) => !items.has(id)).map((item) => {
-    for (const [key, value] of Object.entries(item)) {
-      if (key !== 'id' && typeof value === 'string') Reflect.set(item, key, redactedText(value));
-    }
-    return item;
-  });
   content.contact = createAnonymizedContact(content.contact);
-  content.about.text = sections.has('about') ? '' : redactedText(content.about.text);
+  applyPrivacyOverrides(content, state);
+  const { sections, items } = protectedContent(state);
+  const explicitlyHidden = new Set([...state.disabled, ...state.anonymization.excludedSections]);
+  if (explicitlyHidden.has('header') || state.design.contactLayout === 'sidebar' && explicitlyHidden.has('sidebar-contact')) {
+    for (const key of Object.keys(content.contact) as (keyof CvContent['contact'])[]) {
+      if (explicitlyHidden.has('header') || key !== 'name' && key !== 'role') content.contact[key] = '';
+    }
+  }
+  const visible = (values: CvContentItem[]) => values.filter(({ id }) => !items.has(id));
+  if (sections.has('about')) content.about.text = '';
   content.education = visible(content.education);
   content.experience.jobs = visible(content.experience.jobs);
   content.languages = visible(content.languages);
   content.hobbies = visible(content.hobbies);
   content.customSections = content.customSections.filter(({ id }) => !sections.has(id)).map((section) => ({
-    ...section, name: redactedText(section.name),
-    ...(section.text !== undefined ? { text: redactedText(section.text) } : {}), entries: visible(section.entries),
+    ...section, entries: visible(section.entries),
   }));
   content.sidebarSections = content.sidebarSections.filter(({ id }) => !sections.has(id)).map((section) => ({
-    ...section, name: redactedText(section.name), items: visible(section.items),
+    ...section, items: visible(section.items),
   }));
   content.sectionNames = Object.fromEntries(Object.entries(content.sectionNames)
-    .filter(([id]) => !sections.has(id)).map(([id, name]) => [id, redactedText(name)]));
+    .filter(([id]) => !sections.has(id)));
   return content;
 }
 
@@ -66,12 +59,13 @@ function insertProtected<T>(previous: T[], imported: T[], isProtected: (item: T)
 
 /** Current privacy rules, not the incoming file, decide what may be overwritten. */
 export function preservePrivateContent(current: CvContent, incoming: CvContent, state: CvState): CvContent {
+  preservePrivacyOverrides(current, incoming, state);
   preservePrivateFields(current, incoming, state);
   const { sections, items } = protectedContent(state);
   const mergeItems = (previous: CvContentItem[], imported: CvContentItem[]) => insertProtected(
     previous, imported.filter(({ id }) => !items.has(id)), ({ id }) => items.has(id),
   );
-  incoming.contact = current.contact;
+  if (sections.has('header')) incoming.contact = current.contact;
   if (sections.has('about')) incoming.about = current.about;
   incoming.education = mergeItems(current.education, sections.has('education') ? [] : incoming.education);
   incoming.experience.jobs = mergeItems(current.experience.jobs, sections.has('jobs') ? [] : incoming.experience.jobs);
@@ -104,7 +98,5 @@ export function preservePrivateContent(current: CvContent, incoming: CvContent, 
     if (Object.hasOwn(current.sectionNames, id)) incoming.sectionNames[id] = current.sectionNames[id];
     else delete incoming.sectionNames[id];
   }
-  // Textarea values (including !!confidential text!!) remain exactly as imported.
-  // Matching or recovering inline secrets from edited prose is intentionally unsupported.
   return incoming;
 }

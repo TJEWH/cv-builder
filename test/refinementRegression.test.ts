@@ -63,7 +63,7 @@ test('synthetic CV workflow keeps different secrets and linked omissions attache
   await setup.checkProposals(); await idle(setup);
   assert.equal(setup.error, ''); assert.equal(JSON.stringify(fixture.database), cloudBefore);
   const preview = setup.previewCvState!, job = preview.experience.jobs.find(job => job.id === 'local-private-job-a')!;
-  assert.equal(job.bullets, '- Evaluated robots with !!E2E South Lab!!.\n- Built sensors with !!E2E North Lab!!.');
+  assert.equal(job.bullets, '- Evaluated robots with E2E South Lab.\n- Built sensors with E2E North Lab.');
   assert.equal(preview.experience.jobs[0].id, 'local-private-job-b');
   const reorder = (incoming.proposal_json as RefinementProposalV2).cvOperations.find(op => op.type === 'reorder_sections')!;
   setup.toggleProposedChange(reorder.id, false); assert.deepEqual(setup.previewCvState!.bodyOrder, base.bodyOrder);

@@ -4,10 +4,11 @@ import { createCloudCvSnapshot } from '../src/composables/cloudCvPrivacy';
 import { readCvConfig, readCvContent } from '../src/composables/cvStateValidation';
 import { createDefaultDesign, SAMPLE_CONTACT } from '../src/defaults';
 import { createTestState } from './helpers';
+import { applyPrivacyEditorChanges, createPrivacyEditorState } from '../src/composables/privacyOverrides';
 
 const options = { id: '1ba99b9b-a230-4492-9c80-dd16a1d1560a', now: new Date('2026-09-19T16:00:00.000Z') };
 
-test('cloud CVs always use contact placeholders and redact confidential content without mutating local state', () => {
+test('cloud CVs use contact placeholders and explicit privacy wording without mutating local state', () => {
   const state = createTestState({
     contact: Object.fromEntries(Object.keys(SAMPLE_CONTACT).map((key) => [key, `Private contact ${key}`])) as typeof SAMPLE_CONTACT,
     about: { text: 'Public !!Private about!!' },
@@ -17,11 +18,21 @@ test('cloud CVs always use contact placeholders and redact confidential content 
     sectionNames: { education: 'Education !!Private heading!!', 'Private section ID': 'Public title' },
     bodyOrder: ['education', 'Private section ID'], sidebarOrder: ['Private sidebar ID'],
   });
+  const draft = createPrivacyEditorState(state);
+  draft.about.text = 'Public profile';
+  draft.education[0].title = 'Public degree';
+  draft.education[0].desc = 'Public description';
+  draft.customSections[0].name = 'Research';
+  draft.customSections[0].entries[0].desc = 'Public research';
+  draft.sidebarSections[0].name = 'Skills';
+  draft.sidebarSections[0].items[0].name = 'Public skill';
+  draft.sectionNames.education = 'Education';
+  applyPrivacyEditorChanges(state, draft);
   const before = structuredClone(state);
   const snapshot = createCloudCvSnapshot(state, options);
   assert.deepEqual(snapshot.content_json.contact, SAMPLE_CONTACT);
-  assert.equal(snapshot.content_json.about.text, 'Public !!confidential text!!');
-  assert.equal(snapshot.content_json.education[0].desc, '!!confidential text!!');
+  assert.equal(snapshot.content_json.about.text, 'Public profile');
+  assert.equal(snapshot.content_json.education[0].desc, 'Public description');
   assert.equal(JSON.stringify(snapshot).includes('Private'), false);
   assert.equal(JSON.stringify(snapshot).includes('private-link.example'), false);
   assert.deepEqual(state, before);
@@ -122,4 +133,23 @@ test('redacting a name that resembles a structural value preserves valid CV item
   const result = createCloudCvSnapshot(state, options);
   assert.equal(result.content_json.education[0].state, 'complete');
   assert.equal(result.content_json.education[0].desc, '{{APPLICANT_NAME}} finished this course.');
+});
+
+test('hidden sidebar contact remains hidden in cloud layout and cannot restore edited contact values', () => {
+  const state = createTestState({
+    contact: { ...SAMPLE_CONTACT, name: 'Original name', email: 'original@example.org' },
+    design: { contactLayout: 'sidebar' },
+    about: { text: 'Original profile' },
+  });
+  const draft = createPrivacyEditorState(state);
+  draft.contact.name = 'Public applicant';
+  draft.contact.email = 'public@example.org';
+  draft.about.text = 'Public profile';
+  draft.disabled.push('sidebar-contact', 'about');
+  applyPrivacyEditorChanges(state, draft);
+  const snapshot = createCloudCvSnapshot(state, options);
+  assert.equal(snapshot.content_json.contact.name, 'Public applicant');
+  for (const key of ['email', 'phone', 'website', 'location', 'linkedin', 'github'] as const) assert.equal(snapshot.content_json.contact[key], '');
+  assert.equal(snapshot.content_json.about.text, '');
+  assert.deepEqual(snapshot.config_json.disabled, ['sidebar-contact', 'about']);
 });

@@ -3,6 +3,7 @@ import type { CvComment, CvOperation, CvStructure, CvStructureBindings } from '.
 import type { CvItem, CvState } from '../types';
 import { reconstructCvAdjustment, validateLocalCvAdjustment } from './cvAdjustments';
 import { readCvState } from './cvStateValidation';
+import { getFieldPrivacyOverride } from './privacyOverrides';
 
 const TOKEN = /\{\{PRIVATE_[1-9][0-9]*\}\}/g;
 const MAX_ITEMS = 1000;
@@ -81,6 +82,7 @@ export function prepareCvStructure(localCv: LocalCvAdjustmentRequest): { structu
   function prose(path: (string | number)[], rangeLabel: string) {
     const value = field(path);
     if (!value || !value.text.trim()) return;
+    if (getFieldPrivacyOverride(state, path) !== undefined) { unsupported.set(value.id, 'Privacy replacement fields support comments only. Edit their replacement in CV Studio Privacy.'); return; }
     if (!plainProse(value.text) || structure.ranges.length >= MAX_ITEMS) { unsupported.set(value.id, 'Complex or oversized prose supports comments only.'); return; }
     const id = `range-${structure.ranges.length + 1}`;
     structure.ranges.push({ id, fieldId: value.id, bulletId: null, text: value.text, label: truncateLabel(rangeLabel) });
@@ -89,6 +91,7 @@ export function prepareCvStructure(localCv: LocalCvAdjustmentRequest): { structu
   function bullets(path: (string | number)[], entry: CvStructure['entries'][number]) {
     const value = field(path);
     if (!value || !value.text.trim()) return;
+    if (getFieldPrivacyOverride(state, path) !== undefined) { unsupported.set(value.id, 'Privacy replacement fields support comments only. Edit their replacement in CV Studio Privacy.'); return; }
     const parsed = parseFlatBullets(value.text);
     if (!parsed || Object.values(tokensByField.get(value.id) ?? {}).some(text => /\r|\n/.test(text))
       || parsed.lines.length + structure.bullets.length > MAX_ITEMS || parsed.lines.length + structure.ranges.length > MAX_ITEMS) {
@@ -216,7 +219,7 @@ export function validateCvStructure(value: unknown, inputFields: readonly CvAdju
 
 function validateShortening(next: string, original: string) {
   if (!bounded(next) || !next.trim() || [...next].length >= [...original].length) throw new Error('Shortening must produce shorter, nonempty text.');
-  if (!same(original.match(TOKEN) ?? [], next.match(TOKEN) ?? []) || /\{\{|\}\}/.test(next.replace(TOKEN, '')) || next.includes('!!')) throw new Error('Private placeholders must remain intact and in their original order.');
+  if (!same(original.match(TOKEN) ?? [], next.match(TOKEN) ?? []) || /\{\{|\}\}/.test(next.replace(TOKEN, ''))) throw new Error('Private placeholders must remain intact and in their original order.');
   if (!same(links(original), links(next)) || /!\[|<\/?[a-z]|\]\([^)]*\{\{/i.test(next)) throw new Error('Shortening cannot add or remove links, images or HTML.');
   const originalTokens = original.trim().split(/\s+/u); const replacementTokens = next.trim().split(/\s+/u);
   let position = 0;

@@ -28,17 +28,17 @@ begin
     for invalid in select value from jsonb_array_elements(jsonb_build_array(
       'null'::jsonb,'42'::jsonb,'false'::jsonb,'[]'::jsonb,'{}'::jsonb,
       to_jsonb(repeat('a',4001)),to_jsonb(repeat('😀',2001)),to_jsonb('Control'||chr(1)),
-      to_jsonb('!!Private synthetic research!!'::text),to_jsonb('Alex Muster'::text),
-      to_jsonb('[!!Private link!!](https://example.invalid/private)'::text)
+      to_jsonb('Alex Muster'::text)
     )) loop
       begin
         perform public.refinement_validate_setup(jsonb_set(legacy_setup,array['template',field_name],invalid));
         raise exception 'FAIL: invalid % accepted',field_name;
       exception when invalid_parameter_value then invalid_count:=invalid_count+1; end;
     end loop;
+    perform public.refinement_validate_setup(jsonb_set(legacy_setup,array['template',field_name],to_jsonb('Research !!focus!! [link](https://example.invalid/!!research!!)'::text)));
     perform public.refinement_validate_setup(public.job_drafting_redact_samples(jsonb_set(legacy_setup,array['template',field_name],to_jsonb('Alex Muster investigates !!Private synthetic research!!.'::text))));
   end loop;
-  if invalid_count<>22 then raise exception 'FAIL: incomplete negative guidance cases'; end if;
+  if invalid_count<>18 then raise exception 'FAIL: incomplete negative guidance cases'; end if;
   begin
     perform public.refinement_validate_setup(jsonb_set(legacy_setup,'{template,privateMapping}','{}'));
     raise exception 'FAIL: unrelated private property accepted';

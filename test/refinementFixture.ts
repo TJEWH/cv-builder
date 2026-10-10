@@ -218,14 +218,15 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
 /** Small, deliberately synthetic source exercising distinct secrets and a private linked bullet. */
 export function createPrivateRefinementCv(): CvState {
   const state = createEmptyDocument(); state.lang = 'en';
-  state.contact = { name: 'Synthetic Rowan', role: 'Research engineer', email: 'rowan@example.invalid', location: 'Example City', phone: '', website: '', linkedin: '', github: '' };
+  state.contact = { name: 'E2E Omit Lab', role: 'Research engineer', email: 'rowan@example.invalid', location: 'Example City', phone: '', website: 'https://private.example.invalid/archive', linkedin: '', github: '' };
   state.about.text = 'I develop reliable sensing systems. I document reproducible experiments and their limitations.';
   state.experience.jobs = [
-    { id: 'local-private-job-a', title: 'Research engineer', company: 'Visible employer', bullets: '- Built sensors with !!E2E North Lab!!.\n- Evaluated robots with !!E2E South Lab!!.\n- Archived !!E2E Omit Lab!! findings in !![private evidence](https://private.example.invalid/archive)!!.' },
-    { id: 'local-private-job-b', title: 'Research assistant', bullets: '- Documented repeatable methods.\n- Reviewed measured results.' },
+    { id: 'local-private-job-a', title: 'Research engineer', company: 'E2E North Lab', bullets: '- Built sensors with E2E North Lab.\n- Evaluated robots with E2E South Lab.\n- Archived E2E Omit Lab findings in [private evidence](https://private.example.invalid/archive).' },
+    { id: 'local-private-job-b', title: 'Research assistant', company: 'E2E South Lab', bullets: '- Documented repeatable methods.\n- Reviewed measured results.' },
   ];
   state.education = [{ id: 'local-private-education', title: 'Engineering degree', sub: 'Visible university', start: '2020', end: '2024' }];
   state.bodyOrder = ['about', 'jobs', 'education'];
+  state.anonymization.proxyFields = ['company'];
   return state;
 }
 

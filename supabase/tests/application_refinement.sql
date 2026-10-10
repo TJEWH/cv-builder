@@ -6,8 +6,8 @@ declare
   app_a uuid:=gen_random_uuid(); app_b uuid:=gen_random_uuid(); cv_a uuid:=gen_random_uuid();
   request_a uuid:=gen_random_uuid(); request_b uuid:=gen_random_uuid(); proposal_a uuid:=gen_random_uuid();
   feedback_a uuid:=gen_random_uuid(); review_a uuid:=gen_random_uuid(); candidate uuid;
-  setup jsonb:='{"template":{"id":"research","name":"Research","revision":1,"structure":"Opening, evidence, fit, closing","tone":"Professional","language":"en","maxWords":400,"updatedAt":"2026-09-22T00:00:00Z","exampleText":"Dear committee, I am interested in {{APPLICANT_NAME}}."},"language":"en","maxWords":400}';
-  content jsonb:='{"contact":{"name":"Alex Muster","location":"Neustadt","role":"Software Engineer","email":"muster-ex@mp.le","phone":"+49 123 456789","website":"https://alexmuster.dev","linkedin":"https://link.com/in/alexmuster","github":"https://git.com/musterlex"},"about":{"text":"Robotics research."}}';
+  setup jsonb:='{"template":{"id":"research","name":"Research","revision":1,"structure":"Opening, evidence, fit, closing","tone":"Professional","language":"en","maxWords":400,"updatedAt":"2026-09-22T00:00:00Z","exampleText":"Dear committee!! I am interested in {{APPLICANT_NAME}}."},"language":"en","maxWords":400}';
+  content jsonb:='{"contact":{"name":"Alex Muster","location":"European region","role":"Software Engineer","email":"muster-ex@mp.le","phone":"+49 123 456789","website":"https://alexmuster.dev","linkedin":"https://link.com/in/alexmuster","github":"https://git.com/musterlex"},"about":{"text":"Robotics research."}}';
   request jsonb; proposal jsonb; result jsonb; original jsonb; review jsonb; approval jsonb;
   invalid jsonb; current_revision integer; bad_text text; original_source jsonb;
 begin
@@ -38,12 +38,23 @@ begin
   request:=jsonb_build_object('schemaVersion',1,'requestId',request_a,'applicationId',app_a,
     'cv',jsonb_build_object('schemaVersion',1,'requestId',request_a,'fields',jsonb_build_array(
       jsonb_build_object('id','field-1','label','Profile','text','Research with {{PRIVATE_1}}.'),
-      jsonb_build_object('id','field-2','label','Evidence','text','Research engineer')),
-      'opportunity','{}'::jsonb,'instructions','Use evidenced qualifications.'),
+      jsonb_build_object('id','field-2','label','Evidence','text','An explicitly chosen Alex Muster label!!')),
+      'opportunity','{}'::jsonb,'instructions','Use evidenced qualifications!!'),
     'letter',setup||'{"text":""}','scope','both','feedback','[]'::jsonb,'parentProposalId',null);
+  -- Authored CV privacy fields survive unchanged; other input channels still require identity filtering.
+  begin
+    perform public.publish_refinement_request(jsonb_set(request,'{cv,instructions}','"Alex Muster"'));
+    raise exception 'FAIL: unfiltered context identity accepted';
+  exception when invalid_parameter_value then null; end;
+  begin
+    perform public.publish_refinement_request(jsonb_set(request,'{letter,text}','"Alex Muster"'));
+    raise exception 'FAIL: unfiltered letter identity accepted';
+  exception when invalid_parameter_value then null; end;
   original:=public.publish_refinement_request(request);
   if original->'request_json'<>request or original#>>'{opportunity_snapshot,title}'<>'Robotics PhD fixture'
-    or original#>>'{cv_snapshot,content,contact,name}'<>'{{APPLICANT_NAME}}'
+    or original#>>'{cv_snapshot,content,contact,name}'<>'Alex Muster'
+    or original#>>'{cv_snapshot,content,contact,location}'<>'European region'
+    or original#>'{cv_snapshot,content}'<>content
     or original::text like '%Private note%' or original->>'user_id'<>owner_a::text then
     raise exception 'FAIL: captured context / privacy / ownership';
   end if;
@@ -54,7 +65,7 @@ begin
   exception when unique_violation then null; end;
   proposal:=jsonb_build_object('schemaVersion',1,'requestId',request_a,'summary','Emphasized research experience.',
     'cvEdits',jsonb_build_array(jsonb_build_object('fieldId','field-1','text','Robotics research with {{PRIVATE_1}}.')),
-    'letterText','Dear committee, '||repeat('research ',401));
+    'letterText','Dear committee!! '||repeat('research ',401));
   begin perform private.read_refinement_request(request_a); raise exception 'FAIL: owner accessed management helper'; exception when insufficient_privilege then null; end;
   begin perform private.save_refinement_proposal(request_a,proposal_a,proposal); raise exception 'FAIL: owner wrote management proposal'; exception when insufficient_privilege then null; end;
   begin
@@ -77,7 +88,7 @@ begin
     jsonb_set(proposal,'{cvEdits}','[{"fieldId":"field-1","text":"Removed private token"}]'),
     jsonb_set(proposal,'{cvEdits}','[{"fieldId":"field-2","text":"Moved {{PRIVATE_1}}"}]'),
     jsonb_set(proposal,'{cvEdits}','[{"fieldId":"field-2","text":"A","path":["contact"]}]'),
-    jsonb_set(proposal,'{letterText}','"Hello !!private!!"')
+    jsonb_set(proposal,'{letterText}','"Hello <b>HTML</b>"')
   )) loop
     begin perform private.save_refinement_proposal(request_a,gen_random_uuid(),invalid); raise exception 'FAIL: invalid proposal accepted'; exception when invalid_parameter_value then null; end;
   end loop;

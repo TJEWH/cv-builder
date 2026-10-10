@@ -476,14 +476,13 @@ test('published sources contain the complete private-filtered working letter and
   const request = setup.requests[0].request_json;
   assert.equal(request.letter.text, setup.letterText
     .replaceAll('ada.private@example.org', '{{APPLICANT_EMAIL}}')
-    .replaceAll('Dr Ada Example', '{{APPLICANT_NAME}}')
-    .replace('!!confidential detail!!', '{{CONFIDENTIAL}}'));
+    .replaceAll('Dr Ada Example', '{{APPLICANT_NAME}}'));
   assert.ok(request.letter.text.includes('Keep this final paragraph intact.'), 'the complete working letter is published, not an excerpt');
   assert.equal(request.letter.language, 'de');
   assert.equal(request.letter.maxWords, 400);
   assert.notEqual(request.letter.language, request.letter.template.language, 'application language overrides the template default');
-  assert.equal(request.cv.instructions, 'Focus on experiments; contact {{APPLICANT_EMAIL}}. Omit {{CONFIDENTIAL}}.');
-  assert.equal(request.letter.template.exampleText, 'Reference opening for {{APPLICANT_NAME}}. {{CONFIDENTIAL}}');
+  assert.equal(request.cv.instructions, 'Focus on experiments; contact {{APPLICANT_EMAIL}}. Omit !!private instruction!!.');
+  assert.equal(request.letter.template.exampleText, 'Reference opening for {{APPLICANT_NAME}}. !!private example!!');
   assert.deepEqual(request.letter, sourcePreview.letter, 'the source overview matches the letter/settings actually published');
   assert.deepEqual(request.cv.fields, sourcePreview.cv.fields);
   assert.equal(request.cv.instructions, sourcePreview.cv.instructions);
@@ -861,11 +860,11 @@ test('answering and resolving annotations persists across reload without changin
   assert.equal(setup.proposalAnnotations[0].status, 'open');
   assert.equal(await setup.saveAnnotation('annotation-1', 'resolved', 'Used controlled experiments with !!private lab!!.', null), true);
   assert.equal(setup.error, '');
-  assert.equal(setup.proposalAnnotations[0].response, 'Used controlled experiments with {{CONFIDENTIAL}}.');
+  assert.equal(setup.proposalAnnotations[0].response, 'Used controlled experiments with !!private lab!!.');
   assert.deepEqual(JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter, cv: setup.previewCvState, previewLetter: setup.previewLetterContent })), before);
   setup = fixture.reopen(); await idle(setup);
   assert.equal(setup.proposalAnnotations[0].status, 'resolved');
-  assert.equal(setup.proposalAnnotations[0].response, 'Used controlled experiments with {{CONFIDENTIAL}}.');
+  assert.equal(setup.proposalAnnotations[0].response, 'Used controlled experiments with !!private lab!!.');
   assert.deepEqual(JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter })), { record: before.record, letter: before.letter });
   assert.equal(fixture.database.application_refinement_reviews.length, reviewsBefore + 2);
   assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'cv_decisions').length, 1, 'reloading annotation feedback does not apply the same proposal again');

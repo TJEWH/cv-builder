@@ -2,12 +2,14 @@
 import { DEFAULT_SECTION_HEADER_SIZE } from '../defaults';
 import type { PropType } from 'vue';
 import type { CvItem, ItemField } from '../types';
-import { computed, nextTick, ref, useId, watch } from 'vue';
+import { computed, inject, nextTick, ref, useId, watch } from 'vue';
 import SectionItems from './SectionItems.vue';
 import SectionHeading from './SectionHeading.vue';
 import { makeT } from '../i18n/dict.ts';
 import { createContentId } from '../composables/contentLayout.ts';
 import MarkdownTextarea from './MarkdownTextarea.vue';
+import PrivacyField from './PrivacyField.vue';
+import { PRIVACY_EDITOR } from '../composables/privacyEditorContext';
 import ConfirmDeletionDialog from './ConfirmDeletionDialog.vue';
 
 const props = defineProps({
@@ -29,6 +31,7 @@ const props = defineProps({
   titlePlaceholder: { type: String, default: '' },
   headerSize: { type: String, default: DEFAULT_SECTION_HEADER_SIZE },
   versionMode: { type: Boolean, default: false },
+  privacyMode: { type: Boolean, default: false },
   todosMode: { type: Boolean, default: false },
   configMode: { type: Boolean, default: false },
   reorderMode: { type: Boolean, default: false },
@@ -42,6 +45,8 @@ const emit = defineEmits<{
   'update-editing-value': [value: string]; 'header-size-change': [size: string];
 }>();
 
+const privacyEditor = inject(PRIVACY_EDITOR, null);
+const visibilityLocked = (id: string) => Boolean(props.privacyMode && privacyEditor?.hiddenInContent(id));
 const langRef = computed(() => props.lang);
 const t = makeT(langRef);
 const root = ref<HTMLElement | null>(null);
@@ -117,6 +122,7 @@ const finishTitleEdit = (cancel = false) => {
     <div class="section-head" @click="onHeaderClick">
       <button
         v-if="toggleable"
+        :disabled="visibilityLocked(sectionKey || '')"
         class="mini visibility-toggle"
         :class="[disabled ? 'btn--success' : 'btn--danger']"
         type="button"
@@ -127,6 +133,7 @@ const finishTitleEdit = (cancel = false) => {
         <font-awesome-icon :icon="['fas', disabled ? 'eye-slash' : 'eye']" />
       </button>
 
+      <slot name="heading" :controls="contentId">
       <template v-if="editableTitle && configMode && !versionMode && !reorderMode">
         <SectionHeading v-if="!isEditingTitle" :title="title" :collapsed="isCollapsed" :controls="contentId" editing :edit-label="t('renameSection')" @activate="emit('start-edit-title')" @toggle-collapse="emit('toggle-collapse')" />
         <InputText
@@ -143,6 +150,8 @@ const finishTitleEdit = (cancel = false) => {
         />
       </template>
       <SectionHeading v-else :title="title" :collapsed="isCollapsed" :controls="contentId" :disabled="reorderMode" @activate="emit('toggle-collapse')" />
+
+      </slot>
 
       <slot v-if="versionMode" name="section-version" />
       <div v-else class="section-head__actions">
@@ -168,23 +177,21 @@ const finishTitleEdit = (cancel = false) => {
         <SectionItems v-model="items" :lang="lang" :reorder-mode="reorderMode">
           <template #default="{ item, index }">
             <div class="item-row__actions">
-              <button class="mini visibility-toggle" :class="item.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="item.hidden ? t('show') : t('hide')" :title="item.hidden ? t('show') : t('hide')" @click="item.hidden = !item.hidden"><font-awesome-icon :icon="['fas', item.hidden ? 'eye-slash' : 'eye']" /></button>
+              <button class="mini visibility-toggle" :class="item.hidden ? 'btn--success' : 'btn--danger'" type="button" :aria-label="item.hidden ? t('show') : t('hide')" :title="item.hidden ? t('show') : t('hide')" :disabled="visibilityLocked(item.id)" @click="item.hidden = !item.hidden"><font-awesome-icon :icon="['fas', item.hidden ? 'eye-slash' : 'eye']" /></button>
               <button v-if="configMode" type="button" class="mini btn--danger" :aria-label="t('remove')" :title="t('remove')" @click="requestRemoveAt(index)"><font-awesome-icon :icon="['fas', 'trash']" /></button>
             </div>
             <div class="item-row__content">
               <div v-if="inlineFields.length" :class="['row', schema.length === 2 ? 'row-2' : '', schema.length === 3 ? 'row-3' : '', schema.length === 4 ? 'row-4' : '']">
-                <label v-for="field in inlineFields" :key="field.key">
+                <PrivacyField :owner="item" :field="field.key" v-for="field in inlineFields" :key="field.key" v-slot="{ disabled }"><label>
                   {{ field.label }}
-                  <InputText v-if="field.type === 'text'" v-model="item[field.key]" :placeholder="field.placeholder || ''" fluid />
-                  <InputNumber v-else-if="field.type === 'number'" :model-value="item[field.key]" @update:model-value="item[field.key] = $event ?? 0" :placeholder="field.placeholder || ''" :use-grouping="false" fluid />
-                  <Select v-else-if="field.type === 'select' && field.key === 'state'" :model-value="item.state || ''" :options="field.options" option-label="label" option-value="value" :aria-label="field.label" fluid @update:model-value="updateItemState(item, $event)" />
-                  <Select v-else-if="field.type === 'select'" v-model="item[field.key]" :options="field.options" option-label="label" option-value="value" :aria-label="field.label" fluid />
-                </label>
+                  <InputText :disabled="disabled" v-if="field.type === 'text'" v-model="item[field.key]" :placeholder="field.placeholder || ''" fluid />
+                  <InputNumber :disabled="disabled" v-else-if="field.type === 'number'" :model-value="item[field.key]" @update:model-value="item[field.key] = $event ?? 0" :placeholder="field.placeholder || ''" :use-grouping="false" fluid />
+                  <Select :disabled="disabled" v-else-if="field.type === 'select' && field.key === 'state'" :model-value="item.state || ''" :options="field.options" option-label="label" option-value="value" :aria-label="field.label" fluid @update:model-value="updateItemState(item, $event)" />
+                  <Select :disabled="disabled" v-else-if="field.type === 'select'" v-model="item[field.key]" :options="field.options" option-label="label" option-value="value" :aria-label="field.label" fluid /></label></PrivacyField>
               </div>
-              <label v-for="field in textareaFields" :key="field.key">
+              <PrivacyField :owner="item" :field="field.key" v-for="field in textareaFields" :key="field.key" v-slot="{ disabled }"><label>
                 {{ field.label }}
-                <MarkdownTextarea v-model="item[field.key]" :placeholder="field.placeholder || ''" :aria-label="field.label" :help="t('markdownTextareaHelp')" />
-              </label>
+                <MarkdownTextarea :disabled="disabled" v-model="item[field.key]" :placeholder="field.placeholder || ''" :aria-label="field.label" :help="t('markdownTextareaHelp')" /></label></PrivacyField>
             </div>
           </template>
         </SectionItems>

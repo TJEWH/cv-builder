@@ -642,7 +642,7 @@ function selectBuilderGroup(group: string) {
       <CvPreview :state="state" export-source />
     </div>
     <div ref="anonymizedPdfRenderSource" class="pdf-render-source" aria-hidden="true">
-      <CvPreview :state="anonymizedState" export-source anonymized />
+      <CvPreview :state="anonymizedState" export-source />
     </div>
 
     <FullDocumentPreview v-model="previewMode" v-model:page="activeFullPreviewPage" v-model:mode="fullPreviewMode"
@@ -650,7 +650,7 @@ function selectBuilderGroup(group: string) {
       :preview-error="activeFullPreviewError" @retry="retryFullPreview"
       :modes="[{ value: 'normal', label: t('normalPdf') }, { value: 'anonymized', label: t('privacyPdf') }, { value: 'html', label: t('rawHtml') }]"
       :downloading="isActiveFullPreviewExporting" :download-label="activeFullPreviewDownloadLabel" :title="t('liveCvPreview')" :error="pdfExportError" @download="exportActiveFullPreview">
-      <template #html><CvPreview :state="isAnonymizedFullPreview ? anonymizedState : state" :anonymized="isAnonymizedFullPreview" /></template>
+      <template #html><CvPreview :state="isAnonymizedFullPreview ? anonymizedState : state" /></template>
     </FullDocumentPreview>
 
     <section v-show="!previewMode" class="builder-shell">
@@ -1050,10 +1050,7 @@ body,
 .builder-layout__controls label { min-width: 0; }
 @container cv-editor (max-width: 600px) {
   .builder :is(.row, .row-2, .row-3, .row-4, .grid-2, .grid-3) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .builder .content-section > .section-head { flex-wrap: wrap; }
-  .builder .section-name-input { flex: 1 1 160px; min-width: 0; }
   .builder .section-name-label { min-width: 0; overflow-wrap: anywhere; }
-  .builder .content-section > .section-head > .section-head__actions { flex: 1 1 100%; max-width: 100%; flex-wrap: wrap; justify-content: flex-end; }
   .builder .section-head__actions:empty { display: none; }
 }
 @container cv-editor (max-width: 440px) {

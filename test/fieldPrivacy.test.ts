@@ -171,7 +171,7 @@ test('privacy field settings survive config round-trips and normalize unknown or
   assert.deepEqual(parseCvConfigJson(JSON.stringify(createCvConfigJson(legacy))).anonymization, legacy.anonymization);
 });
 
-test('untouched proxy-only prose round-trips locally while edited text and inline markers import literally', () => {
+test('untouched proxy-only prose round-trips locally while edited text imports literally', () => {
   const state = createTestState({
     anonymization: { excludedSections: [], excludedItems: [], proxyFields: ['company'] },
     experience: { jobs: [{ id: 'job', company: 'Acme', bullets: 'Work at Acme', desc: 'Work at Acme with !!private client!!' }] },
@@ -184,7 +184,7 @@ test('untouched proxy-only prose round-trips locally while edited text and inlin
   const roundTrip = applyCvContent(state, content);
   assert.equal(roundTrip.about.text, state.about.text);
   assert.equal(roundTrip.experience.jobs[0].bullets, state.experience.jobs[0].bullets);
-  assert.equal(roundTrip.experience.jobs[0].desc, 'Work at Company 1 with !!confidential text!!');
+  assert.equal(roundTrip.experience.jobs[0].desc, state.experience.jobs[0].desc);
   assert.equal(roundTrip.customSections[0].name, state.customSections[0].name);
   assert.equal(roundTrip.customSections[0].text, state.customSections[0].text);
   assert.equal(roundTrip.sidebarSections[0].name, state.sidebarSections[0].name);
@@ -197,7 +197,7 @@ test('selected Markdown values protect labels, destinations and repeated text wi
   const state = createTestState({
     anonymization: { excludedSections: [], excludedItems: [], proxyFields: ['company', 'institution'] },
     experience: { jobs: [{ id: 'job', company: 'Company' }] },
-    education: [{ id: 'degree', sub: '[!!Hidden school!!](https://hidden.example)' }],
+    education: [{ id: 'degree', sub: '[Hidden school](https://hidden.example)' }],
     hobbies: [{ id: 'hobby', name: 'Ann' }],
     about: { text: '[Company](https://destination.example) hired Ann for an annual review. Hidden school: https://hidden.example. {{PRIVATE_1}}' },
   });
@@ -206,7 +206,7 @@ test('selected Markdown values protect labels, destinations and repeated text wi
   assert.equal(result.education[0].sub, 'Institution 1');
   assert.equal(result.about.text, 'Company 1 hired Ann for an annual review. Institution 1: Institution 1. {{PRIVATE_1}}');
   assert.equal(JSON.stringify(result).includes('https://destination.example'), false);
-  for (const secret of ['Hidden school', 'https://hidden.example', '!!Hidden school!!']) {
+  for (const secret of ['Hidden school', 'https://hidden.example']) {
     assert.ok(selectedProxyFieldValues(state).includes(secret));
   }
   assert.equal(createFieldPrivacy(state).redactText('Company + Company'), 'Company 1 + Company 1');
