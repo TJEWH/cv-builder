@@ -22,7 +22,7 @@ const account = '90000000-0000-4000-8000-000000000001';
 const applicationId = '10000000-0000-4000-8000-000000000001';
 interface WorkspaceSetup {
   record: ApplicationCvRecord | null; selectedCvId: string; letter: ApplicationLetter | null;
-  busy: boolean; refreshing: boolean; error: string; saveError: string; letterText: string;
+  busy: boolean; refreshing: boolean; syncing: boolean; error: string; saveError: string; letterText: string;
   selectedTemplateId: string; missingLetterTemplate: boolean;
   cvApproved: boolean; letterApproved: boolean; feedbackScope: RefinementScope; feedback: string;
   requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; selectedProposalId: string; prompt: string;
@@ -33,7 +33,7 @@ interface WorkspaceSetup {
   currentPublishedRequest: RefinementRequestRow | null; publishedSource: RefinementRequestRow | null;
   publicationStatus: 'unpublished' | 'current' | 'outdated' | 'unverifiable';
   selectCv(id: string): Promise<void>; selectLetterTemplate(id: string): Promise<void>; saveSetup(): Promise<void>;
-  publishSources(): Promise<void>; checkProposals(): Promise<void>; syncRefinement(): Promise<void>; openProposal(): void;
+  publishSources(): Promise<void>; checkProposals(): Promise<void>; syncRefinement(): Promise<void>; openProposal(): void; selectReviewProposal(id: string): void;
   acceptSelectedChanges(): Promise<void>; toggleProposedChange(id: string, included: boolean): void; toggleProposedLetter(included: boolean): void; discardReview(): void;
   selectedChangeIds: string[]; includeProposedLetter: boolean; reviewActive: boolean; previewCvState: CvState | null;
   tab: 'preparation' | 'refinement' | 'review' | 'tracking'; reviewComparison: 'original' | 'proposed'; proposalSourceOutdated: boolean;
@@ -50,7 +50,7 @@ interface WorkspaceSetup {
 async function idle(setup: WorkspaceSetup) {
   for (let count = 0; count < 30; count++) {
     await nextTick(); await new Promise<void>(resolve => setImmediate(resolve));
-    if (!setup.busy && !setup.refreshing) return;
+    if (!setup.busy && !setup.refreshing && !setup.syncing) return;
   }
   assert.fail('Workspace did not become idle.');
 }
@@ -491,7 +491,7 @@ test('published sources contain the complete private-filtered working letter and
   assert.equal(JSON.stringify(setup.letter!.working), privateWorking, 'publication never rewrites private working text');
 });
 
-test('reopening and refreshing preserve the saved working documents without publishing or applying proposals', async (t) => {
+test('reopening syncs corrected working sources while preserving documents and keeping stale proposals unapplied', async (t) => {
   const fixture = mount(t);
   let setup = fixture.setup;
   await idle(setup);
@@ -500,22 +500,28 @@ test('reopening and refreshing preserve the saved working documents without publ
   setup.updateLetter('The local working letter that survives reopening.');
   await setup.publishSources();
   assert.equal(setup.error, '');
-  fixture.cloud.seedProposal(setup.requests[0].id);
+  const previousRequest = JSON.parse(JSON.stringify(setup.requests[0]));
+  fixture.cloud.seedProposal(previousRequest.id);
   setup.updateLetter('A newer local correction, independent of the pending proposal.');
   setup.record!.state.about.text += '\nA newer local CV correction.';
   await nextTick();
-  const documents = JSON.stringify({ cv: setup.record, letter: setup.letter });
-  const database = JSON.stringify(fixture.database);
+  const documents = JSON.parse(JSON.stringify({ cv: setup.record, letter: setup.letter }));
   setup = fixture.reopen();
   await idle(setup);
   assert.equal(setup.error, '');
-  assert.deepEqual(JSON.parse(JSON.stringify({ cv: setup.record, letter: setup.letter })), JSON.parse(documents));
-  assert.equal(JSON.stringify(fixture.database), database, 'opening an application is read-only in the cloud');
-  assert.equal(setup.requests.length, 1);
+  documents.cv.publishedState = documents.cv.state;
+  documents.cv.publishedSnapshotId = fixture.props.application.cv_variant_id;
+  assert.deepEqual(JSON.parse(JSON.stringify({ cv: setup.record, letter: setup.letter })), documents);
+  assert.equal(setup.requests.length, 2);
+  assert.notEqual(setup.requests[0].id, previousRequest.id);
+  assert.equal(setup.requests[0].request_json.letter.text, 'A newer local correction, independent of the pending proposal.');
+  assert.deepEqual(setup.requests[1], previousRequest, 'the older immutable request remains unchanged');
   assert.equal(setup.proposals.length, 1, 'a returned proposal remains available for explicit review');
+  assert.equal(fixture.database.application_refinement_reviews.length, 0, 'the stale proposal was not applied');
+  const database = JSON.stringify(fixture.database);
   await setup.checkProposals();
   assert.equal(setup.error, '');
-  assert.deepEqual(JSON.parse(JSON.stringify({ cv: setup.record, letter: setup.letter })), JSON.parse(documents));
+  assert.deepEqual(JSON.parse(JSON.stringify({ cv: setup.record, letter: setup.letter })), documents);
   assert.equal(JSON.stringify(fixture.database), database, 'refreshing must not publish another request or change settings');
 });
 
@@ -622,13 +628,15 @@ test('reopening preserves a deliberately empty local working letter instead of r
   await setup.publishSources();
   assert.equal(setup.error, '');
   setup.updateLetter('');
-  const before = JSON.stringify(fixture.database);
+  const previousRequest = JSON.parse(JSON.stringify(setup.requests[0]));
   setup = fixture.reopen();
   await idle(setup);
   assert.equal(setup.error, '');
   assert.equal(setup.letterText, '');
-  assert.equal(setup.publicationStatus, 'outdated');
-  assert.equal(JSON.stringify(fixture.database), before);
+  assert.equal(setup.publicationStatus, 'current');
+  assert.equal(setup.requests.length, 2);
+  assert.equal(setup.requests[0].request_json.letter.text, '');
+  assert.deepEqual(setup.requests[1], previousRequest, 'syncing the empty draft preserves its older immutable source');
 });
 
 test('a missing working letter stays absent while its proposal previews from the exact local snapshot', async (t) => {
@@ -779,7 +787,7 @@ test('closing or reopening a temporary review stays read-only and manual correct
   const fixture = mount(t);
   let setup = fixture.setup;
   await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
-  setup.updateLetter('Retained manual letter.'); await setup.publishSources(); fixture.cloud.seedProposal(setup.requests[0].id);
+  setup.updateLetter('Retained manual letter.'); await setup.publishSources(); const proposal = fixture.cloud.seedProposal(setup.requests[0].id);
   await setup.checkProposals();
   const original = JSON.stringify({ record: setup.record, letter: setup.letter });
   setup.discardReview();
@@ -790,15 +798,19 @@ test('closing or reopening a temporary review stays read-only and manual correct
   assert.deepEqual(JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter })), JSON.parse(original));
   assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'cv_decisions').length, 0);
   setup.discardReview(); setup.record!.state.about.text = 'New manual correction supersedes the request.'; await nextTick();
-  const corrected = JSON.stringify({ record: setup.record, letter: setup.letter });
+  const corrected = JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter }));
   setup = fixture.reopen(); await idle(setup);
-  assert.deepEqual(JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter })), JSON.parse(corrected), 'automatic application on reload preserves newer manual corrections');
+  corrected.record.publishedState = corrected.record.state;
+  corrected.record.publishedSnapshotId = fixture.props.application.cv_variant_id;
+  assert.deepEqual(JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter })), corrected, 'automatic sync republishes and preserves newer manual corrections');
+  assert.equal(setup.requests.length, 2);
+  assert.notEqual(setup.requests[0].id, proposal.request_id);
   assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'cv_decisions').length, 0);
-  setup.openProposal();
+  setup.selectReviewProposal(proposal.id);
   assert.ok(setup.temporaryReview.result, 'an old proposal remains viewable against its frozen source');
-  assert.match(setup.reviewAcceptanceError, /changed after this request/);
+  assert.match(setup.reviewAcceptanceError, /superseded round/);
   await setup.acceptSelectedChanges();
-  assert.match(setup.error, /changed after this request/);
+  assert.match(setup.error, /superseded round/);
   assert.equal(setup.record!.state.about.text, 'New manual correction supersedes the request.');
   assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'cv_decisions').length, 0);
 });

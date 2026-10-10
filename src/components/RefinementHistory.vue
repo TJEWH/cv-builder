@@ -38,7 +38,7 @@ watch(() => props.busy || !props.canClear, disabled => { if (disabled) cancelCle
       @confirm="confirmClear"
     />
     <details class="disclosure-row run-details" :open="open" @toggle="emit('details', ($event.target as HTMLDetailsElement).open)">
-      <summary>{{ text('History / Details', 'Verlauf / Details') }}</summary>
+      <summary>{{ text('History', 'Verlauf') }}</summary>
       <button type="button" :disabled="busy || !canReset" @click="emit('reset')">{{ text('Reset to original state', 'Ursprünglichen Stand wiederherstellen') }}</button>
       <button type="button" class="btn btn--danger" :disabled="busy || !canClear" @click="requestClear">{{ text('Clear history', 'Verlauf löschen') }}</button>
       <p class="app-hint">{{ text('Historical metadata comes from saved records. Missing versions remain unknown.', 'Historische Metadaten stammen aus gespeicherten Datensätzen. Fehlende Versionen bleiben unbekannt.') }}</p>
@@ -65,7 +65,7 @@ watch(() => props.busy || !props.canClear, disabled => { if (disabled) cancelCle
 </template>
 
 <style scoped>
-.refinement-history{margin:16px 0 0;padding:0;font-size:13px;line-height:1.5}.current-run{padding:0 0 14px}h3{font-size:16px;margin:0 0 8px}p{margin:8px 0}code,dd{overflow-wrap:anywhere}code{font-size:11px;color:#a6c1b9}label{display:grid;gap:8px;margin-top:12px}select{width:100%;min-width:0}button,select{color:inherit;background:#0b1b25;border:1px solid #28534e;border-radius:6px;padding:8px;font:inherit}button{cursor:pointer;margin:5px 8px 5px 0}button:disabled{opacity:.5}dl{display:grid;grid-template-columns:minmax(90px,35%) minmax(0,1fr);gap:7px 12px}dt{color:#a6c1b9}dd{margin:0}.pre-wrap{white-space:pre-wrap}.history-proposal{border-left:2px solid #447565;margin:14px 0;padding-left:12px}
+.refinement-history{padding:0;font-size:13px;line-height:1.5}.current-run{padding:0 0 14px}h3{font-size:16px;margin:0 0 8px}p{margin:8px 0}code,dd{overflow-wrap:anywhere}code{font-size:11px;color:#a6c1b9}label{display:grid;gap:8px;margin-top:12px}select{width:100%;min-width:0}button,select{color:inherit;background:#0b1b25;border:1px solid #28534e;border-radius:6px;padding:8px;font:inherit}button{cursor:pointer;margin:5px 8px 5px 0}button:disabled{opacity:.5}dl{display:grid;grid-template-columns:minmax(90px,35%) minmax(0,1fr);gap:7px 12px}dt{color:#a6c1b9}dd{margin:0}.pre-wrap{white-space:pre-wrap}.history-proposal{border-left:2px solid #447565;margin:14px 0;padding-left:12px}
 button.btn--danger{border-color:#ef4444;color:#fee2e2}
 @media(max-width:600px){dl{grid-template-columns:1fr;gap:3px}dd{margin-bottom:9px}select{font-size:16px}}
 </style>

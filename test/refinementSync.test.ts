@@ -2,6 +2,107 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { documents, idle, mount, prepare } from './refinementWorkflowHarness';
 
+test('loading an unprepared application syncs available history without publishing a request or reporting an error', async t => {
+  const fixture = mount(t), setup = fixture.setup;
+  await idle(setup);
+
+  assert.equal(setup.error, '');
+  assert.equal(setup.syncing, false);
+  assert.equal(setup.tab, 'preparation');
+  assert.equal(setup.requests.length, 0);
+  assert.deepEqual(fixture.database.application_refinement_requests, []);
+  assert.deepEqual(fixture.database.cv_variants, []);
+});
+
+test('loading a prepared application publishes its working sources once without leaving the restored stage', async t => {
+  const fixture = mount(t); let setup = fixture.setup;
+  await idle(setup);
+  await setup.selectCv('base'); await setup.selectLetterTemplate('research');
+  setup.feedbackScope = 'letter'; setup.updateLetter('Prepared draft awaiting its first sync.');
+  setup.tab = 'tracking'; await idle(setup);
+  assert.equal(setup.requests.length, 0);
+  const working = setup.baselineSignature;
+
+  setup = fixture.reopen(); await idle(setup);
+
+  assert.equal(setup.error, '');
+  assert.equal(setup.tab, 'tracking');
+  assert.equal(setup.requests.length, 1);
+  assert.equal(setup.requests[0].request_json.letter.text, 'Prepared draft awaiting its first sync.');
+  assert.equal(setup.baselineSignature, working);
+  const requestId = setup.requests[0].id, savedCloud = JSON.stringify(fixture.database);
+  setup = fixture.reopen(); await idle(setup);
+  assert.equal(setup.error, '');
+  assert.equal(setup.tab, 'tracking');
+  assert.equal(setup.requests.length, 1);
+  assert.equal(setup.requests[0].id, requestId);
+  assert.equal(JSON.stringify(fixture.database), savedCloud, 'reopening unchanged prepared sources must not create another round or setup revision');
+});
+
+for (const stage of ['preparation', 'tracking']) test(`loading an application applies its current proposal while preserving the ${stage} stage`, async t => {
+  const fixture = mount(t); let setup = await prepare(fixture, 'base', { scope: 'letter' });
+  setup.tab = stage; await idle(setup);
+  const requestId = setup.requests[0].id;
+  const proposal = fixture.cloud.seedProposal(requestId, { letterText: `Proposal loaded in ${stage}.` });
+
+  setup = fixture.reopen(); await idle(setup);
+
+  assert.equal(setup.error, '');
+  assert.equal(setup.tab, stage);
+  assert.equal(setup.selectedProposalId, proposal.id);
+  assert.equal(setup.letter!.working.body, `Proposal loaded in ${stage}.`);
+  assert.equal(setup.reviewActive, false);
+  assert.equal(setup.requests.length, 1);
+  assert.equal(setup.requests[0].id, requestId);
+  assert.equal(setup.localRequests[requestId].acceptances?.length, 1);
+  const applied = documents(setup);
+  setup = fixture.reopen(); await idle(setup);
+  assert.equal(setup.error, '');
+  assert.equal(setup.tab, stage);
+  assert.equal(documents(setup), applied, 'reloading an applied proposal must preserve the saved working document and its acceptance receipt');
+  assert.equal(setup.requests.length, 1);
+});
+
+test('an inactive application waits until it becomes active before syncing its prepared draft', async t => {
+  const fixture = mount(t); let setup = fixture.setup;
+  await idle(setup);
+  await setup.selectCv('base'); await setup.selectLetterTemplate('research');
+  setup.feedbackScope = 'letter'; setup.updateLetter('Draft in an inactive application.');
+  Reflect.set(fixture.props, 'active', false);
+  setup = fixture.reopen(); await idle(setup);
+  assert.equal(setup.error, '');
+  assert.equal(setup.requests.length, 0);
+
+  Reflect.set(fixture.props, 'active', true); await idle(setup);
+
+  assert.equal(setup.error, '');
+  assert.equal(setup.requests.length, 1);
+  assert.equal(setup.requests[0].request_json.letter.text, 'Draft in an inactive application.');
+  const requestId = setup.requests[0].id;
+  Reflect.set(fixture.props, 'active', false); await idle(setup);
+  Reflect.set(fixture.props, 'active', true); await idle(setup);
+  assert.equal(setup.requests.length, 1);
+  assert.equal(setup.requests[0].id, requestId);
+});
+
+test('loading a prepared application without a cloud client preserves its draft without a sync error', async t => {
+  const fixture = mount(t); let setup = fixture.setup;
+  await idle(setup);
+  await setup.selectCv('base'); await setup.selectLetterTemplate('research');
+  setup.feedbackScope = 'letter'; setup.updateLetter('Prepared draft without a cloud connection.');
+  const working = JSON.parse(documents(setup));
+  working.record.detached = true; // Loading preserves the application copy independently of its source template.
+  Reflect.set(fixture.props, 'client', null);
+
+  setup = fixture.reopen(); await idle(setup);
+
+  assert.equal(setup.error, '');
+  assert.equal(setup.syncing, false);
+  assert.equal(setup.requests.length, 0);
+  assert.deepEqual(fixture.database.application_refinement_requests, []);
+  assert.deepEqual(JSON.parse(documents(setup)), working);
+});
+
 test('sync publishes prepared working sources and applies a proposal returned for that snapshot', async t => {
   const fixture = mount(t), setup = fixture.setup;
   await idle(setup);

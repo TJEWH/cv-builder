@@ -20,6 +20,21 @@ function assertEmptyHistory(setup: Workspace) {
   assert.deepEqual(setup.feedbackHistory(), []); assert.deepEqual(setup.resetRequestIds, []);
   assert.equal(setup.parentProposalId, null); assert.equal(setup.selectedProposalId, ''); assert.equal(setup.reviewActive, false);
   assert.equal(setup.feedback, ''); assert.equal(setup.canClearHistory, false);
+  assert.equal(setup.showInitialRefinement, true);
+}
+
+function assertFreshInitialRequest(setup: Workspace) {
+  assert.equal(setup.requests.length, 1);
+  const request = setup.requests[0];
+  assert.equal(setup.cloudState!.current_request_id, request.id);
+  assert.deepEqual(Object.keys(setup.localRequests), [request.id]);
+  assert.equal(setup.localRequests[request.id].publishedAt, request.created_at);
+  assert.equal(request.request_json.parentProposalId, null); assert.deepEqual(request.request_json.feedback, []);
+  assert.deepEqual(setup.proposals, []); assert.deepEqual(setup.reviews, []);
+  assert.deepEqual(setup.importedProposals, []); assert.deepEqual(setup.importedReviews, []);
+  assert.deepEqual(setup.feedbackHistory(), []); assert.deepEqual(setup.resetRequestIds, []);
+  assert.equal(setup.parentProposalId, null); assert.equal(setup.selectedProposalId, ''); assert.equal(setup.reviewActive, false);
+  assert.equal(setup.feedback, ''); assert.equal(setup.showInitialRefinement, true);
 }
 
 test('clear history deletes cloud and local iterations while preserving working documents and creates a fresh next task', async t => {
@@ -28,6 +43,7 @@ test('clear history deletes cloud and local iterations while preserving working 
   const firstId = setup.requests[0].id;
   fixture.cloud.seedProposal(firstId, { letterText: 'Current draft to keep after clearing history.' });
   await setup.syncRefinement(); assert.equal(setup.error, '');
+  assert.equal(setup.showInitialRefinement, false);
   assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'Previous iteration answer.', null), true);
   assert.ok(setup.feedbackHistory().length);
   setup.importedProposals.push(fixture.cloud.seedProposal(firstId, { persist: false }));
@@ -53,9 +69,12 @@ test('clear history deletes cloud and local iterations while preserving working 
   assert.deepEqual(stored.requests, {}); assert.deepEqual(stored.importedProposals, []); assert.deepEqual(stored.importedReviews, []);
 
   setup = fixture.reopen(); await idle(setup); await setup.checkProposals();
-  assert.equal(setup.error, ''); assertEmptyHistory(setup); assert.equal(documentFingerprint(setup), before);
+  assert.equal(setup.error, ''); assertFreshInitialRequest(setup); assert.equal(documentFingerprint(setup), before);
+  const loadedRequestId = setup.requests[0].id;
   await setup.copyIterationTask();
   assert.equal(setup.error, ''); assert.equal(setup.requests.length, 1);
+  assert.equal(setup.requests[0].id, loadedRequestId, 'copying reuses the initial request automatically published on load');
+  assert.equal(setup.showInitialRefinement, true, 'the first task after clearing history awaits an initial proposal');
   const next = setup.requests[0].request_json;
   assert.notEqual(next.requestId, firstId); assert.equal(next.parentProposalId, null); assert.deepEqual(next.feedback, []);
   assert.equal(next.letter.text, 'Current draft to keep after clearing history.');
@@ -113,7 +132,9 @@ test('cloud-confirmed history removal recovers on reload when persisting local c
   assert.equal(documentFingerprint(setup), before);
   assert.deepEqual(fixture.database.application_refinement_requests, []);
   setup = fixture.reopen(); await idle(setup); await setup.checkProposals();
-  assert.equal(setup.error, ''); assert.equal(setup.saveError, ''); assertEmptyHistory(setup);
+  assert.equal(setup.error, ''); assert.equal(setup.saveError, ''); assertFreshInitialRequest(setup);
+  assert.notEqual(setup.requests[0].id, firstId);
+  assert.equal(setup.requests[0].request_json.letter.text, 'Keep this working draft through cleanup recovery.');
   assert.equal(documentFingerprint(setup), before);
 });
 
@@ -146,7 +167,10 @@ test('observed cloud publication recovers a missing receipt and remote clearing 
   assert.equal(documentFingerprint(setup), before);
   setup = fixture.reopen(); await idle(setup);
   assert.equal(setup.error, ''); assert.deepEqual(Object.keys(setup.localRequests), [pendingId]);
-  assert.equal(refinementSignature(setup.localRequests[pendingId]), pending);
+  assert.equal(setup.requests.length, 1); assert.equal(setup.requests[0].id, pendingId);
+  const { publishedAt, ...publishedPending } = setup.localRequests[pendingId];
+  assert.equal(publishedAt, setup.requests[0].created_at);
+  assert.equal(refinementSignature(publishedPending), pending, 'automatic sync publishes the same pending receipt without changing its frozen sources');
   assert.equal(documentFingerprint(setup), before);
 });
 

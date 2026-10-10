@@ -39,7 +39,7 @@ async function until(check: () => unknown, label: string, timeout = 30000) {
 }
 async function settle() {
   await nextTick(); await new Promise(requestAnimationFrame);
-  await until(() => !setup.busy && !setup.refreshing, 'workspace finishes its operation');
+  await until(() => !setup.busy && !setup.refreshing && !setup.syncing, 'workspace finishes its operation');
   await nextTick(); await new Promise(requestAnimationFrame);
 }
 function button(name: string, parent: ParentNode = root) {
@@ -91,8 +91,9 @@ async function prepare(scope: 'cv' | 'letter', existing = 'Original working lett
   await disclose('Edit manually'); await field('Complete letter text', existing);
   await field('Refinement scope', scope);
   assert(setup.feedbackScope === scope, 'Refinement must use the selected scope');
-  const initial = root.querySelector<HTMLElement>('.initial-draft');
-  assert(initial?.getClientRects().length && initial.contains(button('Copy task')), 'Initial draft must expose its copy task action');
+  const initial = root.querySelector<HTMLElement>('.initial-refinement');
+  assert(initial?.getClientRects().length && initial.contains(button('Copy task')), 'Initial refinement must expose its copy task action');
+  assert(!initial.closest('details') && !root.querySelector('.next-refinement'), 'Initial refinement must be visible outside disclosures and replace next refinement');
   await click('Copy task'); assert(!setup.error, setup.error);
   assert(copiedPrompt.includes(`published request ${setup.requests[0].id}`), 'Initial task must publish and reference its source request');
   assert(setup.requests[0].request_json.letter.text === existing, 'Initial task must preserve the working source letter');
@@ -107,6 +108,8 @@ async function loadProposal(row: RefinementProposalRow) {
   await click('Sync');
   assert(!setup.error, setup.error);
   assert(setup.selectedProposalId === row.id && !setup.reviewActive, 'Sync must apply the returned proposal as the working document');
+  assert(!root.querySelector('.initial-refinement') && root.querySelector('.next-refinement'), 'The first proposal must replace initial refinement with next refinement');
+  assert(!root.querySelector('.current-review')?.closest('details'), 'Current review must remain outside disclosures');
 }
 function surface(kind: 'cv' | 'letter') { return root.querySelector<HTMLElement>(kind === 'cv' ? '.document-preview' : '.letter-preview')!; }
 async function rendered(kind: 'cv' | 'letter', contains: string) {
@@ -127,8 +130,8 @@ async function cvFlow() {
   assert(fixture.creations.length === 1, 'Automatic CV application must save exactly one subvariant');
   assert(originals === refinementSignature(local.cv), 'Automatic application changed the original private mappings');
   assert(fixture.base.experience.jobs[0].bullets!.includes('private.example.invalid'), 'Omission destroyed the original source link');
-  const changes = [...root.querySelectorAll('details')].find(item => item.querySelector('summary')?.textContent?.startsWith('Automatic changes'));
-  assert(changes && !changes.open, 'Automatic change details must start collapsed');
+  const changes = root.querySelector<HTMLElement>('.proposal-changes');
+  assert(changes?.getClientRects().length && !changes.closest('details'), 'Automatic changes must remain visible outside disclosures');
   assert(!root.querySelector('input[aria-label^="Include "]:not(:disabled)'), 'Automatically applied changes must not allow manual selection');
   const applied = refinementSignature(setup.record!.state);
   await click('Preview proposal');
@@ -166,6 +169,8 @@ async function proposalReviewFlow() {
   await loadProposal(first); await rendered('letter', 'First automatically applied proposal.');
   const minor = root.querySelector(sidebarEnabled() ? '#desktop-sidebar-minor' : '.proposal-preview-action')!;
   assert(minor?.contains(button('Preview proposal')), 'Proposal preview belongs in the minor action area');
+  assert(root.querySelector(sidebarEnabled() ? '#desktop-sidebar-major' : '.refinement-toolbar')?.contains(button('Approve letter')), 'Approval belongs in the major action area');
+  assert(minor?.contains(button('Sync')), 'Sync belongs in the minor action area');
   const applied = snapshot(), input = preview(), beforeSvg = surface('letter').querySelector('.pdf-preview__page')!.innerHTML;
   await field('Your response (optional)', 'Confirmed synthetic evidence.');
   await field('Annotation status', 'resolved'); assert(!setup.error, setup.error);
@@ -176,12 +181,13 @@ async function proposalReviewFlow() {
   const annotation = root.querySelector('.annotations article')!;
   assert(!annotation.querySelector('textarea'), 'Ignoring an annotation must hide its response input');
   const firstRequest = setup.requests[0].id;
-  await click('Copy next iteration'); assert(!setup.error, setup.error);
+  await click('Copy feedback'); assert(!setup.error, setup.error);
   assert(setup.requests[0].id !== firstRequest && copiedPrompt.includes(setup.requests[0].id), 'Next iteration must publish and copy a new task');
   assert(setup.requests[0].request_json.letter.text === 'First automatically applied proposal.', 'Next iteration lost the applied working letter');
   const next = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Second automatically applied proposal.', persist: false });
   await loadProposal(next); await rendered('letter', 'Second automatically applied proposal.');
-  await disclose('History / Details'); await click('Reset to original state'); assert(!setup.error, setup.error);
+  await disclose('History'); await click('Reset to original state'); assert(!setup.error, setup.error);
+  assert(root.querySelector('.initial-refinement') && !root.querySelector('.next-refinement'), 'Reset must restore initial refinement');
   assert(setup.letter!.working.body === 'Original working letter.' && refinementSignature(setup.record!.state) === originalCv, 'Reset must restore both original documents');
   assert(setup.proposals.length === 2 && setup.letter!.revisions.some(revision => revision.cloudDraftId === next.id), 'Reset must preserve proposal and letter history');
   await click('Sync'); await rendered('letter', 'Original working letter.');
@@ -221,7 +227,7 @@ async function templateQuestionFlow() {
   assert(snapshot() === working && surface('letter').querySelector('.pdf-preview__page')!.innerHTML === pdfBefore, 'Answering changed the applied letter');
   await mount(true); await click('2Refinement');
   assert(setup.proposalAnnotations[0].included, 'Question feedback was lost after reload');
-  await click('Copy next iteration'); assert(!setup.error, setup.error);
+  await click('Copy feedback'); assert(!setup.error, setup.error);
   const next = setup.requests[0].request_json;
   assert(next.requestId !== source.requestId && next.feedback.length === 1 && next.feedback[0].text.includes('measured repeatability'), 'Resolved feedback did not enter the next task');
   assert(next.letter.text === 'I am interested in reliable robot sensing and reproducible experiments.', 'Next task lost the applied initial draft');
@@ -238,6 +244,12 @@ async function scopeLayoutFlow() {
   const scope = toolbar?.querySelector<HTMLSelectElement>('select');
   assert(toolbar && scope, 'Refinement must expose its scope beside the task actions');
   if (sidebarEnabled()) assert(root.querySelector('#desktop-sidebar-major')?.contains(toolbar), 'Refinement actions belong in the major sidebar area');
+  const approvalActions = root.querySelector(sidebarEnabled() ? '#desktop-sidebar-major' : '.refinement-toolbar');
+  const syncActions = root.querySelector(sidebarEnabled() ? '#desktop-sidebar-minor' : '.proposal-preview-action');
+  assert(approvalActions && syncActions, 'Refinement must expose both action areas');
+  assert(syncActions?.contains(button('Sync')), 'Sync belongs in the minor action area');
+  assert(approvalActions?.contains(button('Approve letter')), 'Letter approval belongs in the major action area');
+  assert(button('Sync', syncActions).querySelector('svg'), 'Sync must have an icon');
   const scopeOptions = scope.options;
   assert([...scopeOptions].map(option => option.value).join(',') === 'cv,letter', 'Only separate CV and letter scopes are available');
   const combined = root.querySelector('.refinement-stage')!;
@@ -248,10 +260,15 @@ async function scopeLayoutFlow() {
   assert(visible('.document-preview').length === 1 && visible('.letter-preview').length === 0, 'CV scope must select the CV inline preview');
   await disclose('Edit manually');
   assert(visible('.working-document').length === 1 && visible('.working-document')[0].querySelector('.builder'), 'CV scope must expose only the CV editor');
+  const experience = button('Professional Experience');
+  if (experience.getAttribute('aria-expanded') === 'false') await click('Professional Experience');
   const inner = root.querySelector('.content-panel__scroll-body')!;
   assert(getComputedStyle(inner).overflowY === 'visible' && getComputedStyle(inner).overscrollBehavior === 'auto', 'Embedded editor must allow scrolling to reach the refinement panel');
-  assert(toolbar.contains(button('Approve CV')), 'Approval stays beside the task actions');
-  assert(!button('Approve CV').closest('details'), 'Approval must remain accessible when the editor is collapsed');
+  const approveCv = button('Approve CV');
+  assert(approvalActions.contains(approveCv) && toolbar.contains(approveCv), 'CV approval belongs in the major action area');
+  assert(!approveCv.closest('details'), 'Approval must remain accessible when the editor is collapsed');
+  assert(approveCv.querySelector('svg'), 'CV approval must have an icon');
+  assert(![...approvalActions.querySelectorAll('button')].some(node => node.textContent?.trim() === 'Approve letter'), 'CV scope must replace letter approval with CV approval');
   clearToasts();
   const mobile = window.matchMedia('(max-width:760px)').matches;
   const scroller = root.querySelector<HTMLElement>(mobile ? '.workflow-body' : '.refinement-controls')!;
@@ -261,8 +278,8 @@ async function scopeLayoutFlow() {
   assert(scroller.scrollTop > 0, 'The layout check must scroll beyond the beginning of the refinement');
   const toolbarBounds = toolbar.getBoundingClientRect();
   const viewport = root.querySelector(sidebarEnabled() ? '.desktop-sidebar__actions' : '.workflow-body')!.getBoundingClientRect();
-  assert(Math.abs(toolbarBounds.top - initialToolbarTop) <= (mobile ? 8 : 1), 'Scope and actions must stay at the top while reviewing content farther down');
-  for (const control of [scope, ...['Sync', 'Approve CV'].map(name => button(name, toolbar))]) {
+  assert(Math.abs(toolbarBounds.top - initialToolbarTop) <= (mobile ? 8 : 1), 'Scope and approval must stay at the top while reviewing content farther down');
+  for (const control of [scope, button('Approve CV', toolbar)]) {
     const bounds = control.getBoundingClientRect();
     assert(bounds.width > 0 && bounds.height > 0 && bounds.top >= viewport.top - 8 && bounds.bottom <= viewport.bottom + 1, 'Scope and task actions must remain visible after scrolling the editor or PDF');
     if (sidebarEnabled()) assert(bounds.left >= viewport.left && bounds.right <= viewport.right, 'Sidebar controls must fit within the sidebar width');
@@ -272,6 +289,10 @@ async function scopeLayoutFlow() {
   await field('Refinement scope', 'letter');
   assert(visible('.document-preview').length === 0 && visible('.letter-preview').length === 1, 'Letter scope must select the letter inline preview');
   assert(visible('.working-document').length === 1 && visible('.working-document')[0].querySelector('textarea'), 'Letter scope must expose only the letter editor');
+  const approveLetter = button('Approve letter');
+  assert(approvalActions.contains(approveLetter) && toolbar.contains(approveLetter), 'Switching to letter scope must show letter approval in the major action area');
+  assert(approveLetter.querySelector('svg') && !approveLetter.closest('details'), 'Letter approval must have an icon and remain outside disclosures');
+  assert(![...approvalActions.querySelectorAll('button')].some(node => node.textContent?.trim() === 'Approve CV'), 'Letter scope must replace CV approval with letter approval');
   await click('1Preparation');
   const settings = root.querySelector('.preparation-settings')!;
   assert(settings.textContent?.includes('Language') && settings.textContent?.includes('Target words'), 'Letter settings belong in Preparation');

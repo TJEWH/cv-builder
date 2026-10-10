@@ -16,14 +16,14 @@ export const applicationId = '10000000-0000-4000-8000-000000000001';
 export const refinementKey = `CV_REFINEMENT:1:${account}:${applicationId}`;
 export interface Workspace {
   record: ApplicationCvRecord | null; letter: ApplicationLetter | null;
-  busy: boolean; refreshing: boolean; error: string; saveError: string;
+  busy: boolean; refreshing: boolean; syncing: boolean; error: string; saveError: string;
   selectedCvId: string; selectedTemplateId: string; selectedProposalId: string;
   importedProposals: RefinementProposalRow[];
   importedReviews: RefinementReviewRow[]; reviews: RefinementReviewRow[];
   cloudState: RefinementState | null; approvals: RefinementApprovals;
   parentProposalId: string | null; feedback: string; resetRequestIds: string[];
   proposalInput: string; fallbackPrompt: string;
-  canClearHistory: boolean; cvApproved: boolean; letterApproved: boolean;
+  canClearHistory: boolean; cvApproved: boolean; letterApproved: boolean; showInitialRefinement: boolean;
   requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; localRequests: Record<string, LocalRefinementRequest>;
   selectedChangeIds: string[]; includeProposedLetter: boolean; reviewActive: boolean;
   previewCvState: CvState | null; previewLetterContent: ApplicationLetter['working'] | undefined;
@@ -60,7 +60,7 @@ const renderer = createRenderer<object, object>({ createElement: () => ({}), cre
 export async function idle(workspace: Workspace) {
   for (let index = 0; index < 40; index++) {
     await nextTick(); await new Promise<void>(resolve => setImmediate(resolve));
-    if (!workspace.busy && !workspace.refreshing) return;
+    if (!workspace.busy && !workspace.refreshing && !workspace.syncing) return;
   }
   assert.fail('Refinement workspace did not become idle.');
 }

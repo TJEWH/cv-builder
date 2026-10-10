@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
+import { faCheck, faRotate, faRotateLeft } from '@fortawesome/free-solid-svg-icons';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Application } from '../cloudTypes';
 import { supabaseConfiguration } from '../lib/supabase';
@@ -215,6 +217,12 @@ const canClearHistory = computed(() => cloudLoaded.value && !!(requests.value.le
   || Object.keys(localRequests.value).length || importedProposals.value.length || importedReviews.value.length));
 const scopeLocked = computed(() => pane.value === 'cv' ? cvApproved.value : letterApproved.value);
 const hasActiveProposal = computed(() => !!selectedProposal.value && availableProposals.value.some(row => row.id === selectedProposalId.value));
+// The refinement phase survives selection changes and waiting for a later proposal.
+const showInitialRefinement = computed(() => !proposals.value.some(row => {
+  if (resetRequestIds.value.includes(row.request_id)) return false;
+  const scope = requests.value.find(request => request.id === row.request_id)?.request_json.scope;
+  return scope === pane.value || scope === 'both';
+}));
 const iterationPending = computed(() => currentPublishedRequest.value?.request_json.scope === feedbackScope.value
   && !!currentPublishedRequest.value.request_json.parentProposalId
   && !proposals.value.some(row => row.request_id === currentPublishedRequest.value!.id));
@@ -376,12 +384,12 @@ function selectReviewProposal(id: string) {
   if (busy.value || !proposals.value.some(row => row.id === id)) return;
   tab.value = 'refinement'; selectedProposalId.value = id; openProposal();
 }
-async function checkProposals() { tab.value = 'refinement'; await run(async () => { await refreshCloud(); notice.value = proposals.value.length ? text('Proposals loaded. Review one before applying it.', 'Vorschläge geladen. Vor dem Übernehmen prüfen.') : text('No proposal yet. Run the copied prompt in ChatGPT, then check again.', 'Noch kein Vorschlag. Kopierten Prompt in ChatGPT ausführen und erneut prüfen.'); }); }
+async function checkProposals(navigate = true) { if (navigate) tab.value = 'refinement'; await run(async () => { await refreshCloud(); notice.value = proposals.value.length ? text('Proposals loaded. Review one before applying it.', 'Vorschläge geladen. Vor dem Übernehmen prüfen.') : text('No proposal yet. Run the copied prompt in ChatGPT, then check again.', 'Noch kein Vorschlag. Kopierten Prompt in ChatGPT ausführen und erneut prüfen.'); }); }
 function refreshOnFocus() { if (!busy.value && !syncing.value && props.active !== false) void refreshCloud().then(async () => { if (tab.value === 'refinement') await applyCurrentProposal(); }).catch(report); }
-watch(() => props.active, active => { if (active) { if (opensInTracking(props.application.status)) tab.value = 'tracking'; refreshOnFocus(); } });
+watch(() => props.active, active => { if (active) { if (opensInTracking(props.application.status)) tab.value = 'tracking'; void syncRefinement(); } });
 watch(tab, stage => { if (stage === 'refinement') refreshOnFocus(); });
 function reloadTemplates() { try { templates.value = letterRepository.listTemplates(); } catch (cause) { report(cause); } }
-onMounted(() => { refreshOnFocus(); window.addEventListener('focus', refreshOnFocus); window.addEventListener('cv-letter-templates-updated', reloadTemplates); });
+onMounted(() => { void syncRefinement(); window.addEventListener('focus', refreshOnFocus); window.addEventListener('cv-letter-templates-updated', reloadTemplates); });
 onBeforeUnmount(() => { disposed = true; window.removeEventListener('focus', refreshOnFocus); window.removeEventListener('cv-letter-templates-updated', reloadTemplates); });
 
 async function publishCurrentCv() {
@@ -607,24 +615,26 @@ async function selectActiveProposal(id: string) {
   await applyCurrentProposal(id);
 }
 async function syncRefinement() {
-  if (busy.value || refreshing.value || syncing.value) return;
+  const stopped = () => disposed || props.active === false;
+  if (stopped() || !props.client || busy.value || syncing.value) return;
   syncing.value = true;
   try {
-    await checkProposals();
-    if (error.value) return;
+    // Sync also runs on application load and must preserve the selected workflow stage.
+    await checkProposals(false);
+    if (stopped() || error.value) return;
     await applyCurrentProposal();
-    if (error.value) return;
+    if (stopped() || error.value) return;
     if (!reviewActive.value && preparedSource.value && !scopeLocked.value) {
       const current = currentPublishedRequest.value;
       const appliedCurrent = !!parentProposalId.value && proposals.value.some(row => row.id === parentProposalId.value && row.request_id === current?.id);
       if (current && resetRequestIds.value.includes(current.id)) await run(saveSetup);
       else if (!current || current.request_json.scope !== feedbackScope.value || publicationStatus.value !== 'current' && !appliedCurrent) await publishSources(true);
       else await run(saveSetup);
-      if (error.value) return;
+      if (stopped() || error.value) return;
       await applyCurrentProposal();
-      if (error.value) return;
+      if (stopped() || error.value) return;
     }
-    notice.value = proposals.value.length
+    notice.value = proposals.value.length || !preparedSource.value || scopeLocked.value
       ? text('Synced. Available proposals are up to date.', 'Synchronisiert. Verfügbare Vorschläge sind aktuell.')
       : text('Snapshot synced. Copy the task to create the initial draft.', 'Snapshot synchronisiert. Aufgabe kopieren, um den ersten Entwurf zu erstellen.');
   } finally { syncing.value = false; }
@@ -918,52 +928,43 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
         <div class="refinement-toolbar" :class="{ 'refinement-toolbar--sidebar': desktopSidebar }">
           <label>{{ text('Refinement scope', 'Umfang der Überarbeitung') }}<select v-model="feedbackScope" :disabled="busy"><option value="cv">CV</option><option value="letter">{{ text('Motivation letter', 'Motivationsschreiben') }}</option></select></label>
           <div class="action-row">
-            <button class="primary" type="button" :disabled="busy || refreshing" @click="syncRefinement">{{ syncing ? text('Syncing…', 'Synchronisieren…') : text('Sync', 'Synchronisieren') }}</button>
-            <div class="refinement-approval">
-              <button v-if="pane === 'cv' && record" class="primary" type="button" :disabled="busy || reviewActive || !letter || !!saveError" @click="approve('cv', cvApproved)">{{ cvApproved ? text('Reopen CV', 'CV wieder öffnen') : text('Approve CV', 'CV freigeben') }}</button>
-              <button v-if="pane === 'letter' && letter" class="primary" type="button" :disabled="busy || reviewActive || !record || !letterText.trim() || !!saveError || (unresolved.length > 0 && !letter.finalRevisionId)" @click="approve('letter', letterApproved || !!letter.finalRevisionId)">{{ letterApproved || letter.finalRevisionId ? text('Reopen letter', 'Brief wieder öffnen') : text('Approve letter', 'Brief freigeben') }}</button>
-            </div>
+            <button v-if="pane === 'cv' && record" class="primary refinement-icon-action" type="button" :disabled="busy || reviewActive || !letter || !!saveError" @click="approve('cv', cvApproved)"><FontAwesomeIcon :icon="cvApproved ? faRotateLeft : faCheck" aria-hidden="true" />{{ cvApproved ? text('Reopen CV', 'CV wieder öffnen') : text('Approve CV', 'CV freigeben') }}</button>
+            <button v-if="pane === 'letter' && letter" class="primary refinement-icon-action" type="button" :disabled="busy || reviewActive || !record || !letterText.trim() || !!saveError || (unresolved.length > 0 && !letter.finalRevisionId)" @click="approve('letter', letterApproved || !!letter.finalRevisionId)"><FontAwesomeIcon :icon="letterApproved || letter.finalRevisionId ? faRotateLeft : faCheck" aria-hidden="true" />{{ letterApproved || letter.finalRevisionId ? text('Reopen letter', 'Brief wieder öffnen') : text('Approve letter', 'Brief freigeben') }}</button>
           </div>
         </div>
         </DesktopSidebarPortal>
         <DesktopSidebarPortal area="minor" :active="active && tab === 'refinement'">
           <div class="proposal-preview-action" :class="{ 'proposal-preview-action--sidebar': desktopSidebar }">
             <button v-if="selectedProposal" type="button" :disabled="busy" :aria-pressed="reviewActive" @click="reviewActive ? discardReview() : openProposal()">{{ reviewActive ? text('Close preview', 'Vorschau schließen') : text('Preview proposal', 'Vorschlag ansehen') }}</button>
+            <button class="refinement-icon-action" type="button" :disabled="busy || refreshing || syncing" @click="syncRefinement"><FontAwesomeIcon :icon="faRotate" aria-hidden="true" />{{ syncing ? text('Syncing…', 'Synchronisieren…') : text('Sync', 'Synchronisieren') }}</button>
           </div>
         </DesktopSidebarPortal>
         <div class="refinement-controls">
           <p v-if="!record || !letter" class="app-hint">{{ text('Select both templates in Preparation to begin. Existing proposals remain available below.', 'Zum Start beide Vorlagen in Vorbereitung auswählen. Bestehende Vorschläge bleiben unten verfügbar.') }}</p>
           <p v-if="preparedSource && feedbackScope !== 'cv' && !preparedSource.request.letter.text.trim()" class="app-hint hint initial-letter-notice">{{ text('Initial letter draft: the source letter is empty. ChatGPT should create the first draft from the published CV, opportunity and template.', 'Erster Briefentwurf: Der Quellbrief ist leer. ChatGPT soll anhand des veröffentlichten CVs, der Ausschreibung und der Vorlage einen ersten Entwurf erstellen.') }}</p>
           <p v-if="sourceError" class="app-hint error" role="alert">{{ sourceError }}</p>
-          <details open class="disclosure-row iterative-feedback-loop">
-            <summary>{{ text('Iterative Feedback Loop', 'Iterative Feedback-Schleife') }}</summary>
-            <section class="iteration-step initial-draft">
-              <h3>{{ text('Initial draft', 'Erster Entwurf') }}</h3>
-              <button type="button" :disabled="busy || refreshing || !preparedSource || scopeLocked || hasActiveProposal" @click="copyIterationTask">{{ text('Copy task', 'Aufgabe kopieren') }}</button>
-            </section>
-            <section class="iteration-step active-proposal">
-              <h3>{{ text('Active proposal', 'Aktiver Vorschlag') }}</h3>
+            <section v-if="!showInitialRefinement" class="iteration-step current-review">
+              <h3>{{ text('Current Review', 'Aktuelle Prüfung') }}</h3>
               <label v-if="availableProposals.length">{{ text('Available proposals', 'Verfügbare Vorschläge') }}<select :value="selectedProposalId" :disabled="busy" @change="selectActiveProposal(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ text('Select a proposal', 'Vorschlag auswählen') }}</option><option v-for="proposal in availableProposals" :key="proposal.id" :value="proposal.id">{{ new Date(proposal.created_at).toLocaleString() }} · {{ proposal.id }}</option></select></label>
               <div v-if="selectedProposal && hasActiveProposal" class="proposal-content">
                 <RefinementPreviewStatus v-if="pane === 'cv' ? showCvReview : showLetterReview" v-model="reviewComparison" :label="reviewPreviewLabel(pane)" :reference="proposalPreviewReference" :outdated="proposalSourceOutdated" :lang="lang" />
                 <p v-if="pane === 'cv'" class="proposal-summary">{{ summaryCounts.automaticChanges }} {{ text('automatic changes', 'automatische Änderungen') }} · {{ summaryCounts.todos }} {{ text('todos', 'Aufgaben') }} · {{ summaryCounts.questions }} {{ text('questions', 'Fragen') }}</p>
                 <template v-else><p class="proposal-summary">{{ summaryCounts.questions }} {{ text('questions', 'Fragen') }}</p><p>{{ draftSummary }}</p></template>
-                <details v-if="pane === 'cv' && proposalChanges.length" class="disclosure-row"><summary>{{ text('Automatic changes', 'Automatische Änderungen') }}</summary>
+                <section v-if="pane === 'cv' && proposalChanges.length" class="proposal-changes">
                 <RefinementChangeReview :changes="proposalChanges" :selected="selectedChangeIds" :comments="proposalComments" :legacy="selectedProposal.proposal_json.schemaVersion === 1" :lang="lang" :disabled="busy || proposalAlreadyApplied" :locked="cvApproved" @toggle="toggleProposedChange" />
-                </details>
+                </section>
                 <RefinementAnnotations :items="proposalAnnotations.filter(item => item.annotation.document === pane)" :lang="lang" :disabled="busy || !record" :save="saveAnnotation" :privacy-preview="previewOutgoingText" />
-                <details v-if="pane === 'letter'" class="disclosure-row"><summary>{{ text('Proposed letter', 'Vorgeschlagener Brief') }}</summary><p class="pre-wrap">{{ selectedProposal.proposal_json.letterText }}</p></details>
+                <section v-if="pane === 'letter'" class="proposed-letter"><h4>{{ text('Proposed letter', 'Vorgeschlagener Brief') }}</h4><p class="pre-wrap">{{ selectedProposal.proposal_json.letterText }}</p></section>
                 <p v-if="temporaryReview.error || reviewAcceptanceError" class="app-hint error" role="alert">{{ temporaryReview.error || reviewAcceptanceError }}</p>
               </div>
               <p v-if="!hasActiveProposal">{{ text('Waiting for a proposal.', 'Vorschlag ausstehend.') }}</p>
             </section>
-            <section class="iteration-step future-proposal">
-              <h3>{{ text('Future proposal', 'Nächster Vorschlag') }}</h3>
+            <section class="iteration-step refinement-task" :class="showInitialRefinement ? 'initial-refinement' : 'next-refinement'">
+              <h3>{{ showInitialRefinement ? text('Initial Refinement', 'Erste Überarbeitung') : text('Next Refinement', 'Nächste Überarbeitung') }}</h3>
               <p v-if="iterationPending" role="status">{{ text('Waiting for the next draft. Sync to load it.', 'Der nächste Entwurf steht aus. Zum Laden synchronisieren.') }}</p>
-              <button type="button" :disabled="busy || refreshing || !preparedSource || scopeLocked || !hasActiveProposal" @click="copyIterationTask">{{ text('Copy next iteration', 'Nächste Iteration kopieren') }}</button>
+              <button type="button" :disabled="busy || refreshing || !preparedSource || scopeLocked" @click="copyIterationTask">{{ showInitialRefinement ? text('Copy task', 'Aufgabe kopieren') : text('Copy feedback', 'Feedback kopieren') }}</button>
             </section>
             <textarea v-if="shortInstructionError" :value="shortInstruction" readonly rows="5" :aria-label="text('Short ChatGPT instruction', 'Kurze ChatGPT-Anweisung')" @focus="($event.target as HTMLTextAreaElement).select()" />
-          </details>
           <details class="disclosure-row"><summary>{{ text('Edit manually', 'Manuell bearbeiten') }}</summary>
 
           <section v-if="record" v-show="pane === 'cv'" class="working-document"><div class="action-row"><span class="app-hint">{{ text('Application copy — template stays unchanged', 'Bewerbungskopie — Vorlage bleibt unverändert') }}</span></div><fieldset :disabled="cvApproved || busy || reviewActive"><FormBuilder :state="record.state" :read-version="() => null" :save-version="() => false" /></fieldset></section>
@@ -1002,7 +1003,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 </template>
 
 <style scoped>
-.iteration-step{padding:16px 0;border-bottom:1px solid #28534e}.iteration-step:last-of-type{border-bottom:0}.iteration-step h3{margin-bottom:10px}.proposal-summary{color:#b8d9cf;font-weight:600}.proposal-preview-action--sidebar button{width:100%;text-align:left}
+.iteration-step{padding:16px 0;}.iteration-step:first-child{padding-top:0}.iteration-step:last-of-type{border-bottom:0}.iteration-step h3{margin-bottom:10px}.iteration-step h4{font-size:14px;margin:20px 0 10px}.proposal-summary{color:#b8d9cf;font-weight:600}.proposal-preview-action{display:flex;flex-wrap:wrap;gap:8px}.proposal-preview-action--sidebar{flex-direction:column}.proposal-preview-action--sidebar button{width:100%;text-align:left}.refinement-icon-action{display:inline-flex;align-items:center;gap:8px}.refinement-icon-action svg{width:1em;flex-shrink:0}
 
 .selection-checkbox{display:flex;align-items:center;gap:9px}.selection-checkbox input{width:18px;height:18px;accent-color:#67c8a6}.preview-review-label{font-size:12px;color:#efcc87;margin:0}.application-workspace{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden;color:#d1fae5;font-family:var(--font-ui,system-ui)}
 .workflow-navigation{display:contents}.workflow-back{display:none}
@@ -1017,7 +1018,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 @media(min-width:761px) and (max-width:1180px){.workflow-body--review :deep(.application-documents){min-height:640px}}
 @media(min-width:761px){.application-workspace{margin-bottom:40px;padding:32px;}.workflow-body{padding:20px 0 0;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-gutter:stable}.application-header :deep(.workspace-detail-header__back){display:none}.workflow-navigation{position:fixed;inset-inline:0;bottom:0;z-index:30;display:flex;align-items:center;gap:20px;min-height:66px;padding:12px max(20px,calc((100vw - 1484px)/2));border-top:1px solid #24504e;background:#06141f;box-shadow:0 -6px 20px #0003}.workflow-back{display:inline-flex;align-items:center;gap:8px;flex-shrink:0}.workspace-subtabs button{justify-content:center}.preparation-stage{padding-bottom:6px}}
 .preparation-stage,.tracking-stage{display:grid;gap:20px}.stage-heading{display:flex;justify-content:space-between;align-items:start;gap:18px;margin-bottom:18px}.stage-heading h2,.tracking-stage h2{color:#9be8c7;font-size:21px;margin:0 0 8px}.stage-heading p,p.hint{font-size:13px;color:#a6c1b9;line-height:1.6}.stage-heading button{flex-shrink:0}
-h3{font-size:16px;margin:0 0 14px}p{line-height:1.6;font-size:13px}button,input,select,textarea{font:inherit;color:inherit;border:1px solid #28534e;background:#0b1b25;border-radius:7px;padding:9px 11px;box-sizing:border-box}button{cursor:pointer;font-size:13px}button:disabled{opacity:.45;cursor:default}button:hover:enabled{background:#185b4c}.primary{background:#185b4c;border-color:#67c8a6}label{display:grid;gap:7px;font-size:12px;font-weight:600;margin-bottom:12px}input,select,textarea{width:100%;min-width:0;font-size:14px;font-weight:400}textarea{resize:vertical;line-height:1.6}select{max-width:100%}pre{font-size:11px;overflow:auto;max-height:300px;white-space:pre-wrap;overflow-wrap:anywhere}.pre-wrap{white-space:pre-wrap;overflow-wrap:anywhere}.preparation-selection,.preparation-settings{display:grid;grid-template-columns:1fr 1fr;gap:12px 20px}.preparation-selection label,.preparation-settings label{margin:0}.preparation-selection p{grid-column:1 / -1;margin:0}.preparation-selection--sidebar,.preparation-settings--sidebar{grid-template-columns:minmax(0,1fr)}.workflow-card{border:1px solid #28534e;border-radius:10px;padding:18px;background:#091923}.workflow-card p{margin:10px 0}.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.action-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0}.action-row span{font-size:12px;color:#a6c1b9}.error{color:#fecaca}.warning{color:#efcc87;font-size:13px}.refinement-stage{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,30%);gap:24px;flex:1;min-height:0;overflow:hidden}.refinement-controls{overflow:auto;min-height:0;padding-right:8px}.refinement-preview{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}.refinement-preview>.document-preview,.refinement-preview>.letter-preview{flex:1;min-height:0}.refinement-preview :deep(.document-inline-preview__viewport){display:block}.working-document{margin-bottom:24px}.working-document fieldset{border:0;padding:0;min-width:0}.working-document :deep(.builder){height:auto;overflow:visible}.working-document :deep(.content-panel),.working-document :deep(.content-panel__scroll-body){height:auto;overflow:visible;overscroll-behavior:auto;flex:0 0 auto}.refinement-approval{margin-left: auto}.cv-change{display:grid;gap:7px;margin:16px 0;font-size:13px;white-space:pre-wrap}.cv-change del{background:#3a1720;padding:9px;text-decoration:none;color:#fecaca}.cv-change ins{background:#10382c;padding:9px;text-decoration:none;color:#a7f3d0}.review-heading{flex:0 0 auto}.review-heading .stage-heading{margin-bottom:10px}.review-heading details{max-height:25vh;overflow:auto;margin-bottom:10px}.preparation-stage :deep(.opportunity-context){overflow:visible}
+h3{font-size:16px;margin:0 0 14px}p{line-height:1.6;font-size:13px}button,input,select,textarea{font:inherit;color:inherit;border:1px solid #28534e;background:#0b1b25;border-radius:7px;padding:9px 11px;box-sizing:border-box}button{cursor:pointer;font-size:13px}button:disabled{opacity:.45;cursor:default}button:hover:enabled{background:#185b4c}.primary{background:#185b4c;border-color:#67c8a6}label{display:grid;gap:7px;font-size:12px;font-weight:600;margin-bottom:12px}input,select,textarea{width:100%;min-width:0;font-size:14px;font-weight:400}textarea{resize:vertical;line-height:1.6}select{max-width:100%}pre{font-size:11px;overflow:auto;max-height:300px;white-space:pre-wrap;overflow-wrap:anywhere}.pre-wrap{white-space:pre-wrap;overflow-wrap:anywhere}.preparation-selection,.preparation-settings{display:grid;grid-template-columns:1fr 1fr;gap:12px 20px}.preparation-selection label,.preparation-settings label{margin:0}.preparation-selection p{grid-column:1 / -1;margin:0}.preparation-selection--sidebar,.preparation-settings--sidebar{grid-template-columns:minmax(0,1fr)}.workflow-card{border:1px solid #28534e;border-radius:10px;padding:18px;background:#091923}.workflow-card p{margin:10px 0}.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.action-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0}.action-row span{font-size:12px;color:#a6c1b9}.error{color:#fecaca}.warning{color:#efcc87;font-size:13px}.refinement-stage{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,30%);gap:24px;flex:1;min-height:0;overflow:hidden}.refinement-controls{overflow:auto;min-height:0;padding-right:8px}.refinement-preview{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}.refinement-preview>.document-preview,.refinement-preview>.letter-preview{flex:1;min-height:0}.refinement-preview :deep(.document-inline-preview__viewport){display:block}.working-document{margin-bottom:24px}.working-document fieldset{border:0;padding:0;min-width:0}.working-document :deep(.builder){height:auto;overflow:visible}.working-document :deep(.content-panel),.working-document :deep(.content-panel__scroll-body){height:auto;overflow:visible;overscroll-behavior:auto;flex:0 0 auto}.cv-change{display:grid;gap:7px;margin:16px 0;font-size:13px;white-space:pre-wrap}.cv-change del{background:#3a1720;padding:9px;text-decoration:none;color:#fecaca}.cv-change ins{background:#10382c;padding:9px;text-decoration:none;color:#a7f3d0}.review-heading{flex:0 0 auto}.review-heading .stage-heading{margin-bottom:10px}.review-heading details{max-height:25vh;overflow:auto;margin-bottom:10px}.preparation-stage :deep(.opportunity-context){overflow:visible}
 @media(max-width:900px){.preparation-selection{grid-template-columns:1fr}.refinement-stage{grid-template-columns:minmax(0,1fr) minmax(270px,38%);gap:12px}.stage-heading{flex-direction:column}}
 @media(max-width:760px){.application-workspace{--mobile-application-tabs-height:48px;padding-bottom:var(--mobile-application-tabs-height)}.workspace-subtabs{position:fixed;inset-inline:0;bottom:var(--mobile-tabs-height,76px);z-index:36;height:48px;margin:0;padding:4px 8px;overflow-x:auto;flex-wrap:nowrap;background:#06141f;border-top:1px solid #24504e}.workspace-subtabs button{font-size:12px;white-space:nowrap;padding:7px;gap:4px}.stage-number{display:none}.workflow-body{padding:8px}.workflow-body--refinement{overflow:auto}.refinement-stage{display:flex;flex-direction:column;gap:10px;overflow:visible;flex:0 0 auto}.refinement-controls{flex:0 0 auto;overflow:visible}.refinement-preview{flex:0 0 auto}.refinement-preview>.document-preview,.refinement-preview>.letter-preview{flex:0 0 auto}.refinement-preview :deep(.document-inline-preview){min-height:0}.refinement-preview :deep(.document-inline-preview__viewport){display:block;max-height:60vh}.stage-heading{gap:10px}.stage-heading h2{font-size:20px}.workflow-card{padding:14px}.workflow-body input,.workflow-body textarea,.workflow-body select{font-size:16px}.workflow-body p{font-size:15px}.workflow-body--review{overflow:auto}.workflow-body--review :deep(.application-documents){min-height:430px;flex:1 0 auto}.review-heading details{max-height:180px}.tracking-stage{gap:12px}}
 @media(min-width:761px){.refinement-stage{grid-template-rows:auto auto minmax(0,1fr);row-gap:12px}.refinement-toolbar{grid-column:1;grid-row:1;margin-right:8px}.proposal-preview-action{grid-column:1;grid-row:2}.refinement-controls{grid-column:1;grid-row:3}.refinement-preview{grid-column:2;grid-row:1 / 4}}
@@ -1034,5 +1035,4 @@ h3{font-size:16px;margin:0 0 14px}p{line-height:1.6;font-size:13px}button,input,
 .refinement-toolbar--sidebar{position:static;padding:0;margin:0;border:0;background:transparent}
 .refinement-toolbar--sidebar .action-row{display:flex;flex-direction:column;align-items:stretch;gap:8px}
 .refinement-toolbar--sidebar .action-row button{width:100%;text-align:left}
-.refinement-toolbar--sidebar .refinement-approval{margin:0}
 </style>

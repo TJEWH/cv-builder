@@ -8,6 +8,7 @@ test('initial task copying publishes and copies one immutable request without a 
   const fixture = mount(t), setup = fixture.setup;
   await idle(setup); await setup.selectCv('base'); await setup.selectLetterTemplate('research');
   setup.feedbackScope = 'letter'; setup.tab = 'refinement'; await idle(setup);
+  assert.equal(setup.showInitialRefinement, true);
   let copied = '';
   navigator.clipboard.writeText = async value => { copied = value; };
 
@@ -15,11 +16,48 @@ test('initial task copying publishes and copies one immutable request without a 
 
   assert.equal(setup.error, '');
   assert.equal(setup.requests.length, 1);
+  assert.equal(setup.showInitialRefinement, true, 'publishing the first request still waits for an initial proposal');
   assert.equal(setup.requests[0].request_json.letter.text, '');
   assert.ok(copied.includes(setup.requests[0].id));
   assert.match(copied, /initial motivation-letter draft/);
   await setup.copyIterationTask();
   assert.equal(setup.requests.length, 1, 'copying an unchanged initial task must reuse its request');
+});
+
+test('refinement phase follows document history through pending requests, scope changes and reload', async t => {
+  const fixture = mount(t); let setup = await prepare(fixture, 'base', { scope: 'letter' });
+  assert.equal(setup.showInitialRefinement, true);
+  fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'First letter refinement.' });
+  await setup.syncRefinement();
+  assert.equal(setup.error, '');
+  assert.equal(setup.showInitialRefinement, false, 'the first proposal starts subsequent refinements');
+
+  setup.selectedProposalId = '';
+  assert.equal(setup.showInitialRefinement, false, 'deselecting a proposal does not erase earlier refinement');
+  setup.feedbackScope = 'cv';
+  assert.equal(setup.showInitialRefinement, true, 'letter history does not hide the initial CV refinement');
+  setup.feedbackScope = 'letter';
+  assert.equal(setup.showInitialRefinement, false);
+
+  await setup.copyIterationTask();
+  assert.equal(setup.error, '');
+  assert.equal(setup.requests.length, 2);
+  assert.equal(setup.proposals.some(row => row.request_id === setup.cloudState!.current_request_id), false);
+  assert.equal(setup.showInitialRefinement, false, 'a pending subsequent proposal does not restart initial refinement');
+  setup = fixture.reopen(); await idle(setup);
+  assert.equal(setup.selectedProposalId, '', 'the pending request has no current proposal to select after reload');
+  assert.equal(setup.showInitialRefinement, false, 'historical proposals still determine the phase after reload');
+});
+
+test('a combined proposal counts as an earlier refinement for both documents', async t => {
+  const fixture = mount(t), setup = await prepare(fixture, 'base', { scope: 'both' });
+  fixture.cloud.seedProposal(setup.requests[0].id);
+  await setup.checkProposals();
+  assert.equal(setup.error, '');
+  setup.feedbackScope = 'cv';
+  assert.equal(setup.showInitialRefinement, false);
+  setup.feedbackScope = 'letter';
+  assert.equal(setup.showInitialRefinement, false);
 });
 
 test('sync automatically applies the latest current letter proposal once and preserves the source snapshot', async t => {
@@ -161,6 +199,7 @@ test('reset restores the first private sources, retains history, and prevents au
   fixture.cloud.seedProposal(second.id, { letterText: 'Changed letter retained in revision history.' });
   await setup.syncRefinement();
   assert.equal(setup.error, '');
+  assert.equal(setup.showInitialRefinement, false);
   assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'An answer for the previous iteration.', null), true);
   await setup.approve('letter'); await setup.approve('cv');
   assert.equal(setup.error, '');
@@ -177,6 +216,7 @@ test('reset restores the first private sources, retains history, and prevents au
   assert.deepEqual(setup.letter!.templateSnapshot, originalSettings);
   assert.equal(setup.letter!.finalRevisionId, null);
   assert.equal(setup.selectedProposalId, '');
+  assert.equal(setup.showInitialRefinement, true, 'reset proposals remain in history but no longer count as an earlier refinement');
   assert.equal(setup.requests.length, requestCount); assert.equal(setup.proposals.length, proposalCount);
   for (const id of acceptedRevisionIds) assert.ok(setup.letter!.revisions.some(revision => revision.id === id), 'reset must preserve every prior letter revision');
   assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'feedback').length, savedFeedback + 1);
@@ -184,11 +224,13 @@ test('reset restores the first private sources, retains history, and prevents au
   assert.match(setup.feedbackHistory().at(-1)!.text, /^Workflow reset:/, 'reset explicitly cancels earlier guidance without deleting it');
   setup = fixture.reopen(); await idle(setup); await setup.syncRefinement();
   assert.equal(setup.error, '');
+  assert.equal(setup.showInitialRefinement, true);
   assert.equal(refinementSignature(setup.record!.state), originalCv);
   assert.deepEqual(setup.letter!.working, originalLetter);
   assert.equal(setup.requests.length, requestCount);
   await setup.copyIterationTask();
   assert.equal(setup.error, '');
+  assert.equal(setup.showInitialRefinement, true, 'the first request after reset still waits for an initial proposal');
   assert.notEqual(setup.requests[0].id, first.id); assert.notEqual(setup.requests[0].id, second.id);
   assert.equal(setup.requests[0].request_json.feedback.length, savedFeedback + 1);
   assert.match(setup.requests[0].request_json.feedback.at(-1)!.text, /^Workflow reset:/);
