@@ -59,7 +59,7 @@ test('pasted CV proposal applies once, preserves private content and letter, and
   const importedId = setup.importedProposals[0].id;
   assert.equal(setup.selectedProposalId, importedId);
   assert.equal(setup.parentProposalId, null, 'local proposal IDs must never become a cloud parent reference');
-  assert.equal(fixture.creations.length, 1);
+  assert.equal(fixture.creations.length, 0);
   assert.equal(setup.localRequests[request.id].acceptances?.length, 1);
   assert.equal(refinementSignature(setup.localRequests[request.id].cv), baseline);
   assert.equal(refinementSignature(setup.letter), originalLetter);
@@ -69,14 +69,14 @@ test('pasted CV proposal applies once, preserves private content and letter, and
   setup.proposalInput = JSON.stringify(payload);
   await setup.importProposal();
   assert.equal(setup.error, ''); assert.equal(setup.proposalInput, '');
-  assert.equal(documents(setup), applied); assert.equal(fixture.creations.length, 1); assert.equal(setup.importedProposals.length, 1);
+  assert.equal(documents(setup), applied); assert.equal(fixture.creations.length, 0); assert.equal(setup.importedProposals.length, 1);
   setup = fixture.reopen(); await idle(setup);
   assert.equal(setup.error, '');
   assert.deepEqual(JSON.parse(documents(setup)), JSON.parse(applied)); assert.equal(setup.importedProposals[0].id, importedId);
-  assert.equal(fixture.creations.length, 1);
+  assert.equal(fixture.creations.length, 0);
   await setup.syncRefinement();
   assert.equal(setup.error, ''); assert.equal(setup.requests.length, 1, 'Sync must not start a fresh iteration after a local proposal was applied');
-  assert.deepEqual(JSON.parse(documents(setup)), JSON.parse(applied)); assert.equal(fixture.creations.length, 1);
+  assert.deepEqual(JSON.parse(documents(setup)), JSON.parse(applied)); assert.equal(fixture.creations.length, 0);
 });
 
 test('pasted initial letter draft becomes working text and the next full prompt includes it and resolved feedback', async t => {

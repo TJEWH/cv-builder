@@ -8,9 +8,9 @@ export interface ApplicationCvRecord {
   userId: string;
   applicationId: string;
   baseId: string;
-  /** Absent only for legacy independent application copies awaiting migration. */
+  /** Optional legacy library provenance; the working CV remains independent. */
   variantId?: string;
-  /** Restored backups stay pinned until explicitly adopted into the variant library. */
+  /** Legacy backup provenance retained without changing the independent working copy. */
   detached?: boolean;
   baseName: string;
   /** Legacy snapshot revision retained for saved application and refinement compatibility. */

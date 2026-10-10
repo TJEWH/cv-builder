@@ -30,7 +30,7 @@ The dedicated Vite configuration does not load `.env` files, disables Supabase c
 
 ## Browser flows
 
-1. **CV:** prepare a local CV, publish its privacy snapshot, import synthetic version-2 JSON, inspect the rendered proposal, exclude an operation, compare Original/Proposed, accept the exact candidate as a subvariant, inspect its accepted preview, remount and accept again. Distinct private tokens must follow their reordered bullets. Omitting the private linked bullet must retain the original source and mappings.
+1. **CV:** prepare a local CV, publish its privacy snapshot, import synthetic version-2 JSON, inspect the rendered proposal, exclude an operation, compare Original/Proposed, accept the exact candidate into the independent application CV, inspect its accepted preview, remount and accept again. Acceptance must leave the reusable variant library unchanged. Distinct private tokens must follow their reordered bullets. Omitting the private linked bullet must retain the original source and mappings.
 2. **Initial letter:** publish an explicitly empty source, verify the initial-draft label, import a proposal, inspect its rendered text and expanded comparison, accept into the working draft, remount and repeat acceptance. The CV remains unchanged.
 3. **Existing letter:** publish the entire existing draft, preview its proposed replacement without overwriting it, compare in the expanded preview, accept and remount. The CV remains unchanged.
 4. **Combined:** load both candidates from the mock connected history, refresh without changing the active review, switch proposals without mixing their contents, answer an annotation without changing document inputs or rendered PDF content, dismiss, edit the working source and verify the outdated warning and disabled acceptance. Finally approve working documents, verify export is blocked while an unaccepted proposal is active, leave temporary review through PDF review, and generate/load real CV and letter PDFs from accepted inputs. Application tracking status stays independent.
@@ -47,7 +47,7 @@ The dedicated Vite configuration does not load `.env` files, disables Supabase c
 | CV, letter and combined proposals immediately update previews | `refinementRegression`, `applicationRefinementWorkflow`, `refinementPreviewStatus` | All five flows, actual SVG preview text |
 | Single-document scope leaves the other document unchanged | `refinementRegression` | CV-only and both letter flows |
 | Operation selection, proposal switching, Original/Proposed | `refinementRegression`, `refinementChangeReview`, `applicationRefinementWorkflow` | CV selection/comparison, combined switch, expanded letter comparison |
-| Section, entry and bullet reordering keeps identifiers associated | `cvStructuredRefinement`, `refinementRegression` | CV candidate and accepted subvariant |
+| Section, entry and bullet reordering keeps identifiers associated | `cvStructuredRefinement`, `refinementRegression` | CV candidate and accepted application copy |
 | Different private tokens move with their own bullets | `refinementRegression`, `cvStructuredRefinement` | Exact reconstructed bullet text and rendered CV |
 | Omit a token/link bullet without deleting its local originals | `refinementRegression`, `cvStructuredRefinement` | CV omission, source and mapping invariants |
 | Unknown identifiers, altered tokens, unsupported operations, invalid selections | `refinementRegression`, `applicationRefinement`, `cvStructuredRefinement` | Covered by Node reconstruction/workspace tests |
@@ -58,7 +58,7 @@ The dedicated Vite configuration does not load `.env` files, disables Supabase c
 | Outgoing payloads exclude private originals and reverse mappings | `refinementRegression`, `refinementPrivacy`, `applicationRefinement`, `cloudCvPrivacy` | Every preparation inspects the mock outgoing database |
 | Missing source or token/element mapping fails without guessing | `refinementRegression`, `applicationRefinement`, `cvStructuredRefinement` | Covered by Node workspace/reconstruction tests |
 | Export during review uses only accepted state | `refinementRegression`, `refinementPreviewStatus`, `applicationPackage` | Combined flow checks export gate, approved inputs and real PDFs |
-| Finalized letters, subvariant hierarchy, failed commits and concurrent edits | `applicationRefinementWorkflow` | Covered by Node workflow tests |
+| Finalized letters, independent application CVs, failed commits and concurrent edits | `applicationRefinementWorkflow` | Covered by Node workflow tests |
 | Shared refinement scope and active history selection | `applicationRefinementWorkflow`, `refinementHistory` | Scope selection, connected refresh and history selection |
 | Visible/pseudonymized/unshared values and approved context descriptions | `refinementPrivacy`, `cloudCvPrivacy`, `applicationRefinement` | Synthetic snapshot privacy boundary; detailed legend cases are Node tests |
 

@@ -155,12 +155,13 @@ function savedVersionFixture(t: TestContext) {
   const instance = mounted as {
     saveCurrent(options?: { announce?: boolean }): boolean; saveVersion(id: string, data: CvState): boolean;
     saveAsDocument(name: string, data: CvState): boolean;
-    createSubvariant(sourceId: string, name: string, data: CvState): string | null;
+    createVariant(name: string, data: CvState): string | null;
+    readConfigData(id: string): CvState | null;
     restoreActiveConfig(): CvState | null;
     $: { setupState: {
       deleteCurrent(): void; exportJson(kind: CvJsonKind): void;
       importJson(event: Event, kind: CvJsonKind): Promise<void>;
-      onStorageChange(event: StorageEvent): void; backupMsg: string; bypassPrivacyProxy: boolean;
+      onStorageChange(event: StorageEvent): void; backupMsg: string; bypassPrivacyProxy: boolean; configs: SavedConfiguration[];
     } };
   };
   t.after(() => app.unmount());
@@ -181,6 +182,7 @@ test('silent saves leave failure notifications to their caller while explicit sa
   assert.equal(instance.saveVersion('other', createEmptyDocument()), false);
   assert.equal(notifications.toasts.value.length, 0, 'App also owns section autosave feedback');
   assert.equal(instance.saveAsDocument('New career variant', createSampleDocument()), false);
+  assert.equal(instance.createVariant('Approved application CV', createSampleDocument()), null);
   assert.equal(notifications.toasts.value.length, 0, 'the career-variant caller reports its own failure');
 
   assert.equal(instance.saveCurrent({ announce: true }), false);
@@ -189,20 +191,56 @@ test('silent saves leave failure notifications to their caller while explicit sa
   assert.ok(notifications.toasts.value[0]?.message);
 });
 
-test('subvariants retain their parent through autosave and their parent cannot be deleted first', async (t) => {
+test('saving an application CV creates an independent variant without changing the active CV', async (t) => {
   const { storage, instance, setup, props } = savedVersionFixture(t);
-  const child = instance.createSubvariant('target', 'Robotics application', createSampleDocument());
-  assert.ok(child);
-  const sibling = instance.createSubvariant(child, 'Second application', createSampleDocument());
-  assert.ok(sibling);
-  assert.equal(instance.saveVersion(child, createEmptyDocument()), true);
+  const applicationCv = createSampleDocument();
+  applicationCv.about.text = 'Approved application content';
+  const original = storage.get('CV_CONF_DATA:target');
+  const first = instance.createVariant('Robotics application', applicationCv);
+  assert.ok(first);
+  const second = instance.createVariant('Robotics application', applicationCv);
+  assert.ok(second);
+  assert.notEqual(first, second, 'repeated names receive distinct IDs');
+  applicationCv.about.text = 'Later application change';
+  assert.equal(instance.readConfigData(first)?.about.text, 'Approved application content');
+  assert.equal(props.selectedId, 'target');
+  assert.equal(storage.get('CV_CONF_ACTIVE_ID'), 'target');
+  assert.equal(storage.get('CV_CONF_DATA:target'), original);
+  assert.equal(instance.createVariant('  ', applicationCv), null);
+  assert.equal(instance.saveVersion(first, createEmptyDocument()), true);
   const items = JSON.parse(storage.get('CV_CONF_INDEX')!) as SavedConfiguration[];
-  assert.equal(items.find(item => item.id === child)?.parentId, 'target');
-  assert.equal(items.find(item => item.id === sibling)?.parentId, 'target');
+  assert.equal(items.length, 4);
+  assert.ok(items.every(item => !Object.hasOwn(item, 'parentId')));
+  assert.ok(!Object.hasOwn(JSON.parse(storage.get(`CV_CONF_DATA:${first}`)!).__meta, 'parentId'));
   setup.deleteCurrent();
   await nextTick();
-  assert.equal(props.selectedId, 'target');
-  assert.ok(storage.has('CV_CONF_DATA:target'));
+  assert.equal(props.selectedId, EMPTY_DOCUMENT_ID);
+  assert.ok(!storage.has('CV_CONF_DATA:target'));
+  assert.ok(storage.has(`CV_CONF_DATA:${first}`));
+  assert.ok(storage.has(`CV_CONF_DATA:${second}`));
+});
+
+test('legacy subvariants load independently and deleting their former parent preserves their data', async (t) => {
+  const { storage, instance, setup, props } = savedVersionFixture(t);
+  const legacyState = createSampleDocument();
+  legacyState.about.text = 'Existing tailored content';
+  const legacyData = JSON.stringify({ __meta: { id: 'legacy-child', name: 'Existing application CV', parentId: 'target' }, data: legacyState });
+  storage.set('CV_CONF_INDEX', JSON.stringify([
+    { id: 'target', name: 'Engineering 2026' },
+    { id: 'legacy-child', name: 'Existing application CV', mtime: 123, parentId: 'target' },
+  ]));
+  storage.set('CV_CONF_DATA:legacy-child', legacyData);
+  setup.onStorageChange({ storageArea: localStorage, key: 'CV_CONF_INDEX' } as StorageEvent);
+  assert.deepEqual(setup.configs.find(item => item.id === 'legacy-child'), { id: 'legacy-child', name: 'Existing application CV', mtime: 123 });
+  assert.deepEqual(instance.readConfigData('legacy-child'), legacyState);
+  assert.equal(storage.get('CV_CONF_DATA:legacy-child'), legacyData, 'reading the library preserves the stored backup');
+
+  setup.deleteCurrent();
+  await nextTick();
+  assert.equal(props.selectedId, EMPTY_DOCUMENT_ID);
+  assert.equal(storage.get('CV_CONF_DATA:legacy-child'), legacyData);
+  assert.deepEqual(JSON.parse(storage.get('CV_CONF_INDEX')!), [{ id: 'legacy-child', name: 'Existing application CV', mtime: 123 }]);
+  assert.deepEqual(instance.readConfigData('legacy-child'), legacyState);
 });
 
 test('deletion removes persisted data and the recovery copy, opens empty state, and cannot autosave the old version', async (t) => {

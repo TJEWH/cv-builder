@@ -112,10 +112,9 @@ function mount(t: TestContext, legacy?: 'unchanged' | 'tailored', missingLetterT
       database.applications[0].cv_variant_id = snapshot.id;
       return props.application;
     },
-    createSubvariant: (source: string, name: string, state: CvState) => {
-      const id = `child-${states.size}`;
-      const parentId = props.configurations.find(item => item.id === source)?.parentId || source;
-      states.set(id, cloneCv(state)); props.configurations.push({ id, name, parentId }); return id;
+    createVariant: (name: string, state: CvState) => {
+      const id = `variant-${states.size}`;
+      states.set(id, cloneCv(state)); props.configurations.push({ id, name }); return id;
     },
   });
   const component = { ...exports.default, render: () => null };
@@ -149,7 +148,7 @@ test('applications freeze selected CVs and keep manual edits independent from th
   setup.record!.state.about.text = 'Tailored manually for this application';
   await nextTick();
   assert.equal(states.get('base')?.about.text, 'Edited in CV Studio');
-  assert.equal(states.size, 1, 'application edits never create library subvariants automatically');
+  assert.equal(states.size, 1, 'application edits never create library variants automatically');
   assert.equal(loadApplicationCv(account, applicationId)?.state.about.text, 'Tailored manually for this application');
 });
 
@@ -230,11 +229,11 @@ test('legacy letters whose original template is missing require an explicit repl
   assert.equal(database.application_refinement_state.length, 1, 'explicit replacement can be saved normally');
 });
 
-test('one CV selector accepts saved subvariants and library autosaves preserve the application copy', async (t) => {
+test('one CV selector accepts saved variants and library autosaves preserve the application copy', async (t) => {
   const { setup, props, states, base } = mount(t);
   await idle(setup);
   states.set('other', cloneCv(base)); states.set('other-child', cloneCv(base));
-  props.configurations.push({ id: 'other', name: 'Other path' }, { id: 'other-child', name: 'Other application', parentId: 'other' });
+  props.configurations.push({ id: 'other', name: 'Other path' }, { id: 'other-child', name: 'Other application' });
   await setup.selectCv('base');
   await idle(setup);
   await setup.selectCv('other-child');
@@ -261,7 +260,7 @@ test('refinement preserves manual fixes and accumulates letter-only feedback whi
   const firstProposal = cloud.seedProposal(setup.requests[0].id);
   await setup.checkProposals(); setup.selectedProposalId = firstProposal.id; setup.openProposal(); await setup.acceptSelectedChanges();
   assert.equal(setup.error, '');
-  assert.equal(states.size, 2, 'accepting the reviewed CV creates its local subvariant');
+  assert.equal(states.size, 1, 'accepting the reviewed CV leaves the variant library unchanged');
   assert.ok(setup.letterText.includes('Human-Centred Robotics'));
   setup.record!.state.about.text += '\nManual CV correction retained.';
   setup.updateLetter(setup.letterText + '\n\nManual letter correction retained.');

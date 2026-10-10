@@ -68,10 +68,10 @@ test('synthetic CV workflow keeps different secrets and linked omissions attache
   const reorder = (incoming.proposal_json as RefinementProposalV2).cvOperations.find(op => op.type === 'reorder_sections')!;
   setup.toggleProposedChange(reorder.id, false); assert.deepEqual(setup.previewCvState!.bodyOrder, base.bodyOrder);
   const shown = cloneCv(setup.previewCvState!); await setup.acceptSelectedChanges(); assert.equal(setup.error, '');
-  assert.deepEqual(setup.record!.state, shown); assert.deepEqual(setup.previewCvState, shown); assert.equal(fixture.creations.length, 1);
+  assert.deepEqual(setup.record!.state, shown); assert.deepEqual(setup.previewCvState, shown); assert.equal(fixture.creations.length, 0);
   assert.deepEqual(fixture.states.get('base'), base); assert.equal(JSON.stringify(local.cv), originals);
   setup = fixture.reopen(); await idle(setup); setup.openProposal(); await setup.acceptSelectedChanges();
-  assert.equal(fixture.creations.length, 1); assert.deepEqual(setup.record!.state, shown);
+  assert.equal(fixture.creations.length, 0); assert.deepEqual(setup.record!.state, shown);
   for (const secret of ['E2E North Lab', 'E2E South Lab', 'E2E Omit Lab', 'private.example.invalid', 'rowan@example.invalid', 'local-private-job', 'bindings', 'baselineState', 'sourceSignatures', 'structureBindings']) assert.equal(JSON.stringify(fixture.database).includes(secret), false, `published data leaked ${secret}`);
 });
 
@@ -88,7 +88,7 @@ for (const initial of [true, false]) test(`synthetic ${initial ? 'initial' : 'ex
   assert.equal(JSON.stringify(setup.letter!.working), shown); assert.equal(fixture.creations.length, 0);
 });
 
-for (const defect of ['unknown target', 'altered token', 'unsupported operation', 'unknown selection', 'missing source', 'missing token mapping', 'missing element mapping'] as const) test(`${defect} blocks preview/acceptance before any document or subvariant mutation`, async t => {
+for (const defect of ['unknown target', 'altered token', 'unsupported operation', 'unknown selection', 'missing source', 'missing token mapping', 'missing element mapping'] as const) test(`${defect} blocks preview/acceptance before any document mutation`, async t => {
   const fixture = mount(t, createPrivateRefinementCv()), setup = await prepare(fixture);
   fixture.cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
   const local = setup.localRequests[setup.requests[0].id], payload = setup.proposals[0].proposal_json as RefinementProposalV2;

@@ -1,20 +1,19 @@
 # Legacy CV adjustments with ChatGPT
 
-The main application workflow is now [joint CV/letter refinement](REFINEMENT.md), organized as **Preparation → Refinement → PDF review → Tracking**. Selecting a variant creates an independent application CV, and the selected letter-template revision is frozen. Library changes do not alter application copies. Proposals are reviewed and reconstructed locally, and manual application edits do not create library subvariants automatically.
+The main application workflow is now [joint CV/letter refinement](REFINEMENT.md), organized as **Preparation → Refinement → PDF review → Tracking**. Selecting a variant creates an independent application CV, and the selected letter-template revision is frozen. Library changes do not alter application copies. Manual edits and accepted refinements stay with their application. After approving the final CV, **Save as new variant** creates an independent reusable library copy.
 
-This document preserves the separate **legacy CV-adjustment API** and its public-field/token contract. Older clients and stored requests/responses remain supported. The former standalone component accepts changed responses as a subvariant; that behavior does not apply to the new application refinement workspace.
+This document preserves the separate **legacy CV-adjustment API** and its public-field/token contract. Older clients and stored requests/responses remain supported. The former standalone adjustment component is no longer present. The app's earlier-history view can read and export archived CV requests and proposals; it cannot apply them to working documents.
 
 ## Current application workflow
 
 Select CV and letter templates and attach supporting files in Preparation. Copy the initial refinement prompt into ChatGPT with the existing project Supabase MCP. ChatGPT reads one exact prepared request and saves a joint proposal through private management functions. Return to the app to check the summary and wording, explicitly open the proposal, edit minor issues or save feedback for another round. Each round carries current anonymized wording and all earlier replies. Approve CV and letter separately; later rounds leave approved documents unchanged until reopened. Optional letter examples guide style only, and word-limit warnings remain advisory. Review/export the combined PDF, submit manually and update Tracking. Supporting files remain local throughout.
 
-## Retained standalone workflow for legacy clients
+## Legacy external client workflow
 
-1. Select the application and its CV variant. Add adjustment instructions and choose **Prepare privacy snapshot**.
-2. Review the generated request. Only visible, non-excluded text fields are included. Names and contact values, inline `!!private text!!` fragments and identifying links are masked or omitted. Unmarked prose can still identify you, so review the public text before sharing it.
-3. Choose **Publish snapshot to Supabase** for a configured integration, or copy/download the generated prompt for a manual ChatGPT conversation. Preparing a snapshot alone does not upload it, and publishing does not run ChatGPT.
-4. Ask ChatGPT to return the specified JSON response. An authenticated integration can append it to Supabase. Otherwise paste the JSON or import the returned JSON file in the application.
-5. Use **Refresh returned adjustments** for cloud returns, then choose a response and **Review changes**. Review the local before/after wording and choose **Accept as subvariant**. Open the resulting subvariant in CV Studio for further changes.
+1. Prepare an application-specific privacy snapshot using the legacy public-field contract below. Only visible, non-excluded text fields belong in the request. Mask or omit names, contact values, inline `!!private text!!` fragments and identifying links. Review unmarked prose before sharing it.
+2. Publish through the owner-authenticated legacy RPC. Publishing stores the request; it does not run ChatGPT.
+3. Ask the external client to return the specified JSON response. An authenticated integration can append it to Supabase using the legacy response RPC.
+4. Keep the exact private source and token mappings locally. Any client that applies returned changes must validate and reconstruct them against that source before the owner accepts them. The current app starts new work through the shared refinement flow and exposes old records only in its archive view.
 
 Requests have this public shape:
 

@@ -6,8 +6,8 @@ import { makeT } from '../i18n/dict';
 import { STORAGE_KEY } from '../composables/useStorage';
 import { builtinConfigurations, createEmptyDocument, createSampleDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID } from '../composables/builtinConfigurations';
 import { createNormalizedContentState } from '../composables/contentLayout';
-import { normalizeVariantIndex, subvariantParent } from '../composables/careerVariants';
-import { useToasts, useToastWatch } from '../composables/useToasts';
+import { normalizeVariantIndex } from '../composables/careerVariants';
+import { useToasts } from '../composables/useToasts';
 import {
   MAX_CV_JSON_FILE_BYTES,
   createCvContentJson, createCvConfigJson,
@@ -39,7 +39,6 @@ const t = makeT(langRef);
 const configs = ref<SavedConfiguration[]>([]);
 const newName = ref('');
 const backupMsg = ref('');
-const relationError = ref('');
 const { notify } = useToasts();
 function showBackupMessage(key: string) {
   backupMsg.value = key;
@@ -47,7 +46,6 @@ function showBackupMessage(key: string) {
   const warning = key === 'versionMissingName' || key === 'versionImportTargetChanged';
   notify({ message: t(key), tone: failed ? 'error' : warning ? 'warning' : 'success' });
 }
-useToastWatch(() => relationError.value, { tone: 'error' });
 const contentFileInput = ref<HTMLInputElement | null>(null);
 const configFileInput = ref<HTMLInputElement | null>(null);
 const isImporting = ref(false);
@@ -138,18 +136,15 @@ function uniqueConfigId(name: string) {
   return candidate;
 }
 
-function saveConfig(id: string, name: string, { announce = true, data = snapshotState(), activate = true, parentId = undefined as string | undefined } = {}) {
+function saveConfig(id: string, name: string, { announce = true, data = snapshotState(), activate = true } = {}) {
   if (id === EMPTY_DOCUMENT_ID) return false;
   try {
     const items = readIndex();
-    const existing = items.find((item) => item.id === id);
-    const parent = parentId ?? existing?.parentId;
-    if (parent && subvariantParent(parent, items) !== parent) throw new Error('A subvariant must belong directly to a career variant.');
-    const meta = { id, name, updatedAt: Date.now(), ...(parent ? { parentId: parent } : {}) };
+    const meta = { id, name, updatedAt: Date.now() };
     if (!writeStorage(localDataKey(id), JSON.stringify({ __meta: meta, data }))) throw new Error('Configuration data could not be written');
 
     const index = items.findIndex((item) => item.id === id);
-    const entry = { id, name, mtime: meta.updatedAt, ...(parent ? { parentId: parent } : {}) };
+    const entry = { id, name, mtime: meta.updatedAt };
     if (index >= 0) items[index] = entry;
     else items.push(entry);
     if (!writeIndex(items)) throw new Error('Configuration index could not be written');
@@ -268,11 +263,6 @@ function clearDeletedVersion(id: string) {
 }
 
 function deleteCurrent() {
-  relationError.value = '';
-  if (readIndex().some((item) => item.parentId === currentId.value)) {
-    relationError.value = props.lang === 'de' ? 'Lösche zuerst die Untervarianten dieser Variante.' : 'Delete this variant’s subvariants first.';
-    return;
-  }
   if (!currentId.value || builtinConfigurations(props.lang).some(({ id }) => id === currentId.value) || !confirm(t('versionConfirmDelete'))) return;
   if (!props.beforeLoad()) return;
   const id = currentId.value;
@@ -383,24 +373,20 @@ function onStorageChange(event: StorageEvent) {
 }
 
 function saveAsDocument(name: string, data: CvState) {
-  if (!name.trim()) return false;
-  return saveConfig(uniqueConfigId(name), name.trim(), { data: JSON.parse(JSON.stringify(data)), announce: false, activate: false });
+  return createVariant(name, data) !== null;
 }
-function createSubvariant(sourceId: string, name: string, data: CvState): string | null {
+function createVariant(name: string, data: CvState): string | null {
   try {
-    const parentId = subvariantParent(sourceId, readIndex());
     if (!name.trim()) return null;
     const id = uniqueConfigId(name);
-    return saveConfig(id, name.trim(), { data: JSON.parse(JSON.stringify(data)), parentId, activate: false }) ? id : null;
-  } catch (error) { relationError.value = String(error); return null; }
+    return saveConfig(id, name.trim(), { data: JSON.parse(JSON.stringify(data)), announce: false, activate: false }) ? id : null;
+  } catch (error) {
+    console.warn('Failed to create variant', error);
+    backupMsg.value = 'versionSaveFailed';
+    return null;
+  }
 }
-function saveSubvariant() {
-  if (!props.beforeLoad()) return;
-  const id = createSubvariant(currentId.value, newName.value, snapshotState());
-  if (id && selectConfiguration(id)) newName.value = '';
-  emit('save-result', Boolean(id));
-}
-defineExpose({ selectConfiguration, restoreActiveConfig, saveCurrent, readConfigData, saveVersion, saveAsDocument, createSubvariant });
+defineExpose({ selectConfiguration, restoreActiveConfig, saveCurrent, readConfigData, saveVersion, saveAsDocument, createVariant });
 onMounted(() => {
   refreshConfigs();
   if (typeof window !== 'undefined') window.addEventListener('storage', onStorageChange);
@@ -419,7 +405,7 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
         <div v-show="selectorVisible" class="backup-manager__actions" :class="{ 'backup-manager__actions--docked': !!selectorTarget, 'backup-manager__actions--sidebar': selectorTarget.startsWith('#desktop-sidebar-') }">
           <select :class="{ 'variant-selector--docked': !!selectorTarget }" :value="currentId" :aria-label="t('versions')" @change="onConfigurationChange">
             <option v-if="!currentId" value="" disabled>{{ t('noSavedVersion') }}</option>
-            <option v-for="config in configs" :key="config.id" :value="config.id">{{ config.parentId ? `${configs.find(item => item.id === config.parentId)?.name} / ` : '' }}{{ config.name }}</option>
+            <option v-for="config in configs" :key="config.id" :value="config.id">{{ config.name }}</option>
           </select>
           <button type="button" class="btn btn--danger" :disabled="!currentId || builtinConfigurations(props.lang).some(({ id }) => id === currentId)" @click="deleteCurrent">{{ t('delete') }}</button>
         </div>
@@ -429,15 +415,15 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
       <form class="backup-manager__save-as" @submit.prevent="saveAs">
         <input v-model="newName" :placeholder="t('versionNewName')" :aria-label="t('versionNewName')" />
         <button type="submit" class="btn btn--success" :disabled="!newName.trim()">{{ t('versionSaveAs') }}</button>
-        <button type="button" class="btn" :disabled="!newName.trim() || !currentId || builtinConfigurations(lang).some(item => item.id === currentId)" @click="saveSubvariant">{{ lang === 'de' ? 'Als Untervariante speichern' : 'Save as subvariant' }}</button>
       </form>
 
       <div class="backup-manager__language">
         <h3>{{ t('language') }}</h3>
-        <button class="backup-manager__language-toggle" type="button" :class="{ 'is-on': lang === 'en' }" :aria-label="t('language')" :aria-pressed="lang === 'en'" @click="emit('toggle-language')">
+        <button class="backup-manager__language-toggle" type="button" :class="{ 'is-on': lang === 'en' }" :aria-label="t('language')" aria-describedby="variant-language-help" :aria-pressed="lang === 'en'" @click="emit('toggle-language')">
           <span class="backup-manager__language-track"><span>DE</span><span>EN</span><span class="backup-manager__language-thumb"></span></span>
         </button>
       </div>
+      <p id="variant-language-help" class="backup-manager__hint app-hint">{{ lang === 'de' ? 'Die Sprache wird für diese Variante gespeichert. Sie ändert die Oberfläche und Standardbeschriftungen im CV. Deine eigenen Texte werden nicht übersetzt.' : 'The language is saved for this variant. It changes the interface and default CV labels. Your own text is not translated.' }}</p>
 
       <div class="backup-manager__json-group">
         <h3>{{ t('versionContentJson') }}</h3>

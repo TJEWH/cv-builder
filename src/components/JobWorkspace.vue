@@ -24,7 +24,7 @@ import { useDesktopSidebar } from '../composables/desktopSidebar';
 const props = withDefaults(defineProps<{
   client: SupabaseClient | null; userId: string; tab: 'opportunities' | 'applications'; lang: string;
   configurations: SavedConfiguration[]; selectedId: string; readVersion: (id: string) => CvState | null;
-  createSubvariant?: (parentId: string, name: string, state: CvState) => string | null;
+  createVariant?: (name: string, state: CvState) => string | null;
   projectId?: string;
   active?: boolean;
 }>(), { active: true });
@@ -323,7 +323,7 @@ useToastWatch(() => notice.value, () => {
       </WorkspaceDetailHeader>
       <div class="opportunity-detail__body"><OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity.details" :lang="lang" /></div>
     </section>
-    <ApplicationWorkspace v-if="editingApplication" v-show="tab === 'applications'" :active="props.active !== false && tab === 'applications'" :checklist-saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-subvariant="createSubvariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @change-stage="stage => setApplicationStage(editingApplication!.id, stage)" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
+    <ApplicationWorkspace v-if="editingApplication" v-show="tab === 'applications'" :active="props.active !== false && tab === 'applications'" :checklist-saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-variant="createVariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @change-stage="stage => setApplicationStage(editingApplication!.id, stage)" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
       <template #preparation-actions>
         <button class="btn btn--danger jobs-remove-application" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(editingApplication)}`" @click="requestDetailRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button>
       </template>

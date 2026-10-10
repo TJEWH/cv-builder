@@ -84,7 +84,7 @@ test('sync automatically applies the latest current letter proposal once and pre
   assert.equal(setup.letter!.revisions.filter(revision => revision.cloudDraftId === latest.id).length, 1);
 });
 
-test('automatic CV application preserves private originals and creates only one subvariant across sync and reload', async t => {
+test('automatic CV application preserves private originals without library writes across sync and reload', async t => {
   const fixture = mount(t, createPrivateRefinementCv()); let setup = await prepare(fixture, 'base', { scope: 'cv' });
   setup.tab = 'refinement'; await idle(setup);
   const source = setup.requests[0], original = refinementSignature(setup.localRequests[source.id].cv);
@@ -94,16 +94,16 @@ test('automatic CV application preserves private originals and creates only one 
   await setup.syncRefinement();
 
   assert.equal(setup.error, '');
-  assert.equal(fixture.creations.length, 1);
-  assert.equal(setup.record!.variantId, fixture.creations[0].id);
-  assert.deepEqual(setup.record!.state, fixture.creations[0].state);
+  assert.equal(fixture.creations.length, 0);
+  assert.equal(setup.record!.variantId, 'base');
+  assert.notDeepEqual(setup.record!.state, fixture.states.get('base'));
   assert.equal(refinementSignature(setup.localRequests[source.id].cv), original);
   assert.equal(refinementSignature(setup.letter), letter);
   const applied = refinementSignature(setup.record!.state);
   await setup.syncRefinement();
   setup = fixture.reopen(); await idle(setup); await setup.syncRefinement();
   assert.equal(setup.error, '');
-  assert.equal(fixture.creations.length, 1);
+  assert.equal(fixture.creations.length, 0);
   assert.equal(refinementSignature(setup.record!.state), applied);
   assert.equal(setup.requests.length, 1);
 });
@@ -136,17 +136,19 @@ test('copying the next iteration closes comparison and publishes applied documen
   assert.equal(setup.requests.length, 2);
 });
 
-test('automatic CV creation failure preserves both working documents', async t => {
+test('automatic CV refinement works when no library source remains', async t => {
   const fixture = mount(t, createPrivateRefinementCv()), setup = await prepare(fixture, 'base', { scope: 'cv' });
   setup.tab = 'refinement'; await idle(setup);
   fixture.cloud.seedProposal(setup.requests[0].id);
   const before = documents(setup);
-  fixture.failCreation();
+  fixture.props.configurations = [];
+  fixture.states.delete('base');
 
   await setup.syncRefinement();
 
-  assert.match(setup.error, /variant|save/i);
-  assert.equal(documents(setup), before);
+  assert.equal(setup.error, '');
+  assert.notEqual(documents(setup), before);
+  assert.equal(setup.record!.variantId, 'base');
   assert.equal(fixture.creations.length, 0);
 });
 

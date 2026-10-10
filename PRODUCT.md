@@ -22,7 +22,7 @@ The product connects a reusable document library with independent application co
 
 ## Operating Context
 
-- **CV Studio** maintains career variants and subvariants, CV content, document design, privacy settings, letter templates, and local attachments. It works without an account.
+- **CV Studio** maintains independent career variants, CV content, document design, privacy settings, letter templates, and local attachments. It works without an account.
 - **Opportunities** presents an externally maintained research catalogue. The user reviews research and requirements, records interest, and creates applications. The app does not conduct searches itself.
 - **Applications** provides Preparation, Refinement, PDF review, and Tracking. These stages allow free navigation and iteration.
 - Selecting CV and letter templates creates independent application copies pinned to their source revisions. Later library edits do not silently change those copies.

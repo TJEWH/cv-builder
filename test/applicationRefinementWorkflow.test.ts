@@ -38,45 +38,169 @@ test('refreshing proposal history preserves the active proposal and its selectio
   assert.equal(setup.previewLetterContent?.body, 'First proposal under review.');
 });
 
-test('accepting a subvariant proposal creates one sibling with exactly the reviewed content, including after reload', async t => {
+test('accepting a proposal saves only the application copy with exactly the reviewed content, including after reload', async t => {
   const fixture = mount(t);
   const source = cloneCv(fixture.base); source.about.text += '\nA manually tailored source sentence.';
   fixture.states.set('source-child', source);
-  fixture.props.configurations.push({ id: 'source-child', name: 'Tailored source', parentId: 'base' });
+  fixture.props.configurations.push({ id: 'source-child', name: 'Tailored source' });
   let setup = await prepare(fixture, 'source-child');
   const proposal = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Accepted reviewed letter.' });
   await setup.checkProposals();
   const candidate = cloneCv(setup.previewCvState!), privateBefore = JSON.stringify(setup.localRequests[proposal.proposal_json.requestId].cv);
   await setup.acceptSelectedChanges();
   assert.equal(setup.error, '');
-  assert.equal(fixture.creations.length, 1);
-  const created = fixture.creations[0];
-  assert.equal(fixture.props.configurations.find(item => item.id === created.id)?.parentId, 'base');
-  assert.deepEqual(created.state, candidate);
+  assert.equal(fixture.creations.length, 0);
   assert.deepEqual(setup.record?.state, candidate);
-  assert.equal(setup.record?.variantId, created.id);
+  assert.equal(setup.record?.variantId, 'source-child', 'refinement retains the original source identity');
   assert.equal(setup.letterText, 'Accepted reviewed letter.');
   assert.deepEqual(fixture.states.get('source-child'), source);
   assert.equal(JSON.stringify(setup.localRequests[proposal.proposal_json.requestId].cv), privateBefore);
   assert.deepEqual(loadApplicationCv(account, applicationId)?.state, candidate);
   const acceptedDocuments = documents(setup);
   setup.openProposal(); await setup.acceptSelectedChanges();
-  assert.equal(fixture.creations.length, 1);
+  assert.equal(fixture.creations.length, 0);
   assert.equal(documents(setup), acceptedDocuments);
   setup = fixture.reopen(); await idle(setup); setup.openProposal(); await setup.acceptSelectedChanges();
-  assert.equal(fixture.creations.length, 1, 'a local acceptance receipt prevents duplicate subvariants after reload');
+  assert.equal(fixture.creations.length, 0, 'refinement never writes to the library');
+  assert.equal(setup.localRequests[proposal.proposal_json.requestId].acceptances?.length, 1, 'the local receipt makes acceptance idempotent');
   assert.deepEqual(JSON.parse(documents(setup)), JSON.parse(acceptedDocuments));
 });
 
-test('subvariant creation failure leaves both application documents intact and review retryable', async t => {
+test('a deleted library source does not block acceptance or the next refinement round', async t => {
   const fixture = mount(t); const setup = await prepare(fixture);
-  fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Letter that must not be partially accepted.' });
-  await setup.checkProposals(); const before = documents(setup);
-  fixture.failCreation(); await setup.acceptSelectedChanges();
-  assert.match(setup.error, /variant|save/i);
-  assert.equal(documents(setup), before);
+  fixture.props.configurations = [];
+  fixture.states.delete('base');
+  fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Refined independently from the library.' });
+  await setup.checkProposals(); const candidate = cloneCv(setup.previewCvState!);
+  await setup.acceptSelectedChanges();
+  assert.equal(setup.error, '');
+  assert.deepEqual(setup.record?.state, candidate);
+  assert.equal(setup.record?.variantId, 'base');
+  assert.equal(setup.letterText, 'Refined independently from the library.');
+  await setup.publishSources();
+  assert.equal(setup.error, '');
+  assert.equal(setup.requests.length, 2);
+  assert.deepEqual(setup.localRequests[setup.requests[0].id].cv.baselineState, candidate);
+  fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Another independent refinement.' });
+  await setup.syncRefinement();
+  assert.equal(setup.error, '');
+  assert.equal(setup.letterText, 'Another independent refinement.');
   assert.equal(fixture.creations.length, 0);
-  assert.equal(setup.reviewActive, true);
+});
+
+test('only an explicitly saved approved CV becomes a new regular variant and keeps application provenance', async t => {
+  const fixture = mount(t); let setup = await prepare(fixture);
+  setup.variantName = 'Robotics application';
+  await setup.saveApprovedVariant();
+  assert.match(setup.error, /Approve the CV/);
+  assert.equal(fixture.creations.length, 0);
+  setup.record!.state.about.text += '\nCustom application wording.';
+  await setup.approve('cv'); await idle(setup);
+  assert.equal(setup.cvApproved, true);
+  const before = documents(setup), approvals = JSON.stringify(setup.approvals), source = cloneCv(fixture.states.get('base')!);
+  setup.variantName = '   ';
+  await setup.saveApprovedVariant();
+  assert.match(setup.error, /Enter a name/);
+  setup.variantName = '  Robotics application  ';
+  await setup.saveApprovedVariant();
+  assert.equal(setup.error, '');
+  assert.equal(fixture.creations.length, 1);
+  const created = fixture.creations[0];
+  assert.equal(created.name, 'Robotics application');
+  assert.deepEqual(created.state, setup.record!.state);
+  assert.equal(Object.hasOwn(fixture.props.configurations.find(item => item.id === created.id)!, 'parentId'), false);
+  assert.equal(setup.savedVariantId, created.id);
+  assert.equal(documents(setup), before);
+  assert.equal(JSON.stringify(setup.approvals), approvals);
+  assert.deepEqual(fixture.states.get('base'), source);
+  await setup.saveApprovedVariant();
+  setup = fixture.reopen(); await idle(setup);
+  await setup.saveApprovedVariant();
+  assert.equal(setup.error, '');
+  assert.equal(fixture.creations.length, 1, 'repeated saving and reload reuse the recorded completed export');
+  await setup.approve('cv', true); await idle(setup);
+  setup.record!.state.about.text += '\nA later application-only change.';
+  await setup.saveApprovedVariant();
+  assert.match(setup.error, /Approve the CV/);
+  assert.deepEqual(fixture.states.get(created.id), created.state, 'later application edits leave the exported variant unchanged');
+});
+
+test('saving a new variant reports library failure without changing approved application documents', async t => {
+  const fixture = mount(t), setup = await prepare(fixture);
+  await setup.approve('cv'); await idle(setup);
+  const before = documents(setup), approvals = JSON.stringify(setup.approvals);
+  fixture.failCreation();
+  await setup.saveApprovedVariant();
+  assert.match(setup.error, /variant could not be saved/i);
+  assert.equal(fixture.creations.length, 0);
+  assert.equal(documents(setup), before);
+  assert.equal(JSON.stringify(setup.approvals), approvals);
+  assert.equal(setup.cvApproved, true);
+});
+
+test('a completed variant save is recovered after its final receipt fails and the application reopens', async t => {
+  const fixture = mount(t); let setup = await prepare(fixture);
+  await setup.approve('cv'); await idle(setup);
+  setup.variantName = 'Custom approved snapshot';
+  const before = documents(setup), create = fixture.props.createVariant;
+  fixture.props.createVariant = (name, state) => {
+    const id = create(name, state);
+    fixture.failSave(refinementKey);
+    return id;
+  };
+  await idle(setup);
+  await setup.saveApprovedVariant();
+  assert.match(setup.error, /variant was saved.*save record/i);
+  assert.equal(fixture.creations.length, 1);
+  assert.equal(documents(setup), before);
+  setup = fixture.reopen(); await idle(setup);
+  assert.equal(setup.variantName, 'Custom approved snapshot', 'the saved intent preserves the name across an interrupted receipt');
+  assert.equal(setup.cvApproved, true);
+  await setup.saveApprovedVariant();
+  assert.equal(setup.error, '');
+  assert.equal(fixture.creations.length, 1, 'recovery reuses the exact completed snapshot');
+  assert.equal(setup.savedVariantId, fixture.creations[0].id);
+});
+
+test('first explicit save creates a new variant even when its name and content match the source', async t => {
+  const fixture = mount(t), setup = await prepare(fixture);
+  await setup.approve('cv'); await idle(setup);
+  setup.variantName = 'Research';
+  assert.deepEqual(setup.record!.state, fixture.states.get('base'));
+  await setup.saveApprovedVariant();
+  assert.equal(setup.error, '');
+  assert.equal(fixture.creations.length, 1);
+  assert.notEqual(setup.savedVariantId, 'base');
+  assert.equal(fixture.creations[0].name, 'Research');
+});
+
+test('failed persistence before saving a variant leaves the library untouched', async t => {
+  const fixture = mount(t), setup = await prepare(fixture);
+  await setup.approve('cv'); await idle(setup);
+  const before = documents(setup);
+  fixture.failSave(refinementKey);
+  await setup.saveApprovedVariant();
+  assert.match(setup.error, /Local storage quota reached/);
+  assert.equal(fixture.creations.length, 0);
+  assert.equal(documents(setup), before);
+});
+
+test('an exported variant edited in the library no longer counts as the saved approved CV', async t => {
+  const fixture = mount(t), setup = await prepare(fixture);
+  await setup.approve('cv'); await idle(setup);
+  setup.variantName = 'Approved snapshot';
+  await setup.saveApprovedVariant();
+  assert.equal(setup.error, '');
+  const first = fixture.creations[0];
+  const edited = cloneCv(first.state); edited.about.text = 'A separate library edit.';
+  fixture.states.set(first.id, edited);
+  fixture.props.configurations.find(item => item.id === first.id)!.mtime = Date.now();
+  await idle(setup);
+  await setup.saveApprovedVariant();
+  assert.equal(setup.error, '');
+  assert.equal(fixture.creations.length, 2);
+  assert.deepEqual(fixture.creations[1].state, setup.record!.state);
+  assert.equal(fixture.states.get(first.id)?.about.text, 'A separate library edit.');
 });
 
 test('a working edit during decision recording prevents either candidate document from being committed', async t => {
@@ -121,7 +245,7 @@ test('a finalized letter is not replaced merely because its cloud approval flag 
   assert.deepEqual(JSON.parse(JSON.stringify(setup.letter!.revisions.find(item => item.id === finalized.finalRevisionId))), finalized.revisions.find(item => item.id === finalized.finalRevisionId), 'explicit reopening preserves the finalized revision in history');
 });
 
-test('a failed local commit restores both documents and reuses its completed subvariant when retried', async t => {
+test('a failed local commit restores both documents and retries without any library writes', async t => {
   const fixture = mount(t); const setup = await prepare(fixture);
   fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Proposed document pair.' });
   await setup.checkProposals();
@@ -132,13 +256,13 @@ test('a failed local commit restores both documents and reuses its completed sub
   assert.equal(documents(setup), before);
   for (const [key, value] of savedBefore) assert.equal(fixture.storage.getItem(key), value, `${key} must be rolled back`);
   assert.equal(setup.reviewActive, true);
-  assert.equal(fixture.creations.length, 1, 'only a complete validated subvariant can have been saved');
+  assert.equal(fixture.creations.length, 0);
   setup.persist();
   assert.equal(setup.saveError, '');
   await setup.acceptSelectedChanges();
   assert.equal(setup.error, '');
-  assert.equal(fixture.creations.length, 1, 'retry must reuse the complete candidate already in the library');
-  assert.equal(setup.record?.variantId, fixture.creations[0].id);
+  assert.equal(fixture.creations.length, 0);
+  assert.equal(setup.record?.variantId, 'base');
   assert.equal(setup.letterText, 'Proposed document pair.');
 });
 
@@ -154,12 +278,12 @@ test('accepting a historical local proposal commits locally and persists its ide
   assert.deepEqual(setup.record?.state, previewState);
   assert.equal(setup.letterText, 'Locally accepted imported proposal.');
   assert.equal(JSON.stringify(fixture.database), beforeCloud);
-  assert.equal(fixture.creations.length, 1);
+  assert.equal(fixture.creations.length, 0);
   assert.ok(JSON.parse(fixture.storage.getItem(refinementKey)!).requests[incoming.proposal_json.requestId].acceptances.some((receipt: { proposalId: string }) => receipt.proposalId === proposalId));
   setup = fixture.reopen(); await idle(setup);
   assert.equal(setup.selectedProposalId, proposalId);
   setup.openProposal(); await setup.acceptSelectedChanges();
-  assert.equal(fixture.creations.length, 1);
+  assert.equal(fixture.creations.length, 0);
   assert.equal(JSON.stringify(fixture.database), beforeCloud);
 });
 

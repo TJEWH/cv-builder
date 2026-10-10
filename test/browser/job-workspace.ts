@@ -323,10 +323,9 @@ const Fixture = defineComponent({
       h(JobWorkspace, { key: workspaceKey.value, client, userId: account, tab: tab.value, lang: lang.value, projectId: 'fixture',
         configurations: fixtureVariants.value, selectedId: 'sample-cv',
         readVersion: (id: string) => fixtureStates.has(id) ? structuredClone(fixtureStates.get(id)!) : null,
-        createSubvariant: (sourceId: string, name: string, state: CvState) => {
-          const parentId = fixtureVariants.value.find(item => item.id === sourceId)?.parentId || sourceId;
+        createVariant: (name: string, state: CvState) => {
           const id = crypto.randomUUID(); fixtureStates.set(id, structuredClone(state));
-          fixtureVariants.value.push({ id, name, parentId, mtime: Date.now() }); return id;
+          fixtureVariants.value.push({ id, name, mtime: Date.now() }); return id;
         },
         onEditVariant: (id: string) => { draftStatus.value = `Open ${fixtureVariants.value.find(item => item.id === id)?.name} in CV Studio (fixture).`; },
         onNavigate: (value: 'opportunities' | 'applications') => { tab.value = value; } }),

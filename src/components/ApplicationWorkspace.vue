@@ -9,7 +9,6 @@ import type { CvState, SavedConfiguration } from '../types';
 import type { ApplicationLetter, LetterTemplate } from '../letterTypes';
 import type { ApprovedPrivacyContexts, AnnotationStatus, AnnotationReference, LocalRefinementRequest, RefinementApprovals, RefinementFeedback, RefinementProposalRow, RefinementRequestRow, RefinementReviewRow, RefinementScope, RefinementState } from '../refinementTypes';
 import { cloneCv, createApplicationCv, cvDifferences, isApplicationCvPublished, loadApplicationCv, saveApplicationCv, type ApplicationCvRecord } from '../composables/applicationCv';
-import { subvariantParent } from '../composables/careerVariants';
 import { addIncomingDraft, createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, editLetter, finalizeLetter, letterContextVersion, letterFromEditableText, openLetterRevision, saveWorkingRevision, selectApplicationLetterTemplate, unresolvedLetterPlaceholders } from '../composables/motivationLetters';
 import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, describeCvOperation, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText, validateLocalRefinementSource } from '../composables/applicationRefinement';
 import { applicationStage, applicationStatusLabel, applicationTrackingStarted } from '../composables/applicationTracking';
@@ -40,7 +39,7 @@ const props = withDefaults(defineProps<{
   application: Application; client: SupabaseClient | null; userId: string; lang: string;
   configurations: SavedConfiguration[]; readVersion: (id: string) => CvState | null;
   publishCv: (state: CvState) => Promise<Application | null>;
-  createSubvariant?: (sourceId: string, name: string, state: CvState) => string | null;
+  createVariant?: (name: string, state: CvState) => string | null;
 }>(), { active: true });
 const emit = defineEmits<{ close: []; 'edit-variant': [id: string]; toggleChecklist: [key: string, completed: boolean]; 'change-stage': [stage: ApplicationStage] }>();
 const desktopSidebar = useDesktopSidebar();
@@ -55,6 +54,8 @@ const record = ref<ApplicationCvRecord | null>(null);
 const letter = ref<ApplicationLetter | null>(null);
 const templates = ref<LetterTemplate[]>([]);
 const approvals = ref<RefinementApprovals>({ cv: null, letter: null });
+const variantName = ref('');
+const savedVariant = ref<{ id: string; name: string; revision: string; previousIds?: string[] } | null>(null);
 const privacyContexts = ref<ApprovedPrivacyContexts>({});
 const localRequests = ref<Record<string, LocalRefinementRequest>>({});
 const parentProposalId = ref<string | null>(null);
@@ -115,6 +116,10 @@ try {
     const value = JSON.parse(stored);
     if (value.version !== 1) throw new Error('Unsupported refinement backup version.');
     approvals.value = { cv: typeof value.approvals?.cv === 'string' ? value.approvals.cv : null, letter: typeof value.approvals?.letter === 'string' ? value.approvals.letter : null };
+    if (typeof value.savedVariant?.id === 'string' && typeof value.savedVariant.name === 'string' && typeof value.savedVariant.revision === 'string') savedVariant.value = {
+      id: value.savedVariant.id, name: value.savedVariant.name, revision: value.savedVariant.revision,
+      previousIds: Array.isArray(value.savedVariant.previousIds) ? value.savedVariant.previousIds.filter((id: unknown) => typeof id === 'string') : undefined,
+    };
     localRequests.value = value.requests || {};
     privacyContexts.value = value.privacyContexts || {};
     importedProposals.value = value.importedProposals || [];
@@ -153,6 +158,18 @@ const baselineSignature = computed(() => refinementSignature([record.value?.stat
 const cvRevision = computed(() => refinementSignature([record.value?.state, props.application.context_json]));
 const letterRevision = computed(() => refinementSignature([letterText.value, setup.value, letter.value?.instructions || '', record.value?.state.design, record.value?.state.contact, props.application.context_json]));
 const cvApproved = computed(() => !!record.value && approvals.value.cv === cvRevision.value && !saveError.value);
+function suggestedVariantName() { return record.value ? `${record.value.baseName} · ${String(props.application.context_json.title || text('Approved CV', 'Freigegebener CV'))}` : ''; }
+variantName.value = savedVariant.value?.name || suggestedVariantName();
+const savedVariantId = computed(() => savedVariant.value?.id || '');
+const approvedVariantSaved = computed(() => {
+  const receipt = savedVariant.value;
+  if (!receipt || receipt.revision !== cvRevision.value || receipt.name !== variantName.value.trim()) return false;
+  const variant = props.configurations.find(item => item.id === savedVariantId.value);
+  if (!variant || variant.name !== receipt.name) return false;
+  // Library saves signal changes to the stored snapshot through their metadata.
+  void variant.mtime;
+  return refinementSignature(props.readVersion(variant.id)) === refinementSignature(record.value?.state);
+});
 const unresolved = computed(() => letter.value ? unresolvedLetterPlaceholders(letter.value.working, record.value?.state.contact || null) : []);
 const letterApproved = computed(() => !!letterText.value.trim() && approvals.value.letter === letterRevision.value && !unresolved.value.length && !saveError.value);
 const words = computed(() => letterText.value.trim().split(/\s+/).filter(Boolean).length);
@@ -313,7 +330,7 @@ function persist() {
     const stagedStore = { getItem: (key: string) => localStorage.getItem(key), setItem: (key: string, value: string) => { writes.set(key, value); }, removeItem() {} };
     if (record.value) saveApplicationCv(record.value, stagedStore);
     if (letter.value) createLetterRepository(stagedStore, props.userId).save(letter.value);
-    writes.set(storageKey, JSON.stringify({ version: 1, privacyContexts: privacyContexts.value, approvals: approvals.value, requests: localRequests.value, parentProposalId: parentProposalId.value, scope: feedbackScope.value, resetRequestIds: resetRequestIds.value, importedProposals: importedProposals.value, importedReviews: importedReviews.value }));
+    writes.set(storageKey, JSON.stringify({ version: 1, privacyContexts: privacyContexts.value, approvals: approvals.value, savedVariant: savedVariant.value, requests: localRequests.value, parentProposalId: parentProposalId.value, scope: feedbackScope.value, resetRequestIds: resetRequestIds.value, importedProposals: importedProposals.value, importedReviews: importedReviews.value }));
     for (const [key, value] of writes) {
       const saved = localStorage.getItem(key);
       if (saved === value) continue;
@@ -433,6 +450,7 @@ async function selectCv(id: string) {
   await run(async () => {
     record.value = createApplicationCv(props.userId, props.application.id, id, variant.name, state);
     record.value.variantId = id; record.value.detached = true;
+    variantName.value = suggestedVariantName();
     approvals.value = { cv: null, letter: null }; persist();
     await publishCurrentCv(); if (letter.value) await saveSetup();
     notice.value = text('CV selected for this application.', 'CV für diese Bewerbung ausgewählt.');
@@ -718,15 +736,11 @@ async function acceptSelectedChanges() {
     const signature = baselineSignature.value;
     const selected = [...selectedChangeIds.value], includeLetter = includeProposedLetter.value;
     const key = selectionKey(row, selected, includeLetter);
-    // Construct and validate both documents before any local document/library write.
+    // Construct and validate both documents before any local document write.
     if (!temporaryReview.value.result || refinementSignature(temporaryReview.value.result) !== refinementSignature(result)) throw new Error('The proposal preview changed. Review the current selection before accepting.');
     const nextRecord = clone(record.value!);
     const cvChanged = local.request.scope !== 'letter' && refinementSignature(result.state) !== refinementSignature(nextRecord.state);
-    const variantName = `${local.source?.cv.name || nextRecord.baseName} · refinement ${key.slice(-16)}`;
-    let variantId: string | null = null;
     if (cvChanged) {
-      subvariantParent(local.cv.sourceVariantId, props.configurations);
-      if (!props.createSubvariant) throw new Error('The local variant library is unavailable. Restore it before accepting CV changes.');
       nextRecord.state = cloneCv(result.state);
       nextRecord.revision++; nextRecord.updatedAt = new Date().toISOString();
     }
@@ -747,21 +761,13 @@ async function acceptSelectedChanges() {
     if (!reviews.value.some(item => item.id === decision.id)) reviews.value.push(decision);
     if (signature !== baselineSignature.value || selectionKey(row) !== key || selectedProposal.value?.id !== row.id) throw new Error('The working documents or selection changed while saving your decision. They were preserved. Review the proposal again.');
     checkedProposalResult();
-    if (cvChanged) {
-      // A deterministic receipt name also recovers a complete variant if local saving was interrupted.
-      const existing = props.configurations.find(item => item.name === variantName && item.parentId === subvariantParent(local.cv.sourceVariantId, props.configurations)
-        && refinementSignature(props.readVersion(item.id)) === refinementSignature(result.state));
-      variantId = existing?.id || props.createSubvariant!(local.cv.sourceVariantId, variantName, cloneCv(result.state));
-      if (!variantId) throw new Error('The accepted CV subvariant could not be saved. Working documents were preserved.');
-      nextRecord.variantId = variantId;
-    }
     // The recorded decision does not grant document approval; review the saved result separately.
     const previousRecord = record.value, previousLetter = letter.value, previousParent = parentProposalId.value;
     const previousAcceptances = local.acceptances, previousImportedReviews = [...importedReviews.value];
     committingSelection = true;
     try {
       record.value = nextRecord; letter.value = nextLetter;
-      local.acceptances = [...(local.acceptances || []), { key, proposalId: row.id, variantId, reviewId: decision.id, acceptedAt: new Date().toISOString() }];
+      local.acceptances = [...(local.acceptances || []), { key, proposalId: row.id, variantId: null, reviewId: decision.id, acceptedAt: new Date().toISOString() }];
       if (imported) importedReviews.value.push(decision);
       parentProposalId.value = imported ? null : row.id;
       reviewActive.value = false;
@@ -809,6 +815,33 @@ async function approve(kind: 'cv' | 'letter', reopen = false) {
     if (!saveError.value && (reopen || (kind === 'cv' ? cvApproved.value : letterApproved.value))) notice.value = kind === 'cv'
       ? reopen ? text('CV reopened for editing.', 'CV zur Bearbeitung wieder geöffnet.') : text('CV approved.', 'CV freigegeben.')
       : reopen ? text('Letter reopened for editing.', 'Brief zur Bearbeitung wieder geöffnet.') : text('Letter approved.', 'Brief freigegeben.');
+  });
+}
+async function saveApprovedVariant() {
+  await run(async () => {
+    if (!record.value || !cvApproved.value) throw new Error(text('Approve the CV before saving it as a variant.', 'Den CV freigeben, bevor er als Variante gespeichert wird.'));
+    if (reviewActive.value) throw new Error(text('Close the proposal preview before saving the approved CV.', 'Die Vorschlagsvorschau schließen, bevor der freigegebene CV gespeichert wird.'));
+    const name = variantName.value.trim();
+    if (!name) throw new Error(text('Enter a name for the new variant.', 'Einen Namen für die neue Variante eingeben.'));
+    if (!props.createVariant) throw new Error(text('The variant library is unavailable. Reopen this application and try again.', 'Die Variantenbibliothek ist nicht verfügbar. Diese Bewerbung erneut öffnen und es noch einmal versuchen.'));
+    if (approvedVariantSaved.value) { notice.value = text('This approved CV is already saved in your variant library.', 'Dieser freigegebene CV ist bereits in der Variantenbibliothek gespeichert.'); return; }
+    const revision = cvRevision.value;
+    const snapshot = cloneCv(record.value.state);
+    const previousReceipt = savedVariant.value;
+    const recovering = previousReceipt?.id === '' && previousReceipt.name === name && previousReceipt.revision === revision;
+    // Record the intended name before creating anything so an interrupted final
+    // receipt can recover the completed library snapshot after reopening.
+    savedVariant.value = { id: '', name, revision, previousIds: recovering ? previousReceipt.previousIds : props.configurations.map(item => item.id) };
+    persist();
+    if (saveError.value) { savedVariant.value = previousReceipt; throw new Error(saveError.value); }
+    const existing = recovering ? props.configurations.find(item => !previousReceipt.previousIds?.includes(item.id)
+      && item.name === name && refinementSignature(props.readVersion(item.id)) === refinementSignature(snapshot)) : undefined;
+    const id = existing?.id || props.createVariant(name, snapshot);
+    if (!id) throw new Error(text('The variant could not be saved. Try again.', 'Die Variante konnte nicht gespeichert werden. Erneut versuchen.'));
+    savedVariant.value = { id, name, revision };
+    persist();
+    if (saveError.value) throw new Error(text('The variant was saved, but its local save record could not be stored. Retry saving to complete it.', 'Die Variante wurde gespeichert, aber der lokale Speichernachweis konnte nicht gesichert werden. Zum Abschließen erneut speichern.'));
+    notice.value = text(`Saved “${name}” to your variant library.`, `„${name}“ in der Variantenbibliothek gespeichert.`);
   });
 }
 async function resetOriginalState() {
@@ -941,6 +974,11 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
             <button v-if="pane === 'cv' && record" class="primary refinement-icon-action" type="button" :disabled="busy || reviewActive || !letter || !!saveError" @click="approve('cv', cvApproved)"><FontAwesomeIcon :icon="cvApproved ? faRotateLeft : faCheck" aria-hidden="true" />{{ cvApproved ? text('Reopen CV', 'CV wieder öffnen') : text('Approve CV', 'CV freigeben') }}</button>
             <button v-if="pane === 'letter' && letter" class="primary refinement-icon-action" type="button" :disabled="busy || reviewActive || !record || !letterText.trim() || !!saveError || (unresolved.length > 0 && !letter.finalRevisionId)" @click="approve('letter', letterApproved || !!letter.finalRevisionId)"><FontAwesomeIcon :icon="letterApproved || letter.finalRevisionId ? faRotateLeft : faCheck" aria-hidden="true" />{{ letterApproved || letter.finalRevisionId ? text('Reopen letter', 'Brief wieder öffnen') : text('Approve letter', 'Brief freigeben') }}</button>
           </div>
+          <div v-if="cvApproved && createVariant" class="approved-variant-save">
+            <p class="app-hint">{{ text('Save this approved CV to your variant library for reuse.', 'Diesen freigegebenen CV zur Wiederverwendung in der Variantenbibliothek speichern.') }}</p>
+            <label>{{ text('Variant name', 'Variantenname') }}<input v-model="variantName" type="text" :disabled="busy || reviewActive" /></label>
+            <button type="button" :disabled="busy || reviewActive || !variantName.trim() || approvedVariantSaved" @click="saveApprovedVariant">{{ approvedVariantSaved ? text('Variant saved', 'Variante gespeichert') : text('Save as new variant', 'Als neue Variante speichern') }}</button>
+          </div>
         </div>
         </DesktopSidebarPortal>
         <DesktopSidebarPortal area="minor" :active="active && tab === 'refinement'">
@@ -1025,6 +1063,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 .preparation-actions{display:flex;justify-content:flex-end;padding:20px 0;border-top:1px solid #61343a}
 .refinement-toolbar{position:sticky;top:0;z-index:10;min-width:0;padding-bottom:12px;border-bottom:1px solid #28534e;background:#0b0f14}
 .refinement-toolbar > .action-row{margin:0}
+.approved-variant-save{margin-top:16px;padding-top:16px;border-top:1px solid #28534e}.approved-variant-save p{margin:0 0 12px;max-width:65ch;color:#a6c1b9}.approved-variant-save button{width:100%}
 @media(max-width:760px){.refinement-toolbar{top:-8px;margin-top:-8px;padding-top:8px;flex-shrink:0}}
 @media(min-width:761px) and (max-width:1180px){.workflow-body--review :deep(.application-documents){min-height:640px}}
 @media(min-width:761px){.application-workspace{margin-bottom:40px;padding:32px;}.workflow-body{padding:20px 0 0;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-gutter:stable}.application-header :deep(.workspace-detail-header__back){display:none}.workflow-navigation{position:fixed;inset-inline:0;bottom:0;z-index:30;display:flex;align-items:center;gap:20px;min-height:66px;padding:12px max(20px,calc((100vw - 1484px)/2));border-top:1px solid #24504e;background:#06141f;box-shadow:0 -6px 20px #0003}.workflow-back{display:inline-flex;align-items:center;gap:8px;flex-shrink:0}.workspace-subtabs button{justify-content:center}.preparation-stage{padding-bottom:6px}}

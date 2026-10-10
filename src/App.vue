@@ -88,8 +88,8 @@ function saveCareerVariant(name: string, data: CvState) {
   const saved = backupManager.value?.saveAsDocument(name, data) ?? false;
   if (!saved) pdfExportError.value = lang.value === 'de' ? 'Karrierevariante konnte nicht gespeichert werden.' : 'The career variant could not be saved.';
 }
-function createSubvariant(parentId: string, name: string, data: CvState): string | null {
-  return backupManager.value?.createSubvariant(parentId, name, data) ?? null;
+function createVariant(name: string, data: CvState): string | null {
+  return backupManager.value?.createVariant(name, data) ?? null;
 }
 function openStudioVariant(id: string) {
   if (!backupManager.value?.selectConfiguration(id)) return;
@@ -700,7 +700,7 @@ function selectBuilderGroup(group: string) {
         :configurations="selectableConfigurations"
         :selected-id="selectedConfigurationId"
         :read-version="readCloudVersion"
-        :create-subvariant="createSubvariant"
+        :create-variant="createVariant"
         @navigate="selectBuilderGroup"
         @save-career-variant="saveCareerVariant"
         @edit-variant="openStudioVariant"

@@ -127,7 +127,7 @@ async function cvFlow() {
   const job = setup.record!.state.experience.jobs.find(job => job.id === 'local-private-job-a')!;
   assert(job.bullets === '- Evaluated robots with !!E2E South Lab!!.\n- Built sensors with !!E2E North Lab!!.', 'Automatic application reconstructed tokens incorrectly');
   assert(setup.letter!.working.body === 'Original working letter.', 'CV application changed the letter');
-  assert(fixture.creations.length === 1, 'Automatic CV application must save exactly one subvariant');
+  assert(fixture.creations.length === 0, 'Automatic CV application must keep changes within this application');
   assert(originals === refinementSignature(local.cv), 'Automatic application changed the original private mappings');
   assert(fixture.base.experience.jobs[0].bullets!.includes('private.example.invalid'), 'Omission destroyed the original source link');
   const changes = root.querySelector<HTMLElement>('.proposal-changes');
@@ -138,8 +138,20 @@ async function cvFlow() {
   await click('Original', root.querySelector('.proposal-content')!); assert(same(setup.previewCvState, local.cv.baselineState), 'Comparison did not show the frozen original CV');
   await click('Proposed', root.querySelector('.proposal-content')!); assert(refinementSignature(setup.previewCvState) === applied, 'Comparison differs from the applied CV');
   await click('Close preview'); await click('Sync'); await mount(true); await click('Sync');
-  assert(fixture.creations.length === 1 && refinementSignature(setup.record!.state) === applied, 'Repeated sync or reload duplicated the applied CV');
+  assert(fixture.creations.length === 0 && refinementSignature(setup.record!.state) === applied, 'Repeated sync or reload duplicated the applied CV');
   assert(setup.requests.length === 1, 'Sync started a new iteration without copying the next task');
+  assert(!root.querySelector('.approved-variant-save'), 'An unapproved CV must not offer saving to the variant library');
+  if (setup.reviewActive) await click('Close preview');
+  await click('Approve CV');
+  await field('Variant name', 'Approved robotics CV');
+  const applicationCopy = snapshot();
+  await click('Save as new variant');
+  assert(Number(fixture.creations.length) === 1 && fixture.creations[0].name === 'Approved robotics CV', 'Explicit save must create one named variant');
+  assert(refinementSignature(fixture.creations[0].state) === applied && !('parentId' in fixture.props.configurations.at(-1)!), 'Saved variant must contain the approved CV with no parent');
+  assert(snapshot() === applicationCopy && setup.cvApproved, 'Saving a variant must preserve the independent application and approval');
+  assert(button('Variant saved').disabled, 'Repeated saves must be disabled once the approved CV is saved');
+  await mount(true);
+  assert(button('Variant saved').disabled && Number(fixture.creations.length) === 1, 'Reload must retain the saved variant receipt');
 }
 async function letterFlow(initial: boolean) {
   const original = initial ? '' : 'Approved existing working draft.';
@@ -305,7 +317,7 @@ async function scopeLayoutFlow() {
 }
 const flows = [
   ['scope-layout', 'Scope dropdown → task controls → scoped preview and editor → preparation settings', scopeLayoutFlow],
-  ['cv', 'CV snapshot → automatic application → compare → subvariant → reload', cvFlow],
+  ['cv', 'CV snapshot → application-only changes → compare → reload → save approved variant', cvFlow],
   ['initial-letter', 'Initial letter → automatic application → compare → reload', () => letterFlow(true)],
   ['existing-letter', 'Existing letter → automatic refinement → compare → reload', () => letterFlow(false)],
   ['proposal-review', 'Automatic application → ignored answer → next iteration → reset → approved PDFs', proposalReviewFlow],

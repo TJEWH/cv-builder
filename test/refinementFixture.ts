@@ -10,7 +10,6 @@ import type { CvState, SavedConfiguration } from '../src/types';
 import { createEmptyDocument, createSampleDocument } from '../src/composables/builtinConfigurations';
 import { cloneCv } from '../src/composables/applicationCv';
 import { createCloudCvSnapshot } from '../src/composables/cloudCvPrivacy';
-import { subvariantParent } from '../src/composables/careerVariants';
 
 type Row = Record<string, unknown>;
 export const REFINEMENT_TABLES = ['application_refinement_state', 'application_refinement_requests', 'application_refinement_proposals', 'application_refinement_reviews', 'application_refinement_protocols'] as const;
@@ -250,7 +249,7 @@ export function createSyntheticRefinementWorkspace(source = createSampleDocument
     created_at: '2026-10-02T00:00:00Z', updated_at: '2026-10-02T00:00:00Z' };
   const database: Record<string, Row[]> = { applications: [{ ...application }], cv_variants: [] };
   const cloud = createRefinementFixture(database, account);
-  const creations: { sourceId: string; id: string; state: CvState }[] = [];
+  const creations: { id: string; name: string; state: CvState }[] = [];
   const props = reactive({ application, client: cloud.client, userId: account, lang: 'en', projectId: 'fixture',
     configurations: [{ id: 'base', name: 'Research' }] as SavedConfiguration[], readVersion: (id: string) => states.get(id) || null,
     onChangeStage: (stage: ApplicationStage) => {
@@ -262,11 +261,11 @@ export function createSyntheticRefinementWorkspace(source = createSampleDocument
       const snapshot = createCloudCvSnapshot(state); database.cv_variants.push({ ...snapshot, user_id: account });
       props.application = { ...props.application, cv_variant_id: snapshot.id }; database.applications[0].cv_variant_id = snapshot.id; return props.application;
     },
-    createSubvariant: (sourceId: string, name: string, state: CvState) => {
+    createVariant: (name: string, state: CvState) => {
       if (creationFails) return null;
-      const parentId = subvariantParent(sourceId, props.configurations), id = `accepted-${creations.length + 1}`;
-      states.set(id, cloneCv(state)); props.configurations.push({ id, name, parentId });
-      creations.push({ sourceId, id, state: cloneCv(state) }); return id;
+      const id = `saved-${creations.length + 1}`;
+      states.set(id, cloneCv(state)); props.configurations.push({ id, name });
+      creations.push({ id, name, state: cloneCv(state) }); return id;
     },
   });
   return { props, states, base, storage, data, writes, database, cloud, creations,
