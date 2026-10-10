@@ -288,6 +288,184 @@ test('late strong-interest writes cannot restore a previous user’s choices aft
   scope.stop();
 });
 
+test('opportunity comments persist across reloads, interest choices and receipts, and can be cleared', async (t) => {
+  const source = normalizeOpportunity({ id: 'opportunity-1', updated_at: '2026-09-20T10:00:00Z' });
+  let stored: OpportunityReview = review(source.id, 'unreviewed');
+  const { client, queries } = fakeClient((query) => {
+    if (query.table === 'save_opportunity_comment') {
+      stored = { ...stored, comment: query.payload?.p_comment as string | null };
+      return { data: { ...stored }, error: null };
+    }
+    if (query.table === 'review_job_opportunity') {
+      stored = { ...stored, state: (query.payload?.p_state ?? stored.state) as OpportunityReview['state'],
+        reviewed_updated_at: query.payload?.p_observed_updated_at as string | null };
+      return { data: { ...stored }, error: null };
+    }
+    return { data: query.table === 'opportunities' ? [source.details]
+      : query.table === 'opportunity_reviews' ? [{ ...stored }] : [], error: null };
+  });
+  const scope = effectScope(); t.after(() => scope.stop());
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  const saved = await workspace.setOpportunityComment(source.id, '  Excellent research fit.\nDiscuss funding.  ');
+  assert.equal(saved?.comment, 'Excellent research fit.\nDiscuss funding.');
+  assert.equal(saved?.state, 'unreviewed', 'a comment does not choose an interest state');
+  assert.equal(saved?.reviewed_updated_at, null, 'a comment does not acknowledge source changes');
+  await workspace.markOpportunityReviewed(source);
+  await workspace.setOpportunityReview(source.id, 'strong_interest');
+  scope.stop();
+
+  const nextScope = effectScope(); t.after(() => nextScope.stop());
+  const reloaded = nextScope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !reloaded.loading.value);
+  assert.equal(reloaded.reviews.value[0].comment, 'Excellent research fit.\nDiscuss funding.');
+  assert.equal(reloaded.reviews.value[0].state, 'strong_interest');
+  assert.equal(reloaded.reviews.value[0].reviewed_updated_at, source.updated_at);
+  assert.equal((await reloaded.setOpportunityComment(source.id, ' \n\t '))?.comment, null);
+  assert.equal(await reloaded.refresh(), true);
+  assert.equal(reloaded.reviews.value[0].comment, null);
+  assert.equal(reloaded.reviews.value[0].state, 'strong_interest');
+  assert.equal(reloaded.reviews.value[0].reviewed_updated_at, source.updated_at);
+  assert.deepEqual(queries.filter(({ table }) => table === 'save_opportunity_comment').map(({ payload }) => payload), [
+    { p_opportunity_id: source.id, p_comment: 'Excellent research fit.\nDiscuss funding.' },
+    { p_opportunity_id: source.id, p_comment: null },
+  ]);
+  assert.ok(queries.filter(({ table }) => table === 'opportunities').every(({ operation }) => operation === 'select'));
+});
+
+test('invalid or failed comment saves preserve the saved comment and report a useful error', async (t) => {
+  const original = { ...review(), comment: 'Location does not work for me.' };
+  let response: Result = { data: null, error: { message: 'Offline' } };
+  const { client, queries } = fakeClient(query => query.operation === 'rpc' ? response
+    : { data: query.table === 'opportunity_reviews' ? [original] : [], error: null });
+  const scope = effectScope(); t.after(() => scope.stop());
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  assert.equal(await workspace.setOpportunityComment(original.opportunity_id, 'x'.repeat(5001)), null);
+  assert.match(workspace.opportunityCommentError.value, /5,000 characters/);
+  assert.equal(workspace.error.value, '', 'comment errors do not trigger the generic workspace error toast');
+  assert.equal(queries.filter(({ operation }) => operation === 'rpc').length, 0);
+  assert.equal(await workspace.setOpportunityComment(original.opportunity_id, 'New comment'), null);
+  assert.match(workspace.opportunityCommentError.value, /Could not save the opportunity comment/);
+  response = { data: null, error: { code: 'PGRST202' } };
+  assert.equal(await workspace.setOpportunityComment(original.opportunity_id, 'New comment'), null);
+  assert.match(workspace.opportunityCommentError.value, /database setup is incomplete/);
+  for (const invalid of [
+    { ...original, user_id: 'account-b' },
+    { ...original, opportunity_id: 'another-opportunity' },
+    { ...original, comment: undefined },
+  ]) {
+    response = { data: invalid, error: null };
+    assert.equal(await workspace.setOpportunityComment(original.opportunity_id, 'New comment'), null);
+    assert.match(workspace.opportunityCommentError.value, /comment could not be saved/);
+    assert.deepEqual(workspace.reviews.value, [original]);
+  }
+  response = { data: { ...original, comment: 'x'.repeat(5000) }, error: null };
+  assert.ok(await workspace.setOpportunityComment(original.opportunity_id, 'x'.repeat(5000)));
+  assert.equal(workspace.opportunityCommentError.value, '');
+  assert.equal(workspace.error.value, '');
+});
+
+test('comment errors stay separate from unrelated workspace failures and clear when the account changes', async (t) => {
+  const { client } = fakeClient(query => query.operation === 'rpc'
+    ? { data: null, error: { message: 'Offline' } } : { data: [], error: null });
+  const scope = effectScope(); t.after(() => scope.stop());
+  const account = ref<string | null>('account-a');
+  const workspace = scope.run(() => useJobWorkspace(client, account))!;
+  await settleUntil(() => !workspace.loading.value);
+  assert.equal(await workspace.setOpportunityReview('opportunity-1', 'strong_interest'), null);
+  assert.match(workspace.error.value, /Could not save the opportunity review/);
+  const reviewFailure = workspace.error.value;
+  assert.equal(await workspace.setOpportunityComment('opportunity-1', 'Private evaluation'), null);
+  assert.match(workspace.opportunityCommentError.value, /Could not save the opportunity comment/);
+  assert.equal(workspace.error.value, reviewFailure, 'a comment save must neither replace nor dismiss an unrelated failure');
+  account.value = 'account-b';
+  assert.equal(workspace.opportunityCommentError.value, '');
+  assert.equal(workspace.error.value, '');
+});
+
+test('comment saves and interest changes share user order without sending unrelated fields', async (t) => {
+  const firstWrite = deferred<Result>();
+  let held = true;
+  let stored: OpportunityReview = { ...review(), comment: null };
+  const { client, queries } = fakeClient(async query => {
+    if (query.operation === 'rpc') {
+      if (held) { held = false; await firstWrite.promise; }
+      stored = query.table === 'save_opportunity_comment' ? { ...stored, comment: query.payload?.p_comment as string | null }
+        : { ...stored, state: query.payload?.p_state as OpportunityReview['state'] };
+      return { data: { ...stored }, error: null };
+    }
+    return { data: query.table === 'opportunity_reviews' ? [{ ...stored }] : [], error: null };
+  });
+  const scope = effectScope(); t.after(() => scope.stop());
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  const comment = workspace.setOpportunityComment(stored.opportunity_id, 'Earlier thought');
+  await settleUntil(() => queries.some(({ operation }) => operation === 'rpc'));
+  const interest = workspace.setOpportunityReview(stored.opportunity_id, 'not_interested');
+  const revisedComment = workspace.setOpportunityComment(stored.opportunity_id, 'The location is too far away.');
+  assert.equal(queries.filter(({ operation }) => operation === 'rpc').length, 1);
+  firstWrite.resolve({ data: null, error: null });
+  await Promise.all([comment, interest, revisedComment]);
+  assert.equal(workspace.reviews.value[0].state, 'not_interested');
+  assert.equal(workspace.reviews.value[0].comment, 'The location is too far away.');
+  assert.deepEqual(queries.filter(({ operation }) => operation === 'rpc').map(({ table }) => table),
+    ['save_opportunity_comment', 'review_job_opportunity', 'save_opportunity_comment']);
+});
+
+test('late and queued comment saves cannot cross account changes', async (t) => {
+  const writing = deferred<Result>();
+  const { client, queries } = fakeClient(query => query.operation === 'rpc' ? writing.promise : { data: [], error: null });
+  const scope = effectScope(); t.after(() => scope.stop());
+  const account = ref<string | null>('account-a');
+  const workspace = scope.run(() => useJobWorkspace(client, account))!;
+  await settleUntil(() => !workspace.loading.value);
+  const comment = workspace.setOpportunityComment('opportunity-1', 'Private reason');
+  await settleUntil(() => queries.some(({ operation }) => operation === 'rpc'));
+  const queued = workspace.setOpportunityComment('opportunity-1', 'Another private reason');
+  account.value = 'account-b';
+  await settleUntil(() => !workspace.loading.value);
+  assert.ok(queries.find(({ operation }) => operation === 'rpc')?.signal?.aborted);
+  writing.resolve({ data: { ...review(), comment: 'Private reason' }, error: null });
+  assert.deepEqual(await Promise.all([comment, queued]), [null, null]);
+  assert.equal(queries.filter(({ operation }) => operation === 'rpc').length, 1);
+  assert.deepEqual(workspace.reviews.value, []);
+  assert.equal(workspace.opportunityCommentError.value, '');
+  assert.equal(workspace.error.value, '');
+});
+
+test('comments and concurrent receipts preserve both changes in either response order', async (t) => {
+  for (const receiptFirst of [true, false]) await t.test(receiptFirst ? 'receipt finishes first' : 'comment finishes first', async () => {
+    const comment = deferred<Result>();
+    const receipt = deferred<Result>();
+    const source = normalizeOpportunity({ id: 'opportunity-1', updated_at: '2026-09-20T10:00:00Z' });
+    const original = { ...review(source.id, 'strong_interest'), comment: 'Previous reason' };
+    const { client, queries } = fakeClient(query => query.operation === 'rpc'
+      ? query.table === 'save_opportunity_comment' ? comment.promise : receipt.promise
+      : { data: query.table === 'opportunity_reviews' ? [original] : [], error: null });
+    const scope = effectScope();
+    try {
+      const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+      await settleUntil(() => !workspace.loading.value);
+      const pendingReceipt = workspace.markOpportunityReviewed(source);
+      const pendingComment = workspace.setOpportunityComment(source.id, 'Funding confirmed.');
+      await settleUntil(() => queries.filter(({ operation }) => operation === 'rpc').length === 2);
+      const commentReply = { data: { ...original, comment: 'Funding confirmed.' }, error: null };
+      const receiptReply = { data: { ...original, reviewed_updated_at: source.updated_at }, error: null };
+      if (receiptFirst) {
+        receipt.resolve(receiptReply); await pendingReceipt;
+        comment.resolve(commentReply); await pendingComment;
+      } else {
+        comment.resolve(commentReply); await pendingComment;
+        receipt.resolve(receiptReply); await pendingReceipt;
+      }
+      assert.equal(workspace.reviews.value[0].comment, 'Funding confirmed.');
+      assert.equal(workspace.reviews.value[0].reviewed_updated_at, source.updated_at);
+      assert.equal(workspace.reviews.value[0].state, 'strong_interest');
+    } finally { scope.stop(); }
+  });
+});
+
 test('strong interest survives a fresh workspace, updated-source receipt, and application creation', async (t) => {
   let source = { id: 'opportunity-1', title: 'Materials discovery', personal_fit: { score: 6.4 },
     deadline: '2025-01-01', original_search: 'Materials discovery', created_at: '2026-09-18T12:00:00Z', updated_at: '2026-09-20T10:00:00Z' };

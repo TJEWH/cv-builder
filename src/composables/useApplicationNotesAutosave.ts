@@ -10,6 +10,8 @@ interface NotesAutosaveOptions {
   errorMessage?(): string;
   delay?: number;
   storage?: NotesDraftStorage | null;
+  storagePrefix?: string;
+  maxLength?: number;
 }
 interface NotesDraft {
   id: string;
@@ -33,7 +35,7 @@ export function useApplicationNotesAutosave(options: NotesAutosaveOptions) {
   function recoveryValue(key: string): string | undefined {
     try {
       const value = JSON.parse(storage?.getItem(key) || 'null');
-      return value && typeof value.value === 'string' && value.value.length <= 20_000 ? value.value : undefined;
+      return value && typeof value.value === 'string' && value.value.length <= (options.maxLength ?? 20_000) ? value.value : undefined;
     } catch { return undefined; }
   }
 
@@ -130,7 +132,7 @@ export function useApplicationNotesAutosave(options: NotesAutosaveOptions) {
     if (!id) { selected.value = null; return; }
     let draft = drafts.get(id);
     if (!draft) {
-      const recoveryKey = `CV_APPLICATION_NOTES_DRAFT:${encodeURIComponent(owner)}:${encodeURIComponent(id)}`;
+      const recoveryKey = `${options.storagePrefix ?? 'CV_APPLICATION_NOTES_DRAFT'}:${encodeURIComponent(owner)}:${encodeURIComponent(id)}`;
       const value = recoveryValue(recoveryKey) ?? saved;
       draft = { id, recoveryKey, state: reactive({ value, saved, error: '', saving: false, cancelled: false }), pending: null, timer: null };
       drafts.set(id, draft);

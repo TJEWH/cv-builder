@@ -238,3 +238,65 @@ test('a successful older request cannot clear a newer recovery value written in 
   assert.equal(await pending, true);
   assert.deepEqual(JSON.parse(storage.getItem(key)!), { value: 'Another tab latest typing' });
 });
+
+test('comment drafts and application notes recover and save independently for the same owner and item ID', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const storage = memoryStorage();
+  const notesKey = 'CV_APPLICATION_NOTES_DRAFT:owner:first';
+  const commentKey = 'CV_OPPORTUNITY_COMMENT_DRAFT:owner:first';
+  storage.setItem(notesKey, JSON.stringify({ value: 'Application notes draft' }));
+  storage.setItem(commentKey, JSON.stringify({ value: 'Reason for strong interest' }));
+  const scope = effectScope();
+  t.after(() => scope.stop());
+  const writes: [string, string][] = [];
+  const options = {
+    application: () => ({ id: 'first', notes: '' }), owner: () => 'owner', storage,
+  };
+  const notes = scope.run(() => useApplicationNotesAutosave({
+    ...options, save: async (_id, value) => { writes.push(['notes', value]); return true; },
+  }))!;
+  const comment = scope.run(() => useApplicationNotesAutosave({
+    ...options, storagePrefix: 'CV_OPPORTUNITY_COMMENT_DRAFT', maxLength: 5_000,
+    save: async (_id, value) => { writes.push(['comment', value]); return true; },
+  }))!;
+  assert.equal(notes.notes.value, 'Application notes draft');
+  assert.equal(comment.notes.value, 'Reason for strong interest');
+  comment.notes.value = 'The role matches my experience';
+  assert.deepEqual(JSON.parse(storage.getItem(commentKey)!), { value: 'The role matches my experience' });
+  assert.equal(await notes.flush(), true);
+  assert.equal(storage.getItem(notesKey), null);
+  assert.notEqual(storage.getItem(commentKey), null);
+  assert.equal(await comment.flush(), true);
+  assert.deepEqual(writes, [['notes', 'Application notes draft'], ['comment', 'The role matches my experience']]);
+  assert.equal(storage.values.size, 0);
+});
+
+for (const { name, storagePrefix, maxLength, limit } of [
+  { name: 'comments', storagePrefix: 'CV_OPPORTUNITY_COMMENT_DRAFT', maxLength: 5_000, limit: 5_000 },
+  { name: 'application notes by default', storagePrefix: undefined, maxLength: undefined, limit: 20_000 },
+]) {
+  test(`draft recovery accepts the maximum length and ignores oversized drafts for ${name}`, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const storage = memoryStorage();
+    const prefix = storagePrefix ?? 'CV_APPLICATION_NOTES_DRAFT';
+    const allowed = 'a'.repeat(limit);
+    storage.setItem(`${prefix}:owner:first`, JSON.stringify({ value: allowed }));
+    storage.setItem(`${prefix}:owner:second`, JSON.stringify({ value: 'b'.repeat(limit + 1) }));
+    const application = ref({ id: 'first', notes: 'Saved notes' });
+    const writes: [string, string][] = [];
+    const scope = effectScope();
+    t.after(() => scope.stop());
+    const autosave = scope.run(() => useApplicationNotesAutosave({
+      application: () => application.value, owner: () => 'owner', storage, storagePrefix, maxLength,
+      save: async (id, value) => { writes.push([id, value]); return true; },
+    }))!;
+    assert.equal(autosave.notes.value, allowed);
+    assert.equal(await autosave.flush(), true);
+    application.value = { id: 'second', notes: 'Saved second notes' };
+    assert.equal(autosave.notes.value, 'Saved second notes');
+    assert.equal(autosave.dirty.value, false);
+    t.mock.timers.tick(250);
+    await settle();
+    assert.deepEqual(writes, [['first', allowed]]);
+  });
+}

@@ -9,6 +9,7 @@ import { createRenderer, h, nextTick, reactive, ref } from 'vue';
 import type { Component } from 'vue';
 import type { Application, ApplicationStage, Opportunity, OpportunityReview } from '../src/cloudTypes';
 import { normalizeOpportunity } from '../src/composables/useJobWorkspace';
+import { useToasts, useToastWatch } from '../src/composables/useToasts';
 
 const filename = new URL('../src/components/JobWorkspace.vue', import.meta.url);
 const { descriptor } = parse(readFileSync(filename, 'utf8'));
@@ -21,6 +22,8 @@ const renderer = createRenderer<object, object>({
 });
 
 function mount(t: TestContext, options: { restoredOpportunityId?: string; active?: boolean } = {}) {
+  useToasts().clear();
+  t.after(() => useToasts().clear());
   const storage = new Map<string, string>();
   if (options.restoredOpportunityId) storage.set('CV_SELECTED_OPPORTUNITY:account-one', options.restoredOpportunityId);
   let unmount = () => {};
@@ -47,8 +50,10 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   let created = 0;
   const removed: string[] = [];
   const applicationUpdates: { id: string; changes: Partial<Application> }[] = [];
+  const commentUpdates: { id: string; comment: string }[] = [];
   const stageUpdates: { id: string; stage: ApplicationStage }[] = [];
   let failNotes = false;
+  let failComment = false;
   const saveApplication = (id: string, changes: Partial<Application>) => {
     const current = applications.value.find(item => item.id === id);
     if (!current) return null;
@@ -58,7 +63,7 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   };
   const workspace = {
     opportunities, applications, reviews,
-    loading: ref(false), saving: ref(false), error: ref(''), refresh() {},
+    loading: ref(false), saving: ref(false), error: ref(''), opportunityCommentError: ref(''), refresh() {},
     markOpportunityReviewed: async (item: Opportunity) => { receipts.push(item); },
     createApplication: async () => { created++; applications.value.push(application); return application; },
     updateApplication: async (id: string, changes: Partial<Application>) => {
@@ -73,13 +78,22 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
       return saveApplication(id, { workflow_stage: stage, ...(!current?.tracking_started ? { status } : {}) });
     },
     setApplicationChecklistItem: async () => false,
+    setOpportunityComment: async (id: string, comment: string) => {
+      commentUpdates.push({ id, comment });
+      if (failComment) { failComment = false; return null; }
+      const current = reviews.value.find(item => item.opportunity_id === id);
+      const saved: OpportunityReview = { user_id: 'account-one', opportunity_id: id, state: 'unreviewed', reviewed_updated_at: null, created_at: '', updated_at: '', ...current, comment: comment.trim() || null };
+      reviews.value = [...reviews.value.filter(item => item.opportunity_id !== id), saved];
+      return saved;
+    },
     removeApplication: async (id: string) => { removed.push(id); applications.value = applications.value.filter((item) => item.id !== id); return true; }, setOpportunityReview: async () => null,
     getApplicationContext: async () => null, refreshApplicationContext: async () => null,
   };
   const exports: { default?: Component } = {};
   const requireFromComponent = createRequire(filename);
   new Function('require', 'exports', code)((path: string) => path.endsWith('.vue') ? { default: {} }
-    : path === '../composables/useJobWorkspace' ? { useJobWorkspace: () => workspace } : requireFromComponent(path), exports);
+    : path === '../composables/useJobWorkspace' ? { useJobWorkspace: () => workspace }
+    : path === '../composables/useToasts' ? { useToasts, useToastWatch } : requireFromComponent(path), exports);
   const component = { ...exports.default, render: () => null };
   const props = reactive({ client: null, userId: 'account-one', tab: 'opportunities' as 'opportunities' | 'applications', lang: 'en', configurations: [], selectedId: '', readVersion: () => null, ...(options.active === undefined ? {} : { active: options.active }) });
   let mounted: unknown;
@@ -90,18 +104,130 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
     query: string; statusFilter: string; reviewFilter: string; hideWithApplication: boolean; hideNotInterested: boolean; sortBy: string; deadlineFilter: 'current' | 'past'; now: Date;
     statusLabel(status: string): string;
     notes: string; notesStatus: string; notesError: string; flushNotes(): Promise<boolean>;
+    opportunityComment: string; commentStatus: string; commentError: string; flushComment(): Promise<boolean>;
     recencyById: Map<string, 'new' | 'updated' | null>; unseenById: Map<string, 'new' | 'updated' | null>;
     fitScoreById: Map<string, number | undefined>; fitTone(score: number | undefined): string | undefined; fitLabel(score: number | undefined): string;
     filteredOpportunities: Opportunity[]; filteredApplications: Application[]; selectedOpportunity?: Opportunity; showingDetail: boolean; editingApplication?: Application;
     opportunityGroups: { key: string; title: string; items: Opportunity[] }[];
     removingId: string | null; removalDialog: { open?: boolean; showModal(): void; close(): void };
-    openOpportunity(id: string): void; closeOpportunity(): void; closeApplication(): Promise<void>; startApplication(item: Opportunity): Promise<void>;
+    openOpportunity(id: string): void; closeOpportunity(): Promise<void>; closeApplication(): Promise<void>; startApplication(item: Opportunity): Promise<void>;
     changeApplicationStatus(item: Application, event: Event): Promise<void>;
     requestDetailRemoval(item: Application): Promise<void>; cancelRemoval(): void; confirmRemoval(item: Application): Promise<void>;
   } } }).$.setupState;
   const componentProps = (mounted as { $props: { active: boolean } }).$props;
-  return { setup, props, componentProps, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, applicationUpdates, stageUpdates, failNextNotesSave: () => { failNotes = true; }, created: () => created };
+  return { setup, props, componentProps, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, applicationUpdates, commentUpdates, stageUpdates, failNextNotesSave: () => { failNotes = true; }, failNextCommentSave: () => { failComment = true; }, created: () => created };
 }
+
+test('opportunity comments save before closing, reopen independently, and can be cleared', async (t) => {
+  const { setup, opportunity, opportunities, reviews, commentUpdates } = mount(t);
+  const other = normalizeOpportunity({ id: 'other-opportunity', title: 'Different research' });
+  opportunities.value.push(other);
+  reviews.value = [{ user_id: 'account-one', opportunity_id: opportunity.id, state: 'strong_interest', comment: 'Great supervisor match.', reviewed_updated_at: opportunity.updated_at, created_at: '', updated_at: '' }];
+  setup.openOpportunity(opportunity.id);
+  assert.equal(setup.opportunityComment, 'Great supervisor match.');
+  setup.opportunityComment = 'Strong fit: hands-on robotics and funded research.';
+  await setup.closeOpportunity();
+  assert.equal(setup.showingDetail, false);
+  assert.deepEqual(commentUpdates, [{ id: opportunity.id, comment: 'Strong fit: hands-on robotics and funded research.' }]);
+  assert.equal(reviews.value[0].state, 'strong_interest');
+  setup.openOpportunity(other.id);
+  assert.equal(setup.opportunityComment, '');
+  setup.openOpportunity(opportunity.id);
+  assert.equal(setup.opportunityComment, commentUpdates[0].comment);
+  setup.opportunityComment = '';
+  assert.equal(await setup.flushComment(), true);
+  assert.equal(reviews.value[0].comment, null);
+  assert.equal(reviews.value[0].state, 'strong_interest');
+});
+
+test('failed opportunity comment saves retain the draft and detail until retry succeeds', async (t) => {
+  const { setup, opportunity, reviews, failNextCommentSave } = mount(t);
+  setup.openOpportunity(opportunity.id);
+  setup.opportunityComment = 'Not interesting: the work is mostly theoretical.';
+  failNextCommentSave();
+  await setup.closeOpportunity();
+  assert.equal(setup.showingDetail, true);
+  assert.equal(setup.commentStatus, 'error');
+  assert.match(setup.commentError, /Could not save your evaluation/);
+  assert.equal(setup.opportunityComment, 'Not interesting: the work is mostly theoretical.');
+  await setup.closeOpportunity();
+  assert.equal(setup.showingDetail, false);
+  assert.equal(reviews.value[0].comment, 'Not interesting: the work is mostly theoretical.');
+});
+
+test('creating an application flushes opportunity comments and stops when saving fails', async (t) => {
+  const { setup, opportunity, reviews, failNextCommentSave, created } = mount(t);
+  setup.openOpportunity(opportunity.id);
+  setup.opportunityComment = 'Ask about access to the robotics lab.';
+  failNextCommentSave();
+  await setup.startApplication(opportunity);
+  assert.equal(created(), 0);
+  await setup.startApplication(opportunity);
+  assert.equal(created(), 1);
+  assert.equal(reviews.value[0].comment, 'Ask about access to the robotics lab.');
+});
+
+test('switching accounts cancels pending opportunity comments and clears the editor', async (t) => {
+  const { setup, props, opportunity, commentUpdates } = mount(t);
+  setup.openOpportunity(opportunity.id);
+  setup.opportunityComment = 'Private account-one reasoning.';
+  props.userId = 'account-two';
+  await nextTick();
+  assert.equal(setup.opportunityComment, '');
+  assert.equal(setup.selectedOpportunity, undefined);
+  assert.deepEqual(commentUpdates, []);
+});
+
+test('evaluation save feedback uses one toast and does not announce untouched fields', async (t) => {
+  const { setup, opportunity } = mount(t);
+  const { toasts } = useToasts();
+  setup.openOpportunity(opportunity.id);
+  await nextTick();
+  assert.equal(toasts.value.length, 0);
+  setup.opportunityComment = 'Strong match with my research.';
+  await nextTick();
+  assert.equal(toasts.value.length, 1);
+  assert.equal(toasts.value[0].message, 'Saving evaluation…');
+  const toastId = toasts.value[0].id;
+  await setup.flushComment();
+  await nextTick();
+  assert.equal(toasts.value.length, 1);
+  assert.equal(toasts.value[0].id, toastId);
+  assert.equal(toasts.value[0].message, 'Evaluation saved.');
+  assert.equal(toasts.value[0].tone, 'success');
+  await setup.closeOpportunity();
+  await nextTick();
+  assert.equal(toasts.value[0].message, 'Evaluation saved.', 'closing does not remove the success before it can be seen');
+});
+
+test('failed evaluation saves offer a toast retry and stale retries cannot save a different account', async (t) => {
+  const { setup, props, opportunity, commentUpdates, failNextCommentSave } = mount(t);
+  const { toasts } = useToasts();
+  setup.openOpportunity(opportunity.id);
+  setup.opportunityComment = 'Funding is unclear.';
+  failNextCommentSave();
+  await setup.flushComment();
+  await nextTick();
+  assert.equal(toasts.value.length, 1);
+  assert.equal(toasts.value[0].tone, 'error');
+  assert.equal(toasts.value[0].action?.label, 'Retry');
+  const retry = toasts.value[0].action!.run;
+  await retry();
+  await nextTick();
+  assert.equal(toasts.value.length, 1);
+  assert.equal(toasts.value[0].message, 'Evaluation saved.');
+  setup.opportunityComment = 'A newer private evaluation.';
+  failNextCommentSave();
+  await setup.flushComment();
+  await nextTick();
+  const staleRetry = toasts.value[0].action!.run;
+  props.userId = 'account-two';
+  await nextTick();
+  assert.equal(toasts.value.length, 0);
+  const writes = commentUpdates.length;
+  await staleRetry();
+  assert.equal(commentUpdates.length, writes);
+});
 
 test('standalone workspaces activate sidebar controls by default while accepting explicit inactivity', async (t) => {
   const { props, componentProps } = mount(t);

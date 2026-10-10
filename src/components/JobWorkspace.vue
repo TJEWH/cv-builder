@@ -17,7 +17,7 @@ import ApplicationIdentifier from './ApplicationIdentifier.vue';
 import ApplicationDeadlineCalendar from './ApplicationDeadlineCalendar.vue';
 import WorkspaceDetailHeader from './WorkspaceDetailHeader.vue';
 import { removeApplicationCv } from '../composables/applicationCv';
-import { useToastWatch } from '../composables/useToasts';
+import { useToasts, useToastWatch } from '../composables/useToasts';
 import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
 import { useDesktopSidebar } from '../composables/desktopSidebar';
 
@@ -31,8 +31,8 @@ const props = withDefaults(defineProps<{
 const desktopSidebar = useDesktopSidebar();
 const sidebarActive = computed(() => desktopSidebar.value && props.active !== false);
 const emit = defineEmits<{ navigate: [tab: 'opportunities' | 'applications']; 'save-career-variant': [name: string, state: CvState]; 'edit-variant': [id: string] }>();
-const { opportunities, applications, reviews, loading, saving, error, createApplication,
-  updateApplication, setApplicationStage, setApplicationChecklistItem, removeApplication, setOpportunityReview, markOpportunityReviewed } = useJobWorkspace(props.client, () => props.userId);
+const { opportunities, applications, reviews, loading, saving, error, opportunityCommentError, createApplication,
+  updateApplication, setApplicationStage, setApplicationChecklistItem, removeApplication, setOpportunityReview, setOpportunityComment, markOpportunityReviewed } = useJobWorkspace(props.client, () => props.userId);
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const queries = reactive({ opportunities: '', applications: '' });
 const query = computed({ get: () => queries[props.tab], set: (value: string) => { queries[props.tab] = value; } });
@@ -117,6 +117,42 @@ const { notes, status: notesStatus, error: notesError, flush: flushNotes } = use
   errorMessage: () => error.value || text('Could not save notes. Please retry.', 'Notizen konnten nicht gespeichert werden. Bitte erneut versuchen.'),
 });
 const selectedOpportunity = computed(() => opportunityById.value.get(selectedOpportunityId.value || ''));
+const { notes: opportunityComment, status: commentStatus, error: commentError, flush: flushComment } = useApplicationNotesAutosave({
+  application: () => selectedOpportunity.value ? { id: selectedOpportunity.value.id, notes: reviewById.value.get(selectedOpportunity.value.id)?.comment } : null,
+  save: async (id, comment) => Boolean(await setOpportunityComment(id, comment)),
+  owner: () => props.userId,
+  storagePrefix: 'CV_OPPORTUNITY_COMMENT_DRAFT',
+  maxLength: 5000,
+  errorMessage: () => opportunityCommentError.value || text('Could not save your evaluation. Please retry.', 'Deine Einschätzung konnte nicht gespeichert werden. Bitte erneut versuchen.'),
+});
+const commentToasts = useToasts();
+let commentToastId = 0;
+let commentToastStatus = '';
+function clearCommentToast() {
+  if (commentToastId && commentToastStatus !== 'saved') commentToasts.dismiss(commentToastId);
+  commentToastId = 0;
+}
+watch([() => props.userId, selectedOpportunityId, () => props.tab, () => props.active, commentStatus, commentError],
+  ([owner, id, tab, active, status, message], previous) => {
+    const changedItem = owner !== previous?.[0] || id !== previous?.[1];
+    if (changedItem || tab !== 'opportunities' || active === false) clearCommentToast();
+    if (!id || tab !== 'opportunities' || active === false) return;
+    if (status === 'saved' && (changedItem || previous?.[4] !== 'saving')) return;
+    commentToastStatus = status;
+    commentToastId = commentToasts.notify({
+      key: `opportunity-comment:${owner}:${id}`,
+      message: status === 'error' ? message : status === 'saving'
+        ? text('Saving evaluation…', 'Einschätzung wird gespeichert…')
+        : text('Evaluation saved.', 'Einschätzung gespeichert.'),
+      tone: status === 'error' ? 'error' : status === 'saving' ? 'info' : 'success',
+      duration: status === 'saved' ? 3500 : 0,
+      action: status === 'error' ? { label: text('Retry', 'Erneut versuchen'), run: () => {
+        if (props.userId !== owner || selectedOpportunityId.value !== id || props.tab !== 'opportunities' || props.active === false) return true;
+        return flushComment();
+      } } : undefined,
+    });
+  });
+onBeforeUnmount(clearCommentToast);
 const showingDetail = computed(() => props.tab === 'opportunities' ? Boolean(selectedOpportunity.value) : Boolean(editingApplication.value));
 const statusNames: Record<string, [string, string]> = {
   unreviewed: ['Not reviewed', 'Ungeprüft'], interested: ['Interested', 'Interessant'], strong_interest: ['Strong interest', 'Starkes Interesse'], not_interested: ['Not interesting', 'Nicht interessant'],
@@ -165,8 +201,9 @@ function recordOpportunityVisit(opportunity: Opportunity) {
 watch([selectedOpportunity, () => props.tab], ([opportunity, tab]) => {
   if (opportunity && tab === 'opportunities') recordOpportunityVisit(opportunity);
 }, { immediate: true });
-function closeOpportunity() {
+async function closeOpportunity() {
   const id = selectedOpportunityId.value;
+  if ((commentStatus.value !== 'saved' && !await flushComment()) || selectedOpportunityId.value !== id) return;
   selectedOpportunityId.value = null;
   if (id) focusResult('opportunities', id);
 }
@@ -203,6 +240,7 @@ async function toggleApplication(application: Application) {
 }
 async function startApplication(item: Opportunity) {
   notice.value = '';
+  if (selectedOpportunityId.value === item.id && !await flushComment()) return;
   const existing = applicationByOpportunity.value.get(item.id);
   const application = existing || await createApplication({ opportunityId: item.id });
   if (!application) return;
@@ -321,7 +359,13 @@ useToastWatch(() => notice.value, () => {
           <button class="btn btn--success jobs-detail-action" type="button" :disabled="saving" @click="startApplication(selectedOpportunity)"><span class="jobs-action-desktop">{{ applicationByOpportunity.has(selectedOpportunity.id) ? text('Open application', 'Bewerbung öffnen') : text('Create application', 'Bewerbung anlegen') }}</span><span class="jobs-action-mobile">{{ applicationByOpportunity.has(selectedOpportunity.id) ? text('Open', 'Öffnen') : text('Apply', 'Bewerben') }}</span></button>
         </template>
       </WorkspaceDetailHeader>
-      <div class="opportunity-detail__body"><OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity.details" :lang="lang" /></div>
+      <div class="opportunity-detail__body">
+        <div class="opportunity-comment">
+          <label for="opportunity-comment">{{ text('Personal Evaluation', 'Persönliche Einschätzung') }}</label>
+          <textarea id="opportunity-comment" v-model="opportunityComment" rows="2" maxlength="5000" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @blur="flushComment" />
+        </div>
+        <OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity.details" :lang="lang" />
+      </div>
     </section>
     <ApplicationWorkspace v-if="editingApplication" v-show="tab === 'applications'" :active="props.active !== false && tab === 'applications'" :checklist-saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-variant="createVariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @change-stage="stage => setApplicationStage(editingApplication!.id, stage)" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
       <template #preparation-actions>
@@ -362,6 +406,10 @@ useToastWatch(() => notice.value, () => {
 .jobs-workspace > .application-workspace, .jobs-workspace > .opportunity-detail { flex: 1 1 auto; min-height: 0; }
 .opportunity-detail { display: flex; flex-direction: column; min-width: 0; padding: 32px; overflow: hidden;}
 .opportunity-detail__body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-gutter: stable; }
+.opportunity-comment { display: grid; gap: 8px; margin-bottom: 24px; }
+.jobs-workspace .opportunity-comment label { display: block; font-size: 14px; font-weight: 600; }
+.jobs-workspace .opportunity-comment textarea { box-sizing: border-box; min-height: 76px; resize: vertical; font-size: 14px; line-height: 1.5; }
+.opportunity-comment textarea::placeholder { color: #a6c1b9; opacity: 1; }
 .application-status-history h3 { color: #9be8c7; margin: 0 0 12px; }
 .application-status-history ol { list-style: none; margin: 12px 0 0 5px; padding: 0 0 0 18px; border-left: 2px solid #356454; }
 .application-status-history li { position: relative; padding: 0 0 18px; font-size: 13px; }
@@ -519,6 +567,7 @@ tr.is-expanded { background: #0b242b; }
   .opportunity-detail__deadline-label { display: none; }
   .opportunity-detail__fit { flex-shrink: 0; margin: 0; padding: 0; border-radius: 0; background: transparent; font-size: 12px; }
   .opportunity-detail__body { padding: 12px 8px 0; scrollbar-gutter: auto; }
+  .jobs-workspace .opportunity-comment textarea { font-size: 16px; }
   .jobs-workspace .jobs-detail-state { flex: 1; }
   .jobs-workspace .jobs-detail-state select { width: 100%; height: 40px; padding: 6px; }
   .jobs-detail-action { flex-shrink: 0; min-height: 40px; padding: 7px 10px; }

@@ -94,6 +94,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   const loading = ref(false);
   const saving = ref(false);
   const error = ref('');
+  const opportunityCommentError = ref('');
   let epoch = 0;
   let loadSequence = 0;
   let loadController: AbortController | null = null;
@@ -113,7 +114,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
     pendingReviews.clear();
     loadController = null;
     opportunities.value = []; applications.value = []; cvVariants.value = []; reviews.value = [];
-    loading.value = false; saving.value = false; error.value = '';
+    loading.value = false; saving.value = false; error.value = ''; opportunityCommentError.value = '';
     pendingCreate = null; pendingAssignment = null;
     mutationTail = Promise.resolve();
   }
@@ -173,7 +174,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   }
 
   async function runMutation<T>(action: (account: string, generation: number, signal: AbortSignal) => Promise<T>, saveResult: (value: T) => void,
-    failureMessage = 'Could not save the application. Check your connection and retry.'): Promise<T | null> {
+    failureMessage = 'Could not save the application. Check your connection and retry.', operationError = error): Promise<T | null> {
     const account = toValue(userId);
     if (disposed || !client || !account) return null;
     const generation = epoch;
@@ -188,14 +189,14 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
     controllers.add(controller);
     // An older read must not overwrite the results of a newer write.
     loadSequence++; loadController?.abort(); loading.value = false;
-    saving.value = true; error.value = '';
+    saving.value = true; operationError.value = '';
     try {
       const result = await action(account, generation, controller.signal);
       if (!current(account, generation)) return null;
       saveResult(result);
       return result;
     } catch (reason) {
-      if (current(account, generation)) error.value = errorMessage(reason, failureMessage);
+      if (current(account, generation)) operationError.value = errorMessage(reason, failureMessage);
       return null;
     } finally {
       controllers.delete(controller);
@@ -344,8 +345,8 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
 
   function rememberReview(review: OpportunityReview, receiptOnly = false) {
     const previous = reviews.value.find(({ opportunity_id }) => opportunity_id === review.opportunity_id);
-    const saved = receiptOnly && previous ? { ...previous } : { ...review };
-    // Opening a row and changing its state may finish in either order. Neither may lose a newer receipt or choice.
+    const saved = receiptOnly && previous ? { ...previous } : { ...previous, ...review };
+    // Receipts can finish alongside state/comment saves. Preserve explicit edits and the newest viewed version.
     saved.reviewed_updated_at = previous?.reviewed_updated_at
       && (!review.reviewed_updated_at || Date.parse(previous.reviewed_updated_at) > Date.parse(review.reviewed_updated_at))
       ? previous.reviewed_updated_at : review.reviewed_updated_at;
@@ -360,6 +361,24 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
       return saveOpportunityReview(account, opportunityId, observedVersion, state, signal);
     }, (review) => rememberReview(review),
     'Could not save the opportunity review. Check your connection and retry.');
+  }
+
+  function setOpportunityComment(opportunityId: string, comment: string): Promise<OpportunityReview | null> {
+    return runMutation(async (account, _generation, signal) => {
+      if (!opportunityId) throw new Error('Select an opportunity before adding a comment.');
+      const normalizedComment = comment.trim() || null;
+      if (normalizedComment && Array.from(normalizedComment).length > 5000) throw new Error('Keep the comment to 5,000 characters or fewer.');
+      const { data, error: queryError } = await client!.rpc('save_opportunity_comment', {
+        p_opportunity_id: opportunityId, p_comment: normalizedComment,
+      }).abortSignal(signal);
+      if (queryError) throw queryError;
+      if (!data || data.user_id !== account || data.opportunity_id !== opportunityId
+        || !OPPORTUNITY_REVIEW_STATES.includes(data.state)
+        || (data.comment !== null && typeof data.comment !== 'string')) {
+        throw new Error('The comment could not be saved. Refresh and retry.');
+      }
+      return data as OpportunityReview;
+    }, (review) => rememberReview(review), 'Could not save the opportunity comment. Check your connection and retry.', opportunityCommentError);
   }
 
   /** A read receipt never blocks another row, changes interest, or acknowledges an unseen source update. */
@@ -421,5 +440,5 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
 
   watch(() => toValue(userId), () => { reset(); void refresh(); }, { immediate: true, flush: 'sync' });
   onScopeDispose(() => { disposed = true; reset(); });
-  return { opportunities, applications, cvVariants, reviews, loading, saving, error, refresh, createApplication, updateApplication, setApplicationStage, setApplicationChecklistItem, removeApplication, refreshApplicationContext, setOpportunityReview, markOpportunityReviewed, getApplicationContext };
+  return { opportunities, applications, cvVariants, reviews, loading, saving, error, opportunityCommentError, refresh, createApplication, updateApplication, setApplicationStage, setApplicationChecklistItem, removeApplication, refreshApplicationContext, setOpportunityReview, setOpportunityComment, markOpportunityReviewed, getApplicationContext };
 }

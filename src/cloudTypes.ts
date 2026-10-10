@@ -12,6 +12,8 @@ export interface OpportunityReview {
   user_id: string;
   opportunity_id: string;
   state: OpportunityReviewState;
+  /** Private context for the user's interest; older workspaces may omit this field. */
+  comment?: string | null;
   reviewed_updated_at: string | null;
   created_at: string;
   updated_at: string;

@@ -152,7 +152,7 @@ const client = {
         content_json: parameters.p_content_json, config_json: parameters.p_config_json,
         cv_version: parameters.p_cv_version, revision: 1, is_base_variant: false, created_at: new Date().toISOString(),
       };
-      if (name === 'review_job_opportunity') {
+      if (name === 'review_job_opportunity' || name === 'save_opportunity_comment') {
         const opportunity = database.opportunities.find((row) => row.id === parameters.p_opportunity_id);
         if (!opportunity) return { error: new Error('Missing fixture opportunity') };
         let review = database.opportunity_reviews.find((row) => row.opportunity_id === opportunity.id && row.user_id === account);
@@ -161,6 +161,7 @@ const client = {
           database.opportunity_reviews.push(review);
         }
         if (parameters.p_state) review.state = parameters.p_state;
+        if (name === 'save_opportunity_comment') review.comment = String(parameters.p_comment || '').trim() || null;
         if (parameters.p_observed_updated_at === opportunity.updated_at) review.reviewed_updated_at = opportunity.updated_at;
         review.updated_at = new Date().toISOString();
         return { data: structuredClone(review), error: null };
