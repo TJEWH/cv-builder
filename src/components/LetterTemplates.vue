@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue';
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
+import { faCheck, faDownload, faPlus, faUpload } from '@fortawesome/free-solid-svg-icons';
 import { debounce } from '../composables/useStorage';
 import type { LetterTemplate } from '../letterTypes';
 import { createLetterRepository, DEFAULT_LETTER_TEMPLATES, DEFAULT_QUESTION_GUIDANCE, LETTER_TEMPLATE_CONTEXT_MAX_LENGTH } from '../composables/motivationLetters';
@@ -14,6 +16,8 @@ const emit = defineEmits<{ changed: [] }>();
 const templates = ref<LetterTemplate[]>([]);
 const selectedId = ref('');
 const defaultId = ref('');
+const defaultTemplateName = computed(() => templates.value.find(template => template.id === defaultId.value)?.name || '');
+const controlsId = useId();
 const form = ref<LetterTemplate | null>(null);
 const message = ref('');
 const error = ref('');
@@ -70,7 +74,7 @@ function setDefault() {
     repository().setDefaultTemplate(selectedId.value);
     defaultId.value = selectedId.value;
     emit('changed'); window.dispatchEvent(new Event('cv-letter-templates-updated'));
-    message.value = text('Default letter selected. New applications will use this template.', 'Standardbrief ausgewählt. Neue Bewerbungen verwenden diese Vorlage.');
+    message.value = text('Default template updated. New applications on this device will use it.', 'Standardvorlage geändert. Neue Bewerbungen auf diesem Gerät verwenden diese Vorlage.');
   } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); }
 }
 function save(): boolean {
@@ -157,16 +161,33 @@ async function importLibrary(event: Event) {
     <div class="template-layout" :class="{ 'template-layout--sidebar': sidebarControlsVisible }">
       <DesktopSidebarPortal area="major" :active="sidebarActive">
       <aside class="template-library-controls" :aria-label="text('Letter template library', 'Briefvorlagenbibliothek')">
-        <button type="button" @click="create">{{ text('New template', 'Neue Vorlage') }}</button>
-        <label>{{ text('Template', 'Vorlage') }}<select :value="selectedId" @change="selectFromInput">
-          <option v-if="!selectedId" value="" disabled>{{ text('New template', 'Neue Vorlage') }}</option>
-          <option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }} · {{ text('Revision', 'Revision') }} {{ template.revision }}{{ template.id === defaultId ? ' · ' + text('Default', 'Standard') : '' }}</option>
-        </select></label>
-        <p v-if="form" class="template-selection-details">{{ text('Revision', 'Revision') }} {{ form.revision }} · {{ form.maxWords }} {{ text('words', 'Wörter') }}</p>
-        <button type="button" :disabled="!selectedId || selectedId === defaultId" @click="setDefault">{{ selectedId && selectedId === defaultId ? text('Default letter', 'Standardbrief') : text('Set as default letter', 'Als Standardbrief festlegen') }}</button>
-        <p class="template-selection-details app-hint">{{ text('The default is selected automatically for new applications on this device.', 'Der Standardbrief wird auf diesem Gerät automatisch für neue Bewerbungen ausgewählt.') }}</p>
-        <div class="template-library-actions"><button type="button" @click="download">{{ text('Export library', 'Bibliothek exportieren') }}</button><button type="button" :disabled="isImporting" @click="importInput?.click()">{{ isImporting ? text('Importing…', 'Importieren…') : text('Import library', 'Bibliothek importieren') }}</button></div>
-        <p v-if="isImporting" class="template-selection-details" role="status">{{ text('Reading the template library…', 'Vorlagenbibliothek wird gelesen…') }}</p>
+        <div class="template-library-section">
+          <label>{{ text('Template to edit', 'Vorlage zum Bearbeiten') }}<select :value="selectedId" :aria-describedby="`${controlsId}-save-status`" @change="selectFromInput">
+            <option v-if="!selectedId" value="" disabled>{{ text('New template', 'Neue Vorlage') }}</option>
+            <option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }}</option>
+          </select></label>
+          <p v-if="form" class="template-selection-details">{{ text('Revision', 'Revision') }} {{ form.revision }} · {{ text('Target:', 'Ziel:') }} {{ form.maxWords }} {{ text('words', 'Wörter') }}</p>
+          <p :id="`${controlsId}-save-status`" class="template-control-help" role="status">{{ saveStatus === 'error' ? text('Changes are not saved. Check the form or try again.', 'Änderungen nicht gespeichert. Formular prüfen oder erneut versuchen.') : saveStatus === 'saving' ? text('Saving changes on this device…', 'Änderungen werden auf diesem Gerät gespeichert…') : text('Edits save automatically on this device.', 'Änderungen werden auf diesem Gerät automatisch gespeichert.') }}</p>
+          <button class="template-create-action" type="button" @click="create"><FontAwesomeIcon :icon="faPlus" aria-hidden="true" /><span>{{ text('Create new template', 'Neue Vorlage erstellen') }}</span></button>
+        </div>
+        <section class="template-library-section template-default" :aria-labelledby="`${controlsId}-default-heading`">
+          <h3 :id="`${controlsId}-default-heading`">{{ text('New applications', 'Neue Bewerbungen') }}</h3>
+          <p v-if="selectedId && selectedId === defaultId" class="template-default-status"><FontAwesomeIcon :icon="faCheck" aria-hidden="true" /><span>{{ text('This template is the default', 'Diese Vorlage ist der Standard') }}</span></p>
+          <template v-else>
+            <p class="template-control-help">{{ text('Current default:', 'Aktueller Standard:') }} <strong>{{ defaultTemplateName }}</strong></p>
+            <button type="button" :disabled="!selectedId" :aria-describedby="`${controlsId}-default-help`" @click="setDefault">{{ text('Make this the default', 'Als Standard festlegen') }}</button>
+          </template>
+          <p :id="`${controlsId}-default-help`" class="template-control-help">{{ text('Selected automatically for new applications on this device.', 'Wird auf diesem Gerät automatisch für neue Bewerbungen ausgewählt.') }}</p>
+        </section>
+        <details class="template-library-files">
+          <summary>{{ text('Import & export', 'Import & Export') }}</summary>
+          <div class="template-library-actions">
+            <p :id="`${controlsId}-files-help`" class="template-control-help">{{ text('Export all templates as a JSON file. Import adds new copies to your library.', 'Alle Vorlagen als JSON-Datei exportieren. Beim Import werden neue Kopien hinzugefügt.') }}</p>
+            <button type="button" :aria-describedby="`${controlsId}-files-help`" @click="download"><FontAwesomeIcon :icon="faDownload" aria-hidden="true" /><span>{{ text('Export all templates', 'Alle Vorlagen exportieren') }}</span></button>
+            <button type="button" :disabled="isImporting" :aria-describedby="`${controlsId}-files-help`" @click="importInput?.click()"><FontAwesomeIcon :icon="faUpload" aria-hidden="true" /><span>{{ isImporting ? text('Importing…', 'Importieren…') : text('Import templates', 'Vorlagen importieren') }}</span></button>
+            <p v-if="isImporting" class="template-control-help" role="status">{{ text('Reading the template file…', 'Vorlagendatei wird gelesen…') }}</p>
+          </div>
+        </details>
         <input ref="importInput" hidden type="file" accept=".json,application/json" :disabled="isImporting" @change="importLibrary" />
       </aside>
       </DesktopSidebarPortal>
@@ -202,16 +223,28 @@ button:disabled{opacity:.55;cursor:default}
 .letter-templates :is(button,input,select,textarea):focus-visible,.template-library-controls :is(button,input,select):focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}
 .template-layout{display:grid;flex:1 1 auto;min-height:0;min-width:0;overflow:hidden;grid-template-columns:minmax(180px,240px) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:24px}
 .template-layout--sidebar{grid-template-columns:minmax(0,1fr)}
-aside{min-width:0;align-self:start;display:grid;gap:12px}
-.template-library-controls .template-selection-details{font-size:11px}
-.template-library-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.template-library-actions button{font-size:11px;padding:8px}
+.template-library-controls{min-width:0;align-self:start;display:grid;gap:20px}
+.template-library-section{display:grid;gap:10px;min-width:0}
+.template-library-section h3{margin:0;font:600 13px/1.4 var(--font-ui);color:var(--ui-text)}
+.template-library-controls .template-selection-details{font-size:11px;font-variant-numeric:tabular-nums}
+.template-library-controls .template-control-help{font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.template-control-help strong{font-weight:500;color:var(--ui-text)}
+.template-library-controls button{display:flex;align-items:center;justify-content:center;gap:8px;min-height:38px;text-align:center}
+.template-library-controls button svg,.template-default-status svg{flex:0 0 auto;width:14px}
+.template-library-controls .template-create-action{margin-top:2px;border-color:var(--ui-accent-border);color:var(--ui-accent)}
+.template-default{padding-top:18px;border-top:1px solid var(--ui-divider)}
+.template-library-controls .template-default-status{display:flex;align-items:baseline;gap:8px;color:var(--ui-accent);font-size:13px;line-height:1.5}
+.template-library-files{min-width:0;border-top:1px solid var(--ui-divider);padding-top:8px}
+.template-library-files summary{padding:10px 0;cursor:pointer;font:600 13px/1.4 var(--font-ui);color:var(--ui-muted)}
+.template-library-files summary:hover{color:var(--ui-text)}
+.template-library-files summary:focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}
+.template-library-actions{display:grid;gap:10px;padding-top:4px}
 .template-form{display:grid;align-content:start;gap:18px;min-height:0;min-width:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;}
 .letter-templates label,.template-library-controls label{display:grid;gap:7px;font:600 12px/1.4 system-ui;color:var(--ui-text)}
 .letter-templates :is(input,select,textarea),.template-library-controls :is(input,select){font:400 14px/1.5 var(--font-ui);min-width:0;width:100%;box-sizing:border-box}
 textarea{resize:vertical}
 .template-form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .template-hint{font-size:12px}
-@media(max-width:700px){.template-layout{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr);gap:18px}.template-heading{flex-direction:column;gap:10px;margin-bottom:14px}.template-form-row{grid-template-columns:1fr}.template-library-actions{margin-top:0}.template-form{max-width:none}}
+@media(max-width:760px){.letter-templates{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}.template-layout{display:flex;flex:0 0 auto;flex-direction:column;overflow:visible;gap:24px}.template-heading{flex-direction:column;gap:10px;margin-bottom:14px}.template-form-row{grid-template-columns:1fr}.template-form{overflow:visible;max-width:none}}
 @media(max-width:760px){.letter-templates :is(input,select,textarea),.template-library-controls :is(input,select){font-size:16px}.letter-templates button,.template-library-controls button{min-height:44px}}
 </style>

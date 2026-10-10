@@ -976,6 +976,7 @@ body,
 }
 
 @media (max-width: 760px) {
+  .builder-layout__controls .studio-templates { overflow-y: auto; }
   .cv-builder-app {
     --mobile-tabs-height: calc(72px + env(safe-area-inset-bottom, 0px));
     --mobile-context-row-height: 52px;
