@@ -38,6 +38,9 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
 
+      - name: Check refinement prompt contract
+        run: npm run test:refinement-protocol
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 

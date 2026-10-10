@@ -8,6 +8,22 @@ The application stages are Preparation, Refinement, PDF review and Tracking. Com
 
 ## Browser contract
 
+### Protocol location for copied tasks
+
+**Deployed:** `refinement_protocol_documents` was applied to **phd-workflow** (`ehkfzvjgesomteqpwrwa`) on **2026-10-10**. Its rollback-only SQL tests passed, including owner isolation, management reads, immutability, idempotent publication and history cleanup. Security advisors found no additional issues compared with the existing baseline.
+
+Apply [`changes/refinement_protocol_documents.sql`](changes/refinement_protocol_documents.sql) before releasing the updated Copy task action. The same schema is included in `schema.sql`. Run [`tests/refinement_protocol_documents.sql`](tests/refinement_protocol_documents.sql) as `postgres`.
+
+**Copy task** first stores and verifies the complete connected prompt in `public.application_refinement_protocols.protocol_text`. Each immutable document is keyed by `request_id` and `protocol_id` (the frontend's SHA-256 revision fingerprint). It contains the source-read query, exact proposal JSON contract, validation rules, save query and receipt checks. It does not embed CV or letter source text. Existing published requests can receive a protocol document without changing their snapshots; repeated copies reuse the same document, while revised instructions receive a different protocol ID.
+
+Every copied CV, letter, initial-draft or combined task names this table and column, both keys and the exact read query:
+
+```sql
+SELECT private.read_refinement_protocol('<request UUID>'::uuid, '<protocol ID>') AS refinement_protocol;
+```
+
+ChatGPT uses the private resolver first, verifies the current request, then retrieves this protocol and follows its `protocol_text`. No function-definition inspection is needed. The management read remains `SECURITY INVOKER`, executable only by `postgres`. Browser publication uses `public.publish_refinement_protocol(p_request_id, p_protocol_id, p_protocol_text)`, with signed-in non-anonymous owner checks and RLS; missing storage or an invalid receipt prevents copying. Clearing refinement history also removes its protocol documents through the request foreign key, preserving the application and opportunity.
+
 The three preparation/publication RPCs are `SECURITY INVOKER`, require a signed-in non-anonymous owner and use the existing owner RLS model. They return one JSON row, not an array. History clearing uses a separate, narrowly scoped endpoint described below.
 
 | RPC | Arguments | Behavior |

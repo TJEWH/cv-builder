@@ -223,8 +223,16 @@ for (const scope of ['cv', 'letter', 'both'] as const) test(`short ${scope} task
   assert.ok(copied.at(-1)!.includes(`published request ${current}`));
   assert.ok(copied.at(-1)!.includes(`scope ${scope}`));
   assert.ok(!copied.at(-1)!.includes('Original private working letter.'));
+  const storedProtocol = fixture.database.application_refinement_protocols.find(row => row.request_id === current)!;
+  assert.ok(storedProtocol, 'copy stores the protocol for an already-published request');
+  assert.ok(copied.at(-1)!.includes(`SELECT private.read_refinement_protocol('${current}'::uuid, E'${storedProtocol.protocol_id}')`));
+  assert.match(copied.at(-1)!, /public.application_refinement_protocols.*protocol_text/);
+  assert.match(String(storedProtocol.protocol_text), /private.save_refinement_proposal/);
+  assert.match(String(storedProtocol.protocol_text), /precisely this JSON contract/);
+  assert.doesNotMatch(String(storedProtocol.protocol_text), /Original private working letter|BEGIN_APPROVED_REQUEST_JSON/);
   const count = setup.requests.length;
   await setup.copyTask(); assert.equal(setup.requests.length, count, 'unchanged sources reuse the published request');
+  assert.equal(fixture.database.application_refinement_protocols.length, 1, 'copy retries reuse the identical protocol');
   setup.updateLetter('Manual correction for the next round.');
   await setup.copyTask(); assert.match(setup.error, /Publish the current sources/);
   assert.equal(copied.length, 2, 'copying changed sources must not publish or copy an old request');
@@ -237,6 +245,24 @@ for (const scope of ['cv', 'letter', 'both'] as const) test(`short ${scope} task
   fixture.cloud.client.rpc = (() => Promise.resolve({ data: null, error: new Error('Synthetic publication failure') })) as unknown as typeof fixture.cloud.client.rpc;
   await setup.publishSources(); assert.ok(setup.error); assert.equal(copied.length, 3);
   await setup.copyTask(); assert.ok(setup.error); assert.equal(copied.length, 3, 'failed publication must not copy an instruction for old sources');
+});
+
+test('copy task does not copy a protocol locator when publication fails or returns a mismatched receipt', async t => {
+  const fixture = mount(t), setup = await prepare(fixture);
+  const copied: string[] = [];
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copied.push(value); } } });
+  const rpc = fixture.cloud.client.rpc.bind(fixture.cloud.client);
+  for (const mode of ['missing', 'mismatch']) {
+    fixture.cloud.client.rpc = (async (name: string, args?: Record<string, unknown>) => {
+      if (name !== 'publish_refinement_protocol') return rpc(name, args);
+      if (mode === 'missing') return { data: null, error: { code: 'PGRST202', message: 'Missing protocol RPC' } };
+      const result = await rpc(name, args);
+      return { ...result, data: { ...result.data, protocol_text: 'Wrong protocol' } };
+    }) as unknown as typeof fixture.cloud.client.rpc;
+    await setup.copyTask();
+    assert.match(setup.error, mode === 'missing' ? /pending migration/ : /protocol could not be confirmed/);
+    assert.equal(copied.length, 0);
+  }
 });
 
 test('connected setup copies the published request without creating another round', async t => {

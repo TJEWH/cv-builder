@@ -232,11 +232,24 @@ test('published tasks bind exact references, distinguish first drafts and never 
       else if (letterText) assert.match(task, /Refine the complete existing letter/);
       for (const value of ['Complete working letter.', 'Taylor Green', 'private collaboration', 'private variant name', 'baselineState', 'bindings']) assert.ok(!task.includes(value), value);
       assert.match(task, /If a tool call is blocked, stop and report the exact error/);
+      assert.ok(task.includes("SELECT private.resolve_application_reference(E'APP-SYNTHETIC') AS application_reference;"));
+      assert.match(task, /public\.resolve_application_reference is for signed-in web-app sessions and must not be used for this task/);
+      assert.match(task, /do not switch roles or change authentication/);
+      assert.ok(task.includes(`returned application_id equals ${APP} and current_request_id equals ${request.requestId}`));
       assert.throws(() => buildShortRefinementInstruction({ ...app, id: crypto.randomUUID() }, scope, { projectId: 'test-project', request }), /match/);
       assert.throws(() => buildShortRefinementInstruction(app, scope === 'cv' ? 'letter' : 'cv', { projectId: 'test-project', request }), /match/);
       assert.throws(() => buildShortRefinementInstruction(app, scope, { projectId: '', request }), /identifier/);
     }
   }
+});
+
+test('published resolver SQL escapes reference literals and preserves the UUID fallback', () => {
+  const request = local({ scope: 'cv' }).request;
+  const context = { projectId: 'test-project', request };
+  const escaped = buildShortRefinementInstruction({ id: APP, application_code: "External\\Code'Odd" }, 'cv', context);
+  assert.ok(escaped.includes("SELECT private.resolve_application_reference(E'External\\\\Code''Odd') AS application_reference;"));
+  const fallback = buildShortRefinementInstruction({ id: APP, application_code: null }, 'cv', context);
+  assert.ok(fallback.includes(`SELECT private.resolve_application_reference(E'${APP}') AS application_reference;`));
 });
 
 test('full prompts explain empty versus existing source letters and stop at tool-access blocks', () => {
@@ -344,6 +357,28 @@ function requestRow(request: RefinementRequest, user = 'owner') {
 function stateRow(settings: RefinementSetup, revision = 1) {
   return { application_id: APP, user_id: 'owner', setup_json: settings, approvals_json: { cv: null, letter: null }, current_request_id: null, revision, updated_at: CREATED };
 }
+
+test('protocol publication verifies account and exact request, version and instructions without publishing sources', async () => {
+  const request = local({ scope: 'cv' }).request;
+  const protocolText = buildRefinementPrompt(request, 'project-ref');
+  const row = { user_id: 'owner', application_id: APP, request_id: request.requestId,
+    protocol_id: refinementSignature(protocolText), protocol_text: protocolText, created_at: CREATED };
+  const good = fakeClient(query => {
+    assert.equal(query.name, 'publish_refinement_protocol');
+    assert.deepEqual(query.params, { p_request_id: request.requestId, p_protocol_id: row.protocol_id, p_protocol_text: protocolText });
+    return { data: row, error: null };
+  });
+  assert.deepEqual(await createRefinementRepository(good.client, () => 'owner').publishProtocol(request, 'project-ref'),
+    { id: row.protocol_id, text: protocolText });
+  for (const corrupt of [{ user_id: 'other' }, { application_id: crypto.randomUUID() }, { request_id: crypto.randomUUID() },
+    { protocol_id: `v1:${'a'.repeat(64)}` }, { protocol_text: 'Wrong contract' }]) {
+    const bad = fakeClient(() => ({ data: { ...row, ...corrupt }, error: null }));
+    await assert.rejects(createRefinementRepository(bad.client, () => 'owner').publishProtocol(request, 'project-ref'), /verified|confirmed/);
+  }
+  let owner = 'owner';
+  const switched = fakeClient(() => { owner = 'other'; return { data: row, error: null }; });
+  await assert.rejects(createRefinementRepository(switched.client, () => owner).publishProtocol(request, 'project-ref'), /Session changed/);
+});
 
 test('request publication only uploads public data and retries with the same immutable request UUID', async () => {
   const request = local(); let failed = false;

@@ -13,7 +13,7 @@ import { createCloudCvSnapshot } from '../src/composables/cloudCvPrivacy';
 import { subvariantParent } from '../src/composables/careerVariants';
 
 type Row = Record<string, unknown>;
-export const REFINEMENT_TABLES = ['application_refinement_state', 'application_refinement_requests', 'application_refinement_proposals', 'application_refinement_reviews'] as const;
+export const REFINEMENT_TABLES = ['application_refinement_state', 'application_refinement_requests', 'application_refinement_proposals', 'application_refinement_reviews', 'application_refinement_protocols'] as const;
 export function createRefinementFixture(database: Record<string, Row[]>, account: string) {
   for (const table of REFINEMENT_TABLES) database[table] ||= [];
   let timestamp = Date.now();
@@ -51,13 +51,24 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
   }
   function rpc(name: string, args: Row) {
     try {
+      if (name === 'publish_refinement_protocol') {
+        const request = database.application_refinement_requests.find(row => row.id === args.p_request_id && row.user_id === account);
+        if (!request) throw new Error('Published request not found for this account.');
+        if (stateFor(request.application_id)?.current_request_id !== request.id) throw new Error('The current refinement request changed.');
+        const existing = database.application_refinement_protocols.find(row => row.request_id === request.id && row.protocol_id === args.p_protocol_id);
+        if (existing && existing.protocol_text !== args.p_protocol_text) throw new Error('Protocol identifier mismatch.');
+        const row = existing || { request_id: request.id, protocol_id: args.p_protocol_id, protocol_text: args.p_protocol_text,
+          application_id: request.application_id, user_id: account, created_at: now() };
+        if (!existing) database.application_refinement_protocols.push(row);
+        return { data: clone(row), error: null };
+      }
       if (name === 'clear_refinement_history') {
         appFor(args.p_application_id);
         const state = stateFor(args.p_application_id);
         if (!Number.isInteger(args.p_expected_revision) || Number(args.p_expected_revision) < 0
           || args.p_expected_revision !== (state?.revision || 0)) throw new Error('Refinement state changed. Reload and retry.');
         if (!state) return { data: null, error: null };
-        for (const table of ['application_refinement_reviews', 'application_refinement_proposals', 'application_refinement_requests']) {
+        for (const table of ['application_refinement_reviews', 'application_refinement_proposals', 'application_refinement_protocols', 'application_refinement_requests']) {
           database[table] = database[table].filter(row => row.application_id !== args.p_application_id || row.user_id !== account);
         }
         Object.assign(state, { current_request_id: null, revision: Number(state.revision) + 1, updated_at: now() });

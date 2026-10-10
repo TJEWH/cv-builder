@@ -642,7 +642,12 @@ function requestToCopy() {
   if (!currentPublishedRequest.value || publicationStatus.value !== 'current') throw new Error(text('Publish the current sources before copying the task.', 'Die aktuellen Quellen vor dem Kopieren der Aufgabe veröffentlichen.'));
   return currentPublishedRequest.value;
 }
-async function copyTask() { await run(async () => { requestToCopy(); await copyShortInstruction(); }); }
+async function copyTask() { await run(async () => {
+  const request = requestToCopy();
+  await repository.publishProtocol(request.request_json, refinementProjectId());
+  if (requestToCopy().id !== request.id) throw new Error('The current refinement request changed. Copy the task again.');
+  await copyShortInstruction();
+}); }
 async function connectedPrompt() { await run(async () => {
   const request = requestToCopy();
   prompt.value = buildRefinementPrompt(request.request_json, refinementProjectId(), 'connected');

@@ -1,5 +1,7 @@
 # Synthetic refinement regression tests
 
+The [refinement prompt checks](refinementProtocol/README.md) add generated Copy task Markdown, strict MCP trace validation and optional live agent runs using the existing Codex/Supabase connection. Run `npm run test:refinement-protocol` for automatic offline coverage; see that guide for fixture setup, live runs, reports and cleanup.
+
 These tests use invented CVs, letters, private fragments, identifiers and proposals. They require no account, application backup, ChatGPT response or database credentials.
 
 ## Run
