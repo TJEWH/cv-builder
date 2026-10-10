@@ -31,7 +31,7 @@ const renderer = createRenderer<object, object>({ createElement: () => ({}), cre
   insert() {}, remove() {}, setText() {}, setElementText() {}, patchProp() {}, parentNode: () => null, nextSibling: () => null });
 type Entry = AttachmentMetadata & { local?: LocalDocumentMetadata };
 interface LibraryState {
-  loading: boolean; busy: boolean; error: string; name: string; description: string; file: File | null;
+  loading: boolean; loadFailed: boolean; busy: boolean; error: string; name: string; description: string; file: File | null;
   entries: Entry[]; localDocuments: LocalDocumentMetadata[]; sharedDocuments: AttachmentMetadata[]; editingId: string;
   previewDocument: LocalDocument | null; previewUrl: string; previewPage: number;
   edit(entry?: Entry): void; chooseFile(event: Event): void; save(): Promise<void>; load(): Promise<void>;
@@ -86,6 +86,23 @@ test('attachment creation requires manual metadata, never derives it from the fi
   assert.doesNotMatch(JSON.stringify(fixture.calls), /PRIVATE-original-file-name|Synthetic document bytes|blob|mimeType/);
   const original = await new LocalDocumentRepository(attachmentAccount, fixture.storage).getDocument(String(saved.args.p_id));
   assert.equal(await original!.blob.text(), await pdf().text());
+});
+
+test('an unavailable local library stays in a recoverable error state until retry loads its files', async t => {
+  const fixture = createAttachmentFixture();
+  await new LocalDocumentRepository(attachmentAccount, fixture.storage).addDocument(pdf(), 'Saved transcript', 'Academic record.');
+  let failRead = true;
+  const storage = { ...fixture.storage, async list(...args: Parameters<LocalDocumentStorage['list']>) {
+    if (failRead && args[1] === 'documents') throw new Error('Local file storage is temporarily unavailable');
+    return fixture.storage.list(...args);
+  } };
+  const { setup } = mount<LibraryState>(t, Library, fixture, storage, { client: null });
+  await idle(setup);
+  assert.equal(setup.loading, false); assert.equal(setup.loadFailed, true);
+  assert.equal(setup.entries.length, 0); assert.match(setup.error, /temporarily unavailable/);
+  failRead = false; await setup.load(); await idle(setup);
+  assert.equal(setup.loadFailed, false); assert.equal(setup.error, '');
+  assert.equal(setup.entries.length, 1); assert.equal(setup.entries[0].name, 'Saved transcript');
 });
 
 test('failed metadata syncing preserves local bytes and retries the same attachment ID, including later edits', async t => {

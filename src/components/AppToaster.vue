@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
+import { faCheck, faCircleInfo, faCircleXmark, faTriangleExclamation, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { useToasts } from '../composables/useToasts';
 import type { Toast } from '../composables/useToasts';
 
 const props = withDefaults(defineProps<{ lang?: string }>(), { lang: 'en' });
 const { toasts, dismiss, pause, resume, notify } = useToasts();
+const toastIcons = { success: faCheck, info: faCircleInfo, warning: faTriangleExclamation, error: faCircleXmark };
 const labels = computed(() => props.lang === 'de'
   ? { region: 'Benachrichtigungen', close: 'Benachrichtigung schließen', waiting: 'Bitte warten …', failed: 'Der Vorgang ist fehlgeschlagen. Bitte erneut versuchen.' }
   : { region: 'Notifications', close: 'Dismiss notification', waiting: 'Please wait …', failed: 'The operation failed. Please try again.' });
@@ -67,12 +70,12 @@ onBeforeUnmount(() => { observer?.disconnect(); document.removeEventListener('vi
         <article v-for="toast in toasts" :key="toast.id" class="app-toast" :class="`app-toast--${toast.tone}`"
           :role="toast.tone === 'error' ? 'alert' : 'status'" aria-atomic="true"
           @mouseenter="pause(toast.id)" @mouseleave="resume(toast.id)" @focusin="pause(toast.id, 'focus')" @focusout="focusOut(toast.id, $event)">
-          <span class="app-toast__icon" aria-hidden="true">{{ toast.tone === 'success' ? '✓' : toast.tone === 'error' || toast.tone === 'warning' ? '!' : 'i' }}</span>
+          <span class="app-toast__icon" aria-hidden="true"><FontAwesomeIcon :icon="toastIcons[toast.tone]" /></span>
           <div class="app-toast__body">
             <p>{{ toast.message }}</p>
             <button v-if="toast.action" type="button" class="app-toast__action" :disabled="acting.has(toast.id)" @click="runAction(toast)">{{ acting.has(toast.id) ? labels.waiting : toast.action.label }}</button>
           </div>
-          <button type="button" class="app-toast__close" :aria-label="labels.close" @click="dismiss(toast.id)">×</button>
+          <button type="button" class="app-toast__close" :aria-label="labels.close" @click="dismiss(toast.id)"><FontAwesomeIcon :icon="faXmark" aria-hidden="true" /></button>
         </article>
       </TransitionGroup>
     </aside>
@@ -80,25 +83,26 @@ onBeforeUnmount(() => { observer?.disconnect(); document.removeEventListener('vi
 </template>
 
 <style scoped>
-.app-toaster { position: fixed; inset: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) auto auto; z-index: 10000; width: min(380px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); margin: 0; padding: 0; border: 0; overflow: auto; background: transparent; color: #d1fae5; font: 13px/1.5 var(--font-ui, system-ui); pointer-events: none; scrollbar-width: thin; }
+.app-toaster { position: fixed; inset: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) auto auto; z-index: 10000; width: min(380px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); margin: 0; padding: 0; border: 0; overflow: auto; background: transparent; color: var(--ui-text); font: 13px/1.5 var(--font-ui, system-ui); pointer-events: none; scrollbar-width: thin; }
 .app-toaster::backdrop { display: none; }
 .app-toaster__stack { display: grid; gap: 10px; padding: 3px; }
-.app-toast { --toast-accent: #8dc8e8; display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 14px; border: 1px solid #28534e; border-left: 3px solid var(--toast-accent); border-radius: 8px; background: #0c2028; box-shadow: 0 6px 22px #0005; pointer-events: auto; }
-.app-toast--success { --toast-accent: #67c8a6; }
+.app-toast { --toast-accent: #8dc8e8; display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 14px; border: 1px solid var(--ui-border); border-inline-start-color: var(--toast-accent); border-radius: 8px; background: var(--ui-surface); pointer-events: auto; }
+.app-toast--success { --toast-accent: var(--ui-accent); }
 .app-toast--warning { --toast-accent: #efcc87; }
 .app-toast--error { --toast-accent: #fca5a5; }
-.app-toast__icon { flex: 0 0 20px; color: var(--toast-accent); text-align: center; font-weight: 700; }
+.app-toast__icon { display: grid; place-items: center; flex: 0 0 20px; height: 20px; color: var(--toast-accent); font-size: 14px; }
 .app-toast__body { flex: 1; min-width: 0; }
 .app-toast__body p { margin: 0; overflow-wrap: anywhere; }
 .app-toast button { color: inherit; font: inherit; cursor: pointer; }
-.app-toast__close { flex: 0 0 28px; width: 28px; height: 28px; margin: -4px -5px 0 0; padding: 0; border: 0; border-radius: 4px; background: transparent; font-size: 22px !important; line-height: 1; }
-.app-toast__action { margin-top: 10px; padding: 5px 9px; border: 1px solid #447565; border-radius: 5px; background: #173c30; }
-.app-toast button:hover { background: #185b4c; }
-.app-toast button:focus-visible { outline: 2px solid #9be8c7; outline-offset: 2px; }
+.app-toast__close { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; margin: -4px -5px 0 0; padding: 0; border: 0; border-radius: 4px; background: transparent; line-height: 1; }
+.app-toast__close .svg-inline--fa { width: 14px; height: 14px; }
+.app-toast__action { margin-top: 10px; padding: 5px 9px; border: 1px solid var(--ui-accent-border); border-radius: 5px; background: var(--ui-control); }
+.app-toast button:hover:not(:disabled) { background: var(--ui-surface-hover); }
+.app-toast button:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 .app-toast button:disabled { opacity: .6; cursor: wait; }
 .toast-enter-active, .toast-leave-active { transition: opacity .18s ease, transform .18s ease; }
 .toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(16px); }
-@media (max-width: 760px) { .app-toaster { inset: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) auto auto; width: min(380px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); } .app-toast__close { flex-basis: 32px; width: 32px; height: 32px; } }
+@media (max-width: 760px) { .app-toaster { inset: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) auto auto; width: min(380px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); } .app-toast__close { flex-basis: 44px; width: 44px; height: 44px; } }
 @media (prefers-reduced-motion: reduce) { .toast-enter-active, .toast-leave-active { transition: none; } }
 @media print { .app-toaster { display: none !important; } }
 </style>

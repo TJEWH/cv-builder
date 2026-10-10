@@ -19,8 +19,11 @@ const message = ref('');
 const error = ref('');
 const validationError = ref('');
 const importInput = ref<HTMLInputElement | null>(null);
+const isImporting = ref(false);
 const saveStatus = ref<'saved' | 'saving' | 'error'>('saved');
 let editingOwner = props.userId;
+let importGeneration = 0;
+let disposed = false;
 let replacingForm = false;
 let dirty = false;
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
@@ -107,6 +110,7 @@ watch(form, () => {
   saveLater();
 }, { deep: true, flush: 'sync' });
 watch(() => props.userId, (id) => {
+  importGeneration++; isImporting.value = false;
   const saved = flushSave();
   announceSaved.cancel();
   editingOwner = id; dirty = false; selectedId.value = ''; message.value = '';
@@ -115,7 +119,7 @@ watch(() => props.userId, (id) => {
   reload();
 }, { immediate: true });
 onMounted(() => window.addEventListener('pagehide', flushSave));
-onBeforeUnmount(() => { flushSave(); announceSaved.cancel(); window.removeEventListener('pagehide', flushSave); });
+onBeforeUnmount(() => { disposed = true; importGeneration++; flushSave(); announceSaved.cancel(); window.removeEventListener('pagehide', flushSave); });
 function download() {
   if (!flushSave()) return;
   try {
@@ -127,15 +131,21 @@ function download() {
 async function importLibrary(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
-  if (!file || !flushSave()) return;
+  input.value = '';
+  if (!file || isImporting.value || disposed || !flushSave()) return;
   const user = props.userId;
+  const token = ++importGeneration;
+  const current = () => !disposed && token === importGeneration && user === props.userId;
+  isImporting.value = true; error.value = ''; message.value = '';
   try {
     const raw = await file.text();
-    if (user !== props.userId) return;
+    if (!current() || !flushSave()) return;
     repository().importTemplates(raw); reload(); emit('changed'); window.dispatchEvent(new Event('cv-letter-templates-updated'));
     message.value = text('Templates imported as new copies.', 'Vorlagen als neue Kopien importiert.');
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); }
-  finally { input.value = ''; }
+  } catch (cause) {
+    if (current()) error.value = text('The library could not be imported. Select the file again to retry. ', 'Die Bibliothek konnte nicht importiert werden. Zum Wiederholen die Datei erneut auswählen. ') + (cause instanceof Error ? cause.message : String(cause));
+  }
+  finally { if (current()) isImporting.value = false; }
 }
 </script>
 
@@ -155,8 +165,9 @@ async function importLibrary(event: Event) {
         <p v-if="form" class="template-selection-details">{{ text('Revision', 'Revision') }} {{ form.revision }} · {{ form.maxWords }} {{ text('words', 'Wörter') }}</p>
         <button type="button" :disabled="!selectedId || selectedId === defaultId" @click="setDefault">{{ selectedId && selectedId === defaultId ? text('Default letter', 'Standardbrief') : text('Set as default letter', 'Als Standardbrief festlegen') }}</button>
         <p class="template-selection-details app-hint">{{ text('The default is selected automatically for new applications on this device.', 'Der Standardbrief wird auf diesem Gerät automatisch für neue Bewerbungen ausgewählt.') }}</p>
-        <div class="template-library-actions"><button type="button" @click="download">{{ text('Export library', 'Bibliothek exportieren') }}</button><button type="button" @click="importInput?.click()">{{ text('Import library', 'Bibliothek importieren') }}</button></div>
-        <input ref="importInput" hidden type="file" accept=".json,application/json" @change="importLibrary" />
+        <div class="template-library-actions"><button type="button" @click="download">{{ text('Export library', 'Bibliothek exportieren') }}</button><button type="button" :disabled="isImporting" @click="importInput?.click()">{{ isImporting ? text('Importing…', 'Importieren…') : text('Import library', 'Bibliothek importieren') }}</button></div>
+        <p v-if="isImporting" class="template-selection-details" role="status">{{ text('Reading the template library…', 'Vorlagenbibliothek wird gelesen…') }}</p>
+        <input ref="importInput" hidden type="file" accept=".json,application/json" :disabled="isImporting" @change="importLibrary" />
       </aside>
       </DesktopSidebarPortal>
       <form v-if="form" class="template-form" @submit.prevent="flushSave" @focusout="flushSave">
@@ -179,15 +190,16 @@ async function importLibrary(event: Event) {
 </template>
 
 <style scoped>
-.letter-templates{display:flex;flex-direction:column;min-width:0;min-height:0;height:100%;box-sizing:border-box;overflow:hidden;padding:0;color:#d1fae5;background:transparent;font-family:var(--font-ui,system-ui)}
+.letter-templates{display:flex;flex-direction:column;min-width:0;min-height:0;height:100%;box-sizing:border-box;overflow:hidden;padding:0;color:var(--ui-text);background:transparent;font-family:var(--font-ui,system-ui)}
 .template-heading{display:flex;flex:0 0 auto;justify-content:space-between;gap:20px;align-items:start;margin-bottom:20px}
-.letter-templates h2{font:700 22px/1.3 system-ui;text-transform:none;letter-spacing:0;margin:0 0 8px;color:#d1fae5}
-.letter-templates p,.template-library-controls p{margin:0;color:#a6c1b9;font-size:13px;line-height:1.6}
-.field-description{font-size:12px;font-weight:400;color:#a6c1b9;line-height:1.5}
-.letter-templates :is(button,input,select,textarea),.template-library-controls :is(button,input,select){font:inherit;border:1px solid #28534e;border-radius:7px;background:#0b1b25;color:#d1fae5;padding:10px 12px}
-button{cursor:pointer;font-size:13px;font-weight:600}
-button:hover:not(:disabled){background:#14352e}
+.letter-templates h2{font:700 22px/1.3 system-ui;text-transform:none;letter-spacing:0;margin:0 0 8px;color:var(--ui-text)}
+.letter-templates p,.template-library-controls p{margin:0;color:var(--ui-muted);font-size:13px;line-height:1.6}
+.field-description{font-size:12px;font-weight:400;color:var(--ui-muted);line-height:1.5}
+.letter-templates :is(button,input,select,textarea),.template-library-controls :is(button,input,select){font:inherit;border:1px solid var(--ui-border);border-radius:7px;background:var(--ui-control);color:var(--ui-text);padding:10px 12px}
+.letter-templates button,.template-library-controls button{cursor:pointer;font-size:13px;font-weight:600}
+button:hover:not(:disabled){background:var(--ui-surface-hover)}
 button:disabled{opacity:.55;cursor:default}
+.letter-templates :is(button,input,select,textarea):focus-visible,.template-library-controls :is(button,input,select):focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}
 .template-layout{display:grid;flex:1 1 auto;min-height:0;min-width:0;overflow:hidden;grid-template-columns:minmax(180px,240px) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:24px}
 .template-layout--sidebar{grid-template-columns:minmax(0,1fr)}
 aside{min-width:0;align-self:start;display:grid;gap:12px}
@@ -195,10 +207,11 @@ aside{min-width:0;align-self:start;display:grid;gap:12px}
 .template-library-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .template-library-actions button{font-size:11px;padding:8px}
 .template-form{display:grid;align-content:start;gap:18px;min-height:0;min-width:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;}
-.letter-templates label,.template-library-controls label{display:grid;gap:7px;font:600 12px/1.4 system-ui;color:#d1fae5}
-input,select,textarea{font:400 13px/1.5 system-ui;min-width:0;width:100%;box-sizing:border-box}
+.letter-templates label,.template-library-controls label{display:grid;gap:7px;font:600 12px/1.4 system-ui;color:var(--ui-text)}
+.letter-templates :is(input,select,textarea),.template-library-controls :is(input,select){font:400 14px/1.5 var(--font-ui);min-width:0;width:100%;box-sizing:border-box}
 textarea{resize:vertical}
 .template-form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .template-hint{font-size:12px}
 @media(max-width:700px){.template-layout{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr);gap:18px}.template-heading{flex-direction:column;gap:10px;margin-bottom:14px}.template-form-row{grid-template-columns:1fr}.template-library-actions{margin-top:0}.template-form{max-width:none}}
+@media(max-width:760px){.letter-templates :is(input,select,textarea),.template-library-controls :is(input,select){font-size:16px}.letter-templates button,.template-library-controls button{min-height:44px}}
 </style>

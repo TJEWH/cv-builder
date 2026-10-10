@@ -2,8 +2,9 @@
 import { DEFAULT_SECTION_HEADER_SIZE } from '../defaults';
 import type { PropType } from 'vue';
 import type { CvItem, ItemField } from '../types';
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, useId, watch } from 'vue';
 import SectionItems from './SectionItems.vue';
+import SectionHeading from './SectionHeading.vue';
 import { makeT } from '../i18n/dict.ts';
 import { createContentId } from '../composables/contentLayout.ts';
 import MarkdownTextarea from './MarkdownTextarea.vue';
@@ -44,6 +45,7 @@ const emit = defineEmits<{
 const langRef = computed(() => props.lang);
 const t = makeT(langRef);
 const root = ref<HTMLElement | null>(null);
+const contentId = `section-content-${useId()}`;
 const pendingDeleteIndex = ref<number | null>(null);
 watch(() => props.configMode, () => { pendingDeleteIndex.value = null; });
 const items = computed({
@@ -73,7 +75,11 @@ const add = () => {
     else entry[field.key] = '';
   });
   items.value = [...items.value, entry];
-  requestAnimationFrame(() => root.value?.querySelector('.item-row:last-of-type')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+  nextTick(() => {
+    const row = root.value?.querySelector('.item-row:last-of-type');
+    row?.querySelector<HTMLElement>('input, textarea, [role="combobox"]')?.focus();
+    row?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'nearest' });
+  });
 };
 
 function updateItemState(item: CvItem, value: unknown) {
@@ -88,6 +94,11 @@ const requestRemoveAt = (index: number) => { pendingDeleteIndex.value = index; }
 const confirmRemoveAt = () => {
   if (pendingDeleteIndex.value !== null) removeAt(pendingDeleteIndex.value);
   pendingDeleteIndex.value = null;
+};
+const finishTitleEdit = (cancel = false) => {
+  if (cancel) emit('cancel-edit-title');
+  else emit('finish-edit-title');
+  nextTick(() => root.value?.querySelector<HTMLButtonElement>('.section-heading-button')?.focus());
 };
 
 </script>
@@ -117,22 +128,21 @@ const confirmRemoveAt = () => {
       </button>
 
       <template v-if="editableTitle && configMode && !versionMode && !reorderMode">
-        <h3 v-if="!isEditingTitle" class="section-name-label" @click.stop="emit('start-edit-title')">
-          {{ title }}
-        </h3>
+        <SectionHeading v-if="!isEditingTitle" :title="title" :collapsed="isCollapsed" :controls="contentId" editing :edit-label="t('renameSection')" @activate="emit('start-edit-title')" @toggle-collapse="emit('toggle-collapse')" />
         <InputText
           v-else
           :model-value="editingTitleValue"
           class="section-name-input"
+          :aria-label="t('renameSection')"
           :placeholder="titlePlaceholder"
           @update:model-value="emit('update-editing-value', $event ?? '')"
           @click.stop
           @blur="emit('finish-edit-title')"
-          @keyup.enter="emit('finish-edit-title')"
-          @keyup.esc="emit('cancel-edit-title')"
+          @keyup.enter="finishTitleEdit()"
+          @keyup.esc="finishTitleEdit(true)"
         />
       </template>
-      <h3 v-else class="section-name-label section-name-label--static">{{ title }}</h3>
+      <SectionHeading v-else :title="title" :collapsed="isCollapsed" :controls="contentId" :disabled="reorderMode" @activate="emit('toggle-collapse')" />
 
       <slot v-if="versionMode" name="section-version" />
       <div v-else class="section-head__actions">
@@ -144,6 +154,7 @@ const confirmRemoveAt = () => {
           option-label="label"
           option-value="value"
           class="header-size-select"
+          :aria-label="t('headingSize')"
           @update:model-value="emit('header-size-change', $event)"
         />
         <label v-if="todosMode" class="section-complete-toggle" :title="t('markComplete')" @click.stop>
@@ -152,7 +163,7 @@ const confirmRemoveAt = () => {
       </div>
     </div>
 
-    <div class="section-content">
+    <div :id="contentId" class="section-content" :inert="isCollapsed">
       <div class="section-content__inner">
         <SectionItems v-model="items" :lang="lang" :reorder-mode="reorderMode">
           <template #default="{ item, index }">
@@ -166,8 +177,8 @@ const confirmRemoveAt = () => {
                   {{ field.label }}
                   <InputText v-if="field.type === 'text'" v-model="item[field.key]" :placeholder="field.placeholder || ''" fluid />
                   <InputNumber v-else-if="field.type === 'number'" :model-value="item[field.key]" @update:model-value="item[field.key] = $event ?? 0" :placeholder="field.placeholder || ''" :use-grouping="false" fluid />
-                  <Select v-else-if="field.type === 'select' && field.key === 'state'" :model-value="item.state || ''" :options="field.options" option-label="label" option-value="value" fluid @update:model-value="updateItemState(item, $event)" />
-                  <Select v-else-if="field.type === 'select'" v-model="item[field.key]" :options="field.options" option-label="label" option-value="value" fluid />
+                  <Select v-else-if="field.type === 'select' && field.key === 'state'" :model-value="item.state || ''" :options="field.options" option-label="label" option-value="value" :aria-label="field.label" fluid @update:model-value="updateItemState(item, $event)" />
+                  <Select v-else-if="field.type === 'select'" v-model="item[field.key]" :options="field.options" option-label="label" option-value="value" :aria-label="field.label" fluid />
                 </label>
               </div>
               <label v-for="field in textareaFields" :key="field.key">

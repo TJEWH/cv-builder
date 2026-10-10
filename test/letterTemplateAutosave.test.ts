@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { compileScript, parse } from '@vue/compiler-sfc';
@@ -20,9 +20,99 @@ const renderer = createRenderer<object, object>({
   insert() {}, remove() {}, setText() {}, setElementText() {}, patchProp() {}, parentNode: () => null, nextSibling: () => null,
 });
 interface Editor {
-  form: LetterTemplate; selectedId: string; saveStatus: string; error: string;
+  form: LetterTemplate; selectedId: string; saveStatus: string; error: string; isImporting: boolean;
   select(id: string): void; create(): void; flushSave(): boolean;
+  importLibrary(event: Event): Promise<void>;
 }
+
+function importFixture(t: TestContext) {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const data = new Map<string, string>();
+  const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value); } };
+  const restoreGlobals: (() => void)[] = [];
+  for (const [name, value] of Object.entries({ localStorage: storage, window: new EventTarget() })) {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, name);
+    Object.defineProperty(globalThis, name, { configurable: true, value });
+    restoreGlobals.push(() => { if (previous) Object.defineProperty(globalThis, name, previous); else Reflect.deleteProperty(globalThis, name); });
+  }
+  const props = reactive({ userId: 'owner', lang: 'en' });
+  let instance: unknown;
+  const component = { ...exports.default, render: () => null };
+  const app = renderer.createApp({ render: () => h(component, { ...props, ref: (value: unknown) => { instance = value; } }) });
+  app.mount({});
+  let mounted = true;
+  const unmount = () => { if (mounted) { app.unmount(); mounted = false; } };
+  t.after(() => { try { unmount(); useToasts().clear(); } finally { restoreGlobals.forEach(restore => restore()); } });
+  const owner = createLetterRepository(storage, 'owner');
+  return { editor: (instance as { $: { setupState: Editor } }).$.setupState, props, owner, data, unmount };
+}
+
+function pendingImport() {
+  let resolve!: (text: string) => void;
+  const pending = new Promise<string>(finish => { resolve = finish; });
+  const input = { files: [{ text: () => pending }], value: 'library.json' };
+  return { event: { target: input } as unknown as Event, input, resolve };
+}
+
+test('only one letter library import runs at a time and edits made during the read are saved', async t => {
+  const { editor, owner } = importFixture(t);
+  const library = owner.exportTemplates();
+  const initialCount = owner.listTemplates().length;
+  const selectedId = editor.selectedId;
+  const first = pendingImport();
+  const importing = editor.importLibrary(first.event);
+  assert.equal(editor.isImporting, true);
+  assert.equal(first.input.value, '', 'the same file can be selected again after this attempt');
+  let extraReads = 0;
+  for (let i = 0; i < 10; i++) await editor.importLibrary({ target: { files: [{ text: async () => { extraReads++; return library; } }], value: 'library.json' } } as unknown as Event);
+  assert.equal(extraReads, 0);
+  editor.form.researchInterests = 'Current edits made while the file is read';
+  first.resolve(library); await importing;
+  assert.equal(editor.isImporting, false);
+  assert.equal(owner.listTemplates().length, initialCount * 2);
+  assert.equal(owner.listTemplates().find(template => template.id === selectedId)?.researchInterests, editor.form.researchInterests);
+  assert.equal(editor.form.researchInterests, 'Current edits made while the file is read');
+});
+
+test('failed library reads leave the editor intact and allow selecting the same file again', async t => {
+  const { editor, owner } = importFixture(t);
+  const original = JSON.stringify(editor.form);
+  let failRead = true;
+  const input = { files: [{ text: async () => { if (failRead) throw new Error('File is unavailable'); return owner.exportTemplates(); } }], value: 'library.json' };
+  await editor.importLibrary({ target: input } as unknown as Event);
+  assert.equal(editor.isImporting, false); assert.equal(input.value, '');
+  assert.match(editor.error, /Select the file again to retry/);
+  assert.equal(JSON.stringify(editor.form), original);
+  assert.equal(owner.listTemplates().length, 2);
+  failRead = false; input.value = 'library.json';
+  await editor.importLibrary({ target: input } as unknown as Event);
+  assert.equal(editor.error, ''); assert.equal(owner.listTemplates().length, 4);
+});
+
+test('closing the template editor cancels a pending import without later writes or errors', async t => {
+  const { editor, owner, data, unmount } = importFixture(t);
+  const library = owner.exportTemplates();
+  const pending = pendingImport();
+  const importing = editor.importLibrary(pending.event);
+  unmount(); pending.resolve(library); await importing;
+  assert.equal(data.size, 0); assert.equal(editor.error, '');
+});
+
+test('returning to the original account cannot revive an older import or unlock a newer one', async t => {
+  const { editor, owner, props } = importFixture(t);
+  const library = owner.exportTemplates();
+  const old = pendingImport(), latest = pendingImport();
+  const staleImport = editor.importLibrary(old.event);
+  props.userId = 'other'; await nextTick();
+  assert.equal(editor.isImporting, false);
+  props.userId = 'owner'; await nextTick();
+  const latestImport = editor.importLibrary(latest.event);
+  old.resolve(library); await staleImport;
+  assert.equal(owner.listTemplates().length, 2);
+  assert.equal(editor.isImporting, true, 'stale completion must not clear the active import state');
+  latest.resolve(library); await latestImport;
+  assert.equal(owner.listTemplates().length, 4); assert.equal(editor.isImporting, false);
+});
 
 test('templates autosave edits, flush before navigation, and preserve account ownership and failed edits', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });

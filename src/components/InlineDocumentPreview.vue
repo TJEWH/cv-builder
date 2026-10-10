@@ -9,8 +9,9 @@ const props = withDefaults(defineProps<{
   pages: DocumentPreviewPage[]; page: number; isUpdating?: boolean; lang: string;
   downloading?: boolean; downloadDisabled?: boolean; title?: string; hideActions?: boolean;
   showOnMobile?: boolean;
+  error?: string;
 }>(), { isUpdating: false, downloading: false, downloadDisabled: false, title: '' });
-const emit = defineEmits<{ 'update:page': [value: number]; open: []; download: [] }>();
+const emit = defineEmits<{ 'update:page': [value: number]; open: []; download: []; retry: [] }>();
 const t = makeT(computed(() => props.lang));
 </script>
 
@@ -27,14 +28,14 @@ const t = makeT(computed(() => props.lang));
       </div>
     </div>
     <div class="document-inline-preview__viewport">
-      <PdfPreview :pages="pages" :page="page" :is-updating="isUpdating" :lang="lang" gesture-navigation @update:page="emit('update:page', $event)" />
-      <PdfPagination class="document-inline-preview__pagination" :pages="pages" :page="page" :lang="lang" @update:page="emit('update:page', $event)" />
+      <PdfPreview :pages="pages" :page="page" :is-updating="isUpdating" :error="error" :lang="lang" gesture-navigation @retry="emit('retry')" @update:page="emit('update:page', $event)" />
+      <PdfPagination v-if="pages.length && !error" class="document-inline-preview__pagination" :pages="pages" :page="page" :lang="lang" @update:page="emit('update:page', $event)" />
     </div>
   </aside>
 </template>
 
 <style scoped>
-.document-inline-preview{display:grid;min-width:0;min-height:0;height:100%;overflow:hidden;background:transparent;margin-top:16px;}
+.document-inline-preview{display:grid;min-width:0;min-height:0;height:100%;overflow:hidden;background:transparent;}
 .document-inline-preview--no-actions{grid-template-rows:minmax(0,1fr);gap:0}
 .document-inline-preview__header{display:grid;gap:10px;min-width:0}
 .document-inline-preview__actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:min(100%,794px);justify-self:center}

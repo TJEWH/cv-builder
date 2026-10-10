@@ -50,10 +50,12 @@ onBeforeUnmount(() => mobileViewport.removeEventListener('change', syncMobileVie
 const previewPages = ref<PreviewPage[]>([]);
 const previewPage = ref(1);
 const isPreviewRendering = ref(true);
+const previewFailed = ref(false);
 const pdfRenderSource = ref<HTMLElement | null>(null);
 const anonymizedPreviewPages = ref<PreviewPage[]>([]);
 const anonymizedPreviewPage = ref(1);
 const isAnonymizedPreviewRendering = ref(false);
+const anonymizedPreviewFailed = ref(false);
 const anonymizedPdfRenderSource = ref<HTMLElement | null>(null);
 const fullPreviewVariant = ref('normal');
 const t = makeT(lang);
@@ -297,7 +299,11 @@ async function refreshPdfPreview(version: number) {
     previewPages.value = pages;
     previewPage.value = Math.min(Math.max(previewPage.value, 1), Math.max(pages.length, 1));
   } catch (error) {
-    if (!signal.aborted && version === previewRenderVersion) console.error('PDF preview failed:', error);
+    if (!signal.aborted && version === previewRenderVersion) {
+      console.error('PDF preview failed:', error);
+      previewPages.value = [];
+      previewFailed.value = true;
+    }
   } finally {
     if (version === previewRenderVersion) isPreviewRendering.value = false;
   }
@@ -314,6 +320,7 @@ function invalidatePdfPreview() {
 function requestPdfPreview() {
   textPreviewUpdatePending = false;
   const version = invalidatePdfPreview();
+  previewFailed.value = false;
   isPreviewRendering.value = true;
   schedulePdfPreview(version);
 }
@@ -334,7 +341,11 @@ async function refreshAnonymizedPdfPreview(renderVersion: number, sourceVersion:
     anonymizedPreviewPage.value = Math.min(Math.max(anonymizedPreviewPage.value, 1), Math.max(pages.length, 1));
     renderedAnonymizedSourceVersion = sourceVersion;
   } catch (error) {
-    if (!signal.aborted && renderVersion === anonymizedPreviewRenderVersion) console.error('Anonymized PDF preview failed:', error);
+    if (!signal.aborted && renderVersion === anonymizedPreviewRenderVersion && sourceVersion === anonymizedSourceVersion) {
+      console.error('Anonymized PDF preview failed:', error);
+      anonymizedPreviewPages.value = [];
+      anonymizedPreviewFailed.value = true;
+    }
   } finally {
     if (renderVersion === anonymizedPreviewRenderVersion) isAnonymizedPreviewRendering.value = false;
   }
@@ -348,6 +359,7 @@ function requestAnonymizedPdfPreview() {
   if (renderedAnonymizedSourceVersion === anonymizedSourceVersion && anonymizedPreviewPages.value.length) return;
   anonymizedRenderSlot.cancel();
   const renderVersion = ++anonymizedPreviewRenderVersion;
+  anonymizedPreviewFailed.value = false;
   isAnonymizedPreviewRendering.value = true;
   scheduleAnonymizedPdfPreview(renderVersion, anonymizedSourceVersion);
 }
@@ -357,6 +369,7 @@ function invalidateAnonymizedPdfPreview({ defer = false } = {}) {
   scheduleAnonymizedPdfPreview.cancel();
   anonymizedPreviewRenderVersion += 1;
   isAnonymizedPreviewRendering.value = false;
+  anonymizedPreviewFailed.value = false;
   anonymizedSourceVersion += 1;
   anonymizedPreviewPages.value = [];
   anonymizedPreviewPage.value = 1;
@@ -515,6 +528,7 @@ watch(anonymizedPreviewState, () => {
 }, { deep: true, flush: 'post' });
 
 async function handleExportPdf() {
+  if (isExporting.value) return;
   const signal = exportRenderSlot.start();
   isExporting.value = true;
   pdfExportError.value = '';
@@ -532,6 +546,7 @@ async function handleExportPdf() {
 }
 
 async function handleAnonymizedExportPdf() {
+  if (isAnonymizedExporting.value) return;
   const signal = anonymizedExportRenderSlot.start();
   isAnonymizedExporting.value = true;
   pdfExportError.value = '';
@@ -580,6 +595,11 @@ const activeFullPreviewPage = computed({
 const isActiveFullPreviewRendering = computed(() => (
   isAnonymizedFullPreview.value ? isAnonymizedPreviewRendering.value : isPreviewRendering.value
 ));
+const activeFullPreviewError = computed(() => (isAnonymizedFullPreview.value ? anonymizedPreviewFailed.value : previewFailed.value) ? t('previewFailed') : '');
+function retryFullPreview() {
+  if (isAnonymizedFullPreview.value) requestAnonymizedPdfPreview();
+  else requestPdfPreview();
+}
 const studioPreviewPages = computed(() => isPrivacyStudioPreview.value ? anonymizedPreviewPages.value : previewPages.value);
 const studioPreviewPage = computed({
   get: () => isPrivacyStudioPreview.value ? anonymizedPreviewPage.value : previewPage.value,
@@ -589,6 +609,11 @@ const studioPreviewPage = computed({
   },
 });
 const isStudioPreviewRendering = computed(() => isPrivacyStudioPreview.value ? isAnonymizedPreviewRendering.value : isPreviewRendering.value);
+const studioPreviewError = computed(() => (isPrivacyStudioPreview.value ? anonymizedPreviewFailed.value : previewFailed.value) ? t('previewFailed') : '');
+function retryStudioPreview() {
+  if (isPrivacyStudioPreview.value) requestAnonymizedPdfPreview();
+  else requestPdfPreview();
+}
 const isStudioPreviewExporting = computed(() => isPrivacyStudioPreview.value ? isAnonymizedExporting.value : isExporting.value);
 function exportStudioPreview() {
   return isPrivacyStudioPreview.value ? handleAnonymizedExportPdf() : handleExportPdf();
@@ -622,6 +647,7 @@ function selectBuilderGroup(group: string) {
 
     <FullDocumentPreview v-model="previewMode" v-model:page="activeFullPreviewPage" v-model:mode="fullPreviewMode"
       :pages="activeFullPreviewPages" :is-updating="isActiveFullPreviewRendering" :lang="lang"
+      :preview-error="activeFullPreviewError" @retry="retryFullPreview"
       :modes="[{ value: 'normal', label: t('normalPdf') }, { value: 'anonymized', label: t('privacyPdf') }, { value: 'html', label: t('rawHtml') }]"
       :downloading="isActiveFullPreviewExporting" :download-label="activeFullPreviewDownloadLabel" :title="t('liveCvPreview')" :error="pdfExportError" @download="exportActiveFullPreview">
       <template #html><CvPreview :state="isAnonymizedFullPreview ? anonymizedState : state" :anonymized="isAnonymizedFullPreview" /></template>
@@ -656,8 +682,8 @@ function selectBuilderGroup(group: string) {
       <div v-show="!isCloudTab" class="cv-studio-navigation">
         <nav class="cv-studio-subtabs" aria-label="CV Studio sections">
           <button v-for="group in builderGroups" :key="group.key" class="btn" :class="{ 'is-active': activeBuilderGroup === group.key }" :aria-pressed="activeBuilderGroup === group.key" :disabled="groupDisabled(group.key)" type="button" @click="selectBuilderGroup(group.key)"><font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" /><span>{{ isMobile && group.key === 'templates' ? (lang === 'de' ? 'Vorlagen' : 'Templates') : group.label }}</span></button>
-          <button v-if="isMobile && studioHasPreview" class="btn cv-studio-open-preview" type="button" :aria-label="t('openPreview')" :title="t('openPreview')" :disabled="isEmptyDocument" @click="openFullPreview"><font-awesome-icon :icon="['fas', 'eye']" aria-hidden="true" /></button>
         </nav>
+        <button v-if="isMobile && studioHasPreview" class="btn cv-studio-open-preview" type="button" :aria-label="t('openPreview')" :title="t('openPreview')" :disabled="isEmptyDocument" @click="openFullPreview"><font-awesome-icon :icon="['fas', 'eye']" aria-hidden="true" /></button>
       </div>
       </DesktopSidebarPortal>
       <section v-if="isCloudTab && !cloudUser" class="workspace-sign-in"><h1>{{ activeWorkspace === 'opportunities' ? (lang === 'de' ? 'Stellenangebote entdecken' : 'Discover opportunities') : (lang === 'de' ? 'Bewerbungen vorbereiten' : 'Prepare applications') }}</h1><p class="app-hint">{{ lang === 'de' ? 'Melde dich bei Supabase an, um auf deinen Bewerbungsbereich zuzugreifen. Das CV-Studio ist auch ohne Anmeldung verfügbar.' : 'Sign in to Supabase to access your application workspace. CV Studio remains available without an account.' }}</p></section>
@@ -739,7 +765,7 @@ function selectBuilderGroup(group: string) {
           <LocalAttachments v-show="activeBuilderGroup === 'attachments'" class="builder-group-panel studio-attachments" :user-id="cloudUser?.id || ''" :client="supabaseClient" :lang="lang" :active="!isCloudTab && activeBuilderGroup === 'attachments'" :sidebar-active="!isCloudTab && activeBuilderGroup === 'attachments'" />
         </div>
 
-        <InlineDocumentPreview v-if="!isMobile && studioHasPreview" class="studio-inline-preview" hide-actions v-model:page="studioPreviewPage" :pages="studioPreviewPages" :is-updating="isStudioPreviewRendering" :lang="lang" :downloading="isStudioPreviewExporting" :title="t(isPrivacyStudioPreview ? 'privacyPreview' : 'liveCvPreview')" @open="openFullPreview" @download="exportStudioPreview">
+        <InlineDocumentPreview v-if="!isMobile && studioHasPreview" class="studio-inline-preview" hide-actions v-model:page="studioPreviewPage" :pages="studioPreviewPages" :is-updating="isStudioPreviewRendering" :error="studioPreviewError" @retry="retryStudioPreview" :lang="lang" :downloading="isStudioPreviewExporting" :title="t(isPrivacyStudioPreview ? 'privacyPreview' : 'liveCvPreview')" @open="openFullPreview" @download="exportStudioPreview">
         </InlineDocumentPreview>
       </section>
     </section>
@@ -763,6 +789,12 @@ body,
 }
 
 .cv-builder-app {
+  font-family: var(--font-ui);
+  /* Shell rhythm: 8px within controls, 16–24px around working regions. */
+  --workspace-inset: clamp(16px, 2vw, 24px);
+  --workspace-gap: 24px;
+  --workspace-control-gap: 8px;
+  --workspace-sidebar-width: clamp(200px, 20vw, 272px);
   height: 100vh;
   height: 100dvh;
   min-height: 0;
@@ -801,7 +833,7 @@ body,
 .cv-studio-subtabs { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; margin-top: 14px;}
 .cv-studio-subtabs .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .cv-studio-subtabs .svg-inline--fa { flex: none; }
-.cv-studio-subtabs .is-active { border-color: #67c8a6; background: #185b4c; }
+.cv-studio-subtabs .is-active { border-color: var(--ui-accent-border); background: var(--ui-active); color: var(--ui-accent); }
 .cv-studio-open-preview { flex: 0 0 auto; white-space: nowrap; }
 .workspace-sign-in { padding: 30px; border: 1px solid #24504e; border-radius: 12px; color: #cbe5da; background: #06141f; }
 
@@ -827,27 +859,27 @@ body,
   padding: 8px;
   border: none;
   background: none;
-  color: #9bb3ad;
+  color: var(--ui-muted);
   cursor: pointer;
   font: inherit;
   font-size: 11px;
-  font-weight: 700;
-  transition: border-color .2s ease, background .2s ease, color .2s ease, transform .2s ease, box-shadow .2s ease;
+  font-weight: 600;
+  transition: background-color .12s ease-out, color .12s ease-out;
 }
 
 .builder-topbar__tab .svg-inline--fa { font-size: 17px; }
 .builder-topbar__tab:hover,
-.builder-topbar__tab:focus-visible { border-color: #2a6a60; background: #0a1c26; color: #d1fae5; }
-.builder-topbar__tab:focus-visible { outline: 2px solid #9be8c7; outline-offset: 2px; }
-.builder-topbar__tab.is-active { background: rgba(16, 185, 129, .16); color: #d1fae5; }
-.builder-topbar__tab:active { transform: translateY(1px); }
+.builder-topbar__tab:focus-visible { background: var(--ui-surface-hover); color: var(--ui-text); }
+.builder-topbar__tab:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.builder-topbar__tab.is-active { background: var(--ui-active); color: var(--ui-accent); }
 .builder-topbar__tab:disabled { opacity: .4; cursor: not-allowed; border-color: transparent; background: transparent; color: #94a3b8; box-shadow: none; transform: none; }
 
 .builder-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
-  gap: 20px;
+  gap: 0;
   height: 100%;
   min-height: 0;
   margin: 0;
@@ -856,6 +888,7 @@ body,
 }
 
 .builder-layout__controls {
+  container: cv-editor / inline-size;
   position: relative;
   display: grid;
   grid-template: minmax(0, 1fr) / minmax(0, 1fr);
@@ -894,8 +927,8 @@ body,
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: #24504e transparent;
 }
 
 .builder-layout__controls .builder-group-panel > .content-panel {
@@ -908,10 +941,18 @@ body,
 .builder-group-panel > .editor-panel__body::-webkit-scrollbar,
 .builder-group-panel > .design-panel__scroll-body::-webkit-scrollbar,
 .builder-group-panel .content-panel__scroll-body::-webkit-scrollbar {
-  display: none;
+  width: 6px;
 }
 
-.builder-group-enter-active, .builder-group-leave-active { transition: opacity .22s ease; }
+.builder-group-panel > .group-panel__scroll-body::-webkit-scrollbar-thumb,
+.builder-group-panel > .editor-panel__body::-webkit-scrollbar-thumb,
+.builder-group-panel > .design-panel__scroll-body::-webkit-scrollbar-thumb,
+.builder-group-panel .content-panel__scroll-body::-webkit-scrollbar-thumb {
+  background: #24504e;
+  border-radius: 6px;
+}
+
+.builder-group-enter-active, .builder-group-leave-active { transition: opacity .12s ease-out; }
 .builder-group-enter-active { position: relative; z-index: 1; }
 .builder-group-leave-active {
   position: absolute;
@@ -924,7 +965,7 @@ body,
 
 .builder-layout__controls .builder-group-panel { padding: 16px; box-sizing: border-box; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
 .builder-layout__controls .builder-group-panel > .content-panel { padding: 0; background: transparent; border: 0; border-radius: 0; }
-.studio-bottom-bar { position: fixed; inset-inline: 0; bottom: 0; z-index: 30; display: flex; align-items: center; gap: 20px; min-height: 66px; padding: 12px max(20px, calc((100vw - 1484px) / 2)); box-sizing: border-box; border-top: 1px solid #24504e; background: #06141f; box-shadow: 0 -6px 20px #0003; }
+.studio-bottom-bar { position: fixed; inset-inline: 0; bottom: 0; z-index: 30; display: flex; align-items: center; gap: 20px; min-height: 66px; padding: 12px max(20px, calc((100vw - 1484px) / 2)); box-sizing: border-box; border-top: 1px solid var(--ui-divider); background: #06141f; }
 .studio-bottom-bar__tools { display: flex; align-items: center; flex: 1; min-width: 0; }
 .studio-sidebar-preview { display: flex; flex-direction: column; gap: 8px; }
 .studio-sidebar-preview .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; width: 100%; }
@@ -932,23 +973,6 @@ body,
 @media (min-width: 761px) and (max-height: 600px) {
   .builder-topbar { --topbar-tab-height: 42px; }
   .builder-topbar__tab .svg-inline--fa { display: none; }
-}
-
-@media (max-width: 1180px) {
-  .cv-builder-app {
-    padding-right: 24px;
-  }
-
-  .builder-layout {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(260px, 42vh);
-  }
-
-  .studio-inline-preview { width: min(100%, 520px); justify-self: center; }
-}
-
-@media (min-width: 761px) and (max-width: 1180px) and (max-height: 600px) {
-  .builder-layout { grid-template-rows: minmax(0, 1fr) auto; }
 }
 
 @media (max-width: 760px) {
@@ -964,11 +988,11 @@ body,
   .cv-builder-app.has-mobile-studio-tools:not(.is-preview-mode) { --mobile-studio-tools-space: 52px; }
   .studio-bottom-bar { bottom: calc(var(--mobile-tabs-height) + var(--mobile-context-row-height)); min-height: 52px; height: 52px; padding: 5px max(8px, env(safe-area-inset-right, 0px)) 5px max(8px, env(safe-area-inset-left, 0px)); gap: 8px; }
   .cv-builder-app.is-preview-mode { overflow: hidden; }
-  .cv-studio-navigation { position: fixed; inset: auto 0 var(--mobile-tabs-height); z-index: 35; display: block; height: var(--mobile-context-row-height); padding: 4px max(8px, env(safe-area-inset-right, 0px)) 4px max(8px, env(safe-area-inset-left, 0px)); border-top: 1px solid #24504e; background: #06141f; }
-  .cv-studio-subtabs { flex-wrap: nowrap; gap: 6px; height: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .cv-studio-navigation { position: fixed; inset: auto 0 var(--mobile-tabs-height); z-index: 35; display: flex; align-items: stretch; gap: var(--workspace-control-gap); height: var(--mobile-context-row-height); padding: 4px max(8px, env(safe-area-inset-right, 0px)) 4px max(8px, env(safe-area-inset-left, 0px)); border-top: 1px solid #24504e; background: #06141f; }
+  .cv-studio-subtabs { flex: 1; flex-wrap: nowrap; gap: 6px; height: 100%; margin: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
   .cv-studio-subtabs::-webkit-scrollbar { display: none; }
   .cv-studio-subtabs .btn { flex: 0 0 auto; min-width: 44px; padding: 6px 10px; font-size: 14px; line-height: 1.2; white-space: nowrap; }
-  .cv-studio-open-preview { font-size: 18px !important; }
+  .cv-studio-open-preview { display: grid; place-items: center; width: 44px; padding: 0; font-size: 18px; }
   .builder-shell { grid-template-rows: auto minmax(0, 1fr); gap: 10px; }
   .builder-layout { grid-template-rows: minmax(0, 1fr); gap: 0; }
 
@@ -982,9 +1006,8 @@ body,
     gap: 4px;
     height: var(--mobile-tabs-height);
     padding: 8px max(8px, env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
-    border-top: 1px solid #134e4a;
+    border-top: 1px solid var(--ui-divider);
     background: #06141f;
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, .2);
   }
   .mobile-bottom-tabs .builder-topbar__tab { min-width: 0; min-height: 0; padding: 4px 2px; gap: 5px; font-size: 10px; border: none; }
   .mobile-bottom-tabs .builder-topbar__tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
@@ -995,14 +1018,15 @@ body,
 
 @media (min-width: 761px) {
   .cv-builder-app { padding: 0; }
-  .builder-shell { --topbar-tab-height: 66px; display: grid; grid-template-columns: 20% minmax(0, 1fr); grid-template-rows: var(--topbar-tab-height) minmax(0, 1fr); gap: 0; width: 100%; max-width: none; }
+  .builder-shell { --topbar-tab-height: 66px; display: grid; grid-template-columns: var(--workspace-sidebar-width) minmax(0, 1fr); grid-template-rows: var(--topbar-tab-height) minmax(0, 1fr); gap: 0; width: 100%; max-width: none; }
   .builder-shell > .desktop-sidebar { grid-column: 1; grid-row: 1 / 3; }
   .builder-shell > .builder-topbar { grid-column: 2; grid-row: 1; display: block; min-width: 0}
   .builder-topbar__tabs { height: 100%; }
   .builder-shell > .builder-layout, .builder-shell > .jobs-workspace, .builder-shell > .workspace-sign-in { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; margin-bottom: 0; }
-  .builder-layout:not(.builder-layout--library) { grid-template-columns: minmax(0, 1fr) minmax(280px, 34%); grid-template-rows: minmax(0, 1fr); gap: 0; padding-right: 16px; }
-  .builder-layout__controls .builder-group-panel { padding: 32px; }
-  .studio-inline-preview { width: 100%; min-width: 0; max-width: none; }
+  .builder-layout { padding: var(--workspace-inset); }
+  .builder-layout:not(.builder-layout--library) { grid-template-columns: minmax(0, 1fr) minmax(280px, 34%); grid-template-rows: minmax(0, 1fr); gap: var(--workspace-gap); }
+  .builder-layout__controls .builder-group-panel { padding: 0; }
+  .builder-layout > .studio-inline-preview { width: 100%; min-width: 0; max-width: none; margin: 0; }
   .desktop-sidebar .cv-studio-subtabs { display: flex; flex-direction: column; gap: 5px; margin: 0; }
   .desktop-sidebar .cv-studio-subtabs .btn { justify-content: flex-start; }
   .workspace-sign-in { margin: 20px 16px; align-self: start; }
@@ -1012,6 +1036,29 @@ body,
 }
 @media (min-width: 761px) and (max-width: 1050px) {
   .builder-layout:not(.builder-layout--library) { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(220px, 38vh); }
-  .studio-inline-preview { width: min(100%, 520px); justify-self: center; }
+  .builder-layout > .studio-inline-preview { width: min(100%, 520px); justify-self: center; }
+}
+/* The shared preview hides in short windows; release its grid track too.
+   The sidebar's Open preview action remains available at these sizes. */
+@media (min-width: 761px) and (max-width: 1180px) and (max-height: 600px) {
+  .builder-layout:not(.builder-layout--library) { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+  .builder-layout > .studio-inline-preview { display: none; }
+}
+
+/* Fields adapt to the editing column, independently of the PDF's layout. */
+.builder-layout__controls label { min-width: 0; }
+@container cv-editor (max-width: 600px) {
+  .builder :is(.row, .row-2, .row-3, .row-4, .grid-2, .grid-3) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .builder .content-section > .section-head { flex-wrap: wrap; }
+  .builder .section-name-input { flex: 1 1 160px; min-width: 0; }
+  .builder .section-name-label { min-width: 0; overflow-wrap: anywhere; }
+  .builder .content-section > .section-head > .section-head__actions { flex: 1 1 100%; max-width: 100%; flex-wrap: wrap; justify-content: flex-end; }
+  .builder .section-head__actions:empty { display: none; }
+}
+@container cv-editor (max-width: 440px) {
+  .builder :is(.row, .row-2, .row-3, .row-4, .grid-2, .grid-3) { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .builder-topbar__tab, .builder-group-enter-active, .builder-group-leave-active { transition: none; }
 }
 </style>

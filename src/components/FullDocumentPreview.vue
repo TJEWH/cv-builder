@@ -9,8 +9,9 @@ const props = withDefaults(defineProps<{
   modelValue: boolean; pages: DocumentPreviewPage[]; page: number; isUpdating?: boolean; lang: string;
   mode?: string; modes?: { value: string; label: string }[];
   downloading?: boolean; downloadDisabled?: boolean; downloadLabel?: string; title?: string; error?: string;
+  previewError?: string;
 }>(), { isUpdating: false, mode: 'normal', modes: () => [], downloading: false, downloadDisabled: false, downloadLabel: '', title: '', error: '' });
-const emit = defineEmits<{ 'update:modelValue': [value: boolean]; 'update:page': [value: number]; 'update:mode': [value: string]; download: [] }>();
+const emit = defineEmits<{ 'update:modelValue': [value: boolean]; 'update:page': [value: number]; 'update:mode': [value: string]; download: []; retry: [] }>();
 const dialog = ref<HTMLDialogElement | null>(null);
 const mobileViewport = window.matchMedia('(max-width: 760px)');
 const mobile = ref(mobileViewport.matches);
@@ -52,30 +53,31 @@ onBeforeUnmount(() => mobileViewport.removeEventListener('change', syncViewport)
             </select>
             <button class="btn btn--primary" type="button" :aria-label="downloadLabel || t(downloading ? 'exportingPdf' : 'downloadPdf')" :title="downloadLabel || undefined" :disabled="downloading || downloadDisabled" @click="emit('download')">
               <font-awesome-icon :icon="['fas', downloading ? 'spinner' : 'download']" :spin="downloading" aria-hidden="true" />
-              <span>{{ t(downloading ? 'exportingPdf' : 'downloadPdf') }}</span>
+              <span>{{ downloadLabel || t(downloading ? 'exportingPdf' : 'downloadPdf') }}</span>
             </button>
           </div>
         </div>
-        <div class="document-full-preview__content" :class="{ 'document-full-preview__content--with-header': !!$slots.header }">
-          <div v-if="$slots.header" class="document-full-preview__header"><slot name="header" /></div>
+        <div class="document-full-preview__content" :class="{ 'document-full-preview__content--with-header': !!$slots.header || !!error }">
+          <div v-if="$slots.header || error" class="document-full-preview__header"><slot name="header" /><p v-if="error" role="alert">{{ error }}</p></div>
           <div class="document-full-preview__viewport">
-            <PdfPreview v-if="showPdf" :key="mode" :pages="pages" :page="page" :is-updating="isUpdating" :lang="lang" gesture-navigation :pinch-zoom="mobile" @update:page="emit('update:page', $event)" />
+            <PdfPreview v-if="showPdf" :key="mode" :pages="pages" :page="page" :is-updating="isUpdating" :error="previewError" :lang="lang" gesture-navigation :pinch-zoom="mobile" @retry="emit('retry')" @update:page="emit('update:page', $event)" />
             <div v-else class="document-full-preview__html"><slot name="html" /></div>
           </div>
         </div>
-        <PdfPagination v-if="showPdf" class="document-full-preview__pagination" :pages="pages" :page="page" :lang="lang" fullscreen @update:page="emit('update:page', $event)" />
+        <PdfPagination v-if="showPdf && pages.length && !previewError" class="document-full-preview__pagination" :pages="pages" :page="page" :lang="lang" fullscreen @update:page="emit('update:page', $event)" />
       </template>
     </dialog>
   </Teleport>
 </template>
 
 <style scoped>
-.document-full-preview{position:fixed;inset:0;width:100%;height:100dvh;max-width:none;max-height:none;margin:0;padding:84px 16px 64px;border:0;border-radius:0;box-sizing:border-box;color:#d1fae5;background:#050d14;overflow:auto;overscroll-behavior:contain}
+.document-full-preview{position:fixed;inset:0;width:100%;height:100dvh;max-width:none;max-height:none;margin:0;padding:84px 16px 64px;border:0;border-radius:0;box-sizing:border-box;color:#d1fae5;background:#050d14;font-family:var(--font-ui,system-ui);overflow:auto;overscroll-behavior:contain}
 .document-full-preview[open]{display:flex;justify-content:center}
 .document-full-preview::backdrop{background:#050d14}
 .document-full-preview__content{width:min(100%,860px);min-width:0;margin:auto;align-self:flex-start;display:grid;justify-items:center}
 .document-full-preview__content--with-header{grid-template-rows:auto minmax(0,1fr);gap:12px}
-.document-full-preview__header{width:100%;min-width:0;padding:10px 12px;box-sizing:border-box;border:1px solid #28534e;border-radius:8px;background:#091923}
+.document-full-preview__header{width:100%;min-width:0;max-height:30dvh;overflow:auto;overflow-wrap:anywhere;padding:10px 12px;box-sizing:border-box;border:1px solid #28534e;border-radius:8px;background:#091923}
+.document-full-preview__header p{margin:0}
 .document-full-preview__viewport{width:100%;min-width:0;display:grid;justify-items:center}
 .document-full-preview__html{width:min(100%,210mm);overflow:auto;background:#fff}
 .document-full-preview__back,.document-full-preview__actions{position:fixed;top:20px;z-index:30}

@@ -94,16 +94,22 @@ function setLinked(key: FavoriteLink['linkKey'], primaryKey: StringDesignKey, se
 </template>
 
 <style scoped>
-.design-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
-.design-control { display: grid; gap: 4px; align-content: start; }
+.design-controls { container: design-controls / inline-size; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 8px; min-width: 0; }
+.design-control { display: grid; gap: 4px; align-content: start; min-width: 0; overflow-wrap: anywhere; }
 .design-control--linked { grid-column: span 2; }
-.design-control-label { display: flex; align-items: center; justify-content: space-between; gap: 6px; color: #78d1b8; font-size: 10pt; }
+.design-control-label { display: flex; align-items: center; justify-content: space-between; gap: 6px; color: var(--ui-muted); font-size: 10pt; }
 .design-paired-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.design-linked-slider { display: grid; gap: 4px; }
-.design-linked-slider-heading { display: flex; align-items: center; gap: 6px; color: #78d1b8; font-size: 10pt; }
-.design-paired-controls label { display: grid; gap: 4px; color: #78d1b8; font-size: 10pt; }
+.design-linked-slider { display: grid; gap: 4px; min-width: 0; }
+.design-linked-slider-heading { display: flex; align-items: center; gap: 6px; color: var(--ui-muted); font-size: 10pt; }
+.design-paired-controls label { display: grid; gap: 4px; color: var(--ui-muted); font-size: 10pt; }
 .link-toggle { flex: 0 0 auto; width: 28px; min-width: 28px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
-.link-toggle[aria-pressed="true"] { border-color: #27f3a2; color: #9be8c7; }
-.design-toggle { width: 16px; height: 16px; accent-color: #27f3a2; }
+.link-toggle[aria-pressed="true"] { border-color: var(--ui-accent-border); background: var(--ui-active); color: var(--ui-accent); }
+.design-toggle { width: 16px; height: 16px; accent-color: var(--ui-accent); }
+.design-control input[type="range"] { accent-color: var(--ui-accent); }
+@container design-controls (max-width: 367px) {
+  .design-control--linked { grid-column: auto; }
+  .design-paired-controls { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 640px) { .design-controls, .design-paired-controls { grid-template-columns: 1fr; } .design-control--linked { grid-column: auto; } }
+@media (max-width: 760px) { .design-control input[type="range"], .design-control select { min-height: 44px; } }
 </style>

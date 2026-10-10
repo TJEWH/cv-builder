@@ -234,25 +234,25 @@ function toggleSection(key: string) {
 
 <style scoped>
 .design-favorites { display: grid; gap: 10px; margin: 0 0 20px; }
-.design-favorites__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #d1fae5; font-size: 10pt; font-weight: 700; }
+.design-favorites__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--ui-text); font-size: 10pt; font-weight: 600; }
 .design-favorites__header span { display: inline-flex; align-items: center; gap: 7px; }
-.design-favorites__header .svg-inline--fa { color: #fb7185; }
+.design-favorites__header .svg-inline--fa { color: var(--ui-muted); }
 .design-favorites__toggle { display: inline-flex; align-items: center; gap: 6px; }
 .design-favorites__header--sidebar { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
 .design-favorites__header--sidebar .design-favorites__toggle { width: 100%; min-height: 40px; justify-content: flex-start; }
-.design-favorites__toggle.is-active { border-color: #27f3a2; background: rgba(16, 185, 129, .16); color: #d1fae5; }
+.design-favorites__toggle.is-active { border-color: var(--ui-accent-border); background: var(--ui-active); color: var(--ui-accent); }
 .design-favorites__picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 7px 12px; padding-top: 10px; border-top: 1px solid #134e4a; }
 .design-favorites__picker label { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
-.design-favorites__picker input { width: 16px; height: 16px; accent-color: #27f3a2; }
+.design-favorites__picker input { width: 16px; height: 16px; accent-color: var(--ui-accent); }
 .design-favorites__rows { display: grid; gap: 12px; }
 .design-favorites__row { display: grid; gap: 7px; padding-top: 10px; border-top: 1px solid #134e4a; }
-.design-favorites__row h4 { margin: 0; color: var(--muted); font-size: 9pt; text-transform: uppercase; letter-spacing: .4px; }
+.design-favorites__row h4 { margin: 0; color: var(--ui-muted); font-size: 9pt; font-weight: 600; }
 .design-favorites__empty { margin: 0; color: var(--muted); font-size: 12px; }
-.editor-subsection h4 { margin: 0; color: #9be8c7; font-size: 10pt; text-transform: uppercase; letter-spacing: .5px; }
+.editor-subsection h4 { margin: 0; color: var(--ui-text); font-size: 10pt; font-weight: 600; }
 /* The button owns the header padding, so its entire visible row is clickable. */
 .editor-subsection { padding: 0; }
 .editor-subsection__header { width: 100%; padding: 16px; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-align: left; text-transform: inherit; cursor: pointer; }
-.editor-subsection__header:focus-visible { outline: 2px solid #27f3a2; outline-offset: -2px; }
+.editor-subsection__header:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
 .editor-subsection__header > .section-icon { flex: 0 0 34px; color: var(--muted); text-align: center; }
 .editor-subsection > .editor-subsection__body { margin-left: 58px; margin-right: 24px; }
 .editor-subsection:not(.collapsed) > .editor-subsection__body { margin-bottom: 16px; }
@@ -262,4 +262,8 @@ function toggleSection(key: string) {
 @media (max-width: 640px) { .font-import { grid-template-columns: 1fr; } }
 .spacing-hint { margin: 6px 0 0; color: var(--muted); font-size: 9pt; }
 @media (max-width: 640px) { .design-favorites { margin-inline: 0; } .design-favorites__picker, .design-favorites__controls, .design-favorites__paired-controls { grid-template-columns: 1fr; } .design-favorites__control--linked { grid-column: auto; } }
+@container cv-editor (max-width: 600px) {
+  .editor-subsection > .editor-subsection__body { margin-inline: 16px; }
+  .font-import { grid-template-columns: minmax(0, 1fr); }
+}
 </style>
