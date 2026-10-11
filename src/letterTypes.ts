@@ -21,6 +21,8 @@ export interface LetterTemplateGuidance {
   researchInterests?: string;
   /** When and why to ask the applicant for useful context during drafting or refinement. */
   questionGuidance?: string;
+  /** Instructions for evaluating resolved answers and handling letter refinement iterations. */
+  refinementSystemPrompt?: string;
 }
 
 export interface LetterTemplate extends LetterTemplateGuidance {

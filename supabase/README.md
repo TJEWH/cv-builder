@@ -44,9 +44,13 @@ locally.
 
 ## Schema maintenance
 
-[`schema.sql`](schema.sql) is the current fresh-install baseline. Applied and superseded upgrade scripts have been removed from the
+[`schema.sql`](schema.sql) is the current fresh-install baseline. Historical upgrade scripts have been removed from the
 repository; Supabase retains the deployed migration history, and Git retains previously committed scripts. No upgrade is pending for
 **phd-workflow** as of 2026-10-11 (Europe/Tirane).
+
+Migration `20261011122600` (`letter_refinement_system_prompt`) adds the optional `refinementSystemPrompt` template field to the
+existing validator, with a 4,000 UTF-16-unit limit. The targeted [`refinement_system_prompt.sql`](refinement_system_prompt.sql) upgrade
+is retained for other existing databases. The live template-guidance suite passed after deployment; its synthetic records were rolled back.
 
 The confirmed cleanup migrations are `20261010231056` (`retire_legacy_drafting`), `20261010231602`
 (`retire_legacy_refinement_formats`), `20261010231941` (`current_refinement_privacy`) and `20261010232812`

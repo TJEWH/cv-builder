@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { addIncomingDraft, contextChanges, createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, DEFAULT_QUESTION_GUIDANCE, DEFAULT_TEMPLATE_GUIDANCE,
+import { addIncomingDraft, contextChanges, createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, DEFAULT_QUESTION_GUIDANCE, DEFAULT_REFINEMENT_SYSTEM_PROMPT, DEFAULT_TEMPLATE_GUIDANCE,
   editLetter, finalizedLetterRevision, finalizeLetter, letterContextVersion, letterFromEditableText, letterToEditableText, openLetterRevision, parseIncomingLetter, readLetterTemplate, resolveLetterContent,
   sameLetterContextInput, saveWorkingRevision, selectApplicationLetterTemplate, unresolvedLetterPlaceholders } from '../src/composables/motivationLetters';
 import { createTestState } from './helpers';
@@ -137,23 +137,25 @@ test('templates have monotonic revisions and importing copies never changes an a
 
 test('application template snapshots survive library changes and explicit replacement preserves letter history', () => {
   const repository = createLetterRepository(memory(), 'owner');
-  const source = { ...template, exampleText: 'An example of concise research motivation.', researchInterests: 'Interpretable robot learning.', questionGuidance: 'Ask about relevant field experiments.' };
+  const source = { ...template, exampleText: 'An example of concise research motivation.', researchInterests: 'Interpretable robot learning.', questionGuidance: 'Ask about relevant field experiments.', refinementSystemPrompt: 'Include concrete details only when they support the research narrative.' };
   const initial = finalizeLetter(editLetter(createApplicationLetter('owner', 'app', source, version), content), version, contact);
   repository.save(initial);
   source.exampleText = 'Changed after assignment';
-  repository.saveTemplate({ ...source, structure: 'A new structure', maxWords: 400, researchInterests: 'Robust sensing.', questionGuidance: 'Ask about relevant sensor projects.' });
+  repository.saveTemplate({ ...source, structure: 'A new structure', maxWords: 400, researchInterests: 'Robust sensing.', questionGuidance: 'Ask about relevant sensor projects.', refinementSystemPrompt: 'Ask for clarification when an answer is too vague.' });
   const loaded = repository.load('app')!;
   assert.equal(loaded.templateSnapshot?.revision, template.revision);
   assert.equal(loaded.templateSnapshot?.exampleText, 'An example of concise research motivation.');
   assert.equal(loaded.templateSnapshot?.structure, template.structure);
   assert.equal(loaded.templateSnapshot?.researchInterests, 'Interpretable robot learning.');
   assert.equal(loaded.templateSnapshot?.questionGuidance, 'Ask about relevant field experiments.');
+  assert.equal(loaded.templateSnapshot?.refinementSystemPrompt, source.refinementSystemPrompt);
   const replacement = repository.listTemplates().find((item) => item.id === template.id)!;
   const selected = selectApplicationLetterTemplate(loaded, replacement);
   assert.equal(selected.templateSnapshot?.revision, template.revision + 1);
   assert.equal(selected.maxWords, 400);
   assert.equal(selected.templateSnapshot?.researchInterests, 'Robust sensing.');
   assert.equal(selected.templateSnapshot?.questionGuidance, 'Ask about relevant sensor projects.');
+  assert.equal(selected.templateSnapshot?.refinementSystemPrompt, 'Ask for clarification when an answer is too vague.');
   assert.equal(selected.finalRevisionId, null);
   assert.deepEqual(selected.working, loaded.working);
   assert.deepEqual(selected.revisions, loaded.revisions);
@@ -207,42 +209,45 @@ test('empty optional examples preserve legacy context fingerprints and nonempty 
 
 test('research interests and question guidance retain explicit context in template and letter backups', () => {
   const repository = createLetterRepository(memory(), 'owner');
-  const saved = repository.saveTemplate({ ...template, researchInterests: 'Interpretable robotics and sensor fusion.', questionGuidance: 'If field deployment is useful and absent from the CV, ask for one relevant example.' });
+  const saved = repository.saveTemplate({ ...template, researchInterests: 'Interpretable robotics and sensor fusion.', questionGuidance: 'If field deployment is useful and absent from the CV, ask for one relevant example.', refinementSystemPrompt: 'Keep only answers that support my research narrative.' });
   const imported = repository.importTemplates(repository.exportTemplates()).find((item) => item.name === saved.name)!;
   assert.equal(imported.researchInterests, saved.researchInterests);
   assert.equal(imported.questionGuidance, saved.questionGuidance);
+  assert.equal(imported.refinementSystemPrompt, saved.refinementSystemPrompt);
   const letter = createApplicationLetter('owner', 'app', saved, version);
   repository.save(letter);
   assert.deepEqual(repository.importLetter(repository.exportLetter('app'), 'app').templateSnapshot, saved);
-  for (const key of ['researchInterests', 'questionGuidance'] as const) {
+  for (const key of ['researchInterests', 'questionGuidance', 'refinementSystemPrompt'] as const) {
     assert.equal(readLetterTemplate({ ...template, [key]: 'a'.repeat(4000) })[key]?.length, 4000);
     for (const invalid of [null, 42, [], 'a'.repeat(4001)]) {
-      assert.throws(() => readLetterTemplate({ ...template, [key]: invalid }), /Research interests and question guidance/);
+      assert.throws(() => readLetterTemplate({ ...template, [key]: invalid }), /Research interests, question guidance and the refinement system prompt/);
     }
   }
 });
 
 test('legacy template imports and frozen snapshots do not acquire new interests or question guidance', () => {
-  const { researchInterests: _interests, questionGuidance: _questions, ...legacyTemplate } = template;
+  const { researchInterests: _interests, questionGuidance: _questions, refinementSystemPrompt: _refinement, ...legacyTemplate } = template;
   assert.deepEqual(readLetterTemplate(legacyTemplate), legacyTemplate);
   const repository = createLetterRepository(memory(), 'owner');
   const [imported] = repository.importTemplates(JSON.stringify({ format: 'cv-letter-templates', version: 1, templates: [legacyTemplate] }));
   assert.equal('researchInterests' in imported, false);
   assert.equal('questionGuidance' in imported, false);
+  assert.equal('refinementSystemPrompt' in imported, false);
   const record = createApplicationLetter('owner', 'app', legacyTemplate, version);
   repository.save(record);
   assert.deepEqual(repository.load('app')?.templateSnapshot, legacyTemplate);
   assert.equal(DEFAULT_LETTER_TEMPLATES.every((item) => item.researchInterests === ''), true);
   assert.equal(DEFAULT_LETTER_TEMPLATES.every((item) => item.questionGuidance === DEFAULT_QUESTION_GUIDANCE), true);
+  assert.equal(DEFAULT_LETTER_TEMPLATES.every((item) => item.refinementSystemPrompt === DEFAULT_REFINEMENT_SYSTEM_PROMPT), true);
 });
 
 test('empty new template fields preserve legacy fingerprints while explicit interests and questions require review', () => {
-  const { researchInterests: _interests, questionGuidance: _questions, ...legacyTemplate } = template;
+  const { researchInterests: _interests, questionGuidance: _questions, refinementSystemPrompt: _refinement, ...legacyTemplate } = template;
   const application = { context_json: {}, cv_variant_id: null };
   const before = letterContextVersion(application, null, legacyTemplate, 'en', '', 450);
-  const explicitEmpty = { ...legacyTemplate, researchInterests: '', questionGuidance: '' };
+  const explicitEmpty = { ...legacyTemplate, researchInterests: '', questionGuidance: '', refinementSystemPrompt: '' };
   assert.deepEqual(letterContextVersion(application, null, explicitEmpty, 'en', '', 450), before);
-  for (const change of [{ researchInterests: 'Robotics.' }, { questionGuidance: 'Ask about missing qualification evidence.' }]) {
+  for (const change of [{ researchInterests: 'Robotics.' }, { questionGuidance: 'Ask about missing qualification evidence.' }, { refinementSystemPrompt: 'Evaluate relevance before including answers.' }]) {
     const changed = letterContextVersion(application, null, { ...explicitEmpty, ...change }, 'en', '', 450);
     assert.notEqual(changed.content, before.content);
     assert.equal(changed.theme, before.theme);

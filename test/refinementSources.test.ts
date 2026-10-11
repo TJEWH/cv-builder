@@ -87,6 +87,7 @@ test('changes to every source, effective setting, selected scope, feedback or li
     ['template example', next => { next.request.letter.template.exampleText = 'Updated style'; }],
     ['research interests', next => { next.request.letter.template.researchInterests = 'New interest in robust perception.'; }],
     ['question context', next => { next.request.letter.template.questionGuidance = 'Ask about field deployment evidence when relevant.'; }],
+    ['refinement system prompt', next => { next.request.letter.template.refinementSystemPrompt = 'Keep only details that support the central narrative.'; }],
     ['language', next => { next.request.letter.language = 'en'; }],
     ['word target', next => { next.request.letter.maxWords = 400; }],
     ['scope', next => { next.request.scope = 'letter'; }],
@@ -112,13 +113,14 @@ test('changes to every source, effective setting, selected scope, feedback or li
 });
 
 test('preparing revised interests or question guidance requires a fresh request while reading legacy templates preserves reuse', () => {
-  const { researchInterests: _interests, questionGuidance: _questions, ...legacyTemplate } = template;
+  const { researchInterests: _interests, questionGuidance: _questions, refinementSystemPrompt: _refinement, ...legacyTemplate } = template;
   const legacy = prepare({ setup: resolveRefinementSettings(legacyTemplate).setup });
   const reread = prepare({ setup: resolveRefinementSettings(readLetterTemplate(legacyTemplate)).setup });
   assert.equal(sameRefinementInputs(legacy, reread), true, 'legacy frozen guidance must not acquire new defaults on read');
   assert.equal(Object.hasOwn(reread.request.letter.template, 'researchInterests'), false);
   assert.equal(Object.hasOwn(reread.request.letter.template, 'questionGuidance'), false);
-  for (const change of [{ researchInterests: 'Robust perception.' }, { questionGuidance: 'Ask about relevant field testing.' }]) {
+  assert.equal(Object.hasOwn(reread.request.letter.template, 'refinementSystemPrompt'), false);
+  for (const change of [{ researchInterests: 'Robust perception.' }, { questionGuidance: 'Ask about relevant field testing.' }, { refinementSystemPrompt: 'Ask a focused follow-up for vague answers.' }]) {
     const updated = prepare({ setup: resolveRefinementSettings({ ...legacyTemplate, ...change }).setup });
     assert.equal(sameRefinementInputs(legacy, updated), false);
     assert.notEqual(updated.sourceSignatures?.letter, legacy.sourceSignatures?.letter, 'the frozen local letter source must track the changed context');

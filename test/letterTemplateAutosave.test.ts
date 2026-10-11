@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive, type Component } from 'vue';
-import { createLetterRepository } from '../src/composables/motivationLetters';
+import { createLetterRepository, DEFAULT_LETTER_TEMPLATES, DEFAULT_REFINEMENT_SYSTEM_PROMPT } from '../src/composables/motivationLetters';
 import type { LetterTemplate } from '../src/letterTypes';
 import { useToasts, useToastWatch } from '../src/composables/useToasts';
 
@@ -25,9 +25,10 @@ interface Editor {
   importLibrary(event: Event): Promise<void>;
 }
 
-function importFixture(t: TestContext) {
+function importFixture(t: TestContext, templates?: LetterTemplate[]) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const data = new Map<string, string>();
+  if (templates) data.set('cv.letters.v1:owner:templates', JSON.stringify(templates));
   const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value); } };
   const restoreGlobals: (() => void)[] = [];
   for (const [name, value] of Object.entries({ localStorage: storage, window: new EventTarget() })) {
@@ -53,6 +54,28 @@ function pendingImport() {
   const input = { files: [{ text: () => pending }], value: 'library.json' };
   return { event: { target: input } as unknown as Event, input, resolve };
 }
+
+test('refinement prompts default in the editor and retain custom or cleared values across autosave and selection', t => {
+  const { refinementSystemPrompt: _prompt, ...legacy } = DEFAULT_LETTER_TEMPLATES[0]!;
+  const { editor, owner } = importFixture(t, [legacy,
+    { ...legacy, id: 'custom', refinementSystemPrompt: 'Prioritize evidence for the central research narrative.' },
+    { ...legacy, id: 'empty', refinementSystemPrompt: '' },
+  ]);
+  assert.equal(editor.form.refinementSystemPrompt, DEFAULT_REFINEMENT_SYSTEM_PROMPT);
+  t.mock.timers.tick(250);
+  assert.equal(owner.defaultTemplate()?.refinementSystemPrompt, DEFAULT_REFINEMENT_SYSTEM_PROMPT);
+  editor.select('custom');
+  assert.equal(editor.form.refinementSystemPrompt, 'Prioritize evidence for the central research narrative.');
+  editor.form.refinementSystemPrompt = 'Ask for a concrete example before including a vague answer.';
+  editor.select('empty');
+  assert.equal(owner.listTemplates().find(item => item.id === 'custom')?.refinementSystemPrompt, 'Ask for a concrete example before including a vague answer.');
+  assert.equal(editor.form.refinementSystemPrompt, '');
+  editor.select('custom'); editor.form.refinementSystemPrompt = '';
+  editor.select('research'); editor.select('custom');
+  assert.equal(editor.form.refinementSystemPrompt, '', 'an intentionally cleared prompt must not be reset');
+  editor.create();
+  assert.equal(owner.listTemplates().find(item => item.id === editor.selectedId)?.refinementSystemPrompt, DEFAULT_REFINEMENT_SYSTEM_PROMPT);
+});
 
 test('only one letter library import runs at a time and edits made during the read are saved', async t => {
   const { editor, owner } = importFixture(t);

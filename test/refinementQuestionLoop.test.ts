@@ -11,11 +11,13 @@ test('connected resolved contextual question automatically feeds a fresh privacy
   const fixture = mount(t, createPrivateRefinementCv()); let setup = await prepare(fixture, 'base', { scope: 'letter' });
   setup.letter!.templateSnapshot!.researchInterests = 'Reliable robot sensing and reproducible calibration, inspired by E2E North Lab.';
   setup.letter!.templateSnapshot!.questionGuidance = 'Ask about undocumented robot calibration experience when a required or beneficial qualification is relevant to the letter.';
+  setup.letter!.templateSnapshot!.refinementSystemPrompt = 'Evaluate whether answers from E2E North Lab support the research narrative; ask a focused follow-up when a detail is missing.';
   await setup.publishSources(); assert.equal(setup.error, '');
   const source = setup.requests[0];
   assert.match(source.request_json.letter.template.researchInterests!, /Reliable robot sensing/);
   assert.doesNotMatch(JSON.stringify(source.request_json), /E2E North Lab/);
   assert.match(source.request_json.letter.template.questionGuidance!, /undocumented robot calibration/);
+  assert.match(source.request_json.letter.template.refinementSystemPrompt!, /support the research narrative; ask a focused follow-up/);
   const incoming = fixture.cloud.seedProposal(source.id, { letterText: 'A proposed motivation letter based on documented evidence.' });
   const payload = incoming.proposal_json as RefinementProposalV2;
   payload.annotations = [{ id: 'annotation-1', type: 'question', document: 'letter', location: null, text: question }];
@@ -54,6 +56,7 @@ test('connected resolved contextual question automatically feeds a fresh privacy
   assert.deepEqual(JSON.parse(JSON.stringify(next.feedback)), [shared]);
   assert.equal(next.letter.template.researchInterests, source.request_json.letter.template.researchInterests);
   assert.equal(next.letter.template.questionGuidance, source.request_json.letter.template.questionGuidance);
+  assert.equal(next.letter.template.refinementSystemPrompt, source.request_json.letter.template.refinementSystemPrompt);
   assert.doesNotMatch(JSON.stringify(next), /E2E North Lab|E2E South Lab|E2E Omit Lab|structureBindings|baselineState/);
   assert.deepEqual(JSON.parse(documents(setup)), JSON.parse(before));
 });

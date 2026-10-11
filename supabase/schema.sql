@@ -754,7 +754,7 @@ begin
     or jsonb_typeof(value->'maxWords') is distinct from 'number' or coalesce(value->>'maxWords','') !~ '^[0-9]{2,4}$'
     or (value->>'maxWords')::integer not between 50 and 2000
     or jsonb_typeof(template) is distinct from 'object'
-    or template - array['id','name','revision','structure','tone','language','maxWords','updatedAt','subjectInstructions','salutationInstructions','closingInstructions','exampleText','researchInterests','questionGuidance'] <> '{}'::jsonb
+    or template - array['id','name','revision','structure','tone','language','maxWords','updatedAt','subjectInstructions','salutationInstructions','closingInstructions','exampleText','researchInterests','questionGuidance','refinementSystemPrompt'] <> '{}'::jsonb
     or not(template ?& array['id','name','revision','structure','tone','language','maxWords','updatedAt'])
     or jsonb_typeof(template->'revision') is distinct from 'number' or coalesce(template->>'revision','') !~ '^[1-9][0-9]{0,8}$'
     or jsonb_typeof(template->'maxWords') is distinct from 'number' or coalesce(template->>'maxWords','') !~ '^[0-9]{2,4}$'
@@ -764,7 +764,7 @@ begin
   for item in select key,val from jsonb_each(template-array['revision','maxWords']) e(key,val) loop
     if jsonb_typeof(item.val) is distinct from 'string' or char_length(item.val#>>'{}')>20000
       or (item.key in ('subjectInstructions','salutationInstructions','closingInstructions') and char_length(item.val#>>'{}')>1000)
-      or (item.key in ('researchInterests','questionGuidance') and public.refinement_utf16_length(item.val#>>'{}')>4000)
+      or (item.key in ('researchInterests','questionGuidance','refinementSystemPrompt') and public.refinement_utf16_length(item.val#>>'{}')>4000)
       or translate(item.val#>>'{}', E'\t\n\r','') ~ '[[:cntrl:]]' then
       raise exception 'Invalid refinement template text.' using errcode='22023';
     end if;

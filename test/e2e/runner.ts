@@ -8,6 +8,7 @@ import { provideDesktopSidebar } from '../../src/composables/desktopSidebar';
 import { useToasts } from '../../src/composables/useToasts';
 import { createPrivateRefinementCv, createSyntheticRefinementWorkspace } from '../refinementFixture';
 import { refinementSignature } from '../../src/composables/applicationRefinement';
+import { DEFAULT_REFINEMENT_SYSTEM_PROMPT } from '../../src/composables/motivationLetters';
 import type { RefinementProposalRow, RefinementProposalV2 } from '../../src/refinementTypes';
 import type { Workspace } from '../refinementWorkflowHarness';
 import '../../src/assets/cv.css';
@@ -221,14 +222,18 @@ async function templateQuestionFlow() {
   app!.unmount(); root.replaceChildren();
   app = createApp({ render: () => h(LetterTemplates, { userId: fixture.props.userId, lang: 'en' }) });
   app.mount(root); await nextTick();
+  assert(root.querySelector<HTMLTextAreaElement>('textarea[id$="-refinement-system-prompt"]')?.value === DEFAULT_REFINEMENT_SYSTEM_PROMPT, 'New templates must show the default refinement system prompt');
   const interests = 'Reliable robot sensing and reproducible experiments. I am also interested in scientific visualization.';
   const guidance = 'When required or beneficial robot calibration experience has no CV evidence, ask about relevant coursework or projects and a concrete example. If useful, ask about a genuine learning interest instead; do not assume experience.';
+  const refinementPrompt = 'Include resolved answers only if they add concrete evidence to the central narrative. Ask a focused follow-up if an answer is too vague to judge.';
   await field('Main research interests (optional)', interests); await field('Questions and context to ask for (optional)', guidance);
+  await field('Refinement system prompt (optional)', refinementPrompt);
   await until(() => [...document.querySelectorAll('.app-toaster [role="status"]')].some(toast => toast.textContent?.includes('All changes saved locally')), 'template guidance autosaves');
   await mount(true); await field('Saved CV', 'base'); await field('Letter template', 'research');
   await click('2Refinement'); await field('Refinement scope', 'letter'); await click('Copy task'); assert(!setup.error, setup.error);
   const source = setup.requests[0].request_json;
   assert(source.letter.template.researchInterests === interests && source.letter.template.questionGuidance === guidance, 'Published request lost selected template guidance');
+  assert(source.letter.template.refinementSystemPrompt === refinementPrompt, 'Published request lost the refinement system prompt');
   const first = fixture.cloud.seedProposal(source.requestId, { persist: false, letterText: 'I am interested in reliable robot sensing and reproducible experiments.' });
   (first.proposal_json as RefinementProposalV2).annotations = [{ id: 'annotation-1', type: 'question', document: 'letter', location: null,
     text: 'Robot calibration is beneficial, but the CV does not document it. Have you calibrated a robot in coursework or a project? A concrete example could strengthen the letter; no experience is assumed.' }];

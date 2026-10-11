@@ -11,7 +11,7 @@ const emit = defineEmits<{ approve: [sourceKey: string, type: PrivacyContextType
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const targets = computed(() => props.localCv ? privacyContextTargets(props.localCv, refinementSignature) : []);
 const templateStyle = computed(() => {
-  const { researchInterests: _interests, questionGuidance: _questions, ...style } = props.request.letter.template;
+  const { researchInterests: _interests, questionGuidance: _questions, refinementSystemPrompt: _refinement, ...style } = props.request.letter.template;
   return style;
 });
 const drafts = reactive<Record<string, { type: PrivacyContextType; description: string }>>({});
@@ -40,6 +40,7 @@ const typeLabel = (type: PrivacyContextType) => ({ person: text('Person', 'Perso
     <details class="disclosure-row"><summary>{{ text('Template guidance & example text', 'Vorlagenhinweise & Beispieltext') }}</summary>
       <h5>{{ text('Research interests', 'Forschungsinteressen') }}</h5><PrivacyTextPreview :value="request.letter.template.researchInterests || text('Not specified', 'Nicht angegeben')" :lang="lang" />
       <h5>{{ text('Follow-up question guidance', 'Hinweise für Rückfragen') }}</h5><PrivacyTextPreview :value="request.letter.template.questionGuidance || text('Not specified', 'Nicht angegeben')" :lang="lang" />
+      <h5>{{ text('Refinement system prompt', 'System-Prompt für Überarbeitungen') }}</h5><PrivacyTextPreview :value="request.letter.template.refinementSystemPrompt || text('Not specified', 'Nicht angegeben')" :lang="lang" />
       <PrivacyTextPreview :value="JSON.stringify(templateStyle, null, 2)" :lang="lang" />
     </details>
     <details class="disclosure-row"><summary>{{ text('Outgoing saved feedback', 'Ausgehendes gespeichertes Feedback') }} ({{ request.feedback.length }})</summary><article v-for="item in request.feedback" :key="item.id"><strong>{{ item.scope }} · {{ item.createdAt }}</strong><PrivacyTextPreview :value="item.text" :lang="lang" /></article></details>

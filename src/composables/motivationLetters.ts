@@ -16,6 +16,7 @@ export const DEFAULT_TEMPLATE_GUIDANCE = {
 };
 export const DEFAULT_QUESTION_GUIDANCE = 'When a required or beneficial qualification in the opportunity has no supporting CV evidence, ask whether I have relevant experience and request a concrete example only if the answer would improve the letter. Missing CV evidence does not mean I lack experience. If I do not have that experience, ask about a genuine learning interest only when useful; do not invent qualifications or imply that an unanswered question is evidence. Ask only unresolved, value-adding questions during drafting and refinement; do not repeat answered questions.';
 export const LETTER_TEMPLATE_CONTEXT_MAX_LENGTH = 4000;
+export const DEFAULT_REFINEMENT_SYSTEM_PROMPT = "For each motivation-letter refinement iteration, evaluate the latest saved answer to each resolved question against the letter's golden thread: the central narrative connecting my motivation, relevant experience and the opportunity. Include answer details only when they strengthen that narrative and add relevant, concrete value. Omit details that do not fit the golden thread, repeat existing points or add no value; resolving a question does not require including its answer in the letter. If an answer is too vague or unspecific to judge its relevance or value, ask a focused follow-up question that identifies the missing detail and explains why it matters. Keep that uncertain detail out of the letter until clarified. Preserve confirmed facts and my manual corrections, and keep questions in review annotations rather than in the motivation letter.";
 
 export const DEFAULT_LETTER_TEMPLATES: LetterTemplate[] = [{
   id: 'research', name: 'Research application', revision: 2,
@@ -23,7 +24,7 @@ export const DEFAULT_LETTER_TEMPLATES: LetterTemplate[] = [{
   structure: 'Opening: identify the opportunity and research interest.\nEvidence: connect two relevant experiences from the CV to the requirements.\nResearch fit: explain a specific connection to the project.\nClosing: state the contribution and interest in a discussion.',
   tone: 'Specific, thoughtful and professional. Use only facts present in the context; do not invent experience.',
   exampleText: '',
-  researchInterests: '', questionGuidance: DEFAULT_QUESTION_GUIDANCE,
+  researchInterests: '', questionGuidance: DEFAULT_QUESTION_GUIDANCE, refinementSystemPrompt: DEFAULT_REFINEMENT_SYSTEM_PROMPT,
   language: 'en', maxWords: 450, updatedAt: '2026-10-03T00:00:00.000Z',
 }, {
   id: 'industry', name: 'Industry application', revision: 2,
@@ -31,7 +32,7 @@ export const DEFAULT_LETTER_TEMPLATES: LetterTemplate[] = [{
   structure: 'Opening: role and motivation.\nRelevant evidence: two examples of skills and outcomes from the CV.\nContribution: connect experience to the organization and role.\nClosing: concise invitation to discuss.',
   tone: 'Clear, concise and confident. Avoid generic claims and invented qualifications.',
   exampleText: '',
-  researchInterests: '', questionGuidance: DEFAULT_QUESTION_GUIDANCE,
+  researchInterests: '', questionGuidance: DEFAULT_QUESTION_GUIDANCE, refinementSystemPrompt: DEFAULT_REFINEMENT_SYSTEM_PROMPT,
   language: 'en', maxWords: 350, updatedAt: '2026-10-03T00:00:00.000Z',
 }];
 
@@ -59,11 +60,11 @@ export function readLetterTemplate(value: unknown): LetterTemplate {
     throw new Error('The example letter must contain at most 20000 characters.');
   }
   // Older libraries and frozen snapshots keep their original guidance until explicitly edited.
-  const context: Pick<LetterTemplate, 'researchInterests' | 'questionGuidance'> = {};
-  for (const key of ['researchInterests', 'questionGuidance'] as const) {
+  const context: Pick<LetterTemplate, 'researchInterests' | 'questionGuidance' | 'refinementSystemPrompt'> = {};
+  for (const key of ['researchInterests', 'questionGuidance', 'refinementSystemPrompt'] as const) {
     if (value[key] === undefined) continue;
     if (typeof value[key] !== 'string' || value[key].length > LETTER_TEMPLATE_CONTEXT_MAX_LENGTH) {
-      throw new Error(`Research interests and question guidance must contain at most ${LETTER_TEMPLATE_CONTEXT_MAX_LENGTH} characters each.`);
+      throw new Error(`Research interests, question guidance and the refinement system prompt must contain at most ${LETTER_TEMPLATE_CONTEXT_MAX_LENGTH} characters each.`);
     }
     context[key] = value[key];
   }
@@ -181,9 +182,10 @@ export function sameLetterContextInput(left: unknown, right: unknown) { return f
 export function letterContextVersion(application: Pick<Application, 'context_json' | 'cv_variant_id'>, state: CvState | null, template: LetterTemplate, language: string, instructions: string, maxWords: number, formatting?: LetterFormatting): LetterContextVersion {
   const { design, completedSections: _completed, keepTogetherSections: _together, sectionHeaderSizes: _sizes, ...content } = state || {};
   // Absent optional fields and their empty defaults describe the same legacy context.
-  const { exampleText, researchInterests, questionGuidance, ...guidance } = template;
+  const { exampleText, researchInterests, questionGuidance, refinementSystemPrompt, ...guidance } = template;
   const templateContext = { ...guidance, ...(exampleText ? { exampleText } : {}),
-    ...(researchInterests ? { researchInterests } : {}), ...(questionGuidance ? { questionGuidance } : {}) };
+    ...(researchInterests ? { researchInterests } : {}), ...(questionGuidance ? { questionGuidance } : {}),
+    ...(refinementSystemPrompt ? { refinementSystemPrompt } : {}) };
   return { content: fingerprint({ opportunity: application.context_json, cv: content, template: templateContext, language, instructions, maxWords }),
     theme: fingerprint({ design: design || {}, letterLayout: LETTER_LAYOUT_VERSION, formatting: resolveLetterFormatting(formatting) }) };
 }

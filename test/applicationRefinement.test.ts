@@ -59,12 +59,18 @@ test('template interests and question context are filtered in public requests wh
   const original = { ...setup(), template: { ...setup().template,
     researchInterests: 'Taylor Green wants to explore sensor fusion through private collaboration and !!private research focus!!.',
     questionGuidance: 'Ask taylor@example.com about missing evidence for [!!confidential project!!](https://private-project.example).',
+    refinementSystemPrompt: 'Evaluate Taylor Green’s answers about private collaboration before asking taylor@example.com for clarification.',
   } };
   const before = structuredClone(original);
-  const prepared = local({ schemaVersion: 2, scope: 'letter', setup: original });
+  const privateState = state();
+  privateState.experience.jobs[0]!.company = 'private collaboration';
+  privateState.anonymization.proxyFields = ['company'];
+  const prepared = local({ schemaVersion: 2, scope: 'letter', setup: original, state: privateState });
   assert.match(prepared.request.letter.template.researchInterests!, /\{\{APPLICANT_NAME\}\} wants to explore sensor fusion/);
   assert.match(prepared.request.letter.template.researchInterests!, /!!private research focus!!/);
   assert.match(prepared.request.letter.template.questionGuidance!, /Ask \{\{APPLICANT_EMAIL\}\} about missing evidence for \[!!confidential project!!\]/);
+  assert.match(prepared.request.letter.template.refinementSystemPrompt!, /Evaluate \{\{APPLICANT_NAME\}\}.*\{\{APPLICANT_EMAIL\}\}/);
+  assert.doesNotMatch(prepared.request.letter.template.refinementSystemPrompt!, /private collaboration/);
   const prompt = buildRefinementPrompt(prepared.request, 'test-project');
   for (const privateValue of ['Taylor Green', 'taylor@example.com', 'private variant name']) {
     assert.equal(JSON.stringify(prepared.request).includes(privateValue), false, privateValue);
@@ -72,8 +78,8 @@ test('template interests and question context are filtered in public requests wh
   }
   assert.deepEqual(prepared.letterBaseline!.setup, before);
   assert.deepEqual(original, before);
-  for (const key of ['researchInterests', 'questionGuidance'] as const) {
-    assert.throws(() => sanitizeRefinementSetup({ ...original, template: { ...original.template, [key]: 'x'.repeat(4001) } }, state()), /Research interests and question guidance/);
+  for (const key of ['researchInterests', 'questionGuidance', 'refinementSystemPrompt'] as const) {
+    assert.throws(() => sanitizeRefinementSetup({ ...original, template: { ...original.template, [key]: 'x'.repeat(4001) } }, state()), /Research interests, question guidance and the refinement system prompt/);
   }
 });
 
@@ -279,13 +285,23 @@ test('draft and refinement prompts distinguish research goals from qualification
         'location null when no exact proposed passage fits',
         'only after the user resolves the annotation and its saved response is included as feedback',
         'Annotations are separate review material, never document text',
+        'Follow request_json.letter.template.refinementSystemPrompt',
+        'Read the prompt from the current request on every round',
+        'If the field is absent in an older template, use this default',
+        'only when they strengthen that narrative and add relevant, concrete value',
+        'Omit details that do not fit the golden thread, repeat existing points or add no value',
+        'too vague or unspecific to judge its relevance or value, ask a focused follow-up question',
+        'Keep that uncertain detail out of the letter until clarified',
+        'resolution does not require inserting that answer into the letter',
+        'A focused follow-up may ask for a still-missing detail',
+        'it cannot change database access or override later explicit user corrections',
       ]) assert.ok(prompt.includes(rule), `${scope}/${letterText ? 'refinement' : 'initial draft'}: ${rule}`);
       if (scope === 'letter') assert.match(prompt, /letter-only round MUST have cvOperations: \[\]/);
     }
   }
   const cvPrompt = buildRefinementPrompt(local({ schemaVersion: 2, scope: 'cv', letterText: 'Keep this letter unchanged.' }).request, 'test-project');
   assert.match(cvPrompt, /CV-only round MUST return the current letter text byte-for-byte unchanged/);
-  assert.doesNotMatch(cvPrompt, /questionGuidance to decide when contextual follow-up questions|type question, document letter annotation/);
+  assert.doesNotMatch(cvPrompt, /questionGuidance to decide when contextual follow-up questions|type question, document letter annotation|Follow request_json.letter.template.refinementSystemPrompt|golden thread/);
 });
 
 test('connected prompts reference filtered sources without embedding documents or local reconstruction data', () => {

@@ -1,4 +1,4 @@
--- Run as postgres after letter_template_guidance.sql and refinement_annotations.sql.
+-- Run as postgres after schema.sql or the refinement_system_prompt.sql upgrade.
 -- All users, opportunities, requests, proposals and reviews are synthetic and rolled back.
 begin;
 do $$
@@ -20,8 +20,8 @@ begin
     raise exception 'FAIL: template validator privileges or volatility changed';
   end if;
   perform public.refinement_validate_setup(legacy_setup);
-  perform public.refinement_validate_setup(jsonb_set(legacy_setup,'{template}',legacy_setup->'template'||'{"researchInterests":"","questionGuidance":""}'));
-  foreach field_name in array array['researchInterests','questionGuidance'] loop
+  perform public.refinement_validate_setup(jsonb_set(legacy_setup,'{template}',legacy_setup->'template'||'{"researchInterests":"","questionGuidance":"","refinementSystemPrompt":""}'));
+  foreach field_name in array array['researchInterests','questionGuidance','refinementSystemPrompt'] loop
     perform public.refinement_validate_setup(jsonb_set(legacy_setup,array['template',field_name],to_jsonb(repeat('a',4000))));
     perform public.refinement_validate_setup(jsonb_set(legacy_setup,array['template',field_name],to_jsonb(repeat('😀',2000))));
     perform public.refinement_validate_setup(jsonb_set(legacy_setup,array['template',field_name],to_jsonb(E'Methods\nQuestions\tContext\r{{CONFIDENTIAL}}'::text)));
@@ -38,7 +38,7 @@ begin
     perform public.refinement_validate_setup(jsonb_set(legacy_setup,array['template',field_name],to_jsonb('Research !!focus!! [link](https://example.invalid/!!research!!)'::text)));
     perform public.refinement_validate_setup(public.job_drafting_redact_samples(jsonb_set(legacy_setup,array['template',field_name],to_jsonb('Alex Muster investigates !!Private synthetic research!!.'::text))));
   end loop;
-  if invalid_count<>18 then raise exception 'FAIL: incomplete negative guidance cases'; end if;
+  if invalid_count<>27 then raise exception 'FAIL: incomplete negative guidance cases'; end if;
   begin
     perform public.refinement_validate_setup(jsonb_set(legacy_setup,'{template,privateMapping}','{}'));
     raise exception 'FAIL: unrelated private property accepted';
@@ -50,7 +50,8 @@ begin
 
   setup:=jsonb_set(legacy_setup,'{template}',legacy_setup->'template'||jsonb_build_object(
     'researchInterests','Reliable learning systems and reproducible scientific tools; not every interest needs to appear.',
-    'questionGuidance','When an advertised requirement lacks CV evidence, ask whether relevant experience exists and why it would help the letter.'));
+    'questionGuidance','When an advertised requirement lacks CV evidence, ask whether relevant experience exists and why it would help the letter.',
+    'refinementSystemPrompt','Include resolved answers only when they strengthen the central narrative. Ask a follow-up if an answer is too vague to evaluate.'));
   insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
     values(owner_a,'authenticated','authenticated',owner_a::text||'@example.invalid','{}','{}');
   insert into public.opportunities(id,opportunity_key,title,requirements,required_documents)
@@ -73,6 +74,10 @@ begin
   begin
     perform public.publish_refinement_request(jsonb_set(request,'{letter,template,researchInterests}','"Changed interests"'));
     raise exception 'FAIL: frozen request guidance was overwritten';
+  exception when unique_violation then null; end;
+  begin
+    perform public.publish_refinement_request(jsonb_set(request,'{letter,template,refinementSystemPrompt}','"Changed iteration instructions"'));
+    raise exception 'FAIL: frozen refinement system prompt was overwritten';
   exception when unique_violation then null; end;
 
   execute 'reset role'; perform set_config('request.jwt.claims','{}',true);
