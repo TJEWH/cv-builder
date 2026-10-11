@@ -11,6 +11,7 @@ import type { CvState, CvJsonKind, SavedConfiguration } from '../src/types';
 import { createCvContentJson, createCvConfigJson, cvContent, cvConfig, MAX_CV_JSON_FILE_BYTES } from '../src/composables/cvJsonBackup';
 import { createEmptyDocument, createSampleDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID } from '../src/composables/builtinConfigurations';
 import { createNormalizedContentState } from '../src/composables/contentLayout';
+import { isMainCvVariant } from '../src/composables/careerVariants';
 import { useToasts, useToastWatch } from '../src/composables/useToasts';
 
 const filename = new URL('../src/components/BackupManager.vue', import.meta.url);
@@ -136,6 +137,8 @@ function savedVersionFixture(t: TestContext) {
     t.after(() => previous ? Object.defineProperty(globalThis, name, previous) : Reflect.deleteProperty(globalThis, name));
   }
   global('localStorage', {
+    get length() { return storage.size; },
+    key: (index: number) => [...storage.keys()][index] || null,
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => storage.set(key, value),
     removeItem: (key: string) => storage.delete(key),
@@ -220,7 +223,7 @@ test('saving an application CV creates an independent variant without changing t
   assert.ok(storage.has(`CV_CONF_DATA:${second}`));
 });
 
-test('legacy subvariants load independently and deleting their former parent preserves their data', async (t) => {
+test('legacy refinements remain readable without becoming main variants when their parent is deleted', async (t) => {
   const { storage, instance, setup, props } = savedVersionFixture(t);
   const legacyState = createSampleDocument();
   legacyState.about.text = 'Existing tailored content';
@@ -231,7 +234,8 @@ test('legacy subvariants load independently and deleting their former parent pre
   ]));
   storage.set('CV_CONF_DATA:legacy-child', legacyData);
   setup.onStorageChange({ storageArea: localStorage, key: 'CV_CONF_INDEX' } as StorageEvent);
-  assert.deepEqual(setup.configs.find(item => item.id === 'legacy-child'), { id: 'legacy-child', name: 'Existing application CV', mtime: 123 });
+  assert.deepEqual(setup.configs.find(item => item.id === 'legacy-child'), { id: 'legacy-child', name: 'Existing application CV', mtime: 123, parentId: 'target' });
+  assert.equal(setup.configs.filter(isMainCvVariant).some(item => item.id === 'legacy-child'), false);
   assert.deepEqual(instance.readConfigData('legacy-child'), legacyState);
   assert.equal(storage.get('CV_CONF_DATA:legacy-child'), legacyData, 'reading the library preserves the stored backup');
 
@@ -239,8 +243,55 @@ test('legacy subvariants load independently and deleting their former parent pre
   await nextTick();
   assert.equal(props.selectedId, EMPTY_DOCUMENT_ID);
   assert.equal(storage.get('CV_CONF_DATA:legacy-child'), legacyData);
-  assert.deepEqual(JSON.parse(storage.get('CV_CONF_INDEX')!), [{ id: 'legacy-child', name: 'Existing application CV', mtime: 123 }]);
+  assert.deepEqual(JSON.parse(storage.get('CV_CONF_INDEX')!), [{ id: 'legacy-child', name: 'Existing application CV', mtime: 123, parentId: 'target' }]);
   assert.deepEqual(instance.readConfigData('legacy-child'), legacyState);
+});
+
+test('flattened legacy indexes recover refinement provenance from document metadata and preserve it on save', async (t) => {
+  const { storage, instance, setup } = savedVersionFixture(t);
+  const state = createSampleDocument();
+  storage.set('CV_CONF_INDEX', JSON.stringify([
+    { id: 'target', name: 'Engineering 2026' }, { id: 'legacy-child', name: 'Tailored CV' },
+  ]));
+  const raw = JSON.stringify({ __meta: { id: 'legacy-child', name: 'Tailored CV', parentId: 'target' }, data: state });
+  storage.set('CV_CONF_DATA:legacy-child', raw);
+  setup.onStorageChange({ storageArea: localStorage, key: 'CV_CONF_INDEX' } as StorageEvent);
+  assert.equal(setup.configs.find(item => item.id === 'legacy-child')?.parentId, 'target');
+  assert.equal(storage.get('CV_CONF_DATA:legacy-child'), raw, 'loading provenance does not rewrite data');
+  state.about.text = 'A later manual correction';
+  assert.equal(instance.saveVersion('legacy-child', state), true);
+  assert.equal(JSON.parse(storage.get('CV_CONF_INDEX')!).find((item: SavedConfiguration) => item.id === 'legacy-child').parentId, 'target');
+  assert.equal(JSON.parse(storage.get('CV_CONF_DATA:legacy-child')!).__meta.parentId, 'target');
+  const promotedId = instance.createVariant('Explicitly saved variant', state);
+  assert.ok(promotedId);
+  assert.equal(isMainCvVariant(setup.configs.find(item => item.id === promotedId)!), true);
+  assert.equal(Object.hasOwn(JSON.parse(storage.get(`CV_CONF_DATA:${promotedId}`)!).__meta, 'parentId'), false);
+});
+
+test('legacy acceptance receipts recover flattened refinements while explicit variants remain selectable', (t) => {
+  const { storage, setup } = savedVersionFixture(t);
+  storage.set('CV_REFINEMENT:1:owner:application', JSON.stringify({ version: 1,
+    savedVariant: { id: 'target', name: 'Engineering 2026' },
+    requests: { request: { request: { applicationId: 'application', requestId: 'request' }, cv: { sourceVariantId: 'target' }, acceptances: [{ variantId: 'other' }] } },
+  }));
+  setup.onStorageChange({ storageArea: localStorage, key: 'CV_CONF_INDEX' } as StorageEvent);
+  assert.equal(setup.configs.find(item => item.id === 'other')?.parentId, 'target');
+  assert.equal(isMainCvVariant(setup.configs.find(item => item.id === 'target')!), true);
+  assert.equal(JSON.parse(storage.get('CV_CONF_INDEX')!).find((item: SavedConfiguration) => item.id === 'other').parentId, 'target');
+  storage.delete('CV_REFINEMENT:1:owner:application');
+  setup.onStorageChange({ storageArea: localStorage, key: 'CV_CONF_INDEX' } as StorageEvent);
+  assert.equal(setup.configs.find(item => item.id === 'other')?.parentId, 'target', 'recovered provenance persists after history is cleared, without another document save');
+});
+
+test('explicit variants do not reuse a deleted internal refinement identity', (t) => {
+  const { storage, instance, setup } = savedVersionFixture(t);
+  storage.set('CV_REFINEMENT:1:owner:application', JSON.stringify({ version: 1,
+    requests: { request: { request: { applicationId: 'application', requestId: 'request' }, cv: { sourceVariantId: 'target' }, acceptances: [{ variantId: 'refined-cv' }] } },
+  }));
+  const id = instance.createVariant('Refined CV', createSampleDocument());
+  assert.ok(id);
+  assert.notEqual(id, 'refined-cv', 'the retired receipt identity stays reserved');
+  assert.equal(isMainCvVariant(setup.configs.find(item => item.id === id)!), true);
 });
 
 test('deletion removes persisted data and the recovery copy, opens empty state, and cannot autosave the old version', async (t) => {

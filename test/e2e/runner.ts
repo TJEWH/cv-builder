@@ -378,6 +378,22 @@ async function scopeLayoutFlow() {
 async function scopedHistoryFlow() {
   const originalLetter = 'Original letter before either refinement.';
   await prepare('cv', originalLetter);
+  fixture.props.configurations.push({ id: 'internal-refinement', name: 'Internal application refinement', parentId: 'base' });
+  const explicitVariantId = fixture.props.createVariant('Explicitly saved variant', fixture.base);
+  await nextTick();
+  function checkPreparation(cvLocked: boolean, letterLocked: boolean) {
+    const fields = [...root.querySelectorAll('.preparation-selection label')];
+    const cv = fields.find(label => label.firstChild?.textContent?.trim() === 'Saved CV')?.querySelector('select');
+    const letter = fields.find(label => label.firstChild?.textContent?.trim() === 'Letter template')?.querySelector('select');
+    assert(cv && letter, 'Preparation must retain both source selectors');
+    assert(cv.disabled === cvLocked && letter.disabled === letterLocked, 'Only documents with uncleared proposals must lock their source selector');
+    assert(![...cv.options].some(option => option.value === 'internal-refinement'), 'Internal refinements must not be offered as saved CVs');
+    assert([...cv.options].some(option => option.value === explicitVariantId && !option.disabled), 'Explicitly saved variants must remain in the reusable library');
+    for (const select of [cv, letter]) {
+      if (select.disabled) assert(select.getAttribute('aria-describedby') && document.getElementById(select.getAttribute('aria-describedby')!)?.textContent?.includes('history in Refinement'), 'Locked selectors must explain how to choose another source');
+    }
+  }
+  checkPreparation(false, false);
   const originalCv = refinementSignature(setup.record!.state);
   const cvRequestId = setup.requests[0].id;
   const cvProposal = fixture.cloud.seedProposal(cvRequestId, { persist: false });
@@ -413,6 +429,7 @@ async function scopedHistoryFlow() {
     assert(manual && !manual.textContent?.includes('Application writing instructions'), 'Manual editing must not expose Application writing instructions');
   }
   await loadProposal(cvProposal);
+  checkPreparation(true, false);
   const appliedCv = refinementSignature(setup.record!.state);
   assert(appliedCv !== originalCv, 'The CV fixture must apply an actual refinement');
   checkQuestions(cvProposal, cvQuestion.id);
@@ -434,6 +451,7 @@ async function scopedHistoryFlow() {
     { ...letterQuestion, id: 'annotation-4', type: 'todo', text: 'Hidden letter ToDo for this proposal.' },
   );
   await loadProposal(letterProposal);
+  checkPreparation(true, true);
   checkQuestions(letterProposal, letterQuestion.id);
   assert(!root.querySelector('.current-review')?.textContent?.includes(refinedLetter), 'The proposed letter must appear only in its preview and manual editor');
   checkManualEditor();
@@ -457,6 +475,7 @@ async function scopedHistoryFlow() {
   await click('Clear history', dialog);
   assert(!setup.error, setup.error);
   assert(!document.querySelector('[role="alertdialog"]'), 'The clear confirmation must close after submitting');
+  checkPreparation(false, true);
   checkHistory([]);
   assert(refinementSignature(setup.record!.state) === originalCv, 'Clearing CV history must restore its original source');
   assert(refinementSignature(setup.letter) === letterBeforeClear, 'Clearing CV history must preserve the letter');
@@ -466,6 +485,7 @@ async function scopedHistoryFlow() {
   await field('Refinement scope', 'letter');
   checkHistory([letterRequestId]);
   await mount(true); await click('2Refinement'); await disclose('History');
+  checkPreparation(false, true);
   checkHistory([letterRequestId]);
   assert(setup.letter!.working.body === refinedLetter && refinementSignature(setup.record!.state) === originalCv, 'Reload must preserve the original CV and refined letter after clearing CV history');
   assert(setup.proposals.some(proposal => proposal.id === letterProposal.id), 'Letter proposal history must survive reload after clearing CV history');
@@ -479,6 +499,7 @@ async function scopedHistoryFlow() {
   assert(letterDialog.textContent?.includes('empty draft using the selected template'), 'Letter clear must describe the template reset');
   await click('Clear history', letterDialog);
   assert(!setup.error && setup.letterText === '', 'Clearing letter history must discard earlier draft wording');
+  checkPreparation(false, false);
   assert(refinementSignature(setup.record!.state) === originalCv, 'Letter clearing must retain the CV');
   checkHistory([]);
   await mount(true); await click('2Refinement'); await disclose('History');

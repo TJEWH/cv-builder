@@ -226,11 +226,14 @@ test('clearing CV history restores its original state before deletion and keeps 
 });
 
 test('letter clear uses the currently selected template defaults without needing the first private snapshot', async t => {
-  const fixture = mount(t); let setup = await prepare(fixture, 'base', { scope: 'letter' });
+  const fixture = mount(t); let setup = fixture.setup;
+  await idle(setup); await setup.selectCv('base'); await setup.selectLetterTemplate('industry');
+  setup.updateLetter('Original private working letter.');
+  setup.feedbackScope = 'letter'; await setup.publishSources();
+  setup.tab = 'refinement'; await idle(setup);
   const firstRequest = setup.requests[0].id;
   fixture.cloud.seedProposal(firstRequest, { letterText: 'A refined draft from the first template.' });
   await setup.syncRefinement();
-  await setup.selectLetterTemplate('industry');
   const template = JSON.parse(JSON.stringify(setup.letter!.templateSnapshot!));
   setup.letter!.language = 'de'; setup.letter!.maxWords = 123;
   setup.letter!.instructions = 'Obsolete instructions from the previous draft.';

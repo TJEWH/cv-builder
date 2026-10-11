@@ -6,7 +6,7 @@ import { makeT } from '../i18n/dict';
 import { STORAGE_KEY } from '../composables/useStorage';
 import { builtinConfigurations, createEmptyDocument, createSampleDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID } from '../composables/builtinConfigurations';
 import { createNormalizedContentState } from '../composables/contentLayout';
-import { normalizeVariantIndex } from '../composables/careerVariants';
+import { applicationRefinementParents, normalizeVariantIndex } from '../composables/careerVariants';
 import { useToasts } from '../composables/useToasts';
 import {
   MAX_CV_JSON_FILE_BYTES,
@@ -97,7 +97,23 @@ function slug(value: unknown) {
 function readIndex(): SavedConfiguration[] {
   try {
     const parsed = JSON.parse(readStorage(localIndexKey) || '[]');
-    return normalizeVariantIndex(parsed);
+    const refinementParents = applicationRefinementParents(localStorage);
+    const existing = normalizeVariantIndex(parsed);
+    const recovered = existing.map((item) => {
+      if (item.parentId) return item;
+      // Earlier releases flattened the index but kept provenance in saved data.
+      // Reading it must preserve the document, including orphaned refinements.
+      try {
+        const meta = JSON.parse(readStorage(localDataKey(item.id)) || 'null')?.__meta;
+        if (meta?.id === item.id && typeof meta.parentId === 'string' && meta.parentId.trim()) return { ...item, parentId: meta.parentId };
+      } catch { /* An unreadable document must not hide unrelated library choices. */ }
+      const parentId = refinementParents.get(item.id);
+      return parentId ? { ...item, parentId } : item;
+    });
+    // Freeze recovered provenance before clearing application history can remove
+    // the last old receipt. Saved document contents are never rewritten here.
+    if (recovered.some((item, index) => item.parentId !== existing[index]?.parentId)) writeIndex(recovered);
+    return recovered;
   } catch {
     return [];
   }
@@ -126,7 +142,12 @@ function readConfigData(id: string): CvState | null {
 }
 function uniqueConfigId(name: string) {
   const base = slug(name);
-  const taken = new Set([...builtinConfigurations(props.lang), ...readIndex()].map((item) => item.id));
+  const taken = new Set([
+    ...[...builtinConfigurations(props.lang), ...readIndex()].map((item) => item.id),
+    // A deleted internal refinement may retain acceptance receipts. Reusing its
+    // identity would incorrectly classify a new, explicitly saved main variant.
+    ...applicationRefinementParents(localStorage).keys(),
+  ]);
   let candidate = base;
   let suffix = 2;
   while (taken.has(candidate) || readStorage(localDataKey(candidate))) {
@@ -140,11 +161,12 @@ function saveConfig(id: string, name: string, { announce = true, data = snapshot
   if (id === EMPTY_DOCUMENT_ID) return false;
   try {
     const items = readIndex();
-    const meta = { id, name, updatedAt: Date.now() };
+    const parentId = items.find((item) => item.id === id)?.parentId;
+    const meta = { id, name, updatedAt: Date.now(), ...(parentId ? { parentId } : {}) };
     if (!writeStorage(localDataKey(id), JSON.stringify({ __meta: meta, data }))) throw new Error('Configuration data could not be written');
 
     const index = items.findIndex((item) => item.id === id);
-    const entry = { id, name, mtime: meta.updatedAt };
+    const entry = { id, name, mtime: meta.updatedAt, ...(parentId ? { parentId } : {}) };
     if (index >= 0) items[index] = entry;
     else items.push(entry);
     if (!writeIndex(items)) throw new Error('Configuration index could not be written');

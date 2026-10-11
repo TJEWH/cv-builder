@@ -9,6 +9,7 @@ import type { CvState, SavedConfiguration } from '../types';
 import type { ApplicationLetter, LetterFormatting, LetterTemplate } from '../letterTypes';
 import type { ApprovedPrivacyContexts, AnnotationStatus, AnnotationReference, LocalRefinementRequest, RefinementApprovals, RefinementFeedback, RefinementProposalRow, RefinementRequestRow, RefinementReviewRow, RefinementScope, RefinementState } from '../refinementTypes';
 import { cloneCv, createApplicationCv, cvDifferences, isApplicationCvPublished, loadApplicationCv, saveApplicationCv, type ApplicationCvRecord } from '../composables/applicationCv';
+import { isMainCvVariant } from '../composables/careerVariants';
 import { addIncomingDraft, createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, editLetter, finalizeLetter, formatLetter, letterContextVersion, letterFromEditableText, openLetterRevision, saveWorkingRevision, selectApplicationLetterTemplate, unresolvedLetterPlaceholders } from '../composables/motivationLetters';
 import { applyRefinementProposal, createRefinementRepository, describeCvOperation, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText, validateLocalRefinementSource } from '../composables/applicationRefinement';
 import { applicationStage, applicationStatusLabel, applicationTrackingStarted } from '../composables/applicationTracking';
@@ -230,6 +231,7 @@ try {
   saveError.value = localReadError;
 }
 const selectedCvId = computed(() => record.value?.variantId || record.value?.baseId || '');
+const preparationVariants = computed(() => props.configurations.filter(isMainCvVariant));
 const selectedTemplate = computed(() => letter.value?.templateSnapshot || templates.value.find(item => item.id === letter.value?.templateId) || DEFAULT_LETTER_TEMPLATES[0]!);
 const effectiveLetterFormatting = computed(() => resolveLetterFormatting(letter.value?.formatting, selectedTemplate.value.formatting));
 const missingLetterTemplate = computed(() => !!letter.value && !letter.value.templateSnapshot);
@@ -308,6 +310,15 @@ const proposalChanges = computed(() => {
   }));
 });
 const scopedRequests = computed(() => requests.value.filter(row => matchesScope(row)));
+function hasDocumentProposal(scope: DocumentScope) {
+  // A local reset starts before cloud deletion. Keep the source locked until
+  // Clear history succeeds and removes this scope from the saved requests.
+  return requests.value.some(request => matchesScope(request, scope)
+    && proposals.value.some(proposal => proposal.request_id === request.id));
+}
+const cvSelectionLocked = computed(() => hasDocumentProposal('cv'));
+const letterSelectionLocked = computed(() => hasDocumentProposal('letter'));
+const preparationBusy = computed(() => busy.value || refreshing.value || syncing.value || !!props.client && !cloudLoaded.value);
 const availableProposals = computed(() => visibleRefinementProposals(proposals.value.filter(row => !isRequestReset(row.request_id)), scopedRequests.value[0]?.id || null, selectedProposalId.value)
   .filter(row => scopedRequests.value.some(request => request.id === row.request_id)));
 const originalRequest = computed(() => [...scopedRequests.value].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))[0]);
@@ -589,10 +600,12 @@ async function saveSetup() {
   if (signature !== baselineSignature.value) throw new Error('Documents changed while saving. Save preparation again.');
 }
 async function selectCv(id: string) {
-  if (busy.value) return;
-  const variant = props.configurations.find(item => item.id === id); const state = variant && props.readVersion(id);
+  if (preparationBusy.value || cvSelectionLocked.value) return;
+  const variant = preparationVariants.value.find(item => item.id === id); const state = variant && props.readVersion(id);
   if (!variant || !state) return;
   await run(async () => {
+    await refreshCloud();
+    if (disposed || cvSelectionLocked.value) return;
     record.value = createApplicationCv(props.userId, props.application.id, id, variant.name, state);
     record.value.variantId = id; record.value.detached = true;
     variantName.value = suggestedVariantName();
@@ -602,10 +615,12 @@ async function selectCv(id: string) {
   });
 }
 async function selectLetterTemplate(id: string) {
-  if (busy.value) return;
+  if (preparationBusy.value || letterSelectionLocked.value) return;
   const template = templates.value.find(item => item.id === id);
   if (!template) return;
   await run(async () => {
+    await refreshCloud();
+    if (disposed || letterSelectionLocked.value) return;
     if (letter.value) letter.value = selectApplicationLetterTemplate(letter.value, template);
     else letter.value = createApplicationLetter(props.userId, props.application.id, template, context.value, template.language);
     approvals.value.letter = null; persist();
@@ -996,8 +1011,17 @@ async function resetDocumentBeforeClearing(scope: DocumentScope) {
     validateLocalRefinementSource(local, props.application.id);
     nextRecord = { ...clone(record.value), state: cloneCv(local.cv.baselineState), variantId: local.cv.sourceVariantId, revision: record.value.revision + 1, updatedAt: new Date().toISOString() };
   } else {
-    const template = letter.value.templateSnapshot;
-    if (!template) throw new Error(text('Select a letter template in Preparation before clearing history.', 'Vor dem Löschen des Verlaufs in Vorbereitung eine Briefvorlage auswählen.'));
+    let template = letter.value.templateSnapshot;
+    if (!template) {
+      const source = requests.value.find(request => matchesScope(request, 'letter')
+        && localRequests.value[request.id]?.letterBaseline?.setup.template.id === letter.value?.templateId);
+      const captured = source && localRequests.value[source.id];
+      if (captured) {
+        validateLocalRefinementSource(captured, props.application.id);
+        template = captured.letterBaseline!.setup.template;
+      } else template = templates.value.find(item => item.id === letter.value?.templateId);
+    }
+    if (!template) throw new Error(text('Restore the original letter template or its local refinement backup before clearing history.', 'Vor dem Löschen des Verlaufs die ursprüngliche Briefvorlage oder ihre lokale Überarbeitungssicherung wiederherstellen.'));
     const templateContext = letterContextVersion(props.application, letterCvState.value, template, template.language, '', template.maxWords);
     nextLetter = createApplicationLetter(props.userId, props.application.id, template, templateContext);
     nextLetter.revisions = saveWorkingRevision(letter.value).revisions;
@@ -1098,10 +1122,10 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
       <section v-show="tab === 'preparation'" class="preparation-stage">
         <DesktopSidebarPortal area="major" :active="active && tab === 'preparation'">
           <div class="preparation-selection" :class="{ 'preparation-selection--sidebar': desktopSidebar }">
-            <label>{{ text('Saved CV', 'Gespeicherter CV') }}<select :value="selectedCvId" :disabled="busy" @change="selectCv(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ text('Choose a CV…', 'CV wählen…') }}</option><option v-if="record && !configurations.some(item => item.id === selectedCvId)" :value="selectedCvId" disabled>{{ record.baseName }} · {{ text('Saved application copy', 'Gespeicherte Bewerbungskopie') }}</option><option v-for="variant in configurations" :key="variant.id" :value="variant.id">{{ variant.name }}</option></select></label>
-            <p v-if="!configurations.length" class="app-hint hint">{{ text('Save a CV in CV Studio to select it here.', 'Einen CV im CV-Studio speichern, um ihn hier auszuwählen.') }}</p>
-            <label>{{ text('Letter template', 'Briefvorlage') }}<select :value="selectedTemplateId" :disabled="busy" @change="selectLetterTemplate(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ letter && !missingLetterTemplate ? selectedTemplate.name + ' · ' + text('Saved revision', 'Gespeicherte Revision') + ' ' + selectedTemplate.revision : text('Choose a letter template…', 'Briefvorlage wählen…') }}</option><option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }}</option></select></label>
-            <p v-if="missingLetterTemplate" class="app-hint">{{ text('The original letter template is unavailable. Choose a template to continue; your existing letter is preserved.', 'Die ursprüngliche Briefvorlage ist nicht verfügbar. Zum Fortfahren eine Vorlage auswählen; der bestehende Brief bleibt erhalten.') }}</p>
+            <label>{{ text('Saved CV', 'Gespeicherter CV') }}<select :value="selectedCvId" :aria-label="text('Saved CV', 'Gespeicherter CV')" :disabled="preparationBusy || cvSelectionLocked" :aria-describedby="cvSelectionLocked ? `${application.id}-cv-selection-lock` : undefined" @change="selectCv(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ text('Choose a CV…', 'CV wählen…') }}</option><option v-if="record && !preparationVariants.some(item => item.id === selectedCvId)" :value="selectedCvId" disabled>{{ configurations.find(item => item.id === selectedCvId)?.name || record.baseName }} · {{ text('Saved application copy', 'Gespeicherte Bewerbungskopie') }}</option><option v-for="variant in preparationVariants" :key="variant.id" :value="variant.id">{{ variant.name }}</option></select><small v-if="cvSelectionLocked" :id="`${application.id}-cv-selection-lock`" class="preparation-selection-hint">{{ text('Clear CV history in Refinement to choose another variant.', 'Den CV-Verlauf unter Überarbeitung löschen, um eine andere Variante zu wählen.') }}</small></label>
+            <p v-if="!preparationVariants.length" class="app-hint hint">{{ text('Save a CV in CV Studio to select it here.', 'Einen CV im CV-Studio speichern, um ihn hier auszuwählen.') }}</p>
+            <label>{{ text('Letter template', 'Briefvorlage') }}<select :value="selectedTemplateId" :aria-label="text('Letter template', 'Briefvorlage')" :disabled="preparationBusy || letterSelectionLocked" :aria-describedby="letterSelectionLocked ? `${application.id}-letter-selection-lock` : undefined" @change="selectLetterTemplate(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ letter && !missingLetterTemplate ? selectedTemplate.name + ' · ' + text('Saved revision', 'Gespeicherte Revision') + ' ' + selectedTemplate.revision : text('Choose a letter template…', 'Briefvorlage wählen…') }}</option><option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }}</option></select><small v-if="letterSelectionLocked" :id="`${application.id}-letter-selection-lock`" class="preparation-selection-hint">{{ text('Clear letter history in Refinement to choose another template.', 'Den Briefverlauf unter Überarbeitung löschen, um eine andere Vorlage zu wählen.') }}</small></label>
+            <p v-if="missingLetterTemplate && !letterSelectionLocked" class="app-hint">{{ text('The original letter template is unavailable. Choose a template to continue; your existing letter is preserved.', 'Die ursprüngliche Briefvorlage ist nicht verfügbar. Zum Fortfahren eine Vorlage auswählen; der bestehende Brief bleibt erhalten.') }}</p>
           </div>
         </DesktopSidebarPortal>
         <DesktopSidebarPortal area="minor" :active="active && tab === 'preparation'">
@@ -1240,4 +1264,6 @@ h3{font-size:16px;margin:0 0 14px}p{line-height:1.6;font-size:13px}button,input,
 .refinement-copy-action{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;min-height:44px;padding:12px 18px;background:var(--ui-accent);border-color:var(--ui-accent);color:var(--ui-shell);font-size:14px;font-weight:700}
 .refinement-copy-action:hover:enabled{background:var(--ui-text);border-color:var(--ui-text)}
 .refinement-copy-action:focus-visible{outline:2px solid var(--ui-accent);outline-offset:3px}
+.preparation-selection select:disabled{background:var(--ui-shell);color:var(--ui-muted);cursor:not-allowed;opacity:.65}
+.preparation-selection-hint{color:var(--ui-muted);font-size:12px;font-weight:400;line-height:1.5}
 </style>

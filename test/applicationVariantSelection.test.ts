@@ -26,7 +26,7 @@ interface WorkspaceSetup {
   baselineSignature: string; letterRevision: string;
   selectedTemplateId: string; missingLetterTemplate: boolean;
   cvApproved: boolean; letterApproved: boolean; feedbackScope: RefinementScope;
-  requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; selectedProposalId: string; prompt: string;
+  requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; selectedProposalId: string;
   shortInstruction: string; shortInstructionNotice: string; shortInstructionError: string;
   preparedSource: LocalRefinementRequest | null; sourceError: string; outgoingFeedback: string;
   privacyContexts: import('../src/refinementTypes').ApprovedPrivacyContexts;
@@ -392,14 +392,15 @@ test('one CV selector accepts saved variants and library autosaves preserve the 
 });
 
 test('refinement preserves manual fixes and accumulates letter-only feedback while retaining CV approval', async (t) => {
-  const { setup, states, database, cloud } = mount(t);
+  const { setup, states, database, cloud, clipboardWrites } = mount(t);
   await idle(setup);
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.letter!.maxWords = 400;
   setup.feedbackScope = 'both'; await setup.publishSources();
   assert.equal(setup.error, '');
-  assert.equal(setup.prompt, '', 'publishing must not create or copy a prompt');
+  assert.equal(clipboardWrites.length, 0, 'publishing sources must not copy a task');
+  assert.equal(database.application_refinement_protocols.length, 0, 'publishing sources must not publish a protocol');
   assert.equal(setup.requests.length, 1);
   assert.equal(setup.requests[0].request_json.letter.maxWords, 400);
   const firstProposal = cloud.seedProposal(setup.requests[0].id);
@@ -554,7 +555,7 @@ test('copying the short instruction follows server code and scope changes withou
   assert.equal(clipboardWrites.at(-1), 'phd-workflow: SERVER-CaseSensitive_29 — refine motivation letter.');
   assert.equal(JSON.stringify(database), before, 'copying must not save setup, publish snapshots, or start a refinement round');
   assert.equal(setup.requests.length, 0);
-  assert.equal(setup.prompt, '', 'copying the short instruction is independent of generating the full protocol prompt');
+  assert.equal(database.application_refinement_protocols.length, 0, 'copying the short instruction is independent of publishing the full protocol');
 });
 
 test('clipboard failures remain local to the short instruction and can be retried without cloud mutations', async (t) => {
@@ -683,13 +684,13 @@ test('publishing unchanged current sources reuses the same request without cloud
   await setup.publishSources();
   assert.equal(setup.error, '');
   const originalRequest = JSON.stringify(setup.requests[0]);
-  const originalPrompt = setup.prompt;
+  const originalInstruction = setup.shortInstruction;
   const database = JSON.stringify(fixture.database);
   await setup.publishSources();
   assert.equal(setup.error, '');
   assert.equal(setup.requests.length, 1);
   assert.equal(JSON.stringify(setup.requests[0]), originalRequest);
-  assert.equal(setup.prompt, originalPrompt);
+  assert.equal(setup.shortInstruction, originalInstruction);
   assert.equal(JSON.stringify(fixture.database), database, 'reusing a request must not increment the state revision or republish snapshots');
   setup = fixture.reopen();
   await idle(setup);
@@ -697,7 +698,7 @@ test('publishing unchanged current sources reuses the same request without cloud
   assert.equal(setup.error, '');
   assert.equal(setup.requests.length, 1);
   assert.equal(JSON.stringify(setup.requests[0]), originalRequest);
-  assert.equal(setup.prompt, originalPrompt);
+  assert.equal(setup.shortInstruction, originalInstruction);
   assert.equal(JSON.stringify(fixture.database), database);
 });
 
