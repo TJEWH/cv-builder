@@ -477,7 +477,6 @@ td a { color: var(--ui-accent); overflow-wrap: anywhere; }
 .jobs-removal-dialog .jobs-row-actions { justify-content: flex-end; width: 100%; }
 .jobs-row-actions { display: flex; flex-wrap: wrap; gap: 7px; min-width: 145px; }
 .jobs-row-actions .btn { font-size: 11px; white-space: nowrap; }
-.jobs-badge { display: inline-block; padding: 3px 7px; margin-top: 4px; border-radius: 5px; background: var(--ui-active); color: var(--ui-accent); font-size: 10px; white-space: nowrap; }
 .jobs-expired { color: #dfbc8a; }
 .jobs-empty { padding: 45px 20px; text-align: center; color: var(--ui-muted); }
 .jobs-empty .btn { display: block; margin: 16px auto 0; }
@@ -561,7 +560,6 @@ tr.is-expanded { background: var(--ui-active); }
   .jobs-row-toggle { min-height: 40px; font-size: 18px; }
   .jobs-workspace .jobs-row-toggle:focus-visible { outline-offset: -2px; }
   .jobs-subline { font-size: 14px; }
-  .jobs-badge { font-size: 12px; }
   .jobs-topics { font-size: 15px; }
   td[data-label]::before { font-size: 12px; }
   .jobs-workspace .jobs-group-row th { font-size: 15px; padding: 11px 0; }
