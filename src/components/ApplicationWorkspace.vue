@@ -49,6 +49,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ close: []; 'edit-variant': [id: string]; toggleChecklist: [key: string, completed: boolean]; 'change-stage': [stage: ApplicationStage] }>();
 const desktopSidebar = useDesktopSidebar();
 const mobileActions = ref<HTMLElement | null>(null);
+const mobileScrollContent = ref<HTMLElement | null>(null);
 provideWorkspaceMobileActions(mobileActions);
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -438,6 +439,9 @@ watch(tab, value => {
   try { sessionStorage.setItem(navigationKey, value); } catch { /* Navigation remains available. */ }
   emit('change-stage', value);
 });
+watch(tab, () => {
+  if (mobileScrollContent.value) mobileScrollContent.value.scrollTop = 0;
+}, { flush: 'post' });
 function selectStage(stage: Stage) {
   if (stage === tab.value) emit('change-stage', stage);
   else tab.value = stage;
@@ -1119,7 +1123,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 <template>
   <section class="application-workspace" :class="{ 'application-workspace--sidebar': desktopSidebar }">
     <h1 class="application-mobile-title">{{ String(application.context_json.title || text('Application', 'Bewerbung')) }}</h1>
-    <div class="application-scroll-content">
+    <div ref="mobileScrollContent" class="application-scroll-content">
     <WorkspaceDetailHeader class="application-header" :title="String(application.context_json.title || text('Application', 'Bewerbung'))" :subtitle="String(application.context_json.institution || application.context_json.university || '')" :back-label="text('All applications', 'Alle Bewerbungen')" @back="emit('close')">
       <template #actions><slot name="actions" /><div ref="mobileActions" class="application-mobile-actions" /></template>
       <template #metadata><ApplicationIdentifier :application="application" :lang="lang" /><span>{{ text('Deadline', 'Bewerbungsfrist') }}: {{ formatOpportunityDeadline(application.context_json, lang) }}</span><ApplicationDeadlineCalendar :application="application" :lang="lang" /><span class="jobs-badge application-header__state">{{ applicationStatusLabel(application.status, lang) }}</span></template>
@@ -1149,7 +1153,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
         <DesktopSidebarPortal area="major" :active="active && tab === 'refinement'">
         <div class="refinement-toolbar" :class="{ 'refinement-toolbar--sidebar': desktopSidebar }">
           <WorkspaceMobileActions :active="active && tab === 'refinement'">
-          <label class="refinement-scope"><span>{{ text('Refinement scope', 'Umfang der Überarbeitung') }}</span><select v-model="feedbackScope" :disabled="busy"><option value="cv">CV</option><option value="letter">{{ text('Motivation letter', 'Motivationsschreiben') }}</option></select></label>
+          <label class="refinement-scope"><span>{{ text('Refinement scope', 'Umfang der Überarbeitung') }}</span><select v-model="feedbackScope" :disabled="busy"><option value="cv">CV</option><option value="letter">{{ text('Letter', 'Brief') }}</option></select></label>
           <div class="action-row refinement-approval">
             <button v-if="pane === 'cv' && record" class="primary refinement-icon-action" type="button" :disabled="busy || reviewActive || !letter || !!saveError" @click="approve('cv', cvApproved)"><FontAwesomeIcon :icon="cvApproved ? faRotateLeft : faCheck" aria-hidden="true" />{{ cvApproved ? text('Reopen CV', 'CV wieder öffnen') : text('Approve CV', 'CV freigeben') }}</button>
             <button v-if="pane === 'letter' && letter" class="primary refinement-icon-action" type="button" :disabled="busy || reviewActive || !record || !letterText.trim() || !!saveError || (unresolved.length > 0 && !letter.finalRevisionId)" @click="approve('letter', letterApproved || !!letter.finalRevisionId)"><FontAwesomeIcon :icon="letterApproved || letter.finalRevisionId ? faRotateLeft : faCheck" aria-hidden="true" />{{ letterApproved || letter.finalRevisionId ? text('Reopen letter', 'Brief wieder öffnen') : text('Approve letter', 'Brief freigeben') }}</button>
@@ -1280,12 +1284,19 @@ h3{font-size:16px;margin:0 0 14px}p{line-height:1.6;font-size:13px}button,input,
 .preparation-selection select:disabled{background:var(--ui-shell);color:var(--ui-muted);cursor:not-allowed;opacity:.65}
 .preparation-selection-hint{color:var(--ui-muted);font-size:12px;font-weight:400;line-height:1.5}
 @media(max-width:760px){
+  .application-workspace{--mobile-application-tabs-height:53px}
+  .workspace-subtabs{height:var(--mobile-application-tabs-height);gap:4px;padding-inline:max(8px,env(safe-area-inset-left,0px)) max(8px,env(safe-area-inset-right,0px))}
+  .workspace-subtabs button{flex:1 0 auto;justify-content:center;min-height:44px;padding:4px 3px}
   .application-mobile-title{display:block;flex-shrink:0;margin:0;padding:0 8px 8px;font-size:17px;line-height:1.25;overflow-wrap:anywhere;border-bottom:1px solid var(--ui-border)}
-  .application-scroll-content{display:block;flex:1;min-height:0;overflow:auto;scrollbar-width:thin}
+  .application-scroll-content{display:block;flex:1;min-height:0;overflow:auto;scrollbar-width:thin;scroll-padding-block:8px}
   .application-header{padding-top:8px}
   .application-header :deep(.workspace-detail-header__title h1){display:none}
   .application-header :deep(.application-identifier),.application-header :deep(.application-deadline-calendar){display:none}
   .workflow-body{flex:1 0 auto;overflow:visible}
+  .refinement-controls{padding-right:0}
+  .refinement-toolbar:not(:has(.approved-variant-save)){display:none}
+  .approved-variant-save{margin-top:0;padding-top:0;border-top:0}
+  .proposal-preview-action button,.approved-variant-save button,.preparation-selection select,.preparation-settings input,.preparation-settings select{min-height:44px}
   .application-mobile-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex:1;min-width:0}
   .application-mobile-actions :deep(button),.application-mobile-actions :deep(select){min-height:44px;max-width:100%}
   .application-mobile-actions :deep(select){font-size:16px}
@@ -1299,5 +1310,18 @@ h3{font-size:16px;margin:0 0 14px}p{line-height:1.6;font-size:13px}button,input,
   .application-mobile-actions :deep(.package-actions){order:1;margin:0;min-width:0}
   .application-mobile-actions :deep(.package-preview-open){order:2}
   .application-mobile-actions :deep(.package-actions button),.application-mobile-actions :deep(.package-preview-open){padding-inline:8px}
+}
+@media(min-width:761px) and (max-width:1050px){
+  .application-workspace{padding:20px}
+  .workflow-body--refinement{overflow:auto}
+  .refinement-stage{display:flex;flex-direction:column;gap:20px;flex:0 0 auto;overflow:visible}
+  .refinement-controls{flex:none;overflow:visible;padding-right:0}
+  .refinement-preview{flex:none;overflow:visible}
+  .refinement-preview>.document-preview,.refinement-preview>.letter-preview{flex:none;height:auto;overflow:visible}
+  .refinement-preview :deep(.document-inline-preview){height:auto;overflow:visible}
+  .refinement-preview :deep(.document-inline-preview__viewport){display:block;overflow:visible;overscroll-behavior:auto}
+}
+@media(min-width:761px) and (max-height:600px){
+  .application-workspace{padding-block:12px}
 }
 </style>

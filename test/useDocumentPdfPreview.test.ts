@@ -84,11 +84,11 @@ test('nested document edits while hidden invalidate cached pages and render only
   await settle();
   fixture.active.value = false;
   fixture.document.value.contact.name = 'Changed while hidden';
-  assert.deepEqual(fixture.preview.pages.value, [], 'a deep source edit immediately invalidates the completed preview');
+  assert.equal(fixture.preview.pages.value.length, 0, 'a deep source edit immediately invalidates the completed preview');
   await settle();
   assert.equal(renders, 1, 'hidden edits do not start rendering');
   fixture.active.value = true;
-  assert.deepEqual(fixture.preview.pages.value, [], 'the old cached document cannot reappear');
+  assert.equal(fixture.preview.pages.value.length, 0, 'the old cached document cannot reappear');
   await settle();
   assert.equal(renders, 2);
   assert.equal(fixture.preview.pages.value[0]?.svg, 'render-2');
@@ -102,11 +102,11 @@ for (const nextIdentity of ['proposal', 'anonymized']) test(`a hidden ${nextIden
   await settle();
   fixture.active.value = false;
   fixture.identity.value = nextIdentity;
-  assert.deepEqual(fixture.preview.pages.value, [], 'private or different-source pages disappear synchronously');
+  assert.equal(fixture.preview.pages.value.length, 0, 'private or different-source pages disappear synchronously');
   await settle();
   assert.equal(renders, 1);
   fixture.active.value = true;
-  assert.deepEqual(fixture.preview.pages.value, [], 'reactivation cannot restore the previous source');
+  assert.equal(fixture.preview.pages.value.length, 0, 'reactivation cannot restore the previous source');
   await settle();
   assert.equal(renders, 2);
   assert.equal(fixture.preview.pages.value[0]?.svg, 'render-2');
@@ -125,7 +125,7 @@ test('hiding an unfinished render cancels it and reopening starts a fresh render
   assert.equal(renders.length, 2, 'an aborted render does not count as a reusable preview');
   renders[0].finish({ pages: [samplePage('canceled')] });
   await Promise.resolve(); await nextTick();
-  assert.deepEqual(fixture.preview.pages.value, [], 'late completion cannot populate the reopened preview');
+  assert.equal(fixture.preview.pages.value.length, 0, 'late completion cannot populate the reopened preview');
   renders[1].finish({ pages: [samplePage('current')] });
   await Promise.resolve(); await nextTick();
   assert.equal(fixture.preview.pages.value[0]?.svg, 'current');
@@ -146,7 +146,7 @@ test('leaving with a pending typing edit cannot restore the previous completed p
   await settle();
   assert.equal(renders, 1);
   fixture.active.value = true;
-  assert.deepEqual(fixture.preview.pages.value, [], 'a deferred edit makes the completed cache stale');
+  assert.equal(fixture.preview.pages.value.length, 0, 'a deferred edit makes the completed cache stale');
   await settle();
   assert.equal(renders, 2);
   assert.equal(fixture.preview.pages.value[0]?.svg, 'render-2');

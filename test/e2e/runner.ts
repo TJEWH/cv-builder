@@ -45,7 +45,7 @@ async function settle() {
   await nextTick(); await new Promise(requestAnimationFrame);
 }
 function button(name: string, parent: ParentNode = root) {
-  const result = [...parent.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.trim() === name);
+  const result = [...parent.querySelectorAll<HTMLButtonElement>('button')].find(node => node.getAttribute('aria-label') === name || node.textContent?.trim() === name);
   assert(result, `Missing button: ${name}`); return result;
 }
 async function click(name: string, parent: ParentNode = root) {
@@ -346,7 +346,8 @@ async function scopeLayoutFlow() {
   assert(approveCv.querySelector('svg'), 'CV approval must have an icon');
   assert(![...approvalActions.querySelectorAll('button')].some(node => node.textContent?.trim() === 'Approve letter'), 'CV scope must replace letter approval with CV approval');
   clearToasts();
-  const scroller = root.querySelector<HTMLElement>(mobile ? '.application-scroll-content' : '.refinement-controls')!;
+  const stacked = getComputedStyle(root.querySelector('.refinement-controls')!).overflowY === 'visible';
+  const scroller = root.querySelector<HTMLElement>(mobile ? '.application-scroll-content' : stacked ? '.workflow-body' : '.refinement-controls')!;
   const initialToolbarTop = toolbar.getBoundingClientRect().top;
   scroller.scrollTop = scroller.scrollHeight;
   await nextTick(); await new Promise(requestAnimationFrame);
@@ -368,7 +369,13 @@ async function scopeLayoutFlow() {
   assert(approvalActions.contains(approveLetter) && toolbar.contains(approveLetter), 'Switching to letter scope must show letter approval in the major action area');
   assert(approveLetter.querySelector('svg') && !approveLetter.closest('details'), 'Letter approval must have an icon and remain outside disclosures');
   assert(![...approvalActions.querySelectorAll('button')].some(node => node.textContent?.trim() === 'Approve CV'), 'Letter scope must replace CV approval with letter approval');
+  if (mobile) {
+    scroller.scrollTop = scroller.scrollHeight;
+    await settle();
+    assert(scroller.scrollTop > 0, 'The stage-switch check must start with scrolled mobile content');
+  }
   await click('1Preparation');
+  if (mobile) assert(scroller.scrollTop === 0, 'A new mobile stage must start at the top instead of inheriting the previous stage scroll');
   const settings = root.querySelector('.preparation-settings')!;
   assert(settings.textContent?.includes('Language') && settings.textContent?.includes('Target words'), 'Letter settings belong in Preparation');
   if (sidebarEnabled()) {

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
+import { faArrowDown, faArrowUp, faFilePdf, faXmark } from '@fortawesome/free-solid-svg-icons';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import InlineDocumentPreview from './InlineDocumentPreview.vue';
 import FullDocumentPreview from './FullDocumentPreview.vue';
@@ -220,7 +222,7 @@ useToastWatch(() => previewError.value, () => ({
           <ol class="package-items">
             <li v-for="(item, index) in manifest.items" :key="item.id" :class="{ excluded: !item.included, missing: problems.some((problem) => problem.id === item.id) }">
               <div class="package-item-main"><input :id="`package-${item.id}`" type="checkbox" :checked="item.included" :disabled="busy" @change="toggleItem(item.id, ($event.target as HTMLInputElement).checked)" /><label :for="`package-${item.id}`">{{ itemLabel(item) }}</label></div>
-              <div class="item-actions"><button type="button" :disabled="busy || index === 0" :aria-label="text(`Move ${itemLabel(item)} up`, `${itemLabel(item)} nach oben`)" @click="moveItem(index, -1)">↑</button><button type="button" :disabled="busy || index === manifest.items.length - 1" :aria-label="text(`Move ${itemLabel(item)} down`, `${itemLabel(item)} nach unten`)" @click="moveItem(index, 1)">↓</button><button v-if="item.kind === 'attachment'" type="button" :disabled="busy" :aria-label="text(`Remove ${item.label} from package`, `${item.label} aus Zusammenstellung entfernen`)" @click="removeItem(item.id)">×</button></div>
+              <div class="item-actions"><button type="button" :disabled="busy || index === 0" :aria-label="text(`Move ${itemLabel(item)} up`, `${itemLabel(item)} nach oben`)" @click="moveItem(index, -1)"><FontAwesomeIcon :icon="faArrowUp" aria-hidden="true" /></button><button type="button" :disabled="busy || index === manifest.items.length - 1" :aria-label="text(`Move ${itemLabel(item)} down`, `${itemLabel(item)} nach unten`)" @click="moveItem(index, 1)"><FontAwesomeIcon :icon="faArrowDown" aria-hidden="true" /></button><button v-if="item.kind === 'attachment'" type="button" :disabled="busy" :aria-label="text(`Remove ${item.label} from package`, `${item.label} aus Zusammenstellung entfernen`)" @click="removeItem(item.id)"><FontAwesomeIcon :icon="faXmark" aria-hidden="true" /></button></div>
               <p v-if="item.kind === 'attachment'" class="attachment-description" :class="{ 'app-hint': !itemDescription(item.documentId) }">{{ itemDescription(item.documentId) || text('Description missing. Edit this attachment in CV Studio to add one.', 'Beschreibung fehlt. Diesen Anhang im CV-Studio bearbeiten und eine Beschreibung ergänzen.') }}</p>
               <small v-if="(mode === 'review' || item.kind === 'attachment') && problems.find((problem) => problem.id === item.id)" class="app-hint item-problem">{{ problems.find((problem) => problem.id === item.id)?.message }}</small>
             </li>
@@ -230,7 +232,7 @@ useToastWatch(() => previewError.value, () => ({
           <p v-if="!library.length" class="app-hint muted">{{ text('Add a named attachment with a description in CV Studio, then select it here.', 'Einen benannten Anhang mit Beschreibung im CV-Studio hinzufügen und dann hier auswählen.') }}</p>
           <DesktopSidebarPortal v-if="mode === 'review'" area="major" :active="active">
             <WorkspaceMobileActions :active="active && mode === 'review'">
-            <div class="package-actions" :class="{ 'package-actions--sidebar': desktopSidebar }"><button type="button" :disabled="busy || !composition" @click="downloadPackage">{{ text('Download PDF', 'PDF herunterladen') }}</button></div>
+            <div class="package-actions" :class="{ 'package-actions--sidebar': desktopSidebar }"><button type="button" :aria-label="text('Download PDF', 'PDF herunterladen')" :disabled="busy || !composition" @click="downloadPackage"><span class="package-action-label">{{ text('Download PDF', 'PDF herunterladen') }}</span><span class="package-action-label--mobile">{{ text('Download', 'Herunterladen') }}</span></button></div>
             </WorkspaceMobileActions>
           </DesktopSidebarPortal>
         </section>
@@ -244,12 +246,12 @@ useToastWatch(() => previewError.value, () => ({
       </div>
       <section v-show="mode === 'review'" class="package-preview document-section" :aria-label="text('Complete PDF preview', 'Vorschau des gesamten PDFs')">
         <InlineDocumentPreview v-if="composition && !previewError" class="package-inline-pdf" v-model:page="previewPage" :pages="previewPages" :is-updating="previewBusy || previewLoading" :lang="lang" :title="text('Complete application PDF', 'Vollständige Bewerbungsunterlagen als PDF')" hide-actions show-on-mobile />
-        <div v-else class="preview-empty" role="status"><span aria-hidden="true">▤</span><p :class="{ 'app-hint': !previewBusy }">{{ previewBusy ? text('Updating PDF preview…', 'PDF-Vorschau wird aktualisiert…') : previewFailed || previewError ? text('The PDF preview could not be created.', 'Die PDF-Vorschau konnte nicht erstellt werden.') : text('The complete PDF appears automatically once the selected documents are ready.', 'Das gesamte PDF erscheint automatisch, sobald die ausgewählten Unterlagen bereit sind.') }}</p><button v-if="previewFailed || previewError" type="button" :disabled="!canBuild" @click="previewError ? retryPreview() : buildPreview()">{{ text('Retry preview', 'Vorschau erneut versuchen') }}</button></div>
+        <div v-else class="preview-empty" role="status"><FontAwesomeIcon class="preview-empty-icon" :icon="faFilePdf" aria-hidden="true" /><p :class="{ 'app-hint': !previewBusy }">{{ previewBusy ? text('Updating PDF preview…', 'PDF-Vorschau wird aktualisiert…') : previewFailed || previewError ? text('The PDF preview could not be created.', 'Die PDF-Vorschau konnte nicht erstellt werden.') : text('The complete PDF appears automatically once the selected documents are ready.', 'Das gesamte PDF erscheint automatisch, sobald die ausgewählten Unterlagen bereit sind.') }}</p><button v-if="previewFailed || previewError" type="button" :disabled="!canBuild" @click="previewError ? retryPreview() : buildPreview()">{{ text('Retry preview', 'Vorschau erneut versuchen') }}</button></div>
         <div class="package-preview-actions">
           <details v-if="composition" class="page-map-summary"><summary>{{ text('Document order', 'Dokumentreihenfolge') }}</summary><ul class="page-map"><li v-for="document in composition.documents" :key="document.itemId">{{ document.label }} <span>{{ text('p.', 'S.') }} {{ document.firstPage }}<template v-if="document.pageCount > 1">–{{ document.firstPage + document.pageCount - 1 }}</template></span></li></ul></details>
           <DesktopSidebarPortal area="minor" :active="active && mode === 'review'">
             <WorkspaceMobileActions :active="active && mode === 'review'">
-            <button class="package-preview-open" type="button" :disabled="!previewPages.length || !!previewError" @click="expanded = true">{{ text('Open preview', 'Vorschau öffnen') }}</button>
+            <button class="package-preview-open" type="button" :aria-label="text('Open preview', 'Vorschau öffnen')" :disabled="!previewPages.length || !!previewError" @click="expanded = true"><span class="package-action-label">{{ text('Open preview', 'Vorschau öffnen') }}</span><span class="package-action-label--mobile">{{ text('Preview', 'Vorschau') }}</span></button>
             </WorkspaceMobileActions>
           </DesktopSidebarPortal>
         </div>
@@ -291,12 +293,14 @@ input[type="checkbox"] { accent-color:#67c8a6; width:16px; height:16px; flex-shr
 .excluded .package-item-main { opacity:.5; }
 .package-items .missing { border-color:#805840; }
 .item-actions { display:flex; gap:4px; flex-wrap:wrap; }
-.item-actions button { padding:4px 8px; min-width:36px; min-height:36px; }
+.item-actions button { display:inline-flex; align-items:center; justify-content:center; padding:4px 8px; min-width:36px; min-height:36px; }
+.item-actions svg { width:1em; height:1em; }
 .item-problem { flex-basis:100%; color:#f2c6a7; line-height:1.45; }
 .attachment-description { flex-basis:100%; color:#a6c1b9; white-space:pre-wrap; overflow-wrap:anywhere; font-size:.82rem; line-height:1.5; }
 .package-actions,.backup-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:18px; }
 .package-actions--sidebar { margin-top:0; }
 .package-actions--sidebar button { width:100%; }
+.package-action-label--mobile{display:none}
 .library-picker { display:flex; gap:7px; margin-top:10px; } select { min-width:0; flex:1; }
 .page-map { list-style:none; padding:0; margin:14px 0; }
 .package-inline-pdf { width:100%; height:auto; flex:none; overflow:visible; }
@@ -307,9 +311,21 @@ input[type="checkbox"] { accent-color:#67c8a6; width:16px; height:16px; flex-shr
 .package-preview a { font-size:.84rem; color:#9ee6c7; }
 .page-map li { display:flex; justify-content:space-between; gap:15px; font-size:.82rem; padding:5px 0; } .page-map span { flex-shrink:0; color:#a6c1b9; }
 .preview-empty { flex:none; height:65vh; min-height:360px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; max-width:300px; margin:auto; }
-.preview-empty > span { font-size:46px; color:#528674; margin-bottom:16px; }
+.preview-empty-icon { font-size:46px; color:var(--ui-muted); margin-bottom:16px; }
 .preview-empty p { color:#a6c1b9; font-size:.9rem; line-height:1.6; }
 @media(max-width:1180px) { .application-documents { grid-template-columns:minmax(0,1fr); grid-template-rows:auto auto; } }
+@media(max-width:760px){
+  .package-action-label{display:none}
+  .package-action-label--mobile{display:inline;white-space:nowrap}
+  .preview-empty{height:auto;min-height:0;max-width:none;width:100%;padding:16px 0;gap:12px}
+  .preview-empty-icon{font-size:32px;margin-bottom:0}
+  .preview-empty button{min-height:44px}
+}
+@media(max-width:760px),(any-pointer:coarse){
+  .item-actions button{min-width:44px;min-height:44px}
+  .package-item-main{min-height:44px}
+  .package-item-main label{display:flex;align-items:center;align-self:stretch;flex:1}
+}
 @media(max-width:760px), (max-width:1180px) and (max-height:600px) {
   .application-documents { display:flex; flex-direction:column; align-items:stretch; gap:20px; }
   .documents-controls { flex:none; overflow:visible; padding-right:0; }

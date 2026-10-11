@@ -37,7 +37,7 @@ async function settle() {
 }
 const current = () => root.querySelector<HTMLElement>(view.value === 'library' ? '.local-attachments' : '.application-documents')!;
 async function click(name: string, parent: ParentNode = current()) {
-  const button = [...parent.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.trim() === name);
+  const button = [...parent.querySelectorAll<HTMLButtonElement>('button')].find(node => node.getAttribute('aria-label') === name || node.textContent?.trim() === name);
   assert(button && !button.disabled, `Missing or disabled button: ${name}`);
   button.click(); await settle();
 }
@@ -173,7 +173,7 @@ runButton.addEventListener('click', async () => {
     assert(composed.getPageCount() === 5 && composed.getPages().every(page => page.getWidth() === 400 && page.getHeight() === 600), 'Attachment pages did not match CV and letter size');
     const actions = current().querySelector<HTMLElement>('.package-preview-actions');
     assert(actions?.querySelector('.page-map-summary summary')?.textContent?.trim() === 'Document order', 'Document order must appear in the PDF footer');
-    const openPreview = [...actions!.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Open preview');
+    const openPreview = actions!.querySelector<HTMLButtonElement>('button[aria-label="Open preview"]');
     assert(openPreview, 'Open preview must appear in the PDF footer');
     assert(actions!.getBoundingClientRect().top >= inline.getBoundingClientRect().bottom - 1, 'Document order and Open preview must sit below the package PDF');
     await turnPage(inline, 'next'); await renderedPreview(2, 'Synthetic accepted generated document.');
@@ -189,7 +189,7 @@ runButton.addEventListener('click', async () => {
     await click('Back to builder', full); await renderedPreview(4, 'PRIVATE_TRANSCRIPT_CONTENT_83 page 2');
     assert(!document.querySelector('.document-full-preview[open]'), 'Back did not close the expanded preview');
     const originalBlob = documents.composition.blob;
-    await click('↑', current().querySelectorAll('.package-items li')[3]!);
+    await click(`Move ${second.name} up`, current().querySelectorAll('.package-items li')[3]!);
     const reorderedInline = await renderedPreview(1, 'Synthetic accepted generated document.');
     assert(documents.composition?.blob !== originalBlob && documents.previewPage === 1, 'Reordering did not replace the PDF and reset its page');
     await turnPage(reorderedInline, 'next'); await renderedPreview(2, 'Synthetic accepted generated document.');
@@ -204,7 +204,7 @@ runButton.addEventListener('click', async () => {
     const backup = await local.exportBackup();
     await local.removeDocument(first.id); window.dispatchEvent(new Event('cv-local-documents-updated')); await settle();
     assert(current().textContent?.includes('unavailable on this device'), 'Missing selected file was not reported');
-    const downloadButton = [...current().querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Download PDF');
+    const downloadButton = current().querySelector<HTMLButtonElement>('button[aria-label="Download PDF"]');
     assert(downloadButton?.disabled && !documents.composition, 'Missing file did not block package export');
     assert(!current().querySelector('.package-inline-pdf'), 'Missing file retained the stale PDF page');
     await click('CV Studio · Local attachments', root);
