@@ -25,6 +25,8 @@ import ApplicationDocuments from './ApplicationDocuments.vue';
 import ApplicationIdentifier from './ApplicationIdentifier.vue';
 import ApplicationDeadlineCalendar from './ApplicationDeadlineCalendar.vue';
 import WorkspaceDetailHeader from './WorkspaceDetailHeader.vue';
+import WorkspaceMobileActions from './WorkspaceMobileActions.vue';
+import { provideWorkspaceMobileActions } from '../composables/workspaceMobileActions';
 import OpportunityContext from './OpportunityContext.vue';
 import { buildShortRefinementInstruction } from '../composables/applicationReference';
 import { resolveRefinementSettings, serializeRefinementDraft, sameRefinementInputs } from '../composables/refinementSources';
@@ -46,6 +48,8 @@ const props = withDefaults(defineProps<{
 }>(), { active: true });
 const emit = defineEmits<{ close: []; 'edit-variant': [id: string]; toggleChecklist: [key: string, completed: boolean]; 'change-stage': [stage: ApplicationStage] }>();
 const desktopSidebar = useDesktopSidebar();
+const mobileActions = ref<HTMLElement | null>(null);
+provideWorkspaceMobileActions(mobileActions);
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const storageKey = 'CV_REFINEMENT:1:' + encodeURIComponent(props.userId) + ':' + props.application.id;
@@ -1114,8 +1118,10 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 
 <template>
   <section class="application-workspace" :class="{ 'application-workspace--sidebar': desktopSidebar }">
+    <h1 class="application-mobile-title">{{ String(application.context_json.title || text('Application', 'Bewerbung')) }}</h1>
+    <div class="application-scroll-content">
     <WorkspaceDetailHeader class="application-header" :title="String(application.context_json.title || text('Application', 'Bewerbung'))" :subtitle="String(application.context_json.institution || application.context_json.university || '')" :back-label="text('All applications', 'Alle Bewerbungen')" @back="emit('close')">
-      <template v-if="$slots.actions" #actions><slot name="actions" /></template>
+      <template #actions><slot name="actions" /><div ref="mobileActions" class="application-mobile-actions" /></template>
       <template #metadata><ApplicationIdentifier :application="application" :lang="lang" /><span>{{ text('Deadline', 'Bewerbungsfrist') }}: {{ formatOpportunityDeadline(application.context_json, lang) }}</span><ApplicationDeadlineCalendar :application="application" :lang="lang" /><span class="jobs-badge application-header__state">{{ applicationStatusLabel(application.status, lang) }}</span></template>
     </WorkspaceDetailHeader>
     <div class="workflow-body" :class="{ 'workflow-body--refinement': tab === 'refinement', 'workflow-body--review': tab === 'review' }">
@@ -1142,11 +1148,13 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
       <section v-show="tab === 'refinement'" class="refinement-stage">
         <DesktopSidebarPortal area="major" :active="active && tab === 'refinement'">
         <div class="refinement-toolbar" :class="{ 'refinement-toolbar--sidebar': desktopSidebar }">
-          <label>{{ text('Refinement scope', 'Umfang der Überarbeitung') }}<select v-model="feedbackScope" :disabled="busy"><option value="cv">CV</option><option value="letter">{{ text('Motivation letter', 'Motivationsschreiben') }}</option></select></label>
-          <div class="action-row">
+          <WorkspaceMobileActions :active="active && tab === 'refinement'">
+          <label class="refinement-scope"><span>{{ text('Refinement scope', 'Umfang der Überarbeitung') }}</span><select v-model="feedbackScope" :disabled="busy"><option value="cv">CV</option><option value="letter">{{ text('Motivation letter', 'Motivationsschreiben') }}</option></select></label>
+          <div class="action-row refinement-approval">
             <button v-if="pane === 'cv' && record" class="primary refinement-icon-action" type="button" :disabled="busy || reviewActive || !letter || !!saveError" @click="approve('cv', cvApproved)"><FontAwesomeIcon :icon="cvApproved ? faRotateLeft : faCheck" aria-hidden="true" />{{ cvApproved ? text('Reopen CV', 'CV wieder öffnen') : text('Approve CV', 'CV freigeben') }}</button>
             <button v-if="pane === 'letter' && letter" class="primary refinement-icon-action" type="button" :disabled="busy || reviewActive || !record || !letterText.trim() || !!saveError || (unresolved.length > 0 && !letter.finalRevisionId)" @click="approve('letter', letterApproved || !!letter.finalRevisionId)"><FontAwesomeIcon :icon="letterApproved || letter.finalRevisionId ? faRotateLeft : faCheck" aria-hidden="true" />{{ letterApproved || letter.finalRevisionId ? text('Reopen letter', 'Brief wieder öffnen') : text('Approve letter', 'Brief freigeben') }}</button>
           </div>
+          </WorkspaceMobileActions>
           <div v-if="cvApproved && createVariant" class="approved-variant-save">
             <p class="app-hint">{{ text('Save this approved CV to your variant library for reuse.', 'Diesen freigegebenen CV zur Wiederverwendung in der Variantenbibliothek speichern.') }}</p>
             <label>{{ text('Variant name', 'Variantenname') }}<input v-model="variantName" type="text" :disabled="busy || reviewActive" /></label>
@@ -1206,8 +1214,10 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
         <OpportunityContext :context="application.context_json" :lang="lang" :only-groups="['documents']" checklist :completed-keys="application.completed_checklist_keys || []" :saving="checklistSaving" @toggle-checklist="(key, completed) => emit('toggleChecklist', key, completed)" />
       </ApplicationDocuments>
       <section v-show="tab === 'tracking'" class="tracking-stage">
+        <WorkspaceMobileActions :active="active && tab === 'tracking'"><slot name="tracking-actions" /></WorkspaceMobileActions>
         <slot name="tracking" />
       </section>
+    </div>
     </div>
     <DesktopSidebarPortal area="subtabs" :active="active">
     <footer class="workflow-navigation" :class="{ 'workflow-navigation--sidebar': desktopSidebar }">
@@ -1228,6 +1238,9 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 .iteration-note-panel{margin-bottom:12px}
 .iteration-note-panel textarea{display:block}
 .application-header__state{margin-left:auto;margin-top:0;align-self:flex-end;line-height:1.5}
+.application-mobile-actions{display:none}
+.application-mobile-title{display:none}
+.application-scroll-content{display:contents}
 .iteration-step{padding:16px 0;}.iteration-step:first-child{padding-top:0}.iteration-step:last-of-type{border-bottom:0}.iteration-step h3{margin-bottom:10px}.iteration-step h4{font-size:14px;margin:20px 0 10px}.proposal-summary{color:#b8d9cf;font-weight:600}.proposal-preview-action{display:flex;flex-wrap:wrap;gap:8px}.proposal-preview-action--sidebar{flex-direction:column}.proposal-preview-action--sidebar button{width:100%;text-align:left}.refinement-icon-action{display:inline-flex;align-items:center;gap:8px}.refinement-icon-action svg{width:1em;flex-shrink:0}
 
 .selection-checkbox{display:flex;align-items:center;gap:9px;min-height:36px;cursor:pointer}.selection-checkbox input{width:18px;height:18px;accent-color:#67c8a6}.preview-review-label{font-size:12px;color:#efcc87;margin:0}.application-workspace{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden;color:var(--ui-text);font-family:var(--font-ui,system-ui)}
@@ -1240,7 +1253,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 .refinement-toolbar{position:sticky;top:0;z-index:10;min-width:0;padding-bottom:12px;border-bottom:1px solid var(--ui-border);background:#0b0f14}
 .refinement-toolbar > .action-row{margin:0}
 .approved-variant-save{margin-top:16px;padding-top:16px;border-top:1px solid var(--ui-border)}.approved-variant-save p{margin:0 0 12px;max-width:65ch;color:var(--ui-muted)}.approved-variant-save button{width:100%}
-@media(max-width:760px){.refinement-toolbar{top:-8px;margin-top:-8px;padding-top:8px;flex-shrink:0}}
+@media(max-width:760px){.refinement-toolbar{position:static;padding:0;border:0;background:transparent;flex-shrink:0}}
 @media(min-width:761px) and (max-width:1180px){.workflow-body--review :deep(.application-documents){min-height:640px}}
 @media(min-width:761px){.application-workspace{margin-bottom:40px;padding:32px;}.workflow-body{padding:20px 0 0;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-gutter:stable}.application-header :deep(.workspace-detail-header__back){display:none}.workflow-navigation{position:fixed;inset-inline:0;bottom:0;z-index:30;display:flex;align-items:center;gap:20px;min-height:66px;padding:12px max(20px,calc((100vw - 1484px)/2));border-top:1px solid #24504e;background:var(--ui-shell);box-shadow:0 -6px 20px #0003}.workflow-back{display:inline-flex;align-items:center;gap:8px;flex-shrink:0}.workspace-subtabs button{justify-content:center}.preparation-stage{padding-bottom:6px}}
 .preparation-stage,.tracking-stage{display:grid;gap:20px}.stage-heading{display:flex;justify-content:space-between;align-items:start;gap:18px;margin-bottom:18px}.stage-heading h2,.tracking-stage h2{color:var(--ui-accent);font-size:21px;margin:0 0 8px}.stage-heading p,p.hint{font-size:13px;color:var(--ui-muted);line-height:1.6}.stage-heading button{flex-shrink:0}
@@ -1266,4 +1279,25 @@ h3{font-size:16px;margin:0 0 14px}p{line-height:1.6;font-size:13px}button,input,
 .refinement-copy-action:focus-visible{outline:2px solid var(--ui-accent);outline-offset:3px}
 .preparation-selection select:disabled{background:var(--ui-shell);color:var(--ui-muted);cursor:not-allowed;opacity:.65}
 .preparation-selection-hint{color:var(--ui-muted);font-size:12px;font-weight:400;line-height:1.5}
+@media(max-width:760px){
+  .application-mobile-title{display:block;flex-shrink:0;margin:0;padding:0 8px 8px;font-size:17px;line-height:1.25;overflow-wrap:anywhere;border-bottom:1px solid var(--ui-border)}
+  .application-scroll-content{display:block;flex:1;min-height:0;overflow:auto;scrollbar-width:thin}
+  .application-header{padding-top:8px}
+  .application-header :deep(.workspace-detail-header__title h1){display:none}
+  .application-header :deep(.application-identifier),.application-header :deep(.application-deadline-calendar){display:none}
+  .workflow-body{flex:1 0 auto;overflow:visible}
+  .application-mobile-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex:1;min-width:0}
+  .application-mobile-actions :deep(button),.application-mobile-actions :deep(select){min-height:44px;max-width:100%}
+  .application-mobile-actions :deep(select){font-size:16px}
+  .application-mobile-actions :deep(label){min-width:0;margin:0}
+  .application-mobile-actions :deep(.jobs-action-label),.application-mobile-actions .refinement-scope > span{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+  .application-mobile-actions .refinement-scope{flex:1}
+  .application-mobile-actions .refinement-approval{flex-shrink:0;margin:0}
+  .application-mobile-actions .refinement-approval button{gap:6px;padding-inline:8px}
+  .application-mobile-actions :deep(.jobs-detail-state){flex:1}
+  .application-mobile-actions :deep(.jobs-detail-state select){width:100%}
+  .application-mobile-actions :deep(.package-actions){order:1;margin:0;min-width:0}
+  .application-mobile-actions :deep(.package-preview-open){order:2}
+  .application-mobile-actions :deep(.package-actions button),.application-mobile-actions :deep(.package-preview-open){padding-inline:8px}
+}
 </style>

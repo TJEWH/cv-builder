@@ -312,11 +312,12 @@ async function templateQuestionFlow() {
 async function scopeLayoutFlow() {
   await prepare('letter');
   const visible = (selector: string) => [...root.querySelectorAll<HTMLElement>(selector)].filter(element => element.getClientRects().length);
-  const toolbar = root.querySelector<HTMLElement>('.refinement-toolbar');
+  const mobile = window.matchMedia('(max-width:760px)').matches;
+  const toolbar = root.querySelector<HTMLElement>(mobile ? '.application-mobile-actions' : '.refinement-toolbar');
   const scope = toolbar?.querySelector<HTMLSelectElement>('select');
   assert(toolbar && scope, 'Refinement must expose its scope beside the task actions');
   if (sidebarEnabled()) assert(root.querySelector('#desktop-sidebar-major')?.contains(toolbar), 'Refinement actions belong in the major sidebar area');
-  const approvalActions = root.querySelector(sidebarEnabled() ? '#desktop-sidebar-major' : '.refinement-toolbar');
+  const approvalActions = sidebarEnabled() ? root.querySelector('#desktop-sidebar-major') : toolbar;
   const syncActions = root.querySelector(sidebarEnabled() ? '#desktop-sidebar-minor' : '.proposal-preview-action');
   assert(approvalActions && syncActions, 'Refinement must expose both action areas');
   assert(syncActions?.contains(button('Sync')), 'Sync belongs in the minor action area');
@@ -342,15 +343,14 @@ async function scopeLayoutFlow() {
   assert(approveCv.querySelector('svg'), 'CV approval must have an icon');
   assert(![...approvalActions.querySelectorAll('button')].some(node => node.textContent?.trim() === 'Approve letter'), 'CV scope must replace letter approval with CV approval');
   clearToasts();
-  const mobile = window.matchMedia('(max-width:760px)').matches;
-  const scroller = root.querySelector<HTMLElement>(mobile ? '.workflow-body' : '.refinement-controls')!;
+  const scroller = root.querySelector<HTMLElement>(mobile ? '.application-scroll-content' : '.refinement-controls')!;
   const initialToolbarTop = toolbar.getBoundingClientRect().top;
   scroller.scrollTop = scroller.scrollHeight;
   await nextTick(); await new Promise(requestAnimationFrame);
   assert(scroller.scrollTop > 0, 'The layout check must scroll beyond the beginning of the refinement');
   const toolbarBounds = toolbar.getBoundingClientRect();
-  const viewport = root.querySelector(sidebarEnabled() ? '.desktop-sidebar__actions' : '.workflow-body')!.getBoundingClientRect();
-  assert(Math.abs(toolbarBounds.top - initialToolbarTop) <= (mobile ? 8 : 1), 'Scope and approval must stay at the top while reviewing content farther down');
+  const viewport = root.querySelector(mobile ? '.application-header .workspace-detail-header__controls' : sidebarEnabled() ? '.desktop-sidebar__actions' : '.workflow-body')!.getBoundingClientRect();
+  assert(Math.abs(toolbarBounds.top - initialToolbarTop) <= (mobile ? 8 : 1), 'Scope and approval must stay fixed while reviewing content farther down');
   for (const control of [scope, button('Approve CV', toolbar)]) {
     const bounds = control.getBoundingClientRect();
     assert(bounds.width > 0 && bounds.height > 0 && bounds.top >= viewport.top - 8 && bounds.bottom <= viewport.bottom + 1, 'Scope and task actions must remain visible after scrolling the editor or PDF');

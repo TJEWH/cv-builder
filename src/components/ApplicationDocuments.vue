@@ -11,6 +11,7 @@ import { composeApplicationPackage, packageItemProblem } from '../composables/ap
 import { usePdfBlobPreview } from '../composables/usePdfBlobPreview';
 import { useToastWatch } from '../composables/useToasts';
 import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
+import WorkspaceMobileActions from './WorkspaceMobileActions.vue';
 import { useDesktopSidebar } from '../composables/desktopSidebar';
 
 const props = withDefaults(defineProps<{
@@ -228,7 +229,9 @@ useToastWatch(() => previewError.value, () => ({
           <div v-if="libraryOptions.length" class="library-picker"><select v-model="selectedLibraryId" :disabled="busy" :aria-label="text('Choose an existing document', 'Vorhandenes Dokument auswählen')" @change="attachLibraryDocument"><option value="">{{ text('From local attachment library…', 'Aus lokaler Anhangsbibliothek…') }}</option><option v-for="document in libraryOptions" :key="document.id" :value="document.id" :disabled="!availableIds.has(document.id) || !document.description?.trim()">{{ document.name }}{{ !availableIds.has(document.id) ? text(' — file missing on this device', ' — Datei fehlt auf diesem Gerät') : !document.description?.trim() ? text(' — description needed in CV Studio', ' — Beschreibung im CV-Studio ergänzen') : '' }}</option></select></div>
           <p v-if="!library.length" class="app-hint muted">{{ text('Add a named attachment with a description in CV Studio, then select it here.', 'Einen benannten Anhang mit Beschreibung im CV-Studio hinzufügen und dann hier auswählen.') }}</p>
           <DesktopSidebarPortal v-if="mode === 'review'" area="major" :active="active">
+            <WorkspaceMobileActions :active="active && mode === 'review'">
             <div class="package-actions" :class="{ 'package-actions--sidebar': desktopSidebar }"><button type="button" :disabled="busy || !composition" @click="downloadPackage">{{ text('Download PDF', 'PDF herunterladen') }}</button></div>
+            </WorkspaceMobileActions>
           </DesktopSidebarPortal>
         </section>
         <details v-if="mode === 'tracking'" class="document-section">
@@ -245,7 +248,9 @@ useToastWatch(() => previewError.value, () => ({
         <div class="package-preview-actions">
           <details v-if="composition" class="page-map-summary"><summary>{{ text('Document order', 'Dokumentreihenfolge') }}</summary><ul class="page-map"><li v-for="document in composition.documents" :key="document.itemId">{{ document.label }} <span>{{ text('p.', 'S.') }} {{ document.firstPage }}<template v-if="document.pageCount > 1">–{{ document.firstPage + document.pageCount - 1 }}</template></span></li></ul></details>
           <DesktopSidebarPortal area="minor" :active="active && mode === 'review'">
-            <button type="button" :disabled="!previewPages.length || !!previewError" @click="expanded = true">{{ text('Open preview', 'Vorschau öffnen') }}</button>
+            <WorkspaceMobileActions :active="active && mode === 'review'">
+            <button class="package-preview-open" type="button" :disabled="!previewPages.length || !!previewError" @click="expanded = true">{{ text('Open preview', 'Vorschau öffnen') }}</button>
+            </WorkspaceMobileActions>
           </DesktopSidebarPortal>
         </div>
       </section>

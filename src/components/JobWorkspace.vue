@@ -384,8 +384,10 @@ useToastWatch(() => notice.value, () => {
       <template #preparation-actions>
         <button class="btn btn--danger jobs-remove-application" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(editingApplication)}`" @click="requestDetailRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button>
       </template>
-      <template #tracking>
+      <template #tracking-actions>
         <label class="jobs-detail-state"><span class="jobs-action-label">{{ text('Status', 'Status') }}</span><select :aria-label="`${text('Status for', 'Status für')} ${contextTitle(editingApplication)}`" :value="applicationTrackingStarted(editingApplication) ? editingApplication.status : ''" :disabled="saving" @change="changeApplicationStatus(editingApplication, $event)"><option value="" disabled>{{ text('Choose tracking status…', 'Verlaufsstatus wählen…') }}</option><option v-for="status in TRACKING_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label>
+      </template>
+      <template #tracking>
         <section class="application-status-history" :aria-label="text('Status history', 'Statusverlauf')">
           <h3>{{ text('Status history', 'Statusverlauf') }}</h3>
           <p v-if="statusHistory.some(entry => !entry.changedAt)" class="app-hint jobs-subline">{{ text('Earlier status changes and their times were not recorded.', 'Frühere Statusänderungen und ihre Zeitpunkte wurden nicht erfasst.') }}</p>
