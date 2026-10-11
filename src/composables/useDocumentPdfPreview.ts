@@ -21,6 +21,8 @@ export function useDocumentPdfPreview(input: {
   const exports = new Set<AbortController>();
   const { renderPreview, renderPdfBlob, exportToPdf, revokeDownloads } = usePdfExport();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  // Keep only the last completed render for this document, never a history of sources.
+  let completedPages: PreviewPage[] | null = null;
   const inputCommit = usePreviewInputCommit(() => {
     if (input.active()) {
       busy.value = true;
@@ -31,6 +33,7 @@ export function useDocumentPdfPreview(input: {
   let identity = input.identity?.();
   async function refresh() {
     if (!input.active()) return;
+    completedPages = null;
     const signal = slot.start();
     busy.value = true;
     error.value = '';
@@ -39,6 +42,7 @@ export function useDocumentPdfPreview(input: {
       signal.throwIfAborted();
       const result = await renderPreview(element, { ...input.options(), signal });
       if (!signal.aborted) {
+        completedPages = result.pages;
         pages.value = result.pages;
         page.value = Math.min(page.value, Math.max(1, result.pages.length));
       }
@@ -46,7 +50,8 @@ export function useDocumentPdfPreview(input: {
       if (!signal.aborted) error.value = cause instanceof Error ? cause.message : String(cause);
     } finally { if (!signal.aborted) busy.value = false; }
   }
-  watch([input.signature, input.active, () => input.identity?.()], (_value, previous) => {
+  function invalidate(sourceChanged: boolean, wasActive: boolean) {
+    if (sourceChanged) completedPages = null;
     slot.cancel();
     clearTimeout(timer);
     // Exports may be awaiting the same DOM source. A temporary proposal switch,
@@ -56,7 +61,7 @@ export function useDocumentPdfPreview(input: {
     const nextIdentity = input.identity?.();
     const identityChanged = nextIdentity?.some((value, index) => value !== identity?.[index]) ?? false;
     identity = nextIdentity;
-    if (input.active() && previous?.[1] && !identityChanged && inputCommit.defer()) {
+    if (sourceChanged && input.active() && wasActive && !identityChanged && inputCommit.defer()) {
       error.value = '';
       busy.value = false;
       return;
@@ -68,10 +73,20 @@ export function useDocumentPdfPreview(input: {
     error.value = '';
     busy.value = false;
     if (input.active()) {
+      if (completedPages) {
+        pages.value = completedPages;
+        return;
+      }
       busy.value = true;
       timer = setTimeout(() => void refresh(), 150);
     }
+  }
+  // Visibility alone can reuse the render. Deep edits, including edits made while
+  // hidden, invalidate it synchronously before any surface can show old pages.
+  watch([input.signature, () => input.identity?.()], (_value, previous) => {
+    invalidate(true, !!previous?.length && input.active());
   }, { deep: true, immediate: true, flush: 'sync' });
+  watch(input.active, (_active, previous) => invalidate(false, previous), { flush: 'sync' });
 
   async function getPdfBlob(source = input.source): Promise<Blob> {
     const controller = new AbortController();
@@ -99,6 +114,7 @@ export function useDocumentPdfPreview(input: {
     } finally { exports.delete(controller); downloading.value = false; }
   }
   onBeforeUnmount(() => {
+    completedPages = null;
     clearTimeout(timer);
     slot.cancel();
     for (const controller of exports) controller.abort();

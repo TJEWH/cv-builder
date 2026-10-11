@@ -36,21 +36,143 @@ function mountPreview(mock: {
   const active = ref(false);
   const version = ref(1);
   const identity = ref('original');
+  const document = ref({ contact: { name: 'Original name' } });
   let sourceReads = 0;
   let preview!: Preview;
   const app = renderer.createApp({
     setup() {
       preview = exports.useDocumentPdfPreview!({
         source: async () => { sourceReads++; return {} as HTMLElement; }, options: () => ({ margin: [10, 10, 10, 10] }),
-        signature: () => version.value, active: () => active.value,
+        signature: () => [version.value, document.value], active: () => active.value,
         identity: () => [identity.value],
       });
       return () => null;
     },
   });
   app.mount({});
-  return { preview, active, version, identity, setTyping: (value: boolean) => { typing = value; }, commitInput: () => commitInput(), unmount: () => app.unmount(), sourceReads: () => sourceReads, revoked: () => revoked };
+  return { preview, active, version, identity, document, setTyping: (value: boolean) => { typing = value; }, commitInput: () => commitInput(), unmount: () => app.unmount(), sourceReads: () => sourceReads, revoked: () => revoked };
 }
+
+test('returning to an unchanged document reuses its completed pages without another source capture', async t => {
+  let renders = 0;
+  const fixture = mountPreview({ renderPreview: async () => {
+    renders++;
+    return { pages: [samplePage('first'), samplePage('second')] };
+  } });
+  t.after(fixture.unmount);
+  fixture.active.value = true;
+  await settle();
+  fixture.preview.page.value = 2;
+  for (let index = 0; index < 3; index++) {
+    fixture.active.value = false;
+    await nextTick();
+    fixture.active.value = true;
+    assert.equal(fixture.preview.pages.value[1]?.svg, 'second', 'cached pages are available immediately on return');
+    assert.equal(fixture.preview.busy.value, false);
+    assert.equal(fixture.preview.page.value, 2, 'returning keeps the selected page');
+    await settle();
+  }
+  assert.equal(renders, 1, 'three unchanged returns must not repeat PDF painting');
+  assert.equal(fixture.sourceReads(), 1, 'cached returns do not recapture the DOM');
+});
+
+test('nested document edits while hidden invalidate cached pages and render only when reopened', async t => {
+  let renders = 0;
+  const fixture = mountPreview({ renderPreview: async () => ({ pages: [samplePage(`render-${++renders}`)] }) });
+  t.after(fixture.unmount);
+  fixture.active.value = true;
+  await settle();
+  fixture.active.value = false;
+  fixture.document.value.contact.name = 'Changed while hidden';
+  assert.deepEqual(fixture.preview.pages.value, [], 'a deep source edit immediately invalidates the completed preview');
+  await settle();
+  assert.equal(renders, 1, 'hidden edits do not start rendering');
+  fixture.active.value = true;
+  assert.deepEqual(fixture.preview.pages.value, [], 'the old cached document cannot reappear');
+  await settle();
+  assert.equal(renders, 2);
+  assert.equal(fixture.preview.pages.value[0]?.svg, 'render-2');
+});
+
+for (const nextIdentity of ['proposal', 'anonymized']) test(`a hidden ${nextIdentity} source switch invalidates the cached document`, async t => {
+  let renders = 0;
+  const fixture = mountPreview({ renderPreview: async () => ({ pages: [samplePage(`render-${++renders}`)] }) });
+  t.after(fixture.unmount);
+  fixture.active.value = true;
+  await settle();
+  fixture.active.value = false;
+  fixture.identity.value = nextIdentity;
+  assert.deepEqual(fixture.preview.pages.value, [], 'private or different-source pages disappear synchronously');
+  await settle();
+  assert.equal(renders, 1);
+  fixture.active.value = true;
+  assert.deepEqual(fixture.preview.pages.value, [], 'reactivation cannot restore the previous source');
+  await settle();
+  assert.equal(renders, 2);
+  assert.equal(fixture.preview.pages.value[0]?.svg, 'render-2');
+});
+
+test('hiding an unfinished render cancels it and reopening starts a fresh render', async t => {
+  const renders: { signal: AbortSignal; finish: (value: { pages: PreviewPage[] }) => void }[] = [];
+  const fixture = mountPreview({ renderPreview: (_element, { signal }) => new Promise(finish => { renders.push({ signal: signal!, finish }); }) });
+  t.after(fixture.unmount);
+  fixture.active.value = true;
+  await settle();
+  fixture.active.value = false;
+  assert.equal(renders[0].signal.aborted, true);
+  fixture.active.value = true;
+  await settle();
+  assert.equal(renders.length, 2, 'an aborted render does not count as a reusable preview');
+  renders[0].finish({ pages: [samplePage('canceled')] });
+  await Promise.resolve(); await nextTick();
+  assert.deepEqual(fixture.preview.pages.value, [], 'late completion cannot populate the reopened preview');
+  renders[1].finish({ pages: [samplePage('current')] });
+  await Promise.resolve(); await nextTick();
+  assert.equal(fixture.preview.pages.value[0]?.svg, 'current');
+  assert.equal(fixture.preview.busy.value, false);
+});
+
+test('leaving with a pending typing edit cannot restore the previous completed preview', async t => {
+  let renders = 0;
+  const fixture = mountPreview({ renderPreview: async () => ({ pages: [samplePage(`render-${++renders}`)] }) });
+  t.after(fixture.unmount);
+  fixture.active.value = true;
+  await settle();
+  fixture.setTyping(true);
+  fixture.document.value.contact.name = 'Uncommitted edit';
+  assert.equal(fixture.preview.pages.value[0]?.svg, 'render-1', 'typing may keep the previous page until the user leaves');
+  fixture.active.value = false;
+  fixture.setTyping(false);
+  await settle();
+  assert.equal(renders, 1);
+  fixture.active.value = true;
+  assert.deepEqual(fixture.preview.pages.value, [], 'a deferred edit makes the completed cache stale');
+  await settle();
+  assert.equal(renders, 2);
+  assert.equal(fixture.preview.pages.value[0]?.svg, 'render-2');
+});
+
+test('returning after a failed render retries instead of treating the failure as a cached preview', async t => {
+  let renders = 0;
+  let fail = true;
+  const fixture = mountPreview({ renderPreview: async () => {
+    renders++;
+    if (fail) throw new Error('Preview unavailable');
+    return { pages: [samplePage('recovered')] };
+  } });
+  t.after(fixture.unmount);
+  fixture.active.value = true;
+  await settle();
+  assert.match(fixture.preview.error.value, /Preview unavailable/);
+  fixture.active.value = false;
+  fail = false;
+  fixture.active.value = true;
+  await settle();
+  assert.equal(renders, 2);
+  assert.equal(fixture.preview.pages.value[0]?.svg, 'recovered');
+  assert.equal(fixture.preview.error.value, '');
+  assert.equal(fixture.preview.busy.value, false);
+});
 
 test('typing preserves the current PDF until commit, while a source switch still clears it immediately', async t => {
   let renders = 0;

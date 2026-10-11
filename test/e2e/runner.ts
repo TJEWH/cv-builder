@@ -17,6 +17,7 @@ import './style.css';
 type Fixture = ReturnType<typeof createSyntheticRefinementWorkspace>;
 let app: App | undefined, setup: Workspace, fixture: Fixture;
 let copiedPrompt = '';
+const workspaceActive = ref(true);
 const root = document.querySelector<HTMLElement>('#workspace')!;
 const results = document.querySelector<HTMLOListElement>('#test-results')!;
 const status = document.querySelector<HTMLElement>('#test-status')!;
@@ -69,6 +70,7 @@ async function field(name: string, value: string) {
 }
 async function mount(reload = false) {
   app?.unmount(); root.replaceChildren();
+  workspaceActive.value = true;
   clearToasts();
   if (!reload) fixture = createSyntheticRefinementWorkspace(createPrivateRefinementCv());
   Object.defineProperty(window, 'localStorage', { configurable: true, value: fixture.storage });
@@ -79,7 +81,7 @@ async function mount(reload = false) {
     const desktop = ref(sidebarEnabled());
     provideDesktopSidebar(desktop);
     return () => {
-      const workspace = h(ApplicationWorkspace as Component, { ...fixture.props, active: true, ref: (instance: unknown) => {
+      const workspace = h(ApplicationWorkspace as Component, { ...fixture.props, active: workspaceActive.value, ref: (instance: unknown) => {
         if (instance) setup = (instance as { $: { setupState: Workspace } }).$.setupState;
       } });
       return desktop.value ? h('div', {
@@ -187,7 +189,8 @@ async function proposalReviewFlow() {
   await loadProposal(first); await rendered('letter', 'First automatically applied proposal.');
   const minor = root.querySelector(sidebarEnabled() ? '#desktop-sidebar-minor' : '.proposal-preview-action')!;
   assert(minor?.contains(button('Original')) && minor?.contains(button('Proposed')), 'Letter comparison belongs in the minor action area');
-  assert(root.querySelector(sidebarEnabled() ? '#desktop-sidebar-major' : '.refinement-toolbar')?.contains(button('Approve letter')), 'Approval belongs in the major action area');
+  const approvalArea = window.matchMedia('(max-width:760px)').matches ? '.application-mobile-actions' : sidebarEnabled() ? '#desktop-sidebar-major' : '.refinement-toolbar';
+  assert(root.querySelector(approvalArea)?.contains(button('Approve letter')), 'Approval belongs in the current device’s action area');
   assert(minor?.contains(button('Sync')), 'Sync belongs in the minor action area');
   const applied = snapshot(), input = preview(), beforeSvg = surface('letter').querySelector('.pdf-preview__page')!.innerHTML;
   await field('Your response (optional)', 'Confirmed synthetic evidence.');
@@ -505,7 +508,39 @@ async function scopedHistoryFlow() {
   await mount(true); await click('2Refinement'); await disclose('History');
   assert(setup.letterText === '' && root.querySelector('.initial-refinement'), 'Reload must retain the empty template draft');
 }
+async function previewRevisitFlow() {
+  delete root.dataset.previewRevisitMetrics;
+  await prepare('cv');
+  const metrics: { action: string; milliseconds: number; readyAfterUpdate: boolean }[] = [];
+  const hasPage = (kind: 'cv' | 'letter') => !!surface(kind).querySelector('.document-inline-preview .pdf-preview__page svg');
+  await until(() => hasPage('cv'), 'initial CV preview');
+  await rendered('letter', 'Original working letter.');
+  for (const scope of ['cv', 'letter', 'cv', 'letter'] as const) {
+    const started = performance.now();
+    await field('Refinement scope', scope);
+    const readyAfterUpdate = hasPage(scope);
+    await until(() => hasPage(scope), `revisited ${scope} preview`);
+    metrics.push({ action: `switch to ${scope}`, milliseconds: Math.round(performance.now() - started), readyAfterUpdate });
+  }
+  await click('4Tracking');
+  const started = performance.now();
+  await click('2Refinement');
+  const readyAfterUpdate = hasPage('letter');
+  await until(() => hasPage('letter'), 'letter preview after tracking');
+  metrics.push({ action: 'return from tracking', milliseconds: Math.round(performance.now() - started), readyAfterUpdate });
+  root.dataset.previewRevisitMetrics = JSON.stringify(metrics);
+  assert(metrics.every(metric => metric.readyAfterUpdate), 'Unchanged previews must be ready without waiting for another PDF render');
+  workspaceActive.value = false;
+  await settle();
+  setup.letter!.working.body = 'Updated while the application workspace was hidden.';
+  await settle();
+  assert(!hasPage('letter') && !surface('letter').querySelector('[aria-busy="true"]'), 'Hidden workspaces must invalidate edited previews without starting another render');
+  workspaceActive.value = true;
+  await rendered('letter', 'Updated while the application workspace was hidden.');
+}
+
 const flows = [
+  ['preview-revisit', 'Unchanged document previews return without rerendering', previewRevisitFlow],
   ['scope-layout', 'Scope dropdown → task controls → scoped preview and editor → preparation settings', scopeLayoutFlow],
   ['scoped-history', 'Scoped history → clear CV → preserve letter → clear letter to template → reload', scopedHistoryFlow],
   ['cv', 'CV snapshot → application-only changes → compare → reload → save approved variant', cvFlow],
