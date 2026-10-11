@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { EMPTY_LETTER } from '../src/composables/motivationLetters';
 import { refinementSignature } from '../src/composables/applicationRefinement';
 import { createPrivateRefinementCv } from './refinementFixture';
 import { idle, mount, prepare, refinementKey, type Workspace } from './refinementWorkflowHarness';
@@ -9,7 +10,7 @@ type ResetWorkspace = Workspace & {
   iterationNotes: Record<'cv' | 'letter', { tone: string; structure: string; content: string }>;
 };
 
-test('letter reset restores its first refinement source and preserves the approved CV after reload', async t => {
+test('clearing letter history restores template defaults and preserves the approved CV after reload', async t => {
   const fixture = mount(t, createPrivateRefinementCv());
   let setup = await prepare(fixture, 'base', { scope: 'cv', letterText: 'Incidental letter in the earlier CV request.' });
   const cvRequest = setup.requests[0];
@@ -19,16 +20,16 @@ test('letter reset restores its first refinement source and preserves the approv
   setup.updateLetter('The original source for letter refinement.');
   setup.feedbackScope = 'letter'; await setup.copyIterationTask();
   const letterRequest = setup.requests[0];
-  const originalLetter = JSON.parse(JSON.stringify(setup.letter!.working));
+  const originalLetter = { ...EMPTY_LETTER };
   fixture.cloud.seedProposal(letterRequest.id, { letterText: 'The revised letter to reset.' });
   await setup.syncRefinement();
   await setup.approve('cv'); await setup.approve('letter');
   assert.equal(setup.error, '');
   setup.feedbackScope = 'letter';
   const approvedCv = refinementSignature(setup.record), cvApproval = setup.approvals.cv;
-  const history = refinementSignature([setup.requests, setup.proposals]);
+  const cvHistory = refinementSignature(setup.requests.find(row => row.id === cvRequest.id));
 
-  await setup.resetOriginalState();
+  await setup.clearRefinementHistory();
 
   assert.equal(setup.error, '');
   assert.deepEqual(setup.letter!.working, originalLetter);
@@ -38,7 +39,8 @@ test('letter reset restores its first refinement source and preserves the approv
   assert.equal(refinementSignature(setup.record), approvedCv);
   assert.equal(setup.approvals.cv, cvApproval);
   assert.equal(setup.cvApproved, true);
-  assert.equal(refinementSignature([setup.requests, setup.proposals]), history);
+  assert.equal(refinementSignature(setup.requests.find(row => row.id === cvRequest.id)), cvHistory);
+  assert.equal(setup.requests.some(row => row.id === letterRequest.id && !row.cleared_scopes?.includes('letter')), false);
   assert.equal(setup.showInitialRefinement, true);
 
   setup = fixture.reopen(); await idle(setup); await setup.syncRefinement();
@@ -51,7 +53,7 @@ test('letter reset restores its first refinement source and preserves the approv
   assert.equal(setup.showInitialRefinement, false, 'CV refinement history remains active');
 });
 
-test('CV reset preserves the finalized letter and its active refinement history', async t => {
+test('clearing CV history preserves the finalized letter and its active refinement history', async t => {
   const fixture = mount(t, createPrivateRefinementCv());
   const setup = await prepare(fixture, 'base', { scope: 'letter' });
   const letterRequest = setup.requests[0];
@@ -65,7 +67,7 @@ test('CV reset preserves the finalized letter and its active refinement history'
   assert.notEqual(refinementSignature(setup.record!.state), originalCv);
   const finalizedLetter = refinementSignature(setup.letter), letterApproval = setup.approvals.letter;
 
-  await setup.resetOriginalState();
+  await setup.clearRefinementHistory();
 
   assert.equal(setup.error, '');
   assert.equal(refinementSignature(setup.record!.state), originalCv);
@@ -77,7 +79,7 @@ test('CV reset preserves the finalized letter and its active refinement history'
   assert.equal(setup.showInitialRefinement, false, 'letter refinement history remains active');
 });
 
-test('resetting a letter from a legacy combined round leaves the CV side active', async t => {
+test('clearing letter history from a legacy combined round leaves the CV side active', async t => {
   const fixture = mount(t, createPrivateRefinementCv());
   let setup = await prepare(fixture, 'base', { scope: 'both', letterText: '' });
   const request = setup.requests[0];
@@ -87,7 +89,7 @@ test('resetting a letter from a legacy combined round leaves the CV side active'
   const cvAfterRefinement = refinementSignature(setup.record);
   setup.feedbackScope = 'letter';
 
-  await setup.resetOriginalState();
+  await setup.clearRefinementHistory();
 
   assert.equal(setup.error, '');
   assert.equal(setup.letterText, '');
@@ -128,16 +130,17 @@ for (const saveBeforeFailure of [false, true]) test(`failed reset feedback ${sav
     return rpc(name, args);
   }) as unknown as typeof fixture.cloud.client.rpc;
 
-  await setup.resetOriginalState();
+  await setup.clearRefinementHistory();
 
   assert.match(setup.error, /Reset feedback unavailable/);
-  assert.equal(setup.letterText, 'Original source letter.');
+  assert.equal(setup.letterText, '');
+  assert.equal(setup.requests.length, requestCount, 'history must survive an unconfirmed reset');
   const pending = JSON.parse(JSON.stringify(setup.pendingResetFeedback.letter));
   assert.ok(pending?.id);
   assert.deepEqual(JSON.parse(fixture.storage.getItem(refinementKey)!).pendingResetFeedback.letter, pending);
   setup = fixture.reopen() as ResetWorkspace; await idle(setup);
   assert.deepEqual(setup.pendingResetFeedback.letter, pending);
-  assert.equal(setup.letterText, 'Original source letter.');
+  assert.equal(setup.letterText, '');
   setup.iterationNotes.letter.structure = 'Lead with the new research question.';
 
   await setup.copyIterationTask();
@@ -158,5 +161,5 @@ for (const saveBeforeFailure of [false, true]) test(`failed reset feedback ${sav
   assert.equal(feedback[resetIndex].scope, 'letter');
   assert.ok(feedback.findIndex(item => /new research question/.test(item.text)) > resetIndex, 'fresh requests must follow the reset marker');
   assert.equal(fixture.database.application_refinement_reviews.filter(row => row.id === pending.id).length, 1);
-  assert.equal(setup.letterText, 'Original source letter.');
+  assert.equal(setup.letterText, '');
 });

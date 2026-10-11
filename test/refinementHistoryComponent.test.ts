@@ -35,7 +35,7 @@ const renderer = createRenderer<object, object>({
 function mount(t: TestContext) {
   const props = reactive({ requests: [] as RefinementRequestRow[], proposals: [] as RefinementProposalRow[], localRequests: {} as Record<string, LocalRefinementRequest>, currentRequestId: null,
     scope: 'cv' as RefinementScope,
-    activeId: '', reviewActive: false, accepted: false, canReset: true, canClear: true,
+    activeId: '', reviewActive: false, accepted: false, canClear: true,
     publicationStatus: 'current' as const, lang: 'en', busy: false, open: true });
   let cleared = 0;
   let mounted: unknown;
@@ -115,8 +115,9 @@ test('history changes with scope and counts only proposals belonging to visible 
 test('changing scope cancels an open clear confirmation and scopes its wording', async t => {
   const { props, setup, cleared } = mount(t);
   assert.equal(setup.clearTitle, 'Clear CV refinement history?');
+  assert.match(setup.clearMessage, /Restore the CV to its original state and remove its approval/);
   assert.equal(setup.emptyMessage, 'No CV refinement history yet.');
-  assert.match(setup.clearMessage, /letter history are kept/);
+  assert.match(setup.clearMessage, /Your letter and its history are kept/);
   setup.requestClear();
   props.scope = 'letter';
   await nextTick();
@@ -124,6 +125,7 @@ test('changing scope cancels an open clear confirmation and scopes its wording',
   setup.confirmClear();
   assert.equal(cleared(), 0);
   assert.equal(setup.clearTitle, 'Clear letter refinement history?');
+  assert.match(setup.clearMessage, /empty draft using the selected template/);
   assert.equal(setup.emptyMessage, 'No motivation letter refinement history yet.');
-  assert.match(setup.clearMessage, /CV history are kept/);
+  assert.match(setup.clearMessage, /Your CV and its history are kept/);
 });

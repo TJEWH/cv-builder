@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faCheck, faRotate, faRotateLeft } from '@fortawesome/free-solid-svg-icons';
+import { faAlignLeft, faCheck, faCopy, faFeatherPointed, faRotate, faRotateLeft } from '@fortawesome/free-solid-svg-icons';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Application, ApplicationStage } from '../cloudTypes';
 import { supabaseConfiguration } from '../lib/supabase';
@@ -10,7 +10,7 @@ import type { ApplicationLetter, LetterFormatting, LetterTemplate } from '../let
 import type { ApprovedPrivacyContexts, AnnotationStatus, AnnotationReference, LocalRefinementRequest, RefinementApprovals, RefinementFeedback, RefinementProposalRow, RefinementRequestRow, RefinementReviewRow, RefinementScope, RefinementState } from '../refinementTypes';
 import { cloneCv, createApplicationCv, cvDifferences, isApplicationCvPublished, loadApplicationCv, saveApplicationCv, type ApplicationCvRecord } from '../composables/applicationCv';
 import { addIncomingDraft, createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, editLetter, finalizeLetter, formatLetter, letterContextVersion, letterFromEditableText, openLetterRevision, saveWorkingRevision, selectApplicationLetterTemplate, unresolvedLetterPlaceholders } from '../composables/motivationLetters';
-import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, describeCvOperation, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText, validateLocalRefinementSource } from '../composables/applicationRefinement';
+import { applyRefinementProposal, createRefinementRepository, describeCvOperation, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText, validateLocalRefinementSource } from '../composables/applicationRefinement';
 import { applicationStage, applicationStatusLabel, applicationTrackingStarted } from '../composables/applicationTracking';
 import { formatOpportunityDeadline } from '../composables/opportunityDeadline';
 import FormBuilder from './FormBuilder.vue';
@@ -62,10 +62,57 @@ const privacyContexts = ref<ApprovedPrivacyContexts>({});
 const localRequests = ref<Record<string, LocalRefinementRequest>>({});
 type DocumentScope = 'cv' | 'letter';
 type IterationNotes = { tone: string; structure: string; content: string };
+const iterationNoteFields = ['tone', 'structure', 'content'] as const;
+type IterationNoteField = typeof iterationNoteFields[number];
+type IterationFeedbackSubmission = {
+  id: string; text: string; requestId: string | null;
+  draft?: { notes: IterationNotes; knownProposalIds: string[] };
+};
 const emptyIterationNotes = (): IterationNotes => ({ tone: '', structure: '', content: '' });
 const iterationNotes = ref<Record<DocumentScope, IterationNotes>>({ cv: emptyIterationNotes(), letter: emptyIterationNotes() });
-const iterationFeedbackSubmission = ref<Record<DocumentScope, { id: string; text: string; requestId: string | null } | null>>({ cv: null, letter: null });
-const pendingResetFeedback = ref<Record<DocumentScope, { id: string; text: string; requestId: string } | null>>({ cv: null, letter: null });
+const iterationFeedbackSubmission = ref<Record<DocumentScope, IterationFeedbackSubmission | null>>({ cv: null, letter: null });
+const selectedIterationNote = ref<IterationNoteField>('tone');
+const visibleIterationNoteFields = computed(() => iterationNoteFields.filter(field => pane.value === 'letter' || field !== 'tone'));
+const activeIterationNote = computed({
+  get: () => visibleIterationNoteFields.value.includes(selectedIterationNote.value) ? selectedIterationNote.value : visibleIterationNoteFields.value[0]!,
+  set: (field: IterationNoteField) => { selectedIterationNote.value = field; },
+});
+const iterationNoteIcons = { tone: faFeatherPointed, structure: faAlignLeft, content: faAlignLeft };
+const iterationNoteLabel = (field: IterationNoteField) => ({ tone: text('Tone', 'Tonalität'), structure: text('Structure', 'Struktur'), content: text('Content', 'Inhalt') })[field];
+const iterationNotePlaceholder = computed(() => ({
+  tone: text(
+    'e.g. Use a confident, measured voice. Replace generic enthusiasm with specific reasons for my interest.',
+    'Z. B. Schreibe selbstbewusst und sachlich. Ersetze allgemeine Begeisterung durch konkrete Gründe für mein Interesse.',
+  ),
+  structure: pane.value === 'cv' ? text(
+    'e.g. Put research experience before education. Group related methods and place the strongest evidence first.',
+    'Z. B. Stelle Forschungserfahrung vor Ausbildung. Bündele verwandte Methoden und nenne die stärksten Belege zuerst.',
+  ) : text(
+    'e.g. Open with my research interest, connect it to one relevant project, and close with my fit for the lab.',
+    'Z. B. Beginne mit meinem Forschungsinteresse, verknüpfe es mit einem passenden Projekt und schließe mit meiner Eignung für die Arbeitsgruppe.',
+  ),
+  content: pane.value === 'cv' ? text(
+    'e.g. Emphasize methods and outcomes relevant to this role. Quantify results only where my source material supports them.',
+    'Z. B. Betone Methoden und Ergebnisse, die zur Stelle passen. Nenne Zahlen nur, wenn meine Unterlagen sie belegen.',
+  ) : text(
+    'e.g. Use my thesis methods to explain my fit for the lab. Include only details supported by my CV or answers.',
+    'Z. B. Erkläre anhand der Methoden meiner Abschlussarbeit, wie ich zur Arbeitsgruppe passe. Nutze nur Angaben aus meinem CV oder meinen Antworten.',
+  ),
+})[activeIterationNote.value]);
+const iterationNoteTabId = (field: IterationNoteField) => `${props.application.id}-${pane.value}-note-${field}`;
+const iterationNotePanelId = computed(() => `${props.application.id}-${pane.value}-note-panel`);
+function onIterationNoteKeydown(event: KeyboardEvent, field: IterationNoteField) {
+  const fields = visibleIterationNoteFields.value;
+  const index = fields.indexOf(field);
+  const next = event.key === 'ArrowRight' ? fields[(index + 1) % fields.length]
+    : event.key === 'ArrowLeft' ? fields[(index + fields.length - 1) % fields.length]
+    : event.key === 'Home' ? fields[0] : event.key === 'End' ? fields.at(-1) : undefined;
+  if (!next) return;
+  event.preventDefault();
+  activeIterationNote.value = next;
+  (event.currentTarget as HTMLElement).parentElement?.querySelector<HTMLButtonElement>(`[data-iteration-note="${next}"]`)?.focus();
+}
+const pendingResetFeedback = ref<Record<DocumentScope, { id: string; text: string; requestId: string | null } | null>>({ cv: null, letter: null });
 const parentProposalIds = ref<Record<DocumentScope, string | null>>({ cv: null, letter: null });
 const resetRequestIds = ref<string[]>([]);
 const resetRequestIdsByScope = ref<Record<DocumentScope, string[]>>({ cv: [], letter: [] });
@@ -104,7 +151,6 @@ const shortInstruction = computed(() => {
 const shortInstructionNotice = ref('');
 const shortInstructionError = ref('');
 watch(shortInstruction, () => { shortInstructionNotice.value = ''; shortInstructionError.value = ''; });
-const prompt = ref('');
 const busy = ref(false);
 const refreshing = ref(false);
 const syncing = ref(false);
@@ -155,9 +201,15 @@ try {
         if (typeof draft === 'string') iterationNotes.value[scope][field] = draft;
       }
       const submission = value.iterationFeedbackSubmission?.[scope];
-      if (submission && typeof submission.id === 'string' && typeof submission.text === 'string' && (submission.requestId === null || typeof submission.requestId === 'string')) iterationFeedbackSubmission.value[scope] = submission;
+      if (submission && typeof submission.id === 'string' && typeof submission.text === 'string' && (submission.requestId === null || typeof submission.requestId === 'string')) {
+        const draft = submission.draft;
+        iterationFeedbackSubmission.value[scope] = {
+          id: submission.id, text: submission.text, requestId: submission.requestId,
+          ...(draft && iterationNoteFields.every(field => typeof draft.notes?.[field] === 'string') && Array.isArray(draft.knownProposalIds) && draft.knownProposalIds.every((id: unknown) => typeof id === 'string') ? { draft } : {}),
+        };
+      }
       const reset = value.pendingResetFeedback?.[scope];
-      if (reset && typeof reset.id === 'string' && typeof reset.text === 'string' && typeof reset.requestId === 'string') pendingResetFeedback.value[scope] = reset;
+      if (reset && typeof reset.id === 'string' && typeof reset.text === 'string' && (reset.requestId === null || typeof reset.requestId === 'string')) pendingResetFeedback.value[scope] = reset;
     }
     resetRequestIds.value = Array.isArray(value.resetRequestIds) ? value.resetRequestIds : [];
     if (['cv', 'letter'].includes(value.scope)) { feedbackScope.value = value.scope; scopeWasChosen = true; }
@@ -259,7 +311,6 @@ const scopedRequests = computed(() => requests.value.filter(row => matchesScope(
 const availableProposals = computed(() => visibleRefinementProposals(proposals.value.filter(row => !isRequestReset(row.request_id)), scopedRequests.value[0]?.id || null, selectedProposalId.value)
   .filter(row => scopedRequests.value.some(request => request.id === row.request_id)));
 const originalRequest = computed(() => [...scopedRequests.value].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))[0]);
-const canResetOriginal = computed(() => !!record.value && !!letter.value && !!originalRequest.value && !!localRequests.value[originalRequest.value.id]?.letterBaseline);
 function reviewMatchesScope(row: RefinementReviewRow, scope: DocumentScope = pane.value) {
   if (row.cleared_scopes?.includes(scope)) return false;
   const ownScope = row.kind === 'feedback' ? row.payload.scope : row.kind === 'annotation'
@@ -466,9 +517,22 @@ async function refreshCloud() {
       const parent = nextProposals.find(item => item.id === parentProposalIds.value[scope]);
       if (!parent || isRequestReset(parent.request_id, scope) || !nextRequests.some(row => row.id === parent.request_id && matchesScope(row, scope))) parentProposalIds.value[scope] = null;
       const submission = iterationFeedbackSubmission.value[scope];
-      if (submission?.requestId && !nextRequests.some(row => row.id === submission.requestId && matchesScope(row, scope))) iterationFeedbackSubmission.value[scope] = null;
+      const submittedDraft = submission?.draft;
+      // Only a new, validated response to these notes consumes them. Preserve any
+      // fields edited since submission, including while another scope is open.
+      const answered = submission && submittedDraft && nextProposals.some(proposal => {
+        const source = requestById.get(proposal.request_id)!;
+        return !submittedDraft.knownProposalIds.includes(proposal.id) && !isRequestReset(source.id, scope)
+          && matchesScope(source, scope) && source.request_json.feedback.some(feedback => feedback.id === submission.id);
+      });
+      if (answered && submittedDraft) {
+        for (const field of iterationNoteFields) {
+          if (iterationNotes.value[scope][field] === submittedDraft.notes[field]) iterationNotes.value[scope][field] = '';
+        }
+        iterationFeedbackSubmission.value[scope] = null;
+      } else if (submission?.requestId && !nextRequests.some(row => row.id === submission.requestId && matchesScope(row, scope))) iterationFeedbackSubmission.value[scope] = null;
       const reset = pendingResetFeedback.value[scope];
-      if (reset && !nextRequests.some(row => row.id === reset.requestId && matchesScope(row, scope))) pendingResetFeedback.value[scope] = null;
+      if (reset?.requestId && !nextRequests.some(row => row.id === reset.requestId && matchesScope(row, scope))) pendingResetFeedback.value[scope] = null;
     }
     if (selectedProposalId.value && !nextProposals.some(item => item.id === selectedProposalId.value)) reviewActive.value = false;
     if (state && initialSignature === baselineSignature.value) approvals.value = clone(state.approvals_json);
@@ -612,11 +676,6 @@ async function includeAnnotationFeedback(id: string) {
   if (disposed) return;
   if (!reviews.value.some(item => item.id === row.id)) reviews.value.push(row);
 }
-async function copyPrompt() {
-  notice.value = '';
-  try { await navigator.clipboard.writeText(prompt.value); notice.value = text('Connected protocol copied. This requires Supabase execute_sql in ChatGPT.', 'Verbundenes Protokoll kopiert. Dafür muss Supabase execute_sql in ChatGPT verfügbar sein.'); }
-  catch { notice.value = text('Select and copy the prompt below.', 'Den Prompt unten markieren und kopieren.'); }
-}
 async function copyShortInstruction() {
   shortInstructionNotice.value = ''; shortInstructionError.value = '';
   const value = shortInstruction.value;
@@ -736,15 +795,13 @@ async function copyIterationTask() {
   // The comparison is temporary; every iteration starts from the saved working document.
   reviewActive.value = false;
   const scope = pane.value, requestedScope = feedbackScope.value;
-  const draft = clone(iterationNotes.value[scope]);
   await run(async () => {
     await refreshCloud();
+    const draft = clone(iterationNotes.value[scope]);
     await savePendingResetFeedback(requestedScope);
     await submitIterationFeedback(scope, draft);
     await createRound(requestedScope);
     if (disposed) return;
-    if (refinementSignature(iterationNotes.value[scope]) === refinementSignature(draft)) iterationNotes.value[scope] = emptyIterationNotes();
-    iterationFeedbackSubmission.value[scope] = null;
     persist();
     if (saveError.value) throw new Error(saveError.value);
   });
@@ -773,10 +830,11 @@ async function submitIterationFeedback(scope: DocumentScope, draft: IterationNot
   let submission = iterationFeedbackSubmission.value[scope];
   if (!submission || submission.text !== safeText) {
     submission = { id: crypto.randomUUID(), text: safeText, requestId: scopedRequests.value[0]?.id || null };
-    iterationFeedbackSubmission.value[scope] = submission;
-    persist();
-    if (saveError.value) throw new Error(saveError.value);
   }
+  submission.draft = { notes: clone(draft), knownProposalIds: submission.draft?.knownProposalIds ?? proposals.value.map(proposal => proposal.id) };
+  iterationFeedbackSubmission.value[scope] = submission;
+  persist();
+  if (saveError.value) throw new Error(saveError.value);
   if (reviews.value.some(row => row.id === submission!.id)) return;
   const saved = await repository.saveReview(props.application.id, submission.requestId, 'feedback', { text: submission.text, scope }, submission.id);
   if (!disposed) reviews.value = mergeReviews(reviews.value, [saved]);
@@ -790,11 +848,6 @@ async function copyTask() { await run(async () => {
   await repository.publishProtocol(request.request_json, refinementProjectId());
   if (requestToCopy().id !== request.id) throw new Error('The current refinement request changed. Copy the task again.');
   await copyShortInstruction();
-}); }
-async function connectedPrompt() { await run(async () => {
-  const request = requestToCopy();
-  prompt.value = buildRefinementPrompt(request.request_json, refinementProjectId());
-  await copyPrompt();
 }); }
 function checkedProposalResult() {
   if (!record.value || !letter.value || !selectedProposal.value) throw new Error('Select a proposal and restore its local source documents first.');
@@ -931,63 +984,59 @@ async function saveApprovedVariant() {
     notice.value = text(`Saved “${name}” to your variant library.`, `„${name}“ in der Variantenbibliothek gespeichert.`);
   });
 }
-async function resetOriginalState() {
-  await run(async () => {
-    const scope = pane.value;
-    const row = originalRequest.value;
-    const local = row && localRequests.value[row.id];
-    if (!row || !local?.letterBaseline || !record.value || !letter.value) throw new Error(text('The original private snapshot is unavailable on this device.', 'Der ursprüngliche private Snapshot ist auf diesem Gerät nicht verfügbar.'));
+async function resetDocumentBeforeClearing(scope: DocumentScope) {
+  if (!record.value || !letter.value) throw new Error(text('Select both templates first.', 'Zuerst beide Vorlagen auswählen.'));
+  const row = originalRequest.value;
+  const local = row && localRequests.value[row.id];
+  let nextRecord = record.value;
+  let nextLetter = letter.value;
+  if (scope === 'cv') {
+    if (!row || !local) throw new Error(text('The original private snapshot is unavailable on this device.', 'Der ursprüngliche private Snapshot ist auf diesem Gerät nicht verfügbar.'));
     if (row.application_id !== props.application.id || row.user_id !== props.userId || refinementSignature(row.request_json) !== refinementSignature(local.request)) throw new Error('The original snapshot does not match this application.');
     validateLocalRefinementSource(local, props.application.id);
-    const previous = { record: record.value, letter: letter.value, approvals: approvals.value, parent: parentProposalIds.value[scope], selected: selectedProposalId.value, review: reviewActive.value, resetRequests: resetRequestIdsByScope.value[scope], pendingReset: pendingResetFeedback.value[scope], iterationSubmission: iterationFeedbackSubmission.value[scope] };
-    const resetFeedback = pendingResetFeedback.value[scope] || (feedbackHistory().length ? {
-      id: crypto.randomUUID(), requestId: row.id,
-      text: `Workflow reset: for the ${scope === 'cv' ? 'CV' : 'motivation letter'} only, ignore earlier feedback and annotation answers. Start from this document’s restored original source and use only feedback explicitly provided after this reset. Keep the other document’s guidance active.`,
-    } : null);
-    const nextRecord = scope === 'cv' ? { ...clone(record.value), state: cloneCv(local.cv.baselineState), variantId: local.cv.sourceVariantId, revision: record.value.revision + 1, updatedAt: new Date().toISOString() } : record.value;
-    let nextLetter = letter.value;
-    if (scope === 'letter') {
-      nextLetter = saveWorkingRevision(letter.value);
-      nextLetter.working = clone(local.letterBaseline.content || letterFromEditableText(local.letterBaseline.text));
-      nextLetter.templateSnapshot = clone(local.letterBaseline.setup.template);
-      nextLetter.templateId = nextLetter.templateSnapshot.id;
-      nextLetter.language = local.letterBaseline.setup.language;
-      nextLetter.maxWords = local.letterBaseline.setup.maxWords;
-      nextLetter.finalRevisionId = null;
-      nextLetter.workingContext = letterContextVersion(props.application, letterCvState.value, nextLetter.templateSnapshot, nextLetter.language, nextLetter.instructions, nextLetter.maxWords, nextLetter.formatting);
-    }
+    nextRecord = { ...clone(record.value), state: cloneCv(local.cv.baselineState), variantId: local.cv.sourceVariantId, revision: record.value.revision + 1, updatedAt: new Date().toISOString() };
+  } else {
+    const template = letter.value.templateSnapshot;
+    if (!template) throw new Error(text('Select a letter template in Preparation before clearing history.', 'Vor dem Löschen des Verlaufs in Vorbereitung eine Briefvorlage auswählen.'));
+    const templateContext = letterContextVersion(props.application, letterCvState.value, template, template.language, '', template.maxWords);
+    nextLetter = createApplicationLetter(props.userId, props.application.id, template, templateContext);
+    nextLetter.revisions = saveWorkingRevision(letter.value).revisions;
+  }
+  const previous = { record: record.value, letter: letter.value, approvals: approvals.value, parent: parentProposalIds.value[scope], selected: selectedProposalId.value, review: reviewActive.value, resetRequests: resetRequestIdsByScope.value[scope], pendingReset: pendingResetFeedback.value[scope], iterationSubmission: iterationFeedbackSubmission.value[scope] };
+  const resetFeedback = pendingResetFeedback.value[scope] || (feedbackHistory().length ? {
+    id: crypto.randomUUID(), requestId: row?.id || null,
+    text: `Workflow reset: for the ${scope === 'cv' ? 'CV' : 'motivation letter'} only, ignore earlier feedback and annotation answers. Start from ${scope === 'cv' ? 'the restored original CV' : 'an empty letter using the selected template'} and use only feedback explicitly provided after this reset. Keep the other document’s guidance active.`,
+  } : null);
+  committingSelection = true;
+  try {
+    record.value = nextRecord; letter.value = nextLetter; approvals.value = { ...approvals.value, [scope]: null };
+    parentProposalIds.value[scope] = null; selectedProposalId.value = ''; reviewActive.value = false;
+    resetRequestIdsByScope.value[scope] = [...new Set([...resetRequestIdsByScope.value[scope], ...scopedRequests.value.map(request => request.id)])];
+    // Commit the retry receipt with the restored documents before the cloud write.
+    pendingResetFeedback.value[scope] = resetFeedback;
+    iterationFeedbackSubmission.value[scope] = null;
+  } finally { committingSelection = false; }
+  persist();
+  if (saveError.value) {
     committingSelection = true;
     try {
-      record.value = nextRecord; letter.value = nextLetter; approvals.value = { ...approvals.value, [scope]: null };
-      parentProposalIds.value[scope] = null; selectedProposalId.value = ''; reviewActive.value = false;
-      resetRequestIdsByScope.value[scope] = [...new Set([...resetRequestIdsByScope.value[scope], ...scopedRequests.value.map(request => request.id)])];
-      // Commit the retry receipt with the restored documents before the cloud write.
-      pendingResetFeedback.value[scope] = resetFeedback;
-      iterationFeedbackSubmission.value[scope] = null;
+      record.value = previous.record; letter.value = previous.letter; approvals.value = previous.approvals;
+      parentProposalIds.value[scope] = previous.parent; selectedProposalId.value = previous.selected; reviewActive.value = previous.review;
+      resetRequestIdsByScope.value[scope] = previous.resetRequests;
+      pendingResetFeedback.value[scope] = previous.pendingReset;
+      iterationFeedbackSubmission.value[scope] = previous.iterationSubmission;
     } finally { committingSelection = false; }
-    persist();
-    if (saveError.value) {
-      committingSelection = true;
-      try {
-        record.value = previous.record; letter.value = previous.letter; approvals.value = previous.approvals;
-        parentProposalIds.value[scope] = previous.parent; selectedProposalId.value = previous.selected; reviewActive.value = previous.review;
-        resetRequestIdsByScope.value[scope] = previous.resetRequests;
-        pendingResetFeedback.value[scope] = previous.pendingReset;
-        iterationFeedbackSubmission.value[scope] = previous.iterationSubmission;
-      } finally { committingSelection = false; }
-      throw new Error(saveError.value);
-    }
-    await savePendingResetFeedback(scope);
-    await saveSetup();
-    notice.value = scope === 'cv' ? text('Original CV restored. Letter and history retained.', 'Ursprünglichen CV wiederhergestellt. Brief und Verlauf bleiben erhalten.') : text('Original letter restored. CV and history retained.', 'Ursprünglichen Brief wiederhergestellt. CV und Verlauf bleiben erhalten.');
-  });
+    throw new Error(saveError.value);
+  }
+  await savePendingResetFeedback(scope);
+  await saveSetup();
 }
 async function clearRefinementHistory() {
   if (refreshing.value || syncing.value || !canClearHistory.value) return;
   await run(async () => {
     const scope = pane.value;
-    persist();
-    if (saveError.value) throw new Error(saveError.value);
+    await resetDocumentBeforeClearing(scope);
+    if (disposed) return;
     await repository.clearHistory(props.application.id, cloudState.value?.revision || 0, scope);
     if (disposed) return;
     await refreshCloud();
@@ -998,11 +1047,10 @@ async function clearRefinementHistory() {
       iterationFeedbackSubmission.value[scope] = null;
       pendingResetFeedback.value[scope] = null;
       selectedChangeIds.value = []; reviewActive.value = false; reviewComparison.value = 'proposed';
-      prompt.value = '';
     } finally { committingSelection = false; }
     persist();
     if (saveError.value) throw new Error(text('Shared history was cleared, but local cleanup could not be saved. Retry saving before continuing.', 'Der geteilte Verlauf wurde gelöscht, aber die lokale Bereinigung konnte nicht gespeichert werden. Vor dem Fortfahren erneut speichern.'));
-    notice.value = scope === 'cv' ? text('CV history cleared. Letter history and both documents are unchanged.', 'CV-Verlauf gelöscht. Briefverlauf und beide Dokumente bleiben unverändert.') : text('Letter history cleared. CV history and both documents are unchanged.', 'Briefverlauf gelöscht. CV-Verlauf und beide Dokumente bleiben unverändert.');
+    notice.value = scope === 'cv' ? text('Original CV restored and CV history cleared. Letter retained.', 'Ursprünglichen CV wiederhergestellt und CV-Verlauf gelöscht. Brief bleibt erhalten.') : text('Letter reset to its template and letter history cleared. CV retained.', 'Brief auf seine Vorlage zurückgesetzt und Briefverlauf gelöscht. CV bleibt erhalten.');
   });
 }
 function exportHistory(value: unknown, filename: string) {
@@ -1044,7 +1092,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
   <section class="application-workspace" :class="{ 'application-workspace--sidebar': desktopSidebar }">
     <WorkspaceDetailHeader class="application-header" :title="String(application.context_json.title || text('Application', 'Bewerbung'))" :subtitle="String(application.context_json.institution || application.context_json.university || '')" :back-label="text('All applications', 'Alle Bewerbungen')" @back="emit('close')">
       <template v-if="$slots.actions" #actions><slot name="actions" /></template>
-      <template #metadata><ApplicationIdentifier :application="application" :lang="lang" /><span>{{ text('Deadline', 'Bewerbungsfrist') }}: {{ formatOpportunityDeadline(application.context_json, lang) }}</span><ApplicationDeadlineCalendar :application="application" :lang="lang" /><span class="application-header__state">{{ applicationStatusLabel(application.status, lang) }}</span></template>
+      <template #metadata><ApplicationIdentifier :application="application" :lang="lang" /><span>{{ text('Deadline', 'Bewerbungsfrist') }}: {{ formatOpportunityDeadline(application.context_json, lang) }}</span><ApplicationDeadlineCalendar :application="application" :lang="lang" /><span class="jobs-badge application-header__state">{{ applicationStatusLabel(application.status, lang) }}</span></template>
     </WorkspaceDetailHeader>
     <div class="workflow-body" :class="{ 'workflow-body--refinement': tab === 'refinement', 'workflow-body--review': tab === 'review' }">
       <section v-show="tab === 'preparation'" class="preparation-stage">
@@ -1106,10 +1154,13 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
               <h3>{{ showInitialRefinement ? text('Initial Refinement', 'Erste Überarbeitung') : text('Next Refinement', 'Nächste Überarbeitung') }}</h3>
               <p v-if="iterationPending" role="status">{{ text('Waiting for the next draft. Sync to load it.', 'Der nächste Entwurf steht aus. Zum Laden synchronisieren.') }}</p>
               <p class="app-hint">{{ text('Optional requests for this document. Included with your answered questions when you copy the task.', 'Optionale Wünsche für dieses Dokument. Sie werden beim Kopieren der Aufgabe zusammen mit Ihren beantworteten Fragen übermittelt.') }}</p>
-              <label>{{ text('Tone', 'Tonalität') }}<textarea v-model="iterationNotes[pane].tone" rows="3" maxlength="4000" :disabled="busy || scopeLocked" /></label>
-              <label>{{ text('Structure', 'Struktur') }}<textarea v-model="iterationNotes[pane].structure" rows="3" maxlength="4000" :disabled="busy || scopeLocked" /></label>
-              <label>{{ text('Content', 'Inhalt') }}<textarea v-model="iterationNotes[pane].content" rows="3" maxlength="4000" :disabled="busy || scopeLocked" /></label>
-              <button type="button" :disabled="busy || refreshing || !preparedSource || scopeLocked" @click="copyIterationTask">{{ showInitialRefinement ? text('Copy task', 'Aufgabe kopieren') : text('Copy feedback', 'Feedback kopieren') }}</button>
+              <div class="iteration-note-tabs" role="tablist" :aria-label="text('Refinement requests', 'Überarbeitungswünsche')">
+                <button v-for="field in visibleIterationNoteFields" :id="iterationNoteTabId(field)" :key="field" type="button" role="tab" :data-iteration-note="field" :aria-controls="iterationNotePanelId" :aria-selected="activeIterationNote === field" :tabindex="activeIterationNote === field ? 0 : -1" @click="activeIterationNote = field" @keydown="onIterationNoteKeydown($event, field)"><FontAwesomeIcon :icon="iterationNoteIcons[field]" aria-hidden="true" />{{ iterationNoteLabel(field) }}</button>
+              </div>
+              <div :id="iterationNotePanelId" class="iteration-note-panel" role="tabpanel" :aria-labelledby="iterationNoteTabId(activeIterationNote)">
+                <textarea v-model="iterationNotes[pane][activeIterationNote]" rows="4" maxlength="4000" :placeholder="iterationNotePlaceholder" :aria-labelledby="iterationNoteTabId(activeIterationNote)" :disabled="busy || scopeLocked" />
+              </div>
+              <button class="refinement-copy-action" type="button" :disabled="busy || refreshing || !preparedSource || scopeLocked" @click="copyIterationTask"><FontAwesomeIcon :icon="faCopy" aria-hidden="true" />{{ showInitialRefinement ? text('Copy task', 'Aufgabe kopieren') : text('Copy feedback', 'Feedback kopieren') }}</button>
             </section>
             <textarea v-if="shortInstructionError" :value="shortInstruction" readonly rows="5" :aria-label="text('Short ChatGPT instruction', 'Kurze ChatGPT-Anweisung')" @focus="($event.target as HTMLTextAreaElement).select()" />
           <details class="disclosure-row"><summary>{{ text('Edit manually', 'Manuell bearbeiten') }}</summary>
@@ -1117,13 +1168,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
           <section v-if="record" v-show="pane === 'cv'" class="working-document"><div class="action-row"><span class="app-hint">{{ text('Application copy — template stays unchanged', 'Bewerbungskopie — Vorlage bleibt unverändert') }}</span></div><fieldset :disabled="cvApproved || busy || reviewActive"><FormBuilder :state="record.state" :read-version="() => null" :save-version="() => false" /></fieldset></section>
           <section v-if="letter" v-show="pane === 'letter'" class="working-document"><label>{{ text('Complete letter text', 'Vollständiger Brieftext') }}<textarea :value="letterText" rows="18" :disabled="letterApproved || busy || reviewActive" @input="updateLetter(($event.target as HTMLTextAreaElement).value)" /></label><p :class="{ warning: words > setup.maxWords }">{{ words }} / {{ setup.maxWords }} {{ text('target words (complete letter)', 'Zielwörter (vollständiger Brief)') }}</p><p v-if="words > setup.maxWords" class="app-hint warning">{{ text('Over the target. Review the tender limit; approval and export remain available.', 'Über der Zielwortzahl. Vorgabe prüfen; Freigabe und Export bleiben möglich.') }}</p><p v-if="unresolved.length" class="app-hint warning">{{ text('Resolve placeholders:', 'Platzhalter auflösen:') }} {{ unresolved.join(', ') }}</p><LetterFormattingControls :formatting="letter.formatting" :base-formatting="selectedTemplate.formatting" :lang="lang" :disabled="letterApproved || busy || reviewActive" @change="updateLetterFormatting" /></section>
           </details>
-          <RefinementHistory :scope="pane" :requests="requests" :proposals="proposals" :local-requests="localRequests" :current-request-id="cloudState?.current_request_id || null" :active-id="selectedProposalId" :review-active="reviewActive" :accepted="proposalAlreadyApplied" :publication-status="publicationStatus" :open="historyOpen" :lang="lang" :busy="busy || refreshing || syncing" :can-reset="canResetOriginal" :can-clear="canClearHistory" @reset="resetOriginalState" @clear="clearRefinementHistory" @select="selectReviewProposal" @details="historyOpen = $event" @export-request="exportRequest" @export-proposal="exportProposal">
-              <details class="disclosure-row"><summary>{{ text('Connection & prompt details', 'Verbindungs- & Promptdetails') }}</summary>
-                <p class="app-hint hint">{{ text('ChatGPT needs Supabase SQL tools to read the published sources and save proposals.', 'ChatGPT benötigt Supabase-SQL-Werkzeuge, um veröffentlichte Quellen zu lesen und Vorschläge zu speichern.') }}</p>
-                <button type="button" :disabled="busy || publicationStatus !== 'current'" @click="connectedPrompt">{{ text('Copy connected setup prompt', 'Einrichtungsprompt für die Verbindung kopieren') }}</button>
-                <textarea v-if="prompt" :value="prompt" readonly rows="7" :aria-label="text('Refinement prompt', 'Überarbeitungs-Prompt')" />
-              </details>
-          </RefinementHistory>
+          <RefinementHistory :scope="pane" :requests="requests" :proposals="proposals" :local-requests="localRequests" :current-request-id="cloudState?.current_request_id || null" :active-id="selectedProposalId" :review-active="reviewActive" :accepted="proposalAlreadyApplied" :publication-status="publicationStatus" :open="historyOpen" :lang="lang" :busy="busy || refreshing || syncing" :can-clear="canClearHistory" @clear="clearRefinementHistory" @select="selectReviewProposal" @details="historyOpen = $event" @export-request="exportRequest" @export-proposal="exportProposal" />
         </div>
         <div class="refinement-preview">
           <RefinementPreviewStatus v-if="pane === 'cv' ? showCvReview : showLetterReview" v-model="reviewComparison" :hide-comparison="pane === 'letter'" :label="reviewPreviewLabel(pane)" :reference="proposalPreviewReference" :outdated="proposalSourceOutdated && !(showLetterComparison && selectedWorkingLetter)" :lang="lang" />
@@ -1152,7 +1197,13 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 </template>
 
 <style scoped>
-.application-header__state{margin-left:auto;align-self:flex-end;padding:5px 9px;border:1px solid #356454;border-radius:6px;color:#b9edd9;font-size:12px;white-space:nowrap}
+.iteration-note-tabs{display:flex;border-bottom:1px solid var(--ui-border);margin-bottom:10px}
+.iteration-note-tabs button{display:inline-flex;align-items:center;justify-content:center;gap:8px;flex:1;min-width:0;min-height:44px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--ui-muted)}
+.iteration-note-tabs svg{width:1em;flex-shrink:0}
+.iteration-note-tabs button[aria-selected="true"]{border-bottom-color:var(--ui-accent);color:var(--ui-accent);font-weight:600}
+.iteration-note-panel{margin-bottom:12px}
+.iteration-note-panel textarea{display:block}
+.application-header__state{margin-left:auto;margin-top:0;align-self:flex-end;line-height:1.5}
 .iteration-step{padding:16px 0;}.iteration-step:first-child{padding-top:0}.iteration-step:last-of-type{border-bottom:0}.iteration-step h3{margin-bottom:10px}.iteration-step h4{font-size:14px;margin:20px 0 10px}.proposal-summary{color:#b8d9cf;font-weight:600}.proposal-preview-action{display:flex;flex-wrap:wrap;gap:8px}.proposal-preview-action--sidebar{flex-direction:column}.proposal-preview-action--sidebar button{width:100%;text-align:left}.refinement-icon-action{display:inline-flex;align-items:center;gap:8px}.refinement-icon-action svg{width:1em;flex-shrink:0}
 
 .selection-checkbox{display:flex;align-items:center;gap:9px;min-height:36px;cursor:pointer}.selection-checkbox input{width:18px;height:18px;accent-color:#67c8a6}.preview-review-label{font-size:12px;color:#efcc87;margin:0}.application-workspace{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden;color:var(--ui-text);font-family:var(--font-ui,system-ui)}
@@ -1186,4 +1237,7 @@ h3{font-size:16px;margin:0 0 14px}p{line-height:1.6;font-size:13px}button,input,
 .refinement-toolbar--sidebar{position:static;padding:0;margin:0;border:0;background:transparent}
 .refinement-toolbar--sidebar .action-row{display:flex;flex-direction:column;align-items:stretch;gap:8px}
 .refinement-toolbar--sidebar .action-row button{width:100%;text-align:left}
+.refinement-copy-action{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;min-height:44px;padding:12px 18px;background:var(--ui-accent);border-color:var(--ui-accent);color:var(--ui-shell);font-size:14px;font-weight:700}
+.refinement-copy-action:hover:enabled{background:var(--ui-text);border-color:var(--ui-text)}
+.refinement-copy-action:focus-visible{outline:2px solid var(--ui-accent);outline-offset:3px}
 </style>

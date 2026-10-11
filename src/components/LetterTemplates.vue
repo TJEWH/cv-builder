@@ -178,7 +178,6 @@ async function importLibrary(event: Event) {
             <option v-if="!selectedId" value="" disabled>{{ text('New template', 'Neue Vorlage') }}</option>
             <option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }}</option>
           </select></label>
-          <p v-if="form" class="template-selection-details">{{ text('Revision', 'Revision') }} {{ form.revision }} · {{ text('Target:', 'Ziel:') }} {{ form.maxWords }} {{ text('words', 'Wörter') }}</p>
           <button class="template-create-action" type="button" @click="create"><FontAwesomeIcon :icon="faPlus" aria-hidden="true" /><span>{{ text('Create new template', 'Neue Vorlage erstellen') }}</span></button>
         </div>
         <section class="template-library-section template-default" :aria-labelledby="`${controlsId}-default-heading`">
@@ -258,7 +257,6 @@ button:disabled{opacity:.55;cursor:default}
 .template-library-controls{min-width:0;align-self:start;display:grid;gap:20px}
 .template-library-section{display:grid;gap:10px;min-width:0}
 .template-library-section h3{margin:0;font:600 13px/1.4 var(--font-ui);color:var(--ui-text)}
-.template-library-controls .template-selection-details{font-size:11px;font-variant-numeric:tabular-nums}
 .template-library-controls .template-control-help{font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 .template-control-help strong{font-weight:500;color:var(--ui-text)}
 .template-library-controls button{display:flex;align-items:center;justify-content:center;gap:8px;min-height:38px;text-align:center}

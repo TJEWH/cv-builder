@@ -58,7 +58,10 @@ async function disclose(name: string) {
 }
 async function field(name: string, value: string) {
   const label = [...root.querySelectorAll('label')].find(node => node.firstChild?.textContent?.trim() === name);
-  const control = (label?.control ?? label?.querySelector('select,textarea,input')) as HTMLSelectElement | HTMLTextAreaElement | HTMLInputElement | null;
+  const noteTabs = root.querySelector('.iteration-note-tabs');
+  const noteTab = [...noteTabs?.querySelectorAll<HTMLButtonElement>('[role="tab"]') || []].find(tab => tab.textContent?.trim() === name);
+  if (noteTab) { noteTab.click(); await nextTick(); }
+  const control = (noteTab ? root.querySelector('.iteration-note-panel textarea') : label?.control ?? label?.querySelector('select,textarea,input')) as HTMLSelectElement | HTMLTextAreaElement | HTMLInputElement | null;
   assert(control, `Missing field: ${name}`); assert(!control.disabled, `Disabled field: ${name}`);
   control.value = value; control.dispatchEvent(new Event(control.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
   if (control instanceof HTMLInputElement && control.type === 'number') control.dispatchEvent(new Event('change', { bubbles: true }));
@@ -196,21 +199,42 @@ async function proposalReviewFlow() {
   const annotation = root.querySelector('.annotations article')!;
   assert(!annotation.querySelector('textarea'), 'Ignoring an annotation must hide its response input');
   const firstRequest = setup.requests[0].id;
+  const notePanel = root.querySelector<HTMLElement>('.iteration-note-panel')!;
+  const noteEditor = notePanel.querySelector('textarea')!;
+  assert(root.querySelectorAll('.refinement-task textarea').length === 1, 'All three note tabs must share one textarea');
+  const noteBounds = () => JSON.stringify(noteEditor.getBoundingClientRect().toJSON());
   await field('Tone', 'Use a measured, direct tone.');
+  const firstBounds = noteBounds();
   await field('Structure', 'Start with the research question.');
+  assert(noteBounds() === firstBounds, 'Switching note tabs must keep the textarea in the same position');
   await field('Content', 'Explain the experimental method.');
+  assert(notePanel.querySelector('textarea') === noteEditor && noteBounds() === firstBounds, 'Switching tabs must reuse the same textarea and dimensions');
+  const toneTab = button('Tone', root.querySelector('.iteration-note-tabs')!);
+  toneTab.focus(); toneTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await nextTick();
+  assert(document.activeElement === button('Structure') && button('Structure').getAttribute('aria-selected') === 'true', 'Arrow keys must select and focus the next tab');
+  assert(noteEditor.value === 'Start with the research question.', 'Changing tabs must restore their independent values');
+  assert(noteEditor.getAttribute('aria-labelledby') === button('Structure').id && notePanel.getAttribute('aria-labelledby') === button('Structure').id, 'The active tab must label the panel and textarea');
+  await click('Content', root.querySelector('.iteration-note-tabs')!);
   await click('Copy feedback'); assert(!setup.error, setup.error);
+  assert(root.querySelector<HTMLTextAreaElement>('.iteration-note-panel textarea')?.value === 'Explain the experimental method.', 'Copying must retain the active notes');
   assert(setup.requests[0].id !== firstRequest && copiedPrompt.includes(setup.requests[0].id), 'Next iteration must publish and copy a new task');
   assert(setup.requests[0].request_json.letter.text === 'First automatically applied proposal.', 'Next iteration lost the applied working letter');
   assert(setup.requests[0].request_json.feedback.some(item => item.scope === 'letter' && /Tone:[\s\S]*measured[\s\S]*Structure:[\s\S]*research question[\s\S]*Content:[\s\S]*experimental method/.test(item.text)), 'Next iteration must include all three refinement requests');
   const next = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Second automatically applied proposal.', persist: false });
   await loadProposal(next); await rendered('letter', 'Second automatically applied proposal.');
-  await disclose('History'); await click('Reset to original state'); assert(!setup.error, setup.error);
-  assert(root.querySelector('.initial-refinement') && !root.querySelector('.next-refinement'), 'Reset must restore initial refinement');
-  assert(setup.letter!.working.body === 'Original working letter.' && refinementSignature(setup.record!.state) === originalCv, 'Letter reset must restore its original source and preserve the CV');
-  assert(setup.proposals.length === 2 && setup.letter!.revisions.some(revision => revision.cloudDraftId === next.id), 'Reset must preserve proposal and letter history');
-  await click('Sync'); await rendered('letter', 'Original working letter.');
-  assert(setup.letter!.working.body === 'Original working letter.', 'Sync replayed a reset proposal');
+  assert(root.querySelector<HTMLTextAreaElement>('.iteration-note-panel textarea')?.value === '', 'Loading the next proposal must clear its submitted notes');
+  await disclose('History');
+  assert(!root.querySelector('.refinement-history')?.textContent?.includes('Reset to original state'), 'History must offer only the combined clear action');
+  await click('Clear history', root.querySelector('.refinement-history')!);
+  await click('Clear history', document.querySelector('[role="alertdialog"]')!); assert(!setup.error, setup.error);
+  assert(root.querySelector('.initial-refinement') && !root.querySelector('.next-refinement'), 'Clearing history must restore initial refinement');
+  assert(setup.letterText === '' && refinementSignature(setup.record!.state) === originalCv, 'Letter clearing must restore an empty template draft and preserve the CV');
+  assert(setup.letter!.revisions.some(revision => revision.cloudDraftId === next.id), 'Clearing refinement history must preserve archived letter revisions');
+  await click('Sync');
+  assert(setup.letterText === '', 'Sync replayed a cleared proposal');
+  await click('Copy task');
+  const restarted = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Fresh draft using the selected template.', persist: false });
+  await loadProposal(restarted); await rendered('letter', 'Fresh draft using the selected template.');
   await click('Approve letter'); await field('Refinement scope', 'cv'); await click('Approve CV'); await click('3Attachments');
   await until(() => {
     const problem = root.querySelector('.application-documents [role="alert"]');
@@ -375,6 +399,14 @@ async function scopedHistoryFlow() {
   function checkHistory(expectedIds: string[]) {
     const ids = [...root.querySelectorAll('.history-run')].map(run => run.querySelector('dl code')?.textContent || '');
     assert(same([...ids].sort(), [...expectedIds].sort()), `History must show only ${expectedIds.length} matching refinement round(s)`);
+    for (const summary of root.querySelectorAll('.history-run > summary')) assert(!/CV|Motivation letter/.test(summary.textContent || ''), 'History summaries must omit the redundant document scope');
+    assert(!root.querySelector('.refinement-history')?.textContent?.includes('Connection & prompt details'), 'History must omit the prompt details entry');
+    const noteTabs = [...root.querySelectorAll('.iteration-note-tabs [role="tab"]')];
+    const expectedTabs = setup.pane === 'cv' ? ['Structure', 'Content'] : ['Tone', 'Structure', 'Content'];
+    assert(same(noteTabs.map(tab => tab.textContent?.trim()), expectedTabs), 'Tone must be available only for letter refinement');
+    assert(noteTabs.every(tab => tab.querySelector('svg[aria-hidden="true"]')), 'Every refinement note tab must have an icon');
+    const selectedTab = noteTabs.find(tab => tab.getAttribute('aria-selected') === 'true');
+    assert(selectedTab && root.querySelector('.iteration-note-panel textarea')?.getAttribute('aria-labelledby') === selectedTab.id, 'The textarea must belong to a visible selected tab');
   }
   function checkManualEditor() {
     const manual = [...root.querySelectorAll('summary')].find(summary => summary.textContent?.trim() === 'Edit manually')?.parentElement;
@@ -412,24 +444,22 @@ async function scopedHistoryFlow() {
   await field('Refinement scope', 'letter');
   checkHistory([letterRequestId]);
 
-  await click('Reset to original state', root.querySelector('.refinement-history')!);
-  assert(!setup.error, setup.error);
-  assert(setup.letter!.working.body === originalLetter, 'Letter reset must restore its exact original source');
-  assert(refinementSignature(setup.record!.state) === appliedCv, 'Letter reset must retain the refined CV');
-  checkHistory([letterRequestId]);
+  assert(!root.querySelector('.refinement-history')?.textContent?.includes('Reset to original state'), 'The separate reset action is redundant');
   await field('Refinement scope', 'cv');
   checkHistory([cvRequestId]);
-  const documentsBeforeClear = snapshot();
+  const letterBeforeClear = refinementSignature(setup.letter);
   await click('Clear history', root.querySelector('.refinement-history')!);
   const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]');
   assert(dialog, 'Clearing history must open its confirmation dialog');
   assert(dialog.textContent?.includes('Clear CV refinement history?'), 'Clearing CV history must name that scope in its confirmation');
-  assert(dialog.textContent?.includes('letter history are kept'), 'The confirmation must explain that letter history is retained');
+  assert(dialog.textContent?.includes('Your letter and its history are kept'), 'The confirmation must explain that letter history is retained');
+  assert(dialog.textContent?.includes('Restore the CV to its original state'), 'The confirmation must explain the reset before deletion');
   await click('Clear history', dialog);
   assert(!setup.error, setup.error);
   assert(!document.querySelector('[role="alertdialog"]'), 'The clear confirmation must close after submitting');
   checkHistory([]);
-  assert(snapshot() === documentsBeforeClear, 'Clearing CV history must preserve both working documents');
+  assert(refinementSignature(setup.record!.state) === originalCv, 'Clearing CV history must restore its original source');
+  assert(refinementSignature(setup.letter) === letterBeforeClear, 'Clearing CV history must preserve the letter');
   assert(!setup.requests.some(request => request.id === cvRequestId) && setup.requests.some(request => request.id === letterRequestId), 'Clearing CV history must keep the letter request');
   assert(!setup.proposals.some(proposal => proposal.id === cvProposal.id) && setup.proposals.some(proposal => proposal.id === letterProposal.id), 'Clearing CV history must keep the letter proposal');
 
@@ -437,17 +467,26 @@ async function scopedHistoryFlow() {
   checkHistory([letterRequestId]);
   await mount(true); await click('2Refinement'); await disclose('History');
   checkHistory([letterRequestId]);
-  assert(setup.letter!.working.body === originalLetter && refinementSignature(setup.record!.state) === appliedCv, 'Reload must preserve the letter reset and refined CV');
+  assert(setup.letter!.working.body === refinedLetter && refinementSignature(setup.record!.state) === originalCv, 'Reload must preserve the original CV and refined letter after clearing CV history');
   assert(setup.proposals.some(proposal => proposal.id === letterProposal.id), 'Letter proposal history must survive reload after clearing CV history');
   await field('Refinement scope', 'cv');
   checkHistory([]);
   assert(button('Clear history', root.querySelector('.refinement-history')!).disabled, 'The cleared CV history must no longer offer deletion');
   await field('Refinement scope', 'letter');
-  await rendered('letter', originalLetter);
+  await rendered('letter', refinedLetter);
+  await click('Clear history', root.querySelector('.refinement-history')!);
+  const letterDialog = document.querySelector<HTMLElement>('[role="alertdialog"]')!;
+  assert(letterDialog.textContent?.includes('empty draft using the selected template'), 'Letter clear must describe the template reset');
+  await click('Clear history', letterDialog);
+  assert(!setup.error && setup.letterText === '', 'Clearing letter history must discard earlier draft wording');
+  assert(refinementSignature(setup.record!.state) === originalCv, 'Letter clearing must retain the CV');
+  checkHistory([]);
+  await mount(true); await click('2Refinement'); await disclose('History');
+  assert(setup.letterText === '' && root.querySelector('.initial-refinement'), 'Reload must retain the empty template draft');
 }
 const flows = [
   ['scope-layout', 'Scope dropdown → task controls → scoped preview and editor → preparation settings', scopeLayoutFlow],
-  ['scoped-history', 'CV and letter questions → scoped history → letter reset → clear only CV → reload', scopedHistoryFlow],
+  ['scoped-history', 'Scoped history → clear CV → preserve letter → clear letter to template → reload', scopedHistoryFlow],
   ['cv', 'CV snapshot → application-only changes → compare → reload → save approved variant', cvFlow],
   ['initial-letter', 'Initial letter → automatic application → compare → reload', () => letterFlow(true)],
   ['existing-letter', 'Existing letter → automatic refinement → compare → reload', () => letterFlow(false)],

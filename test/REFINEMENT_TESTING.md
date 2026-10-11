@@ -29,11 +29,11 @@ Open [the synthetic runner](http://127.0.0.1:5177/cv-builder/test/e2e/index.html
 | Flow | Behavior |
 | --- | --- |
 | `scope-layout` | Scope selection, visible task controls, scoped preview/editor and preparation settings |
-| `scoped-history` | Questions-only current review, removed manual writing instructions, separate CV/letter history, letter-only reset, CV-only clear confirmation and preservation of letter history across reload |
+| `scoped-history` | Questions-only current review, refinement tab icons, history summaries without redundant scope or prompt details, CV reset before clearing its history, preservation of letter history, and letter clear returning to the selected template across reload |
 | `cv` | Publish, sync an operation proposal, apply only to the application CV, compare, reload, save an approved independent variant |
 | `initial-letter` | Publish an empty letter, apply its initial draft, compare and reload |
 | `existing-letter` | Publish the complete current letter, apply a refinement, compare and reload |
-| `proposal-review` | Automatic application, ignored annotation feedback, next iteration, reset and approved PDF generation |
+| `proposal-review` | Automatic application, ignored annotation feedback, keyboard-accessible note tabs sharing one textarea, notes retained on copy and cleared on the next proposal, clear to template, and approved PDF generation |
 | `template-questions` | Template groups and default expansion, frozen guidance and formatting, contextual questions, saved answer feedback, the next refinement, manual header size and reset to template defaults |
 
 Use `?flow=cv` (or another listed ID) to isolate a flow; `?sidebar=1` exercises the desktop sidebar. A browser driver clicks `#run-tests` and waits for `body[data-result="passed"]` or `body[data-result="failed"]`. Read `#test-status` and `#test-results` for failures. Starting the Vite server does not execute tests.

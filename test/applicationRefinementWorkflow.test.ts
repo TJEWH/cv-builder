@@ -491,19 +491,6 @@ test('copy task does not copy a protocol locator when publication fails or retur
   }
 });
 
-test('connected setup copies the published request without creating another round', async t => {
-  const fixture = mount(t), setup = await prepare(fixture);
-  const copied: string[] = [];
-  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copied.push(value); } } });
-  await setup.connectedPrompt(); assert.equal(setup.error, '');
-  assert.match(copied.at(-1)!, /private.read_refinement_request/);
-  assert.match(copied.at(-1)!, /If execute_sql is unavailable, report a missing capability/);
-  assert.doesNotMatch(copied.at(-1)!, /BEGIN_APPROVED_REQUEST_JSON/);
-  await setup.publishSources();
-  assert.equal(copied.length, 1, 'publishing and copying are independent');
-  assert.equal(setup.requests.length, 1);
-});
-
 test('an empty letter publishes an explicit first-draft task and switches to refinement after a working draft exists', async t => {
   const fixture = mount(t), setup = await prepare(fixture, 'base', { letterText: '', scope: 'letter' });
   const copied: string[] = [];

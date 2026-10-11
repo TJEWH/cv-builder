@@ -1,3 +1,4 @@
+import { EMPTY_LETTER } from '../src/composables/motivationLetters';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { refinementSignature } from '../src/composables/applicationRefinement';
@@ -188,10 +189,10 @@ test('sync never applies a letter proposal while the selected scope is CV', asyn
   assert.equal(fixture.creations.length, 0);
 });
 
-test('letter reset retains history and the current CV, and prevents automatic replay after reload', async t => {
+test('clearing letter history retains the current CV and prevents automatic replay after reload', async t => {
   const fixture = mount(t, createPrivateRefinementCv()); let setup = await prepare(fixture, 'base', { scope: 'cv', letterText: 'Original complete letter.' });
   setup.tab = 'refinement'; await idle(setup);
-  const originalLetter = structuredClone(JSON.parse(JSON.stringify(setup.letter!.working)));
+  const originalLetter = { ...EMPTY_LETTER };
   const first = setup.requests[0], originalSettings = JSON.parse(JSON.stringify(setup.letter!.templateSnapshot));
   fixture.cloud.seedProposal(first.id); await setup.syncRefinement();
   assert.equal(setup.error, '');
@@ -206,11 +207,9 @@ test('letter reset retains history and the current CV, and prevents automatic re
   assert.equal(setup.error, '');
   setup.feedbackScope = 'letter';
   const currentCv = refinementSignature(setup.record), cvApproval = setup.approvals.cv;
-  const requestCount = setup.requests.length, proposalCount = setup.proposals.length;
-  const savedFeedback = fixture.database.application_refinement_reviews.filter(row => row.kind === 'feedback').length;
   const acceptedRevisionIds = setup.letter!.revisions.map(revision => revision.id);
 
-  await setup.resetOriginalState();
+  await setup.clearRefinementHistory();
 
   assert.equal(setup.error, '');
   assert.equal(refinementSignature(setup.record), currentCv);
@@ -219,29 +218,24 @@ test('letter reset retains history and the current CV, and prevents automatic re
   assert.deepEqual(setup.letter!.templateSnapshot, originalSettings);
   assert.equal(setup.letter!.finalRevisionId, null);
   assert.equal(setup.selectedProposalId, '');
-  assert.equal(setup.showInitialRefinement, true, 'reset proposals remain in history but no longer count as an earlier refinement');
-  assert.equal(setup.requests.length, requestCount); assert.equal(setup.proposals.length, proposalCount);
+  assert.equal(setup.showInitialRefinement, true, 'cleared letter proposals must no longer count as earlier refinement');
+  assert.ok(setup.requests.some(row => row.id === first.id && !row.cleared_scopes?.includes('cv')), 'CV history must remain active');
   for (const id of acceptedRevisionIds) assert.ok(setup.letter!.revisions.some(revision => revision.id === id), 'reset must preserve every prior letter revision');
-  assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'feedback').length, savedFeedback + 1);
-  assert.equal(setup.feedbackHistory().length, savedFeedback + 1, 'reset must preserve the complete ordered feedback history');
-  assert.match(setup.feedbackHistory().at(-1)!.text, /^Workflow reset:/, 'reset explicitly cancels earlier guidance without deleting it');
-  assert.equal(setup.feedbackHistory().at(-1)!.scope, 'letter', 'reset must not cancel earlier CV guidance');
+  assert.deepEqual(setup.feedbackHistory(), [], 'cleared letter feedback must not enter the next round');
   setup = fixture.reopen(); await idle(setup); await setup.syncRefinement();
   assert.equal(setup.error, '');
   assert.equal(setup.showInitialRefinement, true);
   assert.equal(refinementSignature(setup.record), currentCv);
   assert.deepEqual(setup.letter!.working, originalLetter);
-  assert.equal(setup.requests.length, requestCount);
   await setup.copyIterationTask();
   assert.equal(setup.error, '');
   assert.equal(setup.showInitialRefinement, true, 'the first request after reset still waits for an initial proposal');
   assert.notEqual(setup.requests[0].id, first.id); assert.notEqual(setup.requests[0].id, second.id);
-  assert.equal(setup.requests[0].request_json.feedback.length, savedFeedback + 1);
-  assert.match(setup.requests[0].request_json.feedback.at(-1)!.text, /^Workflow reset:/);
-  assert.equal(setup.requests[0].request_json.letter.text, 'Original complete letter.');
+  assert.deepEqual(setup.requests[0].request_json.feedback, []);
+  assert.equal(setup.requests[0].request_json.letter.text, '');
 });
 
-for (const scope of ['letter', 'both'] as const) test(`reset restores an empty original letter after a ${scope} proposal was loaded`, async t => {
+for (const scope of ['letter', 'both'] as const) test(`clearing history returns to an empty template draft after a ${scope} proposal was loaded`, async t => {
   const fixture = mount(t), setup = await prepare(fixture, 'base', { scope, letterText: '' });
   setup.tab = 'refinement'; await idle(setup);
   const originalLetter = JSON.parse(JSON.stringify(setup.letter!.working));
@@ -253,26 +247,26 @@ for (const scope of ['letter', 'both'] as const) test(`reset restores an empty o
   const currentCv = refinementSignature(setup.record);
   setup.feedbackScope = 'letter';
 
-  await setup.resetOriginalState();
+  await setup.clearRefinementHistory();
 
   assert.equal(setup.error, '');
   assert.equal(refinementSignature(setup.record), currentCv);
   assert.deepEqual(setup.letter!.working, originalLetter);
   assert.equal(setup.selectedProposalId, '');
   assert.ok(setup.letter!.revisions.some(revision => revision.cloudDraftId === proposal.id));
-  assert.ok(setup.proposals.some(row => row.id === proposal.id));
+  assert.equal(setup.showInitialRefinement, true, 'the old proposal must no longer be active for the letter');
   await setup.copyIterationTask();
   assert.equal(setup.error, '');
   assert.notEqual(setup.requests[0].id, request.id);
   assert.equal(setup.requests[0].request_json.letter.text, '');
 });
 
-test('reset without any original private snapshot reports the missing source without changing documents', async t => {
+test('clearing CV history without its private snapshot reports the missing source without changing documents', async t => {
   const fixture = mount(t), setup = await prepare(fixture);
   setup.localRequests = {};
   const before = documents(setup), cloud = refinementSignature(fixture.database);
 
-  await setup.resetOriginalState();
+  await setup.clearRefinementHistory();
 
   assert.match(setup.error, /original|snapshot|source/i);
   assert.equal(documents(setup), before);

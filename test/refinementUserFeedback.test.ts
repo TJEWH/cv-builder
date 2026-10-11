@@ -54,6 +54,7 @@ test('selected notes are privacy-filtered and published with resolved answers in
     content: 'Include work with E2E North Lab; contact rowan@example.invalid only if relevant.',
   });
   await idle(setup);
+  const draft = clone(setup.iterationNotes.letter);
 
   await setup.copyIterationTask();
 
@@ -72,7 +73,7 @@ test('selected notes are privacy-filtered and published with resolved answers in
   assert.equal(request.feedback.length, 2, 'resolved question feedback and direct refinement requests are both included');
   assert.ok(request.feedback.some(item => item.id === reviews[0].id && item.text === payload.text));
   assert.ok(request.feedback.some(item => /reproducible sensing experiments/.test(item.text)));
-  assert.deepEqual(setup.iterationNotes.letter, emptyNotes());
+  assert.deepEqual(setup.iterationNotes.letter, draft);
   assert.deepEqual(setup.iterationNotes.cv, otherDraft);
   assert.equal(documentVersion(setup), before);
   const requestId = request.requestId;
@@ -116,7 +117,7 @@ test('a lost feedback-save acknowledgement retains the draft and retries its rec
   assert.equal(noteReviews(fixture).length, 1);
   assert.equal(new Set(attempts).size, 1, 'all save attempts retain the same review UUID');
   assert.equal(setup.requests[0].request_json.feedback.filter(item => item.id === receipt.id).length, 1);
-  assert.deepEqual(setup.iterationNotes.letter, emptyNotes());
+  assert.deepEqual(setup.iterationNotes.letter, draft);
 });
 
 test('failed request publication preserves notes and retries the same pending request after reload', async t => {
@@ -151,7 +152,7 @@ test('failed request publication preserves notes and retries the same pending re
   assert.equal(new Set(attempts).size, 1, 'the failed immutable request is reused after reload');
   assert.equal(setup.requests[0].request_json.scope, 'cv');
   assert.equal(setup.requests[0].request_json.feedback.filter(item => item.id === reviewId).length, 1);
-  assert.deepEqual(setup.iterationNotes.cv, emptyNotes());
+  assert.deepEqual(setup.iterationNotes.cv, draft);
   assert.equal(documentVersion(setup), before);
 });
 
@@ -189,7 +190,7 @@ for (const originalScope of ['letter', 'both'] as const) test(`notes retry after
   assert.equal(request.feedback.length, 1);
   assert.equal(request.feedback[0].id, reviews[0].id);
   assert.match(request.feedback[0].text, /Use a measured tone/);
-  assert.deepEqual(setup.iterationNotes.letter, emptyNotes());
+  assert.deepEqual(setup.iterationNotes.letter, draft);
 });
 
 test('protocol-copy retry after successful publication neither resubmits notes nor creates another request', async t => {
@@ -209,7 +210,7 @@ test('protocol-copy retry after successful publication neither resubmits notes n
 
   assert.match(setup.error, /Protocol publication unavailable/);
   assert.equal(copied.length, 0);
-  assert.deepEqual(setup.iterationNotes.letter, emptyNotes(), 'a published request has already consumed these notes');
+  assert.equal(setup.iterationNotes.letter.tone, 'Use shorter, calmer sentences.', 'publishing and copying must keep the notes until a proposal arrives');
   assert.equal(noteReviews(fixture).length, 1);
   const requestId = setup.requests[0].id, requestCount = setup.requests.length;
   failProtocol = false;
@@ -231,4 +232,74 @@ test('empty next-iteration notes do not create feedback reviews', async t => {
   assert.equal(setup.error, '');
   assert.equal(noteReviews(fixture).length, 0);
   assert.equal(setup.requests[0].request_json.feedback.length, 0);
+});
+
+for (const scope of ['cv', 'letter'] as const) test(`${scope} notes clear only when a new proposal responding to them is loaded, including after reload`, async t => {
+  const fixture = mount(t); let setup = withFeedback(await prepare(fixture, 'base', { scope }));
+  const oldRequestId = setup.requests[0].id;
+  const otherScope = scope === 'cv' ? 'letter' : 'cv';
+  const draft = { tone: 'Use a measured voice.', structure: 'Lead with the method.', content: 'Explain the result.' };
+  const otherDraft = { tone: 'Keep this other document draft.', structure: '', content: '' };
+  Object.assign(setup.iterationNotes[scope], draft);
+  Object.assign(setup.iterationNotes[otherScope], otherDraft);
+  await setup.copyIterationTask();
+  assert.equal(setup.error, '');
+  const requestId = setup.requests[0].id;
+  assert.notEqual(requestId, oldRequestId);
+  assert.deepEqual(setup.iterationNotes[scope], draft);
+
+  setup = withFeedback(fixture.reopen()); await idle(setup);
+  assert.deepEqual(setup.iterationNotes[scope], draft);
+  await setup.copyIterationTask();
+  assert.equal(setup.error, '');
+  assert.equal(setup.requests[0].id, requestId);
+  assert.equal(noteReviews(fixture).length, 1, 're-copying after reload must not duplicate the feedback');
+
+  fixture.cloud.seedProposal(oldRequestId, { letterText: 'A delayed response to an older request.' });
+  await setup.checkProposals();
+  assert.equal(setup.error, '');
+  assert.deepEqual(setup.iterationNotes[scope], draft, 'a proposal predating the submitted notes must not clear them');
+
+  fixture.cloud.seedProposal(requestId, { letterText: 'A response to the submitted notes.' });
+  setup = withFeedback(fixture.reopen()); await idle(setup);
+  assert.equal(setup.error, '');
+  assert.deepEqual(setup.iterationNotes[scope], emptyNotes());
+  assert.equal(setup.iterationFeedbackSubmission[scope], null);
+  assert.deepEqual(setup.iterationNotes[otherScope], otherDraft);
+
+  setup.iterationNotes[scope].content = 'A new, unsent request.';
+  await setup.checkProposals();
+  assert.equal(setup.iterationNotes[scope].content, 'A new, unsent request.', 'reloading existing proposals must preserve new notes');
+});
+
+test('a returned proposal clears unchanged submitted fields and preserves edits made while waiting', async t => {
+  const fixture = mount(t), setup = withFeedback(await prepare(fixture, 'base', { scope: 'letter' }));
+  Object.assign(setup.iterationNotes.letter, { tone: 'Write more directly.', structure: 'Connect the paragraphs.', content: 'Explain the method.' });
+  await setup.copyIterationTask();
+  assert.equal(setup.error, '');
+  const letterRequestId = setup.requests[0].id;
+  setup.iterationNotes.letter.content = 'A newer idea for the next iteration.';
+  setup.feedbackScope = 'cv'; await setup.publishSources();
+  assert.equal(setup.error, '');
+  fixture.cloud.seedProposal(setup.requests[0].id);
+  await setup.checkProposals();
+  assert.equal(setup.iterationNotes.letter.tone, 'Write more directly.', 'a CV response must keep pending letter notes');
+
+  fixture.cloud.seedProposal(letterRequestId, { letterText: 'A refined letter.' });
+  await setup.checkProposals();
+  assert.equal(setup.error, '');
+  assert.deepEqual(setup.iterationNotes.letter, { tone: '', structure: '', content: 'A newer idea for the next iteration.' });
+});
+
+test('an invalid returned proposal does not consume submitted notes', async t => {
+  const fixture = mount(t), setup = withFeedback(await prepare(fixture, 'base', { scope: 'letter' }));
+  setup.iterationNotes.letter.content = 'Explain the experimental evidence.';
+  await setup.copyIterationTask();
+  const proposal = fixture.cloud.seedProposal(setup.requests[0].id, { persist: false });
+  proposal.proposal_json.requestId = 'another-request';
+  fixture.database.application_refinement_proposals.unshift(proposal);
+  await setup.checkProposals();
+  assert.equal(setup.error, 'Invalid refinement proposal.');
+  assert.equal(setup.iterationNotes.letter.content, 'Explain the experimental evidence.');
+  assert.ok(setup.iterationFeedbackSubmission.letter);
 });

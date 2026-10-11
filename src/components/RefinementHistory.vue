@@ -8,21 +8,20 @@ const props = defineProps<{
   requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; localRequests: Record<string, LocalRefinementRequest>;
   scope: RefinementScope;
   currentRequestId: string | null; activeId: string; reviewActive: boolean; accepted: boolean;
-  canReset?: boolean; canClear?: boolean;
+  canClear?: boolean;
   publicationStatus: 'unpublished' | 'current' | 'outdated' | 'unverifiable'; lang: string; busy: boolean; open: boolean;
 }>();
-const emit = defineEmits<{ reset: []; clear: []; select: [id: string]; details: [open: boolean]; exportRequest: [id: string]; exportProposal: [id: string] }>();
+const emit = defineEmits<{ clear: []; select: [id: string]; details: [open: boolean]; exportRequest: [id: string]; exportProposal: [id: string] }>();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const unknown = () => text('Unknown', 'Unbekannt');
 const date = (value?: string | null) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString(props.lang === 'de' ? 'de-DE' : 'en-GB') : unknown();
-const scopeLabel = (scope: RefinementScope) => scope === 'cv' ? 'CV' : scope === 'letter' ? text('Motivation letter', 'Motivationsschreiben') : text('CV and letter', 'CV und Anschreiben');
 const runs = computed(() => props.requests.filter(row => refinementMatchesScope(row.request_json.scope, props.scope, row.cleared_scopes)).map(row => ({ row, metadata: refinementRunMetadata(row, props.localRequests[row.id]), proposals: props.proposals.filter(proposal => proposal.request_id === row.id) })));
 const clearTitle = computed(() => props.scope === 'cv' ? text('Clear CV refinement history?', 'CV-Überarbeitungsverlauf löschen?') : props.scope === 'letter' ? text('Clear letter refinement history?', 'Brief-Überarbeitungsverlauf löschen?') : text('Clear refinement history?', 'Überarbeitungsverlauf löschen?'));
 const clearMessage = computed(() => props.scope === 'cv'
-  ? text('Permanently delete the saved CV refinement rounds, proposals, comments, feedback and original snapshot. Your current CV and letter history are kept. Resetting the CV to its original state will no longer be available.', 'Die gespeicherten CV-Überarbeitungsrunden, Vorschläge, Kommentare, Rückmeldungen und den ursprünglichen CV-Stand endgültig löschen. Der aktuelle Lebenslauf und der Briefverlauf bleiben erhalten. Der ursprüngliche CV-Stand kann danach nicht mehr wiederhergestellt werden.')
+  ? text('Restore the CV to its original state and remove its approval, then permanently delete its refinement rounds, proposals, comments, feedback and original snapshot. Your letter and its history are kept.', 'Den ursprünglichen CV-Stand wiederherstellen und seine Freigabe aufheben, dann seine Überarbeitungsrunden, Vorschläge, Kommentare, Rückmeldungen und den ursprünglichen Snapshot endgültig löschen. Brief und Briefverlauf bleiben erhalten.')
   : props.scope === 'letter'
-    ? text('Permanently delete the saved letter refinement rounds, proposals, comments, feedback and original snapshot. Your current letter and CV history are kept. Resetting the letter to its original state will no longer be available.', 'Die gespeicherten Brief-Überarbeitungsrunden, Vorschläge, Kommentare, Rückmeldungen und den ursprünglichen Briefstand endgültig löschen. Das aktuelle Anschreiben und der CV-Verlauf bleiben erhalten. Der ursprüngliche Briefstand kann danach nicht mehr wiederhergestellt werden.')
-    : text('Permanently delete all saved refinement rounds, proposals, comments, feedback and the original snapshot. Your current CV and letter are kept. Reset to the original state will no longer be available.', 'Alle gespeicherten Überarbeitungsrunden, Vorschläge, Kommentare, Rückmeldungen und den ursprünglichen Stand endgültig löschen. Der aktuelle Lebenslauf und das Anschreiben bleiben erhalten. Der ursprüngliche Stand kann danach nicht mehr wiederhergestellt werden.'));
+    ? text('Reset the letter to an empty draft using the selected template’s defaults and remove its approval, then permanently delete its refinement rounds, proposals, comments, feedback and original snapshot. Your CV and its history are kept.', 'Den Brief auf einen leeren Entwurf mit den Einstellungen der ausgewählten Vorlage zurücksetzen und seine Freigabe aufheben, dann seine Überarbeitungsrunden, Vorschläge, Kommentare, Rückmeldungen und den ursprünglichen Snapshot endgültig löschen. CV und CV-Verlauf bleiben erhalten.')
+    : text('Restore the original CV, reset the letter to its template and remove their approvals, then permanently delete all refinement rounds, proposals, comments, feedback and original snapshots.', 'Den ursprünglichen CV wiederherstellen, den Brief auf seine Vorlage zurücksetzen und ihre Freigaben aufheben, dann alle Überarbeitungsrunden, Vorschläge, Kommentare, Rückmeldungen und ursprünglichen Snapshots endgültig löschen.'));
 const emptyMessage = computed(() => props.scope === 'cv' ? text('No CV refinement history yet.', 'Noch kein CV-Überarbeitungsverlauf.') : props.scope === 'letter' ? text('No motivation letter refinement history yet.', 'Noch kein Überarbeitungsverlauf für das Motivationsschreiben.') : text('No refinement history yet.', 'Noch kein Überarbeitungsverlauf.'));
 const confirmingClear = ref(false);
 const requestClear = () => { if (!props.busy && props.canClear) confirmingClear.value = true; };
@@ -49,12 +48,11 @@ watch(() => props.scope, cancelClear);
     />
     <details class="disclosure-row run-details" :open="open" @toggle="emit('details', ($event.target as HTMLDetailsElement).open)">
       <summary>{{ text('History', 'Verlauf') }}</summary>
-      <button type="button" :disabled="busy || !canReset" @click="emit('reset')">{{ text('Reset to original state', 'Ursprünglichen Stand wiederherstellen') }}</button>
       <button type="button" class="btn btn--danger" :disabled="busy || !canClear" @click="requestClear">{{ text('Clear history', 'Verlauf löschen') }}</button>
       <p class="app-hint">{{ text('Historical metadata comes from saved records. Missing versions remain unknown.', 'Historische Metadaten stammen aus gespeicherten Datensätzen. Fehlende Versionen bleiben unbekannt.') }}</p>
       <p v-if="!runs.length" class="app-hint">{{ emptyMessage }}</p>
       <details v-for="run in runs" :key="run.row.id" class="disclosure-row history-run">
-        <summary>{{ date(run.row.created_at) }} · {{ scopeLabel(run.row.request_json.scope) }} · {{ run.proposals.length }} {{ text('proposals', 'Vorschläge') }}{{ run.row.id === currentRequestId ? text(' · Current', ' · Aktuell') : '' }}</summary>
+        <summary>{{ date(run.row.created_at) }} · {{ run.proposals.length }} {{ text('proposals', 'Vorschläge') }}{{ run.row.id === currentRequestId ? text(' · Current', ' · Aktuell') : '' }}</summary>
         <dl>
           <dt>{{ text('Request', 'Anfrage') }}</dt><dd><code>{{ run.metadata.requestId }}</code></dd>
           <dt>{{ text('Created', 'Erstellt') }}</dt><dd>{{ date(run.metadata.createdAt) }}</dd>
@@ -70,7 +68,6 @@ watch(() => props.scope, cancelClear);
         <div v-for="proposal in run.proposals" :key="proposal.id" class="history-proposal"><p><code>{{ proposal.id }}</code> · {{ date(proposal.created_at) }}</p><p>{{ proposal.proposal_json.summary }}</p><button type="button" :disabled="busy" @click="emit('select', proposal.id)">{{ text('Review this proposal', 'Diesen Vorschlag prüfen') }}</button><button type="button" @click="emit('exportProposal', proposal.id)">{{ text('Export proposal', 'Vorschlag exportieren') }}</button></div>
         <details class="disclosure-row"><summary>{{ text('Captured public sources', 'Gespeicherte öffentliche Quellen') }}</summary><RefinementPrivacyPreview :request="run.row.request_json" :lang="lang" /></details>
       </details>
-      <slot />
     </details>
   </section>
 </template>
