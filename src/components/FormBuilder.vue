@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { DEFAULT_SECTION_HEADER_SIZE, SAMPLE_CONTACT } from '../defaults';
+import { DEFAULT_SECTION_HEADER_SIZE, SAMPLE_CONTACT, designValue } from '../defaults';
 import type { PropType } from 'vue';
-import type { CvState, SavedConfiguration, SaveStatus, CvItem, CustomSection, SidebarSection, ContentArea, CustomBodyField, ItemField, ItemState, SelectOption } from '../types';
+import type { ContactField, CvState, SavedConfiguration, SaveStatus, CvItem, CustomSection, SidebarSection, ContentArea, CustomBodyField, ItemField, ItemState, SelectOption } from '../types';
+import { CONTACT_FIELDS } from '../types';
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue';
 import Draggable from 'vuedraggable';
 import SectionList from './SectionList.vue';
@@ -64,6 +65,10 @@ const sectionVersions = useSectionVersions({
 const versionMode = sectionVersions.enabled;
 const showConfig = computed(() => configMode.value && !versionMode.value && !reorderMode.value);
 const sectionState = sectionVersions.sectionState;
+const letterContactFields = computed<ContactField[]>({
+  get: () => designValue(sectionState('header').design, 'letterContactFields'),
+  set: (fields) => { sectionState('header').design.letterContactFields = fields; },
+});
 // Route the editor's field bindings independently for each section. The app's
 // actual state (and therefore its preview) remains the selected whole version.
 const state = computed(() => ({
@@ -442,6 +447,16 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
         </div>
         <div class="grid-2"><PrivacyField :owner="state.contact" field="name" v-slot="{ disabled }"><label>{{ t('name') }}<InputText :disabled="disabled" v-model="state.contact.name" :placeholder="SAMPLE_CONTACT.name" fluid /></label></PrivacyField><PrivacyField :owner="state.contact" field="role" v-slot="{ disabled }"><label>{{ t('role') }}<InputText :disabled="disabled" v-model="state.contact.role" :placeholder="SAMPLE_CONTACT.role" fluid /></label></PrivacyField></div>
         <ContactFields v-if="!contactInSidebar" :contact="state.contact" :lang="langRef" />
+        <fieldset v-if="!privacyMode" class="letter-contact-fields" :aria-describedby="`${editorId}-letter-contact-help`">
+          <legend>{{ t('letterContactFields') }}</legend>
+          <p :id="`${editorId}-letter-contact-help`">{{ t('letterContactFieldsHelp') }}</p>
+          <div class="letter-contact-fields__options">
+            <label v-for="field in CONTACT_FIELDS" :key="field" class="letter-contact-fields__option">
+              <input v-model="letterContactFields" type="checkbox" :value="field" />
+              <span>{{ t(field) }}</span>
+            </label>
+          </div>
+        </fieldset>
       </section>
 
       <Draggable v-show="activeContentTab === 'body'" :id="tabPanelId('body')" v-model="bodyRows" item-key="key" tag="section" class="content-tab-panel content-column" role="tabpanel" :aria-labelledby="tabId('body')" :disabled="!reorderMode" :handle="sectionDragHandle" :animation="150" ghost-class="sortable-ghost">
@@ -625,6 +640,14 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
 .content-tab:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -3px; }
 .content-tab__complete { color: #86efac; }
 .content-tab-panel { min-width: 0; }
+.letter-contact-fields { min-width: 0; margin: 16px 0 0; padding: 0; border: 0; }
+.letter-contact-fields legend { padding: 0; color: var(--ui-text); font-size: .875rem; font-weight: 600; }
+.letter-contact-fields p { margin: 6px 0 8px; color: var(--muted); font-size: .8125rem; line-height: 1.5; }
+.letter-contact-fields__options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; }
+.letter-contact-fields__option { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 40px; color: var(--ui-text); cursor: pointer; }
+.letter-contact-fields__option:hover { color: var(--ui-accent); }
+.letter-contact-fields__option input { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--ui-accent); cursor: pointer; }
+.letter-contact-fields__option input:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
 .content-panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .content-panel__scroll-body { display: grid; align-content: start; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .content-reorder-toggle { display: inline-flex; align-items: center; gap: 6px; }

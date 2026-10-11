@@ -292,6 +292,38 @@ test('complete-letter editor supports plain text, empty text and body whitespace
   assert.deepEqual(letterFromEditableText('# Subject only'), { subject: 'Subject only', salutation: '', body: '', closing: '' });
 });
 
+test('incoming subjects map to the header across plain text and common ChatGPT heading styles', () => {
+  const subject = 'Application for a PhD in Robotics (REF-42)';
+  const body = 'Dear Selection Committee,\n\nMy research fits this position.\n\nYours sincerely,\n{{APPLICANT_NAME}}';
+  for (const heading of [subject, `Subject: ${subject}`, `Re: ${subject}`, `# ${subject}`, `## ${subject}`, `**${subject}**`, `**Subject:** ${subject}`, `**Subject**: ${subject}`, `Subject: **${subject}**`, `**Subject: ${subject}**`]) {
+    for (const separator of ['\n', '\n\n', '\r\n\r\n']) {
+      const incoming = `\n  ${heading}${separator}${body}`;
+      const parsed = letterFromEditableText(incoming);
+      assert.deepEqual(parsed, { subject, salutation: '', body, closing: '' }, heading);
+      assert.equal(letterToEditableText(parsed), `# ${subject}\n\n${body}`);
+      assert.deepEqual(parseIncomingLetter(incoming), parsed);
+    }
+  }
+  const germanBody = 'Sehr geehrte Frau Prof. Beispiel,\n\nHiermit bewerbe ich mich.\n\nMit freundlichen Grüßen\n{{APPLICANT_NAME}}';
+  for (const heading of ['Bewerbung um eine Promotionsstelle', 'Betreff: Bewerbung um eine Promotionsstelle', '**Betreff:** Bewerbung um eine Promotionsstelle']) {
+    assert.deepEqual(letterFromEditableText(`${heading}\n\n${germanBody}`), { subject: 'Bewerbung um eine Promotionsstelle', salutation: '', body: germanBody, closing: '' });
+  }
+  assert.equal(letterFromEditableText('Subject: Research application\n\nOpening paragraph without a salutation.').subject, 'Research application');
+});
+
+test('subject mapping leaves unmarked prose and body whitespace intact', () => {
+  for (const body of [
+    'Dear Selection Committee,\n\nI am applying for this position.',
+    'Sehr geehrte Damen und Herren,\n\nHiermit bewerbe ich mich.',
+    'My research interests\n\nI study human-computer interaction.',
+    'Dear Committee,\n\nSubject: this is an example in the body.',
+    'Subject:\n\nI have not entered a subject yet.',
+    '\nOpening\n\n\nBody\n\nClosing\n',
+  ]) assert.deepEqual(letterFromEditableText(body), { subject: '', salutation: '', body, closing: '' });
+  const body = '\n  Dear Committee,\r\n\r\nBody with  deliberate  spacing.\n\nClosing\n';
+  assert.equal(letterFromEditableText(`Subject: Research application\n\n${body}`).body, body);
+});
+
 test('backup restore rejects a different application or account and retains published context tracking', () => {
   const repository = createLetterRepository(memory(), 'owner');
   const record = createApplicationLetter('owner', 'app', template, version);

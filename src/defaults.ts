@@ -1,4 +1,4 @@
-import type { Contact, CvDesign } from './types';
+import type { Contact, ContactField, CvDesign } from './types';
 
 /** Shared header examples for placeholders, sample CVs, and anonymized output. */
 export const SAMPLE_CONTACT: Readonly<Contact> = Object.freeze({
@@ -26,6 +26,7 @@ export const DEFAULT_DESIGN: Readonly<Required<CvDesign>> = Object.freeze({
   sectionSpacingBody: '10mm', sectionSpacingSidebar: '6mm', itemSpacing: '3.5mm',
   sidebarWidth: '0.7fr', sidebarAlign: 'right', sidebarFillMode: 'after-cover', sidebarHeightMode: 'content', sidebarBottomPadding: '0mm',
   headerLayoutStyle: 'boxed', sidebarLayoutStyle: 'separator', contactLayout: 'side', contactItemSpacing: '2mm', separatorWidth: '3px',
+  letterContactFields: ['name', 'location', 'email', 'phone'] satisfies ContactField[],
   pageMarginTop: '12mm', pageMarginRight: '12mm', pageMarginBottom: '12mm', pageMarginLeft: '12mm',
   pageMarginHorizontalLinked: true, pageMarginVerticalLinked: true,
   headerPaddingBottom: '0mm', headerBottomMargin: '2mm', headerBottomSpacingLinked: false,

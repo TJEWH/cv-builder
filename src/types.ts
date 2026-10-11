@@ -53,6 +53,8 @@ export interface Contact {
   linkedin: string;
   github: string;
 }
+export type ContactField = keyof Contact;
+export const CONTACT_FIELDS = ['name', 'role', 'location', 'email', 'phone', 'website', 'linkedin', 'github'] as const satisfies readonly ContactField[];
 export type FontSource = 'bunny' | 'google';
 export interface CustomFont { name: string; source: FontSource }
 export interface CvDesign {
@@ -66,6 +68,7 @@ export interface CvDesign {
   sidebarWidth?: string; sidebarAlign?: string; sidebarFillMode?: string; sidebarHeightMode?: string;
   sidebarBottomPadding?: string; headerLayoutStyle?: string; sidebarLayoutStyle?: string;
   contactLayout?: string; contactItemSpacing?: string; separatorWidth?: string;
+  letterContactFields?: ContactField[];
   pageMarginTop?: string; pageMarginRight?: string; pageMarginBottom?: string; pageMarginLeft?: string;
   pageMarginHorizontalLinked?: boolean; pageMarginVerticalLinked?: boolean;
   headerPaddingBottom?: string; headerBottomMargin?: string; headerBottomSpacingLinked?: boolean;

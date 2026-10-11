@@ -1,5 +1,5 @@
 import type { Contact, CvDesign, CvState, CustomFont, CustomSection, CvItem, SidebarSection, CvContent, CvContentItem, CvConfig } from '../types';
-import { CV_STATE_VERSION, FIELD_PRIVACY_TYPES } from '../types';
+import { CONTACT_FIELDS, CV_STATE_VERSION, FIELD_PRIVACY_TYPES } from '../types';
 import { SUPPORTED_LANGUAGES } from '../defaults';
 import { isPrivacyFieldOverrides } from './privacyOverrides';
 import { normalizeProxyFields } from './fieldPrivacy';
@@ -56,6 +56,7 @@ const designShape: Shape<CvDesign> = {
   sidebarWidth: string, sidebarAlign: string, sidebarFillMode: string, sidebarHeightMode: string,
   sidebarBottomPadding: string, headerLayoutStyle: string, sidebarLayoutStyle: string,
   contactLayout: string, contactItemSpacing: string, separatorWidth: string,
+  letterContactFields: array(literals(...CONTACT_FIELDS)),
   pageMarginTop: string, pageMarginRight: string, pageMarginBottom: string, pageMarginLeft: string,
   pageMarginHorizontalLinked: boolean, pageMarginVerticalLinked: boolean,
   headerPaddingBottom: string, headerBottomMargin: string, headerBottomSpacingLinked: boolean,

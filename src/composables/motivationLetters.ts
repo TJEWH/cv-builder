@@ -1,6 +1,7 @@
 import type { Application } from '../cloudTypes';
 import type { Contact, CvState } from '../types';
-import type { ApplicationLetter, LetterContent, LetterContextVersion, LetterRevision, LetterTemplate } from '../letterTypes';
+import type { ApplicationLetter, LetterContent, LetterContextVersion, LetterFormatting, LetterRevision, LetterTemplate } from '../letterTypes';
+import { LETTER_LAYOUT_VERSION, readLetterFormatting, resolveLetterFormatting } from './letterFormatting';
 
 interface StorageAdapter { getItem(key: string): string | null; setItem(key: string, value: string): void }
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -82,9 +83,10 @@ function readRecord(value: unknown, userId: string, applicationId: string): Appl
       ...(typeof item.cloudContextId === 'string' ? { cloudContextId: item.cloudContextId } : {}) };
   });
   const templateSnapshot = value.templateSnapshot === undefined ? undefined : readLetterTemplate(value.templateSnapshot);
+  const formatting = value.formatting === undefined ? undefined : readLetterFormatting(value.formatting);
   if (templateSnapshot && templateSnapshot.id !== value.templateId) throw new Error('The saved letter template does not match its snapshot.');
   return { version: 1, applicationId, userId, templateId: value.templateId, ...(templateSnapshot ? { templateSnapshot } : {}), instructions: value.instructions, language: value.language,
-    maxWords: Number(value.maxWords), working: readContent(value.working), workingContext: readVersion(value.workingContext),
+    maxWords: Number(value.maxWords), working: readContent(value.working), workingContext: readVersion(value.workingContext), ...(formatting ? { formatting } : {}),
     publishedContexts: isObject(value.publishedContexts) ? Object.fromEntries(Object.entries(value.publishedContexts).map(([key, version]) => [key, readVersion(version)])) : {},
     finalRevisionId: value.finalRevisionId, revisions, updatedAt: value.updatedAt };
 }
@@ -176,13 +178,14 @@ function fingerprint(value: unknown) {
 /** JSONB may reorder object keys while preserving identical research/content. */
 export function sameLetterContextInput(left: unknown, right: unknown) { return fingerprint(left) === fingerprint(right); }
 
-export function letterContextVersion(application: Pick<Application, 'context_json' | 'cv_variant_id'>, state: CvState | null, template: LetterTemplate, language: string, instructions: string, maxWords: number): LetterContextVersion {
+export function letterContextVersion(application: Pick<Application, 'context_json' | 'cv_variant_id'>, state: CvState | null, template: LetterTemplate, language: string, instructions: string, maxWords: number, formatting?: LetterFormatting): LetterContextVersion {
   const { design, completedSections: _completed, keepTogetherSections: _together, sectionHeaderSizes: _sizes, ...content } = state || {};
   // Absent optional fields and their empty defaults describe the same legacy context.
   const { exampleText, researchInterests, questionGuidance, ...guidance } = template;
   const templateContext = { ...guidance, ...(exampleText ? { exampleText } : {}),
     ...(researchInterests ? { researchInterests } : {}), ...(questionGuidance ? { questionGuidance } : {}) };
-  return { content: fingerprint({ opportunity: application.context_json, cv: content, template: templateContext, language, instructions, maxWords }), theme: fingerprint(design || {}) };
+  return { content: fingerprint({ opportunity: application.context_json, cv: content, template: templateContext, language, instructions, maxWords }),
+    theme: fingerprint({ design: design || {}, letterLayout: LETTER_LAYOUT_VERSION, formatting: resolveLetterFormatting(formatting) }) };
 }
 
 export function createApplicationLetter(userId: string, applicationId: string, template: LetterTemplate, context: LetterContextVersion, lang = template.language): ApplicationLetter {
@@ -214,6 +217,17 @@ export function editLetter(record: ApplicationLetter, content: LetterContent) {
   return { ...clone(record), working: readContent(content), finalRevisionId: null, updatedAt: now() };
 }
 
+/** Formatting changes need a fresh layout approval while preserving the writing history. */
+export function formatLetter(record: ApplicationLetter, formatting?: LetterFormatting): ApplicationLetter {
+  const resolved = resolveLetterFormatting(formatting);
+  const changed = JSON.stringify(resolved) !== JSON.stringify(resolveLetterFormatting(record.formatting));
+  const copy = clone(record);
+  if (formatting === undefined) delete copy.formatting;
+  else copy.formatting = resolved;
+  if (changed) { copy.finalRevisionId = null; copy.updatedAt = now(); }
+  return copy;
+}
+
 /** One editable document, retaining a simple subject heading and every existing text block. */
 export function letterToEditableText(content: LetterContent): string {
   return [content.subject ? `# ${content.subject}` : '', content.salutation, content.body, content.closing].filter((part) => part.length > 0).join('\n\n');
@@ -221,8 +235,24 @@ export function letterToEditableText(content: LetterContent): string {
 
 /** After editing, salutation and closing are ordinary parts of the complete body. */
 export function letterFromEditableText(text: string): LetterContent {
-  const subject = /^# ([^\r\n]*)(?:\r?\n(?:\r?\n)?|$)/.exec(text);
-  return { ...EMPTY_LETTER, subject: subject?.[1] || '', body: subject ? text.slice(subject[0].length) : text };
+  const unchanged = { ...EMPTY_LETTER, body: text };
+  const firstLine = /^(?:[\t \uFEFF]*\r?\n)*[\t \uFEFF]*([^\r\n]+)(?:\r?\n(?:[\t ]*\r?\n)?|$)/u.exec(text);
+  if (!firstLine) return unchanged;
+  const line = firstLine[1].trim();
+  const heading = /^#{1,6}[\t ]+(.+?)(?:[\t ]+#+)?$/u.exec(line);
+  const unwrap = (value: string) => value.trim().replace(/^(\*\*|__|\*|_)(.+)\1$/u, '$2').trim();
+  const title = unwrap(heading?.[1] || line);
+  const labelText = title.replace(/^(\*\*|__|\*|_)((?:Subject|Betreff|Re)[\t ]*:?)\1[\t ]*/iu, '$2 ');
+  const labelled = /^(?:Subject|Betreff|Re)[\t ]*:[\t ]*(.*)$/iu.exec(labelText);
+  const subject = unwrap(labelled ? labelled[1] : title);
+  if (!subject) return unchanged;
+  const body = text.slice(firstLine[0].length);
+  // An unmarked first line is a subject only when the next content is a formal
+  // salutation. Never promote an ordinary opening paragraph into the header.
+  const greeting = /^(?:Dear|Sehr geehrte(?:r|s)?)\s+[^\r\n!?]{1,120}[,:](?:\r?\n|$)/iu;
+  const plainSubject = subject.length <= 300 && !greeting.test(line) && greeting.test(body.trimStart());
+  if (!heading && !labelled && !plainSubject) return unchanged;
+  return { ...EMPTY_LETTER, subject, body };
 }
 
 export function addIncomingDraft(record: ApplicationLetter, content: LetterContent, context: LetterContextVersion, metadata: { cloudDraftId?: string; cloudContextId?: string } = {}) {
@@ -279,5 +309,5 @@ export function parseIncomingLetter(text: string): LetterContent {
     if (!isObject(parsed) || typeof parsed.body !== 'string') throw new Error('Draft JSON needs a body field.');
     return readContent({ ...EMPTY_LETTER, ...parsed });
   }
-  return { ...EMPTY_LETTER, body: text.trim() };
+  return letterFromEditableText(text.trim());
 }

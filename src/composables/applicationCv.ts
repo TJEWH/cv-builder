@@ -1,6 +1,7 @@
 import type { CvState } from '../types';
 import { readCvState, isRecord } from './cvStateValidation';
 import { normalizeContentState } from './contentLayout';
+import { readLetterHeaderSource, type LetterHeaderSource } from './letterContact';
 
 type LocalStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 export interface ApplicationCvRecord {
@@ -21,6 +22,8 @@ export interface ApplicationCvRecord {
   updatedAt: string;
   publishedState: CvState | null;
   publishedSnapshotId: string | null;
+  /** Live sender information for letters; the independent CV snapshots stay frozen. */
+  letterHeaderSource?: LetterHeaderSource;
 }
 export interface CvDifference { path: string[]; label: string; before: unknown; after: unknown }
 /** Match FormBuilder defaults before pinning or comparing, without editing the source. */
@@ -60,7 +63,8 @@ export function loadApplicationCv(userId: string, applicationId: string, store: 
     baseRevision: Number(value.baseRevision), revision: Number(value.revision), updatedAt: value.updatedAt,
     baseState: cloneCv(readCvState(value.baseState)), state: cloneCv(readCvState(value.state)),
     publishedState: value.publishedState === null ? null : cloneCv(readCvState(value.publishedState)),
-    publishedSnapshotId: value.publishedSnapshotId };
+    publishedSnapshotId: value.publishedSnapshotId,
+    ...(value.letterHeaderSource === undefined ? {} : { letterHeaderSource: readLetterHeaderSource(value.letterHeaderSource) }) };
 }
 
 export function saveApplicationCv(record: ApplicationCvRecord, store: LocalStore = localStorage) {

@@ -15,7 +15,7 @@ import type { ApplicationCvRecord } from '../src/composables/applicationCv';
 import { createCloudCvSnapshot } from '../src/composables/cloudCvPrivacy';
 import { createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES } from '../src/composables/motivationLetters';
 import { createRefinementFixture } from './refinementFixture';
-import type { ApplicationLetter } from '../src/letterTypes';
+import type { ApplicationLetter, LetterFormatting } from '../src/letterTypes';
 import type { AnnotationStatus, LocalRefinementRequest, RefinementRequestRow, RefinementProposalRow, RefinementScope, RefinementSetup } from '../src/refinementTypes';
 
 const account = '90000000-0000-4000-8000-000000000001';
@@ -23,6 +23,7 @@ const applicationId = '10000000-0000-4000-8000-000000000001';
 interface WorkspaceSetup {
   record: ApplicationCvRecord | null; selectedCvId: string; letter: ApplicationLetter | null;
   busy: boolean; refreshing: boolean; syncing: boolean; error: string; saveError: string; letterText: string;
+  baselineSignature: string; letterRevision: string;
   selectedTemplateId: string; missingLetterTemplate: boolean;
   cvApproved: boolean; letterApproved: boolean; feedbackScope: RefinementScope;
   requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; selectedProposalId: string; prompt: string;
@@ -45,7 +46,7 @@ interface WorkspaceSetup {
   saveAnnotation(id: string, status: AnnotationStatus, response: string, previousReviewId: string | null): Promise<boolean>;
   includeAnnotationFeedback(id: string): Promise<void>;
   copyShortInstruction(): Promise<void>;
-  updateLetter(text: string): void; approve(kind: 'cv' | 'letter', reopen?: boolean): Promise<void>;
+  updateLetter(text: string): void; updateLetterFormatting(formatting?: LetterFormatting): void; approve(kind: 'cv' | 'letter', reopen?: boolean): Promise<void>;
 }
 async function idle(setup: WorkspaceSetup) {
   for (let count = 0; count < 30; count++) {
@@ -152,6 +153,71 @@ test('applications freeze selected CVs and keep manual edits independent from th
   assert.equal(loadApplicationCv(account, applicationId)?.state.about.text, 'Tailored manually for this application');
 });
 
+test('saved CV contact changes refresh the letter header across comparisons without reselecting the template', async (t) => {
+  const fixture = mount(t), { setup, states, props, cloud } = fixture;
+  await idle(setup); await setup.selectCv('base'); await setup.selectLetterTemplate('research');
+  setup.record!.state.about.text = 'Application-specific research experience.';
+  setup.updateLetter('Original application letter.');
+  setup.feedbackScope = 'letter'; await setup.publishSources();
+  cloud.seedProposal(setup.requests[0].id, { letterText: 'Refined application letter.' });
+  await setup.syncRefinement();
+  assert.equal(setup.error, '');
+  assert.equal(setup.letterText, 'Refined application letter.', 'sync applies a letter while Preparation is open');
+  await setup.approve('cv'); await setup.approve('letter');
+  setup.tab = 'refinement'; await idle(setup);
+  const cv = cloneCv(setup.record!.state), snapshots = JSON.stringify(setup.localRequests);
+  const baseline = setup.baselineSignature, revision = setup.letterRevision;
+  const source = cloneCv(states.get('base')!);
+  source.contact.phone = '';
+  source.contact.email = 'current-address@example.org';
+  source.design.letterContactFields = ['name', 'email'];
+  source.about.text = 'A library update must not replace the application copy.';
+  states.set('base', source);
+  props.configurations = [{ id: 'base', name: 'Research', mtime: 2 }];
+  await idle(setup);
+  assert.deepEqual(setup.record!.state, cv);
+  assert.equal(setup.cvApproved, true);
+  assert.equal(setup.letterApproved, false, 'changed sender data requires a fresh letter approval');
+  assert.notEqual(setup.letterRevision, revision);
+  assert.equal(setup.baselineSignature, baseline, 'header updates do not invalidate the published writing source');
+  assert.equal(JSON.stringify(setup.localRequests), snapshots, 'private reconstruction snapshots remain immutable');
+  for (const comparison of ['original', 'proposed'] as const) {
+    setup.reviewComparison = comparison;
+    assert.equal(setup.previewLetterCvState?.contact.phone, '');
+    assert.equal(setup.previewLetterCvState?.contact.email, 'current-address@example.org');
+    assert.deepEqual(setup.previewLetterCvState?.design.letterContactFields, ['name', 'email']);
+  }
+  setup.tab = 'review'; await idle(setup);
+  assert.equal(setup.previewLetterCvState?.contact.phone, '');
+  assert.equal(setup.previewLetterContent?.body, 'Refined application letter.');
+  assert.equal(loadApplicationCv(account, applicationId)?.letterHeaderSource?.contact.phone, '');
+  const reopened = fixture.reopen(); await idle(reopened);
+  assert.equal(reopened.previewLetterCvState?.contact.phone, '');
+  assert.equal(reopened.letterApproved, false);
+  assert.deepEqual(reopened.record!.state, cv);
+});
+
+test('opening an existing application refreshes its sender and retains the last header if its source is removed', async (t) => {
+  const fixture = mount(t), { setup, states, props } = fixture;
+  await idle(setup); await setup.selectCv('base');
+  setup.record!.state.contact.role = 'Application-specific role';
+  const source = cloneCv(states.get('base')!);
+  source.contact.phone = '';
+  source.contact.role = 'Updated general CV role';
+  source.design.letterContactFields = [];
+  states.set('base', source);
+  let reopened = fixture.reopen(); await idle(reopened);
+  assert.equal(reopened.previewLetterCvState?.contact.phone, '');
+  assert.equal(reopened.previewLetterCvState?.contact.role, 'Application-specific role');
+  assert.deepEqual(reopened.previewLetterCvState?.design.letterContactFields, []);
+  states.delete('base'); props.configurations = [];
+  await idle(reopened);
+  reopened = fixture.reopen(); await idle(reopened);
+  assert.equal(reopened.previewLetterCvState?.contact.phone, '', 'deleting the source must not restore a removed contact field');
+  assert.deepEqual(reopened.previewLetterCvState?.design.letterContactFields, []);
+  assert.equal(reopened.error, '');
+});
+
 test('tailored legacy application CVs remain intact as independent copies', async (t) => {
   const { setup, states } = mount(t, 'tailored');
   await idle(setup);
@@ -200,6 +266,85 @@ test('letter selection saves immediately before a CV is chosen and survives reop
   assert.equal(setup.selectedCvId, 'base');
   assert.equal(setup.selectedTemplateId, 'industry');
   assert.equal(setup.letterText, 'My existing letter must survive choosing a CV.');
+});
+
+test('letter formatting persists locally, leaves writing requests unchanged and respects editing locks', async (t) => {
+  const fixture = mount(t);
+  const { setup } = fixture;
+  await idle(setup);
+  await setup.selectCv('base'); await idle(setup);
+  setup.updateLetter('My research experience supports this PhD application.');
+  const requestContent = () => JSON.parse(JSON.stringify(setup.preparedSource?.request, (key, value) => key === 'requestId' ? 'request-id' : value));
+  const source = requestContent();
+  const baseline = setup.baselineSignature;
+  const revision = setup.letterRevision;
+  const formatting = { marginMm: 25, fontSizePt: 12, lineHeight: 1.5 };
+  setup.updateLetterFormatting(formatting);
+  await nextTick();
+  assert.equal(setup.baselineSignature, baseline);
+  assert.notEqual(setup.letterRevision, revision, 'PDF/approval revision tracks formatting');
+  assert.deepEqual(requestContent(), source, 'AI request content excludes layout settings');
+  assert.deepEqual(createLetterRepository(fixture.storage, account).load(applicationId)?.formatting, formatting);
+  for (const lock of ['busy', 'reviewActive'] as const) {
+    setup[lock] = true;
+    setup.updateLetterFormatting();
+    assert.deepEqual(setup.letter?.formatting, formatting);
+    setup[lock] = false;
+  }
+  await setup.approve('letter');
+  assert.equal(setup.error, '');
+  assert.equal(setup.letterApproved, true);
+  setup.updateLetterFormatting();
+  assert.deepEqual(setup.letter?.formatting, formatting, 'approved letters are locked until reopened');
+  await setup.approve('letter', true);
+  setup.updateLetterFormatting();
+  await nextTick();
+  assert.equal(setup.letter?.formatting, undefined);
+  assert.equal(setup.letter?.finalRevisionId, null);
+  assert.equal(setup.letterRevision, revision, 'reset renders the original general defaults');
+  setup.updateLetterFormatting(formatting);
+  const reopened = fixture.reopen();
+  await idle(reopened);
+  assert.deepEqual(reopened.letter?.formatting, formatting);
+  assert.equal(reopened.letterApproved, false);
+});
+
+test('letter approval follows sender visibility and selected contact fields without tracking unrelated CV sections', async (t) => {
+  const { setup } = mount(t);
+  await idle(setup);
+  await setup.selectCv('base'); await idle(setup);
+  setup.updateLetter('My research experience supports this PhD application.');
+  const state = setup.record!.state;
+  state.disabled = state.disabled.filter(section => section !== 'header');
+  state.design.letterContactFields = ['name', 'email'];
+  await nextTick();
+  await setup.approve('letter');
+  assert.equal(setup.error, '');
+  assert.equal(setup.letterApproved, true);
+  const visibleRevision = setup.letterRevision;
+
+  state.disabled = state.disabled.includes('about') ? state.disabled.filter(section => section !== 'about') : [...state.disabled, 'about'];
+  await nextTick();
+  assert.equal(setup.letterRevision, visibleRevision, 'unrelated CV section visibility does not change the rendered letter');
+  assert.equal(setup.letterApproved, true);
+
+  state.disabled = [...state.disabled, 'header'];
+  await nextTick();
+  assert.notEqual(setup.letterRevision, visibleRevision, 'hiding the sender changes the letter revision');
+  assert.equal(setup.letterApproved, false, 'a letter with a changed sender must be reviewed again');
+
+  state.disabled = state.disabled.filter(section => section !== 'header');
+  await nextTick();
+  assert.equal(setup.letterApproved, false, 'restoring the sender does not silently restore approval');
+  await setup.approve('letter');
+  assert.equal(setup.error, '');
+  assert.equal(setup.letterApproved, true);
+  const approvedRevision = setup.letterRevision;
+  setup.record!.state.design.letterContactFields = ['name'];
+  await nextTick();
+  assert.notEqual(setup.letterRevision, approvedRevision, 'changing selected sender details changes the letter revision');
+  assert.equal(setup.letterApproved, false);
+  assert.equal(setup.letterText, 'My research experience supports this PhD application.', 'header choices do not rewrite the letter');
 });
 
 test('unchanged legacy application copies stay pinned instead of rejoining their original variant', async (t) => {
@@ -942,7 +1087,7 @@ test('Original and Proposed use the exact published baseline after local edits a
   assert.equal(setup.reviewComparison, 'proposed');
   assert.equal(setup.proposalSourceOutdated, true);
   assert.equal(setup.previewLetterContent?.body, 'Proposed letter from the original source.');
-  assert.equal(setup.previewLetterCvState?.contact.role, baselineCv.contact.role);
+  assert.equal(setup.previewLetterCvState?.contact.role, 'A newer local role', 'letter comparisons keep the current sender');
   assert.match(setup.reviewAcceptanceError, /changed after this request/);
   const candidate = cloneCv(setup.previewCvState!);
   setup.reviewComparison = 'original'; await nextTick();
@@ -964,7 +1109,7 @@ for (const scope of ['cv', 'letter'] as const) test(`${scope}-only proposals lea
   setup.record!.state.contact.role = 'Manual role after publication';
   setup.updateLetter('Manual letter after publication.');
   cloud.seedProposal(setup.requests[0].id, { letterText: 'Proposed letter.' }); await setup.checkProposals();
-  assert.equal(setup.reviewActive, true);
+  assert.equal(setup.reviewActive, scope === 'cv', 'letter comparison remains available without locking the editor');
   if (scope === 'cv') {
     assert.deepEqual(setup.previewLetterContent, setup.letter!.working);
     assert.deepEqual(setup.previewLetterCvState, setup.record!.state);
@@ -976,7 +1121,7 @@ for (const scope of ['cv', 'letter'] as const) test(`${scope}-only proposals lea
   } else {
     assert.deepEqual(setup.previewCvState, setup.record!.state);
     assert.equal(setup.previewLetterContent?.body, 'Proposed letter.');
-    assert.equal(setup.previewLetterCvState?.contact.role, baselineCv.contact.role);
+    assert.equal(setup.previewLetterCvState?.contact.role, 'Manual role after publication');
     setup.reviewComparison = 'original';
     assert.deepEqual(setup.previewCvState, setup.record!.state);
     assert.equal(setup.previewLetterContent?.body, 'Existing letter.');

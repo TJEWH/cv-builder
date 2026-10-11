@@ -156,7 +156,7 @@ async function importLibrary(event: Event) {
 <template>
   <section class="letter-templates">
     <div class="template-heading">
-      <p class="app-hint">{{ text('Reusable structure, research interests and drafting guidance. Each application inherits fonts, colors and margins from its assigned CV.', 'Wiederverwendbare Struktur, Forschungsinteressen und Entwurfshinweise. Schriftarten, Farben und Ränder folgen dem zugewiesenen Lebenslauf.') }}</p>
+      <p class="app-hint">{{ text('Reusable structure, research interests and drafting guidance. Letters use the assigned CV’s fonts, colors and selected contact fields, with their own page margins and text size.', 'Wiederverwendbare Struktur, Forschungsinteressen und Entwurfshinweise. Briefe übernehmen Schriftarten, Farben und ausgewählte Kontaktdaten des zugewiesenen Lebenslaufs. Seitenränder und Textgröße werden separat eingestellt.') }}</p>
     </div>
     <div class="template-layout" :class="{ 'template-layout--sidebar': sidebarControlsVisible }">
       <DesktopSidebarPortal area="major" :active="sidebarActive">

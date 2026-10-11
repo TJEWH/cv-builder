@@ -6,16 +6,18 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Application, ApplicationStage } from '../cloudTypes';
 import { supabaseConfiguration } from '../lib/supabase';
 import type { CvState, SavedConfiguration } from '../types';
-import type { ApplicationLetter, LetterTemplate } from '../letterTypes';
+import type { ApplicationLetter, LetterFormatting, LetterTemplate } from '../letterTypes';
 import type { ApprovedPrivacyContexts, AnnotationStatus, AnnotationReference, LocalRefinementRequest, RefinementApprovals, RefinementFeedback, RefinementProposalRow, RefinementRequestRow, RefinementReviewRow, RefinementScope, RefinementState } from '../refinementTypes';
 import { cloneCv, createApplicationCv, cvDifferences, isApplicationCvPublished, loadApplicationCv, saveApplicationCv, type ApplicationCvRecord } from '../composables/applicationCv';
-import { addIncomingDraft, createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, editLetter, finalizeLetter, letterContextVersion, letterFromEditableText, openLetterRevision, saveWorkingRevision, selectApplicationLetterTemplate, unresolvedLetterPlaceholders } from '../composables/motivationLetters';
+import { addIncomingDraft, createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, editLetter, finalizeLetter, formatLetter, letterContextVersion, letterFromEditableText, openLetterRevision, saveWorkingRevision, selectApplicationLetterTemplate, unresolvedLetterPlaceholders } from '../composables/motivationLetters';
 import { applyRefinementProposal, buildRefinementPrompt, createRefinementRepository, describeCvOperation, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText, validateLocalRefinementSource } from '../composables/applicationRefinement';
 import { applicationStage, applicationStatusLabel, applicationTrackingStarted } from '../composables/applicationTracking';
 import { formatOpportunityDeadline } from '../composables/opportunityDeadline';
 import FormBuilder from './FormBuilder.vue';
 import DocumentCvPreview from './DocumentCvPreview.vue';
 import MotivationLetterPreview from './MotivationLetterPreview.vue';
+import LetterFormattingControls from './LetterFormattingControls.vue';
+import { applyLetterHeader, captureLetterHeaderSource, resolveApplicationLetterState } from '../composables/letterContact';
 import RefinementHistory from './RefinementHistory.vue';
 import ApplicationDocuments from './ApplicationDocuments.vue';
 import ApplicationIdentifier from './ApplicationIdentifier.vue';
@@ -27,6 +29,7 @@ import { resolveRefinementSettings, serializeRefinementDraft, sameRefinementInpu
 import RefinementChangeReview from './RefinementChangeReview.vue';
 import RefinementAnnotations from './RefinementAnnotations.vue';
 import RefinementPreviewStatus from './RefinementPreviewStatus.vue';
+import RefinementComparisonToggle from './RefinementComparisonToggle.vue';
 import { annotationViews, annotationReferenceChanged, annotationFeedback, validateAnnotationReview } from '../composables/refinementAnnotations';
 import { useToastWatch } from '../composables/useToasts';
 import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
@@ -153,10 +156,16 @@ const selectedTemplateId = computed(() => {
 const effectiveSettings = computed(() => resolveRefinementSettings(selectedTemplate.value, letter.value));
 const setup = computed(() => effectiveSettings.value.setup);
 const letterText = computed(() => serializeRefinementDraft(letter.value?.working).text);
-const context = computed(() => letterContextVersion(props.application, record.value?.state || null, selectedTemplate.value, setup.value.language, letter.value?.instructions || '', setup.value.maxWords));
+const letterCvState = computed(() => {
+  const cv = record.value;
+  if (!cv) return null;
+  const source = cv.letterHeaderSource?.sourceCvId === selectedCvId.value ? cv.letterHeaderSource : undefined;
+  return resolveApplicationLetterState(cv.state, cv.baseState, source);
+});
+const context = computed(() => letterContextVersion(props.application, letterCvState.value, selectedTemplate.value, setup.value.language, letter.value?.instructions || '', setup.value.maxWords, letter.value?.formatting));
 const baselineSignature = computed(() => refinementSignature([record.value?.state, letterText.value, setup.value, letter.value?.instructions || '', props.application.context_json, letter.value?.working]));
 const cvRevision = computed(() => refinementSignature([record.value?.state, props.application.context_json]));
-const letterRevision = computed(() => refinementSignature([letterText.value, setup.value, letter.value?.instructions || '', record.value?.state.design, record.value?.state.contact, props.application.context_json]));
+const letterRevision = computed(() => refinementSignature([letterText.value, setup.value, letter.value?.instructions || '', letterCvState.value?.design, letterCvState.value?.contact, letterCvState.value?.disabled.includes('header'), props.application.context_json, context.value.theme]));
 const cvApproved = computed(() => !!record.value && approvals.value.cv === cvRevision.value && !saveError.value);
 function suggestedVariantName() { return record.value ? `${record.value.baseName} · ${String(props.application.context_json.title || text('Approved CV', 'Freigegebener CV'))}` : ''; }
 variantName.value = savedVariant.value?.name || suggestedVariantName();
@@ -170,7 +179,7 @@ const approvedVariantSaved = computed(() => {
   void variant.mtime;
   return refinementSignature(props.readVersion(variant.id)) === refinementSignature(record.value?.state);
 });
-const unresolved = computed(() => letter.value ? unresolvedLetterPlaceholders(letter.value.working, record.value?.state.contact || null) : []);
+const unresolved = computed(() => letter.value ? unresolvedLetterPlaceholders(letter.value.working, letterCvState.value?.contact || null) : []);
 const letterApproved = computed(() => !!letterText.value.trim() && approvals.value.letter === letterRevision.value && !unresolved.value.length && !saveError.value);
 const words = computed(() => letterText.value.trim().split(/\s+/).filter(Boolean).length);
 const published = computed(() => !!record.value && isApplicationCvPublished(record.value, props.application.cv_variant_id));
@@ -180,7 +189,8 @@ const selectedLocalRequest = computed(() => selectedProposal.value ? localReques
 const reviewScope = computed(() => selectedLocalRequest.value?.request.scope || selectedRequest.value?.request_json.scope);
 const showReviewPreview = computed(() => reviewActive.value && tab.value === 'refinement');
 const showCvReview = computed(() => showReviewPreview.value && reviewScope.value !== 'letter');
-const showLetterReview = computed(() => showReviewPreview.value && reviewScope.value !== 'cv');
+const showLetterComparison = computed(() => tab.value === 'refinement' && pane.value === 'letter' && hasActiveProposal.value && reviewScope.value !== 'cv');
+const showLetterReview = computed(() => (showReviewPreview.value || showLetterComparison.value) && reviewScope.value !== 'cv');
 const currentPublishedRequest = computed(() => requests.value.find(item => item.id === cloudState.value?.current_request_id) || null);
 const publishedSource = computed(() => currentPublishedRequest.value || requests.value[0] || null);
 const sourcePreparation = computed(() => {
@@ -247,14 +257,23 @@ const proposalSourceOutdated = computed(() => {
   if (!row || !local || proposalAlreadyApplied.value) return false;
   return local.baselineSignature !== baselineSignature.value || local.cv.sourceVariantId !== (record.value?.variantId || record.value?.baseId) || cloudState.value?.current_request_id !== row.request_id;
 });
+// The latest accepted letter remains editable while its source stays available
+// for comparison. CV-only acceptances and older letter proposals do not replace it.
+const selectedWorkingLetter = computed(() => {
+  const latest = [...(letter.value?.revisions || [])].reverse().find(revision => revision.kind === 'generated'
+    && revision.cloudDraftId && revision.cloudContextId && !resetRequestIds.value.includes(revision.cloudContextId)
+    && localRequests.value[revision.cloudContextId]?.acceptances?.some(receipt => receipt.proposalId === revision.cloudDraftId));
+  return !!latest && latest.cloudDraftId === selectedProposal.value?.id;
+});
+const comparingWorkingLetter = computed(() => showLetterComparison.value && !reviewActive.value && reviewComparison.value === 'proposed' && selectedWorkingLetter.value);
 watch(selectedProposalId, () => {
   selectedChangeIds.value = cvApproved.value ? [] : proposalChanges.value.filter(change => change.status !== 'rejected').map(change => change.id);
   includeProposedLetter.value = !letterApproved.value && selectedRequest.value?.request_json.scope !== 'cv';
   reviewComparison.value = 'proposed';
-  reviewActive.value = !!selectedProposal.value;
+  reviewActive.value = !!selectedProposal.value && pane.value !== 'letter';
 }, { flush: 'sync' });
 const temporaryReview = computed(() => {
-  if (!reviewActive.value) return { result: null, error: '' };
+  if (!reviewActive.value && !showLetterComparison.value) return { result: null, error: '' };
   try {
     const row = selectedProposal.value, local = selectedLocalRequest.value, source = selectedRequest.value;
     if (!row || !local) throw new Error(text('Restore the original local snapshot to preview this proposal.', 'Ursprünglichen lokalen Snapshot wiederherstellen, um diesen Vorschlag anzusehen.'));
@@ -264,12 +283,12 @@ const temporaryReview = computed(() => {
   catch (cause) { return { result: null, error: cause instanceof Error ? cause.message : String(cause) }; }
 });
 const reviewAcceptanceError = computed(() => {
-  if (!reviewActive.value || proposalAlreadyApplied.value) return '';
+  if ((!reviewActive.value && !showLetterComparison.value) || proposalAlreadyApplied.value || showLetterComparison.value && selectedWorkingLetter.value) return '';
   try { checkedProposalResult(); return ''; }
   catch (cause) { return cause instanceof Error ? cause.message : String(cause); }
 });
 const documentPreviewKey = computed(() => JSON.stringify([
-  props.application.id, showReviewPreview.value, reviewComparison.value,
+  props.application.id, showReviewPreview.value, showLetterComparison.value, reviewComparison.value,
   selectedProposal.value?.id, includeProposedLetter.value,
 ]));
 const previewCvState = computed(() => {
@@ -278,21 +297,25 @@ const previewCvState = computed(() => {
   return reviewComparison.value === 'original' ? selectedLocalRequest.value!.cv.baselineState : temporaryReview.value.result.state;
 });
 const previewLetterContent = computed(() => {
-  if (!showLetterReview.value) return letter.value?.working;
+  if (!showLetterReview.value || comparingWorkingLetter.value) return letter.value?.working;
   if (!temporaryReview.value.result || !selectedLocalRequest.value?.letterBaseline) return undefined;
-  const original = reviewComparison.value === 'original' || !includeProposedLetter.value;
+  const original = reviewComparison.value === 'original' || (!showLetterComparison.value && !includeProposedLetter.value);
   if (original && selectedLocalRequest.value.letterBaseline.content) return selectedLocalRequest.value.letterBaseline.content;
   return letterFromEditableText(original ? selectedLocalRequest.value.letterBaseline.text : temporaryReview.value.result.letterText);
 });
-// A CV-only proposal must not change the letter's layout or placeholder source.
+// Proposal wording keeps its historical snapshot; sender details follow the
+// current application header so removed fields cannot return in comparisons.
 const previewLetterCvState = computed(() => {
-  if (!showLetterReview.value) return record.value?.state || null;
-  return reviewComparison.value === 'proposed' ? temporaryReview.value.result?.state || null : selectedLocalRequest.value?.cv.baselineState || null;
+  if (!showLetterReview.value || comparingWorkingLetter.value) return letterCvState.value;
+  const snapshot = reviewComparison.value === 'proposed' ? temporaryReview.value.result?.state : selectedLocalRequest.value?.cv.baselineState;
+  if (!snapshot) return null;
+  return letterCvState.value ? applyLetterHeader(snapshot, captureLetterHeaderSource(selectedCvId.value, letterCvState.value)) : snapshot;
 });
-const previewLetterLanguage = computed(() => showLetterReview.value ? selectedLocalRequest.value?.letterBaseline?.setup.language || props.lang : letter.value?.language || props.lang);
+const previewLetterLanguage = computed(() => showLetterReview.value && !comparingWorkingLetter.value ? selectedLocalRequest.value?.letterBaseline?.setup.language || props.lang : letter.value?.language || props.lang);
 const proposalPreviewReference = computed(() => selectedProposal.value ? selectedProposal.value.id + ' · ' + new Date(selectedProposal.value.created_at).toLocaleString() : '');
 function reviewPreviewLabel(document: 'cv' | 'letter') {
-  if (reviewComparison.value === 'original' || document === 'letter' && !includeProposedLetter.value) return text('Original source snapshot', 'Ursprünglicher Quellen-Snapshot');
+  if (reviewComparison.value === 'original' || document === 'letter' && !showLetterComparison.value && !includeProposedLetter.value) return text('Original source snapshot', 'Ursprünglicher Quellen-Snapshot');
+  if (document === 'letter' && comparingWorkingLetter.value) return text('Current working letter', 'Aktuelle Arbeitsfassung des Briefs');
   return proposalAlreadyApplied.value ? text('Accepted refinement', 'Angenommene Überarbeitung') : text('Proposed refinement — not yet accepted', 'Vorgeschlagene Überarbeitung — noch nicht angenommen');
 }
 const proposalAnnotations = computed(() => annotationViews(selectedProposal.value, reviews.value).map(view => {
@@ -343,9 +366,22 @@ function persist() {
   }
 }
 watch([record, letter, approvals, localRequests, parentProposalId, privacyContexts], persist, { deep: true, flush: 'sync' });
-watch(feedbackScope, () => { scopeWasChosen = true; persist(); }, { flush: 'sync' });
+watch(feedbackScope, () => { scopeWasChosen = true; if (pane.value === 'letter') reviewActive.value = false; persist(); }, { flush: 'sync' });
 watch(cvRevision, () => { if (approvals.value.cv && approvals.value.cv !== cvRevision.value) approvals.value.cv = null; });
 watch(letterRevision, () => { if (approvals.value.letter && approvals.value.letter !== letterRevision.value) approvals.value.letter = null; });
+function refreshLetterHeader() {
+  if (!record.value || localReadError) return;
+  const id = selectedCvId.value;
+  if (!props.configurations.some(item => item.id === id)) return;
+  try {
+    const source = props.readVersion(id);
+    if (!source) return;
+    const header = captureLetterHeaderSource(id, source);
+    if (refinementSignature(header) !== refinementSignature(record.value.letterHeaderSource)) record.value.letterHeaderSource = header;
+  } catch (cause) { report(cause); }
+}
+watch(() => [selectedCvId.value, props.configurations.find(item => item.id === selectedCvId.value)?.mtime,
+  props.configurations.some(item => item.id === selectedCvId.value)], refreshLetterHeader, { immediate: true, flush: 'post' });
 function report(cause: unknown) {
   error.value = cause && typeof cause === 'object' && 'message' in cause && typeof cause.message === 'string'
     ? cause.message : typeof cause === 'string' ? cause : text('The operation could not be completed. Please try again.', 'Der Vorgang konnte nicht abgeschlossen werden. Bitte erneut versuchen.');
@@ -402,7 +438,7 @@ function selectReviewProposal(id: string) {
   tab.value = 'refinement'; selectedProposalId.value = id; openProposal();
 }
 async function checkProposals(navigate = true) { if (navigate) tab.value = 'refinement'; await run(async () => { await refreshCloud(); notice.value = proposals.value.length ? text('Proposals loaded. Review one before applying it.', 'Vorschläge geladen. Vor dem Übernehmen prüfen.') : text('No proposal yet. Run the copied prompt in ChatGPT, then check again.', 'Noch kein Vorschlag. Kopierten Prompt in ChatGPT ausführen und erneut prüfen.'); }); }
-function refreshOnFocus() { if (!busy.value && !syncing.value && props.active !== false) void refreshCloud().then(async () => { if (tab.value === 'refinement') await applyCurrentProposal(); }).catch(report); }
+function refreshOnFocus() { refreshLetterHeader(); if (!busy.value && !syncing.value && props.active !== false) void refreshCloud().then(async () => { if (tab.value === 'refinement') await applyCurrentProposal(); }).catch(report); }
 watch(() => props.active, active => { if (active) void syncRefinement(); });
 watch(tab, stage => { if (stage === 'refinement') refreshOnFocus(); });
 function reloadTemplates() { try { templates.value = letterRepository.listTemplates(); } catch (cause) { report(cause); } }
@@ -464,6 +500,10 @@ async function selectLetterTemplate(id: string) {
   });
 }
 function updateLetter(value: string) { if (letter.value) letter.value = editLetter(letter.value, letterFromEditableText(value)); }
+function updateLetterFormatting(formatting?: LetterFormatting) {
+  if (!letter.value || letterApproved.value || busy.value || reviewActive.value) return;
+  letter.value = formatLetter(letter.value, formatting);
+}
 function mergeReviews(...groups: RefinementReviewRow[][]): RefinementReviewRow[] {
   return [...new Map(groups.flat().map(row => [row.id, row])).values()]
     .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
@@ -601,8 +641,11 @@ async function applyCurrentProposal(id?: string) {
   selectedProposalId.value = candidate.id;
   selectedChangeIds.value = proposalChanges.value.map(change => change.id);
   toggleProposedLetter(feedbackScope.value !== 'cv');
+  // Background sync can accept from Preparation too, where the passive letter
+  // comparison is not mounted. Keep that transaction separate from its UI lock.
   reviewActive.value = true;
-  await acceptSelectedChanges();
+  try { await acceptSelectedChanges(); }
+  finally { if (pane.value === 'letter') reviewActive.value = false; }
   if (!error.value) notice.value = text('Proposal loaded and applied to the working document.', 'Vorschlag geladen und in die Arbeitsfassung übernommen.');
 }
 async function selectActiveProposal(id: string) {
@@ -613,6 +656,7 @@ async function selectActiveProposal(id: string) {
 async function syncRefinement() {
   const stopped = () => disposed || props.active === false;
   if (stopped() || !props.client || busy.value || syncing.value) return;
+  refreshLetterHeader();
   syncing.value = true;
   try {
     // Sync also runs on application load and must preserve the selected workflow stage.
@@ -679,7 +723,7 @@ function checkedProposalResult() {
 function openProposal() {
   try {
     error.value = ''; notice.value = '';
-    reviewComparison.value = 'proposed'; reviewActive.value = true;
+    reviewComparison.value = 'proposed'; reviewActive.value = pane.value !== 'letter';
     if (temporaryReview.value.error) throw new Error(temporaryReview.value.error);
     notice.value = text('Temporary review only. Saved documents and approvals remain unchanged until you accept the selection.', 'Nur temporäre Prüfung. Gespeicherte Dokumente und Freigaben bleiben bis zur Übernahme unverändert.');
   } catch (cause) { report(cause); }
@@ -692,12 +736,12 @@ function toggleProposedChange(id: string, included: boolean) {
 }
 function toggleProposedLetter(included: boolean) {
   if (busy.value || letterApproved.value || proposalAlreadyApplied.value) return;
-  includeProposedLetter.value = included; reviewComparison.value = 'proposed'; reviewActive.value = true;
+  includeProposedLetter.value = included; reviewComparison.value = 'proposed'; reviewActive.value = pane.value !== 'letter';
 }
 function discardReview() { reviewActive.value = false; notice.value = text('Temporary preview closed. Working documents are unchanged.', 'Temporäre Vorschau geschlossen. Arbeitsfassungen sind unverändert.'); }
 async function acceptSelectedChanges() {
   await run(async () => {
-    if (!reviewActive.value || proposalAlreadyApplied.value) throw new Error('Preview the selection before accepting it.');
+    if ((!reviewActive.value && !showLetterComparison.value) || proposalAlreadyApplied.value) throw new Error('Preview the selection before accepting it.');
     const result = checkedProposalResult();
     const row = selectedProposal.value!, local = localRequests.value[row.request_id]!;
     const signature = baselineSignature.value;
@@ -713,7 +757,7 @@ async function acceptSelectedChanges() {
     }
     let nextLetter = clone(letter.value!);
     if (local.request.scope !== 'cv' && includeLetter && !letterApproved.value) {
-      const candidateContext = letterContextVersion(props.application, nextRecord.state, selectedTemplate.value, setup.value.language, nextLetter.instructions, setup.value.maxWords);
+      const candidateContext = letterContextVersion(props.application, resolveApplicationLetterState(nextRecord.state, nextRecord.baseState, nextRecord.letterHeaderSource), selectedTemplate.value, setup.value.language, nextLetter.instructions, setup.value.maxWords, nextLetter.formatting);
       const incoming = addIncomingDraft(nextLetter, letterFromEditableText(result.letterText), candidateContext, { cloudDraftId: row.id, cloudContextId: row.request_id });
       const revision = incoming.revisions.find(item => item.cloudDraftId === row.id)!;
       if (refinementSignature(revision.content) !== refinementSignature(letterFromEditableText(result.letterText))) throw new Error('The saved incoming letter does not match this proposal. Restore its original local history before accepting.');
@@ -740,7 +784,7 @@ async function acceptSelectedChanges() {
       committingSelection = true;
       try {
         record.value = previousRecord; letter.value = previousLetter; parentProposalId.value = previousParent;
-        local.acceptances = previousAcceptances; reviewActive.value = true;
+        local.acceptances = previousAcceptances; reviewActive.value = pane.value !== 'letter';
       } finally { committingSelection = false; }
       throw new Error(saveError.value);
     }
@@ -758,7 +802,7 @@ async function approve(kind: 'cv' | 'letter', reopen = false) {
     cloudState.value = await repository.loadState(props.application.id);
     if (disposed) return;
     approvals.value = clone(cloudState.value!.approvals_json);
-    if (!reopen && kind === 'letter' && letterRevision.value === revision) letter.value = finalizeLetter(letter.value, context.value, record.value.state.contact);
+    if (!reopen && kind === 'letter' && letterRevision.value === revision) letter.value = finalizeLetter(letter.value, context.value, letterCvState.value?.contact || null);
     if (reopen && kind === 'letter') letter.value = { ...clone(letter.value), finalRevisionId: null };
     persist();
     if (!saveError.value && (reopen || (kind === 'cv' ? cvApproved.value : letterApproved.value))) notice.value = kind === 'cv'
@@ -809,7 +853,7 @@ async function resetOriginalState() {
     nextLetter.language = local.letterBaseline.setup.language;
     nextLetter.maxWords = local.letterBaseline.setup.maxWords;
     nextLetter.finalRevisionId = null;
-    nextLetter.workingContext = letterContextVersion(props.application, nextRecord.state, nextLetter.templateSnapshot, nextLetter.language, nextLetter.instructions, nextLetter.maxWords);
+    nextLetter.workingContext = letterContextVersion(props.application, resolveApplicationLetterState(nextRecord.state, nextRecord.baseState, nextRecord.letterHeaderSource), nextLetter.templateSnapshot, nextLetter.language, nextLetter.instructions, nextLetter.maxWords, nextLetter.formatting);
     committingSelection = true;
     try {
       record.value = nextRecord; letter.value = nextLetter; approvals.value = { cv: null, letter: null };
@@ -862,6 +906,7 @@ function exportRequest(id: string) { const row = requests.value.find(row => row.
 function exportProposal(id: string) { const row = proposals.value.find(row => row.id === id); if (row) exportHistory(row.proposal_json, 'refinement-proposal-' + id + '.json'); }
 async function getCvPdf() {
   if (showReviewPreview.value) throw new Error('Accept or close the temporary review before exporting.');
+  if (showLetterComparison.value) throw new Error('Open Attachments to export the approved working documents.');
   if (!cvApproved.value || !preview.value) throw new Error(text('Approve the CV before export.', 'Den CV vor dem Export freigeben.'));
   const revision = cvRevision.value; const blob = await preview.value.getPdfBlob();
   if (disposed || revision !== cvRevision.value || !cvApproved.value) throw new Error('The CV changed during export. Preview again.');
@@ -869,6 +914,7 @@ async function getCvPdf() {
 }
 async function getLetterPdf() {
   if (showReviewPreview.value) throw new Error('Accept or close the temporary review before exporting.');
+  if (showLetterComparison.value) throw new Error('Open Attachments to export the approved working letter.');
   if (!letterApproved.value || !letterPreview.value) throw new Error(text('Approve the letter before export.', 'Den Brief vor dem Export freigeben.'));
   const revision = letterRevision.value; const blob = await letterPreview.value.getPdfBlob();
   if (disposed || revision !== letterRevision.value || !letterApproved.value) throw new Error('The letter changed during export. Preview again.');
@@ -932,7 +978,8 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
         </DesktopSidebarPortal>
         <DesktopSidebarPortal area="minor" :active="active && tab === 'refinement'">
           <div class="proposal-preview-action" :class="{ 'proposal-preview-action--sidebar': desktopSidebar }">
-            <button v-if="selectedProposal" type="button" :disabled="busy" :aria-pressed="reviewActive" @click="reviewActive ? discardReview() : openProposal()">{{ reviewActive ? text('Close preview', 'Vorschau schließen') : text('Preview proposal', 'Vorschlag ansehen') }}</button>
+            <RefinementComparisonToggle v-if="showLetterComparison" v-model="reviewComparison" :lang="lang" :disabled="busy" />
+            <button v-else-if="pane === 'cv' && selectedProposal" type="button" :disabled="busy" :aria-pressed="reviewActive" @click="reviewActive ? discardReview() : openProposal()">{{ reviewActive ? text('Close preview', 'Vorschau schließen') : text('Preview proposal', 'Vorschlag ansehen') }}</button>
             <button class="refinement-icon-action" type="button" :disabled="busy || refreshing || syncing" @click="syncRefinement"><FontAwesomeIcon :icon="faRotate" aria-hidden="true" />{{ syncing ? text('Syncing…', 'Synchronisieren…') : text('Sync', 'Synchronisieren') }}</button>
           </div>
         </DesktopSidebarPortal>
@@ -944,7 +991,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
               <h3>{{ text('Current Review', 'Aktuelle Prüfung') }}</h3>
               <label v-if="availableProposals.length">{{ text('Available proposals', 'Verfügbare Vorschläge') }}<select :value="selectedProposalId" :disabled="busy" @change="selectActiveProposal(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ text('Select a proposal', 'Vorschlag auswählen') }}</option><option v-for="proposal in availableProposals" :key="proposal.id" :value="proposal.id">{{ new Date(proposal.created_at).toLocaleString() }} · {{ proposal.id }}</option></select></label>
               <div v-if="selectedProposal && hasActiveProposal" class="proposal-content">
-                <RefinementPreviewStatus v-if="pane === 'cv' ? showCvReview : showLetterReview" v-model="reviewComparison" :label="reviewPreviewLabel(pane)" :reference="proposalPreviewReference" :outdated="proposalSourceOutdated" :lang="lang" />
+                <RefinementPreviewStatus v-if="pane === 'cv' ? showCvReview : showLetterReview" v-model="reviewComparison" :hide-comparison="pane === 'letter'" :label="reviewPreviewLabel(pane)" :reference="proposalPreviewReference" :outdated="proposalSourceOutdated && !(showLetterComparison && selectedWorkingLetter)" :lang="lang" />
                 <p v-if="pane === 'cv'" class="proposal-summary">{{ summaryCounts.automaticChanges }} {{ text('automatic changes', 'automatische Änderungen') }} · {{ summaryCounts.todos }} {{ text('todos', 'Aufgaben') }} · {{ summaryCounts.questions }} {{ text('questions', 'Fragen') }}</p>
                 <template v-else><p class="proposal-summary">{{ summaryCounts.questions }} {{ text('questions', 'Fragen') }}</p><p>{{ draftSummary }}</p></template>
                 <section v-if="pane === 'cv' && proposalChanges.length" class="proposal-changes">
@@ -965,7 +1012,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
           <details class="disclosure-row"><summary>{{ text('Edit manually', 'Manuell bearbeiten') }}</summary>
 
           <section v-if="record" v-show="pane === 'cv'" class="working-document"><div class="action-row"><span class="app-hint">{{ text('Application copy — template stays unchanged', 'Bewerbungskopie — Vorlage bleibt unverändert') }}</span></div><fieldset :disabled="cvApproved || busy || reviewActive"><FormBuilder :state="record.state" :read-version="() => null" :save-version="() => false" /></fieldset></section>
-          <section v-if="letter" v-show="pane === 'letter'" class="working-document"><label>{{ text('Application writing instructions', 'Schreibhinweise für diese Bewerbung') }}<textarea v-model="letter.instructions" rows="3" maxlength="20000" :disabled="busy || reviewActive || letterApproved" /></label><label>{{ text('Complete letter text', 'Vollständiger Brieftext') }}<textarea :value="letterText" rows="18" :disabled="letterApproved || busy || reviewActive" @input="updateLetter(($event.target as HTMLTextAreaElement).value)" /></label><p :class="{ warning: words > setup.maxWords }">{{ words }} / {{ setup.maxWords }} {{ text('target words (complete letter)', 'Zielwörter (vollständiger Brief)') }}</p><p v-if="words > setup.maxWords" class="app-hint warning">{{ text('Over the target. Review the tender limit; approval and export remain available.', 'Über der Zielwortzahl. Vorgabe prüfen; Freigabe und Export bleiben möglich.') }}</p><p v-if="unresolved.length" class="app-hint warning">{{ text('Resolve placeholders:', 'Platzhalter auflösen:') }} {{ unresolved.join(', ') }}</p></section>
+          <section v-if="letter" v-show="pane === 'letter'" class="working-document"><label>{{ text('Application writing instructions', 'Schreibhinweise für diese Bewerbung') }}<textarea v-model="letter.instructions" rows="3" maxlength="20000" :disabled="busy || reviewActive || letterApproved" /></label><label>{{ text('Complete letter text', 'Vollständiger Brieftext') }}<textarea :value="letterText" rows="18" :disabled="letterApproved || busy || reviewActive" @input="updateLetter(($event.target as HTMLTextAreaElement).value)" /></label><p :class="{ warning: words > setup.maxWords }">{{ words }} / {{ setup.maxWords }} {{ text('target words (complete letter)', 'Zielwörter (vollständiger Brief)') }}</p><p v-if="words > setup.maxWords" class="app-hint warning">{{ text('Over the target. Review the tender limit; approval and export remain available.', 'Über der Zielwortzahl. Vorgabe prüfen; Freigabe und Export bleiben möglich.') }}</p><p v-if="unresolved.length" class="app-hint warning">{{ text('Resolve placeholders:', 'Platzhalter auflösen:') }} {{ unresolved.join(', ') }}</p><LetterFormattingControls :formatting="letter.formatting" :lang="lang" :disabled="letterApproved || busy || reviewActive" @change="updateLetterFormatting" /></section>
           </details>
           <RefinementHistory :requests="requests" :proposals="proposals" :local-requests="localRequests" :current-request-id="cloudState?.current_request_id || null" :active-id="selectedProposalId" :review-active="reviewActive" :accepted="proposalAlreadyApplied" :publication-status="publicationStatus" :open="historyOpen" :lang="lang" :busy="busy || refreshing || syncing" :can-reset="canResetOriginal" :can-clear="canClearHistory" @reset="resetOriginalState" @clear="clearRefinementHistory" @select="selectReviewProposal" @details="historyOpen = $event" @export-request="exportRequest" @export-proposal="exportProposal">
               <details class="disclosure-row"><summary>{{ text('Connection & prompt details', 'Verbindungs- & Promptdetails') }}</summary>
@@ -978,7 +1025,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
         <div class="refinement-preview">
           <div v-if="temporaryReview.error && (pane === 'cv' ? showCvReview : showLetterReview)" class="app-hint error" role="alert"><strong>{{ text('Proposal preview unavailable', 'Vorschlagsvorschau nicht verfügbar') }}</strong><p>{{ temporaryReview.error }}</p><p>{{ proposalPreviewReference }}</p></div>
           <DocumentCvPreview v-if="previewCvState" v-show="pane === 'cv'" ref="preview" :preview-key="documentPreviewKey" :state="previewCvState" :active="tab === 'refinement' && feedbackScope === 'cv'" hide-actions :download-disabled="showReviewPreview" />
-          <MotivationLetterPreview v-if="previewLetterContent" v-show="pane === 'letter'" ref="letterPreview" :preview-key="documentPreviewKey" :cv-state="previewLetterCvState" :content="previewLetterContent" :lang="previewLetterLanguage" :active="tab === 'refinement' && feedbackScope === 'letter'" hide-actions :download-disabled="!letterApproved || showReviewPreview" />
+          <MotivationLetterPreview v-if="previewLetterContent" v-show="pane === 'letter'" ref="letterPreview" :preview-key="documentPreviewKey" :cv-state="previewLetterCvState" :content="previewLetterContent" :formatting="letter?.formatting" :lang="previewLetterLanguage" :active="tab === 'refinement' && feedbackScope === 'letter'" hide-actions :download-disabled="!letterApproved || showReviewPreview" />
         </div>
       </section>
       <ApplicationDocuments v-show="tab === 'review'" :client="client" :active="active && tab === 'review'" mode="review" :application-id="application.id" :user-id="userId" :lang="lang" :cv-state="record?.state || null" :cv-ready="cvApproved" :export-ready="cvApproved && letterApproved" :get-cv-pdf="getCvPdf" :get-letter-pdf="getLetterPdf" :letter-ready="letterApproved" :letter-revision="letterRevision" @readiness="documentReadiness = $event">

@@ -145,7 +145,7 @@ details.disclosure-row[open] > summary{margin-bottom:12px}
 .editor-subsection input[type="color"],
 .editor-subsection select{cursor:pointer}
 .editor-subsection.collapsed > .section-head{margin-bottom:0}
-.editor-subsection__body{max-height:3000px;overflow:hidden;margin-left:42px;margin-right:8px;opacity:1;visibility:visible;transition:max-height .28s ease,opacity .14s ease,margin .28s ease,visibility 0s linear}
+.editor-subsection__body{max-height:3000px;opacity:1;visibility:visible;transition:max-height .28s ease,opacity .14s ease,margin .28s ease,visibility 0s linear}
 .editor-subsection.collapsed .editor-subsection__body{max-height:0;opacity:0;visibility:hidden;pointer-events:none;margin-top:0;margin-bottom:0;transition:max-height .28s ease,opacity .14s ease,margin .28s ease,visibility 0s linear .28s}
 .panel-header-action{display:inline-flex;align-items:center;gap:6px}
 .mini{padding:4px 7px;border:1px solid var(--ui-border);border-radius:6px;background:var(--ui-control);color:var(--ui-muted);font-family:var(--font-ui);cursor:pointer}

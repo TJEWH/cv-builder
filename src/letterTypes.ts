@@ -5,6 +5,13 @@ export interface LetterContent {
   closing: string;
 }
 
+/** Per-application rendering settings; never part of writing instructions. */
+export interface LetterFormatting {
+  marginMm: number;
+  fontSizePt: number;
+  lineHeight: number;
+}
+
 export interface LetterTemplateGuidance {
   /** Optional so libraries exported before template guidance remain readable. */
   subjectInstructions?: string;
@@ -52,6 +59,8 @@ export interface ApplicationLetter {
   language: string;
   maxWords: number;
   working: LetterContent;
+  /** Absent in older backups: render with the general PhD letter defaults. */
+  formatting?: LetterFormatting;
   workingContext: LetterContextVersion;
   publishedContexts: Record<string, LetterContextVersion>;
   finalRevisionId: string | null;

@@ -23,8 +23,10 @@ test('mutable default collections cannot leak edits into another document', () =
   for (const design of [createDefaultDesign(), resolveDesign()]) {
     design.favoriteControls.push('h1');
     design.customFonts.push({ name: 'Example', source: 'google' });
+    design.letterContactFields.push('github');
   }
   assert.deepEqual(DEFAULT_DESIGN.favoriteControls, []);
   assert.deepEqual(DEFAULT_DESIGN.customFonts, []);
+  assert.deepEqual(DEFAULT_DESIGN.letterContactFields, ['name', 'location', 'email', 'phone']);
   assert.deepEqual(createDefaultDesign(), DEFAULT_DESIGN);
 });

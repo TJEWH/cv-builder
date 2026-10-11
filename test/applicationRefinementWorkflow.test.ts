@@ -21,6 +21,98 @@ test('loading connected proposal history activates the complete temporary candid
   assert.equal(JSON.stringify(fixture.database), savedCloud);
 });
 
+for (const [heading, subject, salutation] of [
+  ['Application for a PhD in Robotics', 'Application for a PhD in Robotics', 'Dear Selection Committee,'],
+  ['Betreff: Bewerbung um eine Promotionsstelle', 'Bewerbung um eine Promotionsstelle', 'Sehr geehrte Damen und Herren,'],
+]) test(`connected ChatGPT draft maps "${heading}" to the subject through preview, acceptance and reload`, async t => {
+  const fixture = mount(t);
+  let setup = await prepare(fixture, 'base', { scope: 'letter' });
+  const body = `${salutation}\n\nMy research experience fits this opportunity.\n\nYours sincerely,\n{{APPLICANT_NAME}}`;
+  const incoming = `${heading}\n\n${body}`;
+  const proposal = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: incoming });
+  const original = documents(setup);
+  await setup.checkProposals();
+  const expected = { subject, salutation: '', body, closing: '' };
+  assert.deepEqual(setup.previewLetterContent, expected);
+  assert.equal(documents(setup), original, 'reading a proposal does not rewrite the working letter');
+  await setup.acceptSelectedChanges();
+  assert.equal(setup.error, '');
+  assert.deepEqual(setup.letter!.working, expected);
+  assert.deepEqual(setup.letter!.revisions.find(revision => revision.cloudDraftId === proposal.id)?.content, expected);
+  assert.equal(setup.letterText, `# ${subject}\n\n${body}`);
+  assert.equal(setup.selectedProposalId, proposal.id);
+  assert.equal(setup.proposals.find(row => row.id === proposal.id)?.proposal_json.letterText, incoming, 'the original returned proposal stays intact');
+  setup = fixture.reopen(); await idle(setup);
+  assert.equal(setup.error, '');
+  assert.deepEqual(setup.letter!.working, expected);
+});
+
+test('letter comparison stays available after acceptance while edits, approval and export use the working letter', async t => {
+  const fixture = mount(t);
+  const setup = await prepare(fixture, 'base', { scope: 'letter', letterText: 'Original letter before refinement.' });
+  await setup.approve('cv');
+  fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Returned letter proposal.' });
+  await setup.syncRefinement();
+  assert.equal(setup.error, '');
+  assert.equal(setup.reviewActive, false);
+  assert.equal(setup.previewLetterContent?.body, 'Returned letter proposal.');
+  setup.reviewComparison = 'original';
+  assert.equal(setup.previewLetterContent?.body, 'Original letter before refinement.');
+  setup.reviewComparison = 'proposed';
+  setup.updateLetter('Returned letter with a manual correction.');
+  assert.equal(setup.previewLetterContent?.body, 'Returned letter with a manual correction.');
+  await setup.approve('letter');
+  assert.equal(setup.error, '');
+  assert.equal(setup.letterApproved, true, 'persistent comparison must not lock approval');
+  setup.reviewComparison = 'original';
+  assert.equal(setup.previewLetterContent?.body, 'Original letter before refinement.');
+  const exported: string[] = [];
+  setup.letterPreview = { getPdfBlob: async () => { exported.push(setup.previewLetterContent!.body); return new Blob(['synthetic PDF']); } };
+  await assert.rejects(setup.getLetterPdf(), /Attachments/);
+  setup.tab = 'review'; await idle(setup);
+  await setup.getLetterPdf();
+  assert.deepEqual(exported, ['Returned letter with a manual correction.']);
+  setup.tab = 'refinement'; await idle(setup);
+  assert.equal(setup.previewLetterContent?.body, 'Original letter before refinement.', 'returning to the letter retains its comparison choice');
+  await setup.approve('letter', true);
+  assert.equal(setup.error, '');
+  assert.equal(setup.letterApproved, false);
+});
+
+test('historical letter comparisons show their own proposal and never lock or overwrite current edits', async t => {
+  const fixture = mount(t), setup = await prepare(fixture, 'base', { scope: 'letter' });
+  const first = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'First accepted letter.' });
+  await setup.syncRefinement();
+  await setup.publishSources();
+  const second = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Second accepted letter.' });
+  await setup.syncRefinement();
+  setup.updateLetter('Second letter with manual corrections.');
+  setup.selectReviewProposal(first.id);
+  assert.equal(setup.reviewActive, false);
+  assert.equal(setup.previewLetterContent?.body, 'First accepted letter.');
+  assert.equal(setup.letter!.working.body, 'Second letter with manual corrections.');
+  setup.selectReviewProposal(second.id);
+  assert.equal(setup.previewLetterContent?.body, 'Second letter with manual corrections.');
+  setup.reviewComparison = 'original';
+  assert.equal(setup.previewLetterContent?.body, 'First accepted letter.');
+});
+
+test('unaccepted letter comparison survives stage navigation without entering an editing lock', async t => {
+  const fixture = mount(t), setup = await prepare(fixture, 'base', { scope: 'letter' });
+  fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Historical proposed letter.' });
+  setup.updateLetter('Manual correction after publishing.');
+  await setup.checkProposals();
+  assert.equal(setup.reviewActive, false);
+  assert.equal(setup.previewLetterContent?.body, 'Historical proposed letter.');
+  setup.tab = 'preparation'; await idle(setup);
+  assert.equal(setup.previewLetterContent?.body, 'Manual correction after publishing.');
+  setup.tab = 'refinement'; await idle(setup);
+  assert.equal(setup.reviewActive, false);
+  assert.equal(setup.previewLetterContent?.body, 'Historical proposed letter.');
+  assert.equal(setup.letter!.working.body, 'Manual correction after publishing.');
+  assert.match(setup.reviewAcceptanceError, /changed|outdated/i);
+});
+
 test('refreshing proposal history preserves the active proposal and its selection when a newer return arrives', async t => {
   const fixture = mount(t); const setup = await prepare(fixture);
   const first = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'First proposal under review.' });

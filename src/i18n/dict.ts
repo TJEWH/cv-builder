@@ -123,6 +123,8 @@ export const dict: Record<string, Record<Language, string>> = {
     website:        { de:'Website', en:'Website' },
     linkedin:       { de:'LinkedIn', en:'LinkedIn' },
     github:         { de:'GitHub', en:'GitHub' },
+    letterContactFields: { de:'Briefkopf des Motivationsschreibens', en:'Motivation letter header' },
+    letterContactFieldsHelp: { de:'Wähle die Kontaktdaten für den Briefkopf. Dein Lebenslauf bleibt unverändert.', en:'Choose which contact details appear in the letter header. Your CV stays unchanged.' },
     todos:          { de:'ToDos', en:'ToDos' },
     config:         { de:'Config', en:'Config' },
     item:           { de:'Eintrag', en:'Item' },

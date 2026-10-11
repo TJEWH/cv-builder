@@ -137,7 +137,7 @@ test('normal export cannot serialize an unaccepted candidate and Attachments exp
   const renderInputs: string[] = [];
   setup.preview = { getPdfBlob: async () => { renderInputs.push(JSON.stringify(setup.previewCvState)); return new Blob(['synthetic CV PDF']); } };
   setup.letterPreview = { getPdfBlob: async () => { renderInputs.push(JSON.stringify(setup.previewLetterContent)); return new Blob(['synthetic letter PDF']); } };
-  await assert.rejects(setup.getCvPdf(), /temporary review/); await assert.rejects(setup.getLetterPdf(), /temporary review/);
+  await assert.rejects(setup.getCvPdf(), /temporary review|Attachments/); await assert.rejects(setup.getLetterPdf(), /temporary review|Attachments/);
   assert.deepEqual(renderInputs, []);
   setup.tab = 'review'; await idle(setup); await setup.getCvPdf(); await setup.getLetterPdf();
   assert.deepEqual(renderInputs, [JSON.stringify(cv), letter]); assert.equal(setup.reviewActive, false);

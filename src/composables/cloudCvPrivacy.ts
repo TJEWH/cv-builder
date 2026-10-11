@@ -1,6 +1,6 @@
 import type { CloudCvSnapshot } from '../cloudTypes';
 import type { CvConfig, CvContent, CvDesign, CvState } from '../types';
-import { CV_STATE_VERSION } from '../types';
+import { CONTACT_FIELDS, CV_STATE_VERSION } from '../types';
 import { createCvConfigJson, createCvContentJson } from './cvJsonBackup';
 import { readCvConfig, readCvContent } from './cvStateValidation';
 import { BODY_FONTS, HEADING_FONTS } from './webFonts';
@@ -20,6 +20,7 @@ const DESIGN_CHOICES: Partial<Record<keyof CvDesign, readonly string[]>> = {
 function privacyDesign(design: CvDesign): CvDesign {
   return Object.fromEntries(Object.entries(design).filter(([key, value]) => {
     if (key === 'customFonts' || key === 'favoriteControls') return false;
+    if (key === 'letterContactFields') return Array.isArray(value) && value.every((field) => CONTACT_FIELDS.includes(field));
     if (typeof value === 'boolean') return true;
     if (typeof value === 'number') return Number.isFinite(value) && value >= 0 && value <= 100;
     if (typeof value !== 'string') return false;

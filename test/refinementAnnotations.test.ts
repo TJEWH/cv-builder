@@ -44,6 +44,16 @@ test('letter references remain bound to the original proposed version and never 
   assert.equal(annotationReferenceChanged(proposal.annotations![2], proposal.letterText, 'New letter'), false);
   assert.equal(annotationReferenceChanged(proposal.annotations![0], proposal.letterText, 'New letter'), false);
 });
+test('mapping a returned subject to its field does not invalidate an unchanged letter annotation', () => {
+  const { proposal } = fixture();
+  const body = 'Dear Committee,\n\nProposed letter.';
+  for (const heading of ['Application for a PhD', 'Subject: Application for a PhD', '**Subject:** Application for a PhD']) {
+    const incoming = `${heading}\n\n${body}`;
+    const annotation: RefinementAnnotation = { ...proposal.annotations![1], document: 'letter', location: { start: [...incoming].length - 'Proposed letter.'.length, quote: 'Proposed letter.' } };
+    assert.equal(annotationReferenceChanged(annotation, incoming, `# Application for a PhD\n\n${body}`), false);
+    assert.equal(annotationReferenceChanged(annotation, incoming, `# Another position\n\n${body}`), true);
+  }
+});
 test('annotation status and response are projected only from explicitly referenced reviews', () => {
   const { row } = fixture(); const annotation = annotationViews(row, []);
   assert.equal(annotation[0].status, 'open'); assert.equal(annotation[0].response, null);
