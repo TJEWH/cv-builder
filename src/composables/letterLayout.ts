@@ -21,19 +21,17 @@ function isGreeting(paragraph: string) {
 function isClosing(paragraphs: string[], index: number) {
   if (!signOff.test(lines(paragraphs[index])[0])) return false;
   const signature = [lines(paragraphs[index]).slice(1).join('\n'), ...paragraphs.slice(index + 1)].filter((part) => part.trim());
-  // A signature can have a name, degree and affiliation on separate lines.
-  // A longer trailing passage stays ordinary prose instead of becoming one
-  // large unbreakable block merely because a sign-off appeared earlier.
+  // Allow a name, degree and affiliation on separate signature lines.
+  // Keep longer passages in the body so pagination can split them.
   return signature.join(' ').length <= 300
     && signature.join(' ').trim().split(/\s+/).length <= 35
     && signature.every((part) => lines(part).length <= 3 && lines(part).every((line) => line.length <= 100));
 }
 
-/** Separate a conventional closing for a render-only signature line between the
- * sign-off and typed signature. Existing names, credentials and placeholders
- * remain authoritative; the applicant name only fills an otherwise empty
- * signature. Call after resolving identity placeholders against the full CV
- * contact, independently of which fields are selected for the letter header. */
+/** Separate the closing to render a signature line between the sign-off and typed
+ * signature. Preserve supplied names, credentials and placeholders; use the
+ * applicant name only for an empty signature. Resolve identity placeholders from
+ * the full CV contact first, regardless of the selected letter header fields. */
 export function letterClosingSignature(group: LetterParagraphGroup, applicantName: string): LetterClosingSignature | null {
   if (group.kind !== 'closing' || !group.paragraphs.length || !isClosing(group.paragraphs, 0)) return null;
   const firstParagraph = group.paragraphs[0].trim();
@@ -47,8 +45,7 @@ export function letterClosingSignature(group: LetterParagraphGroup, applicantNam
   return { signOff: signOffText, signatureParagraphs };
 }
 
-/** Render-only grouping: editing intentionally folds salutations/sign-offs into
- * the body. Recognize familiar boundary lines without rewriting stored text. */
+/** Group salutations and sign-offs for rendering without rewriting the edited body. */
 export function letterParagraphGroups(content: LetterContent): LetterParagraphGroup[] {
   const paragraphs = content.body.split(/\n\s*\n/).filter((paragraph) => paragraph.trim());
   const groups: LetterParagraphGroup[] = [];
@@ -70,8 +67,7 @@ export function letterParagraphGroups(content: LetterContent): LetterParagraphGr
     if (openingIndex >= 0) {
       groups.push(...paragraphs.splice(0, openingIndex).map((paragraph): LetterParagraphGroup => ({ kind: 'body', paragraphs: [paragraph] })));
       const opening = paragraphs.splice(0, 1);
-      // A greeting followed by a single newline already shares its paragraph
-      // with the opening prose, so it does not need another paragraph attached.
+      // Attach the next paragraph only when the greeting occupies its own paragraph.
       if (lines(opening[0]).length === 1) opening.push(...paragraphs.splice(0, 1));
       groups.push({ kind: 'opening', paragraphs: opening });
     }

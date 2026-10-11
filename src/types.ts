@@ -8,7 +8,7 @@ export type CustomBodyField = 'title' | 'institution' | 'place' | 'start' | 'end
 /** Structured fields that can be replaced with an automatic privacy proxy. */
 export const FIELD_PRIVACY_TYPES = ['company', 'institution', 'place', 'dates'] as const;
 export type FieldPrivacyType = typeof FIELD_PRIVACY_TYPES[number];
-/** Only fields whose privacy wording differs from the original CV are stored. */
+/** Store overrides only for privacy wording that differs from the original CV. */
 export type PrivacyFieldOverrides = Record<string, string | number>;
 export interface CvItem {
   id: string;

@@ -18,7 +18,7 @@ export function resolveRefinementSettings(template: LetterTemplate, overrides?: 
     setup: {
       template,
       language: applicationLanguage ? overrides!.language! : template.language,
-      // Keep invalid-but-present values visible so publication validates them instead of silently changing the user's choice.
+      // Preserve supplied values, including invalid ones, for validation during publication.
       maxWords: applicationWords ? overrides!.maxWords! : template.maxWords,
     },
     provenance: { language: applicationLanguage ? 'application' : 'template', maxWords: applicationWords ? 'application' : 'template' },
@@ -31,7 +31,7 @@ export function serializeRefinementDraft(working?: LetterContent | null): { text
   return { text: empty ? '' : letterToEditableText(working!), empty };
 }
 
-/** A fresh preview receives new IDs; only those IDs are irrelevant to immutable-request reuse. */
+/** Exclude generated request IDs when comparing inputs for immutable-request reuse. */
 export function refinementInputsSignature(local: LocalRefinementRequest): string {
   const { requestId: _requestId, cv, ...request } = local.request;
   const { requestId: _cvRequestId, ...cvRequest } = cv;

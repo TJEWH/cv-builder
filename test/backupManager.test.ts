@@ -317,7 +317,7 @@ test('deletion removes persisted data and the recovery copy, opens empty state, 
 test('a stale tab drops its deleted active version before autosaving', async (t) => {
   const { storage, props, instance, deleted } = savedVersionFixture(t);
   storage.delete('CV_CONF_DATA:target');
-  // Even before the index storage event arrives, a deleted payload is final.
+  // Treat a missing payload as deleted before the index storage event arrives.
   assert.equal(instance.saveCurrent(), true);
   await nextTick();
   assert.equal(props.state.contact.name, '');

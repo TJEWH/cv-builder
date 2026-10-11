@@ -29,7 +29,7 @@ function links(value: string): string[] {
   return [...value.matchAll(/\]\(([^\s)]+)\)|(?:https?:\/\/|mailto:|tel:|javascript:|data:)[^\s<>)]+/gi)].map(match => match[1] ?? match[0]).sort();
 }
 
-/** Deliberately narrow. Complex Markdown remains visible to the reviewer as comments-only content. */
+/** Allow structural edits to plain prose; keep complex Markdown available for comments. */
 function plainProse(value: string): boolean {
   const withoutLinks = value.replace(/\[[^\]\r\n]+\]\([^\s)]+\)/g, 'LINK').replace(TOKEN, 'PRIVATE');
   return !!value.trim() && !/[^\S \t\r\n]/u.test(value) && !/\r(?!\n)/.test(value)

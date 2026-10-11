@@ -258,7 +258,7 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
   return { client, from, rpc, seedProposal };
 }
 
-/** Small, deliberately synthetic source exercising distinct secrets and a private linked bullet. */
+/** Use distinct synthetic secrets and a private linked bullet to test redaction. */
 export function createPrivateRefinementCv(): CvState {
   const state = createEmptyDocument(); state.lang = 'en';
   state.contact = { name: 'E2E Omit Lab', role: 'Research engineer', email: 'rowan@example.invalid', location: 'Example City', phone: '', website: 'https://private.example.invalid/archive', linkedin: '', github: '' };
@@ -273,7 +273,7 @@ export function createPrivateRefinementCv(): CvState {
   return state;
 }
 
-/** Same in-memory publication/variant boundary for Node regressions and real browser rendering. */
+/** Share in-memory publication and variant storage between Node and browser tests. */
 export function createSyntheticRefinementWorkspace(source = createSampleDocument()) {
   const account = '90000000-0000-4000-8000-000000000001', applicationId = '10000000-0000-4000-8000-000000000001';
   const data = new Map<string, string>(), writes: { key: string; value: string }[] = [];

@@ -1,7 +1,7 @@
 import { REFINEMENT_COMMANDS, type RefinementCommand } from '../../src/composables/refinementProtocolContract';
 
-/** Deliberately small grammar: one SELECT, one named helper, literal arguments only.
- * Strings are tokenized, so SQL-looking source text never counts as executable SQL. */
+/** Parse one SELECT of a named helper with literal arguments.
+ * Tokenize quoted strings to keep their contents separate from executable SQL. */
 export function parseProtocolSql(sql: string): { command: RefinementCommand; values: string[] } {
   let rest = sql.trim();
   const take = (pattern: RegExp): string => {

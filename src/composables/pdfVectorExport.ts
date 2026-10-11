@@ -106,8 +106,7 @@ export async function renderVectorPdf(snapshot: VectorSnapshot) {
           const pause = task.checkpoint();
           if (pause) await pause;
           if (isTextRecord(record) && textRuns.has(record)) {
-            // Do not put an invisible copy of the entire CV on every page. Only
-            // text whose actual painted bounds intersect this slice belongs here.
+            // Include text only on pages that intersect its painted bounds.
             if (vectorTextIntersectsPage(record, context.state, page)) drawText(context, record, textRuns.get(record)!);
           } else context.apply(record);
         }

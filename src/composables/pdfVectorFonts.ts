@@ -38,7 +38,7 @@ function faceKey(face: Omit<FontFaceDescriptor, 'url'>) {
   return JSON.stringify([face.family.toLowerCase(), face.style, face.weight, face.ranges]);
 }
 
-/** Parse the @font-face declarations actually advertised to this browser. */
+/** Parse the @font-face declarations returned to this browser. */
 export function parseVectorFontFaces(css: string, stylesheetUrl: string): FontFaceDescriptor[] {
   return [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/@font-face\s*\{([^}]+)}/gi)].flatMap(([, block]) => {
     const family = cleanFamily(descriptor(block, 'font-family'));
@@ -90,8 +90,8 @@ function matchingFaces(faces: FontFaceDescriptor[], family: string, request: Ret
       }
       return 0;
     });
-  // Match the style/weight first, then its composite Unicode subsets. A glyph
-  // missing from the chosen weight must not quietly come from another weight.
+  // Match the style/weight first, then its composite Unicode subsets.
+  // Do not substitute another weight for a missing glyph.
   return matches.filter(({ face, rank }) => rank.slice(0, 3).every((value, index) => value === matches[0].rank[index])
     && face.ranges.some(([start, end]) => codePoint >= start && codePoint <= end));
 }

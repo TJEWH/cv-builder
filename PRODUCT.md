@@ -8,48 +8,46 @@ web
 
 ## Users
 
-The primary user is the project owner, preparing their own research, PhD, and career applications. Product decisions should serve this personal workflow. A broader applicant audience is not an established requirement.
+The project owner uses CV Harness to prepare their own research, PhD, and career applications. Design for that workflow; the owner has not requested support for a broader applicant audience.
 
 ## Product Purpose
 
-CV Harness is a personal application preparation workspace. It brings opportunity research, reusable career material, application-specific CVs and motivation letters, PDF packages, and application tracking into one workflow.
+Use CV Harness to review opportunity research, reuse career material, tailor CVs and motivation letters, assemble PDF packages, and track applications.
 
-Success means reusing accurate career material across applications, retaining control over personal information and AI proposals, and producing reliable final documents ready for submission.
+The owner should be able to reuse accurate career material, choose what to share and approve, and produce complete documents for submission.
 
 ## Positioning
 
-The product connects a reusable document library with independent application copies and the research context for each opportunity. It supports an iterative handoff to ChatGPT for proposed CV and letter changes, followed by review, editing, and separate approval of each document. This describes its working mechanism; no competitive superiority or application-outcome claim has been established.
+The owner starts each application with copies from a reusable document library and the opportunity's research. They can ask ChatGPT to propose CV and letter changes, review and edit the results, and approve each document. Do not claim that CV Harness outperforms competitors or improves application outcomes without evidence.
 
 ## Operating Context
 
-- **CV Studio** maintains independent career variants, CV content, document design, privacy settings, letter templates, and local attachments. It works without an account.
-- **Opportunities** presents an externally maintained research catalogue. The user reviews research and requirements, records interest, and creates applications. The app does not conduct searches itself.
-- **Applications** provides Preparation, Refinement, Attachments, and Tracking. These stages allow free navigation and iteration.
-- Selecting CV and letter templates creates independent application copies pinned to their source revisions. Later library edits do not silently change those copies.
-- Refinement hands privacy-filtered sources to ChatGPT through the connected Supabase workflow. A valid proposal for the current snapshot updates the selected document's working copy. The user reviews the result, answers annotations, edits wording, and approves the CV and letter independently.
-- Attachments assembles the CV, letter, and selected supporting documents into an ordered PDF package for preview and download. Submission occurs through the institution's portal or email; application status is updated manually.
+- In **CV Studio**, edit career variants, CV content, document design, privacy settings, letter templates, and local attachments. You do not need an account.
+- In **Opportunities**, review research and requirements, record interest, and create applications. The catalogue comes from outside the app; the app does not conduct searches.
+- In **Applications**, move between Preparation, Refinement, Attachments, and Tracking in any order.
+- Select CV and letter templates to create independent application copies pinned to their source revisions. Later library edits do not change those copies.
+- In Refinement, share privacy-filtered sources with ChatGPT through the connected Supabase workflow. A valid proposal for the current snapshot updates the selected document's working copy. Review the result, answer annotations, edit wording, and approve the CV and letter separately.
+- In Attachments, order the CV, letter, and selected supporting documents, then preview and download the PDF package. Submit it through the institution's portal or email and update the application status yourself.
 
 ## Capabilities and Constraints
-
-The following describes the existing implementation:
 
 - The app is a static Vue 3 and TypeScript frontend built with Vite, using local tab navigation and a GitHub Pages-compatible base path. Local CV work does not require an application server.
 - The optional Supabase workspace provides signed-in opportunity and application features. Signing in does not automatically upload a CV.
 - CV and letter editing data uses browser-local storage. Supporting PDF, PNG, and JPEG files and archived packages use IndexedDB. Only explicitly saved attachment names and descriptions, plus their identifiers, are shared with the connected workspace; file contents remain local.
-- Cloud records do not constitute a complete backup of private local documents or supporting files. Moving devices or clearing browser data requires appropriate document and file backups.
-- Explicit sharing uses privacy-filtered sources. Contact substitution, excluded content, and marked redactions help protect personal data, but unmarked prose can still identify the applicant. Do not describe this as guaranteed anonymity.
+- Back up private local documents and supporting files before moving devices or clearing browser data. Cloud records cannot restore all of them.
+- Explicit sharing uses privacy-filtered sources. Contact substitution, excluded content, and marked redactions help protect personal data, but unmarked prose can still identify the applicant. Do not promise anonymity.
 - Content and configuration have separate JSON backup formats. Privacy-aware content export/import is the default; full private content transfer requires the explicit bypass setting.
 - CVs support configurable sections, ordering, document layout, typography, and reusable variants. Motivation letters use application CV styling and retain revision history.
 - SVG previews and vector PDF exports share rendering data. Selectable text, supported fonts, safe clickable links, pagination, and agreement between preview and download are functional requirements.
-- The interface and document content support German and English. Desktop and mobile layouts already exist; neither device class has been confirmed as the exclusive priority.
-- Opportunity interest, document approval, and application status are distinct states. Research refreshes and template changes must preserve the user's application work according to their explicit actions.
+- The interface and document content support German and English. Desktop and mobile layouts exist; the owner has not named an exclusive device priority.
+- Keep opportunity interest, document approval, and application status separate. Research refreshes and template changes must preserve application work unless the user chooses to replace it.
 - Research interests, example letters, and AI suggestions do not establish applicant qualifications. Missing evidence and missing research scores must remain distinguishable from verified information.
 
 ## Brand Commitments
 
-The confirmed product name is **CV Harness**. Existing UI, repository metadata, and documentation still contain **CV Builder**; those are legacy implementation names, not a competing product-name decision. This initialization records the name without changing application copy.
+The owner chose **CV Harness** as the product name. Existing UI, repository metadata, and documentation still use the legacy name **CV Builder**. This document records the chosen name; it does not rename those references.
 
-No additional voice, visual identity, or aesthetic constraint was specified during initialization.
+The initial product brief specified no voice, visual identity, or other aesthetic constraints.
 
 ## Evidence on Hand
 
@@ -57,21 +55,21 @@ No additional voice, visual identity, or aesthetic constraint was specified duri
 - `src/App.vue` and `src/components/ApplicationWorkspace.vue` implement the main workspaces and application stages.
 - `src/i18n/dict.ts` contains existing German/English interface terminology and privacy explanations.
 - `docs/json-format.md` documents content/configuration backups and privacy-aware editing.
-- `test/browser/job-workspace.html` and `test/fixtures/` provide development scenarios and synthetic fixtures. They are demonstrations, not evidence of real applicant outcomes.
+- `test/browser/job-workspace.html` and `test/fixtures/` contain synthetic development scenarios. Do not cite them as evidence of applicant outcomes.
 - `public/fonts/` includes bundled font assets and license information. Preserve the licensing boundaries documented in the repository.
 
-No testimonials, acceptance-rate evidence, ATS certification, customer counts, or commercial positioning claims were established in this initialization. Do not invent them.
+The initial product brief supplied no testimonials, acceptance-rate evidence, ATS certification, customer counts, or evidence for commercial positioning claims. Do not invent them.
 
 ## Product Principles
 
-1. **Reuse accurate career material.** Maintain useful source variants while preserving the independence of each application's documents.
-2. **Keep sharing deliberate.** Retain personal data locally unless explicitly shared, and make the outgoing information understandable to the user.
-3. **Keep the user in control of AI changes.** Treat generated content as proposals requiring review; preserve factual grounding and document-specific approval.
-4. **Make final PDFs dependable.** Protect preview/export fidelity, document completeness, and recoverable local copies.
-5. **Support iteration.** Let the user move between research, preparation, refinement, review, and tracking without conflating progress with submission status.
+1. **Reuse accurate career material.** Keep source variants reusable and each application's documents independent.
+2. **Let the owner choose what to share.** Keep personal data on the device until the owner shares it. Show what will leave the browser.
+3. **Require review of AI changes.** Base proposals on source facts and keep approval separate for each document.
+4. **Check final PDFs.** Match previews to exports, include the selected documents, and preserve local copies for recovery.
+5. **Allow iteration.** Let the owner move between research, preparation, refinement, review, and tracking. Keep application status separate from document progress.
 
 ## Open Decisions
 
 - Device priority and usage frequency beyond the confirmed personal workflow.
-- Any product-specific accessibility requirements or formal conformance target; initialization does not assert that the current implementation meets one.
+- Product-specific accessibility requirements and a formal conformance target. The initial product brief set neither, and this document makes no conformance claim.
 - Any future expansion beyond the owner's research, PhD, and career applications.

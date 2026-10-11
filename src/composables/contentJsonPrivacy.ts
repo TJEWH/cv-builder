@@ -57,7 +57,7 @@ function insertProtected<T>(previous: T[], imported: T[], isProtected: (item: T)
   return result;
 }
 
-/** Current privacy rules, not the incoming file, decide what may be overwritten. */
+/** Use current privacy rules to decide which fields an import may overwrite. */
 export function preservePrivateContent(current: CvContent, incoming: CvContent, state: CvState): CvContent {
   preservePrivacyOverrides(current, incoming, state);
   preservePrivateFields(current, incoming, state);

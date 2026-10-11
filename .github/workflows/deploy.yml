@@ -17,7 +17,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Supabase configuration is provided by this GitHub environment at build time.
+    # Supply the build's Supabase configuration from this GitHub environment.
     environment: phd-workflow
     steps:
       - name: Checkout

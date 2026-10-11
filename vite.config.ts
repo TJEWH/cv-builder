@@ -14,10 +14,10 @@ export default defineConfig(({ mode }) => {
   );
   return {
     plugins: [responsivePdfRenderer(), vectorFontDecompression(), pdfPreviewAssets(), vue()],
-    // Every template is compiled by Vite, including draggable's render functions.
+    // Vite compiles the templates, including draggable's render functions.
     // Its CommonJS Vue import otherwise pulls the browser template compiler in.
     resolve: { alias: [{ find: /^vue$/, replacement: 'vue/dist/vue.runtime.esm-bundler.js' }] },
-    // Explicitly allowlist validated public configuration; never inline privileged keys.
+    // Allowlist validated public configuration. Do not inline privileged keys.
     envPrefix: [],
     define: { __SUPABASE_CONFIGURATION__: JSON.stringify(configuration) },
     // GitHub Pages serves project sites below the repository name.

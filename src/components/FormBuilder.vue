@@ -69,8 +69,8 @@ const letterContactFields = computed<ContactField[]>({
   get: () => designValue(sectionState('header').design, 'letterContactFields'),
   set: (fields) => { sectionState('header').design.letterContactFields = fields; },
 });
-// Route the editor's field bindings independently for each section. The app's
-// actual state (and therefore its preview) remains the selected whole version.
+// Bind each section to its selected version. Keep the app state and preview
+// on the selected whole version.
 const state = computed(() => ({
   contact: sectionState('header').contact,
   about: sectionState('about').about,

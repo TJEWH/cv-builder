@@ -428,7 +428,7 @@ const proposalAnnotations = computed(() => annotationViews(selectedProposal.valu
   };
 }));
 const currentQuestions = computed(() => proposalAnnotations.value.filter(item => item.annotation.document === pane.value && item.annotation.type === 'question'));
-// Leaving review returns to saved documents; returning must not reopen a ignored proposal.
+// Return to saved documents on leaving review; keep ignored proposals closed on return.
 watch(tab, value => { if (value !== 'refinement') reviewActive.value = false; });
 watch([cvApproved, letterApproved], ([cv, letter]) => {
   if (committingSelection) return;
@@ -732,8 +732,8 @@ async function createRound(scope: RefinementScope) {
   await saveSetup(); await refreshCloud();
   const candidate = preparedSource.value;
   if (!candidate || candidate.request.scope !== scope) throw new Error(sourceError.value || 'Sources changed while preparing. Review them and publish again.');
-  // A failed publication may retry its exact UUID. Never pick an older, already
-  // published request just because the user reverted to its document contents.
+  // Retry a failed publication with the same UUID. Reverting document contents
+  // must not select an older published request.
   const pending = Object.values(localRequests.value).find(item => !item.publishedAt && !requests.value.some(row => row.id === item.request.requestId) && sameRefinementInputs(item, candidate));
   const local = pending || candidate;
   localRequests.value = { ...localRequests.value, [local.request.requestId]: clone(local) }; persist();

@@ -41,7 +41,7 @@ export function readTrace(jsonl: string): Trace {
     } else if (item.type === 'agent_message' && event.type === 'item.completed') {
       if (typeof item.text === 'string') messages.push(item.text);
     } else if (!['agent_message', 'reasoning', 'todo_list'].includes(item.type)) {
-      // Shell, web, file edits, code-mode wrappers and unknown tool events cannot pass unnoticed.
+      // Reject shell, web, file edits, code-mode wrappers and unknown tool events.
       if (event.type === 'item.started' || event.type === 'item.completed') errors.push(`Unexpected agent action: ${item.type}.`);
     }
   }
@@ -81,9 +81,8 @@ function rowResult(call: ToolCall): ObjectValue {
 }
 export function isSqlTool(call: ToolCall): boolean { return /^(?:supabase[_./])?execute_sql$/.test(call.tool); }
 function isTargetedSqlDiscovery(call: ToolCall): boolean {
-  // Discovery transports may use a single query or a query array, and may add
-  // result-limit options. Validate the search target without inventing a full
-  // transport schema or mistaking unrelated tool searches for SQL discovery.
+  // Accept a query string or a one-element query array, with transport options
+  // such as result limits. Require a search for the Supabase SQL tool.
   const { query, queries } = call.arguments;
   const target = typeof query === 'string' && queries === undefined ? query
     : query === undefined && Array.isArray(queries) && queries.length === 1 ? queries[0] : null;
@@ -100,8 +99,7 @@ export function verifyTrace(fixture: ProtocolCase, trace: Trace, server: string)
   const expectedOrder = ['resolve', 'protocol', 'request', 'save'];
   for (const call of trace.calls) {
     if (stopped || saved) { fail('Tool call after the workflow should have stopped.'); continue; }
-    // Targeted loading of this connected capability is distinct from database
-    // exploration. A lookup never advances or restarts the exact SQL sequence.
+    // Allow one SQL-tool lookup per stage without advancing or restarting the SQL sequence.
     if (call.server === 'codex_apps' && /^(?:search|search_tools)$/.test(call.tool)) {
       if (!isTargetedSqlDiscovery(call)) { fail('Tool discovery must target only Supabase execute_sql.'); stopped = true; }
       else if (discoveryStages.has(stage)) { fail('Repeated tool discovery before the next SQL operation.'); stopped = true; }

@@ -3,37 +3,33 @@
 The app is a static frontend. Supabase supplies the shared opportunity catalogue, private applications and [connected CV/letter
 refinement](REFINEMENT.md). Local CV editing and PDF export work without an account.
 
-The deployment target is **phd-workflow** (`ehkfzvjgesomteqpwrwa`), using the matching GitHub Pages environment.
-The unused **Test** project (`vhkfrseocgiqxshrbevd`) has authorized deletion pending browser login; it has **not** been deleted.
+Deploy to **phd-workflow** (`ehkfzvjgesomteqpwrwa`) with the matching GitHub Pages environment.
+The user authorized deletion of the unused **Test** project (`vhkfrseocgiqxshrbevd`). Deletion awaits browser login; the project still exists.
 
 ## Storage and workflow boundaries
 
 **CV Studio** maintains CV variants, letter templates and attachments. Applications have Preparation, Refinement, Attachments and
-Tracking stages. Selecting templates freezes independent working copies; an approved application CV can be saved as a new reusable
-variant.
+Tracking stages. Selecting templates freezes independent working copies. Save an approved application CV as a new reusable variant.
 
-Complete CVs, letters and private reconstruction data stay in LocalStorage. Attachment files, package arrangements and previously
+Complete CVs, letters and private reconstruction data stay in LocalStorage. Attachment files, package arrangements and
 archived PDFs use IndexedDB. Cloud records cannot restore private originals on another device. CV, template and file/package backups
 are separate.
 
 Refinement publishes privacy-filtered sources for the selected document. **Copy task** / **Copy feedback** prepares a connected ChatGPT
-handoff; **Sync** applies a valid current-snapshot proposal. Manual corrections, resolved annotation answers and separate approvals
-remain part of the flow. Approved documents must be reopened before edits. Attachments assembles local PDFs; submission and tracking
-remain manual.
+handoff; **Sync** applies a valid current-snapshot proposal. You can correct wording, resolve annotations and approve each document.
+Reopen approved documents before editing. In Attachments, assemble local PDFs, then submit and track the application by hand.
 
 The attachment library shares explicitly saved names, descriptions and attachment/owner IDs. File bytes and file-derived metadata stay
-local. There is no Storage bucket or cloud application-attachment table. A metadata-only entry cannot be exported until its file exists
-locally.
+local. There is no Storage bucket or cloud application-attachment table. To export a metadata-only entry, add its file on this device.
 
 ## Setup
 
 1. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env.local`, using
    the root [`.env.example`](../.env.example). Use a publishable key, never a secret
-   or `service_role` key. Restart Vite after changes. Existing `NEXT_PUBLIC_*`
-   equivalents remain accepted. Configure the same values in the deployment environment.
+   or `service_role` key. Restart Vite after changes. You can also use the existing `NEXT_PUBLIC_*`
+   equivalents. Configure the same values in the deployment environment.
 2. For a **new database**, apply [`schema.sql`](schema.sql) once. It contains the
-   current schema and excludes retired standalone drafting APIs. It is not a
-   repeatable upgrade script: never replay it over an existing workspace.
+   current schema and excludes retired standalone drafting APIs. Never replay it over an existing workspace.
 3. For an **existing database**, inspect its applied migrations and deployed
    definitions before applying missing changes. Follow the schema maintenance guidance below.
    The document-scoped history UI requires [`refinement_scoped_history.sql`](refinement_scoped_history.sql)
@@ -47,13 +43,13 @@ locally.
 
 ## Schema maintenance
 
-[`schema.sql`](schema.sql) is the current fresh-install baseline. Historical upgrade scripts have been removed from the
-repository; Supabase retains the deployed migration history, and Git retains previously committed scripts. No upgrade is pending for
+[`schema.sql`](schema.sql) is the current fresh-install baseline. Find historical upgrade scripts in Git and deployed migration history
+in Supabase. No upgrade is pending for
 **phd-workflow** as of 2026-10-11 (Europe/Tirane).
 
 Migration `20261011122600` (`letter_refinement_system_prompt`) adds the optional `refinementSystemPrompt` template field to the
-existing validator, with a 4,000 UTF-16-unit limit. The targeted [`refinement_system_prompt.sql`](refinement_system_prompt.sql) upgrade
-is retained for other existing databases. The live template-guidance suite passed after deployment; its synthetic records were rolled back.
+existing validator, with a 4,000 UTF-16-unit limit. Use the targeted [`refinement_system_prompt.sql`](refinement_system_prompt.sql) upgrade
+for other existing databases. The live template-guidance suite passed after deployment and rolled back its synthetic records.
 
 The confirmed cleanup migrations are `20261010231056` (`retire_legacy_drafting`), `20261010231602`
 (`retire_legacy_refinement_formats`), `20261010231941` (`current_refinement_privacy`) and `20261010232812`
@@ -100,7 +96,7 @@ tracking are separate; server-maintained status history leaves unknown historica
 
 Refinement uses `save_refinement_state`, `publish_refinement_request`, `publish_refinement_protocol`, `save_refinement_review` and
 `clear_refinement_history`. Private management helpers resolve an exact reference, read its request/protocol and append a proposal with
-a stable retry UUID and verified receipt. They require `postgres`; no JWT impersonation or wider browser grants are used. The MCP still
+a stable retry UUID and verified receipt. They require `postgres` without JWT impersonation or wider browser grants. The MCP
 has administrative access beyond this supported workflow.
 
 History clearing uses a separate owner-checked private definer helper behind its public invoker wrapper, with revision and document-scope

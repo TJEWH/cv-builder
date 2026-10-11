@@ -177,7 +177,7 @@ for (const originalScope of ['letter', 'both'] as const) test(`notes retry after
   assert.deepEqual(setup.iterationNotes.letter, draft);
   failPublication = false;
 
-  // Copy must observe remote clearing itself, without requiring a separate sync.
+  // Detect cleared cloud history on Copy without a separate Sync action.
   await setup.copyIterationTask();
 
   assert.equal(setup.error, '');

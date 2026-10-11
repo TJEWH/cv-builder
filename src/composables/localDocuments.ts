@@ -187,7 +187,7 @@ export class LocalDocumentRepository {
     const { blob: _blob, ...metadata } = document;
     return metadata;
   }
-  /** References deliberately remain in manifests, so missing files block export visibly. */
+  /** Retain manifest references so missing files block export with an error. */
   async removeDocument(id: string): Promise<void> { await this.storage.remove(this.scope, 'documents', id); }
   async getManifest(applicationId: string): Promise<ApplicationPackageManifest> {
     const stored = await this.storage.get(this.scope, 'manifests', applicationId);

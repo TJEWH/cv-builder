@@ -14,8 +14,8 @@ export interface PdfPreviewPage { pdf: PDFDocumentProxy; pageNumber: number }
 export type DocumentPreviewPage = PreviewPage | PdfPreviewPage;
 export interface FontDescriptor { family: string; size: number; weight: number; style: string }
 export interface TextMetricsRecord { width: number; actualBoundingBoxAscent?: number; actualBoundingBoxDescent?: number }
-/** Canvas overloads are captured reflectively; their heterogeneous argument list
- * is confined to the recording/replay boundary. Consumers validate the method. */
+/** Keep reflected Canvas overload arguments inside the recording/replay boundary.
+ * Consumers validate the method. */
 export interface CallRecord {
   type: 'call'; method: string; args: any[];
   font?: FontDescriptor; fontString?: string; metrics?: TextMetricsRecord;

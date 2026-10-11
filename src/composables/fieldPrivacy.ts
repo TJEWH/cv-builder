@@ -125,9 +125,8 @@ export function preservePrivateFields(current: CvContent, incoming: CvContent, s
   const fields = normalizeProxyFields(state.anonymization?.proxyFields);
   if (!fields.length) return incoming;
   const projected = anonymizeFieldContent(structuredClone(current), state);
-  // An untouched exported value is unambiguous at its original ID/path. Edited
-  // prose stays literal: reverse-matching generic proxies could replace public
-  // wording accidentally.
+  // Restore untouched exported values at their original ID/path. Keep edited
+  // prose as written; reverse-matching generic proxies could replace public wording.
   function restoreUnchanged(original: object, publicValue: object, imported: object) {
     for (const [key, value] of Object.entries(original)) {
       if (typeof value === 'string' && Reflect.get(publicValue, key) !== value

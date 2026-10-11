@@ -13,8 +13,8 @@ export function createTestState(overrides: Partial<CvState> = {}): CvState {
   };
 }
 
-/** Unit tests implement only the external API members exercised by each case.
- * Keep the assertion at the fixture boundary, rather than disabling checking. */
+/** Test stubs implement the API members each case uses.
+ * Confine the type assertion to this helper so callers retain type checking. */
 export function stub<T>(implementation: unknown): T {
   return implementation as T;
 }

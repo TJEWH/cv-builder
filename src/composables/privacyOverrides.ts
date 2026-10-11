@@ -19,7 +19,7 @@ export interface PrivacyFieldEntry {
   field: string;
 }
 
-/** Includes blank editable fields so adding privacy wording never adds a second content model. */
+/** Include blank editable fields in the same privacy override model. */
 export function privacyFieldEntries(content: PrivacyContent): PrivacyFieldEntry[] {
   const entries: PrivacyFieldEntry[] = [];
   const add = (owner: object | undefined, field: string, parts: string[], path: (string | number)[]) => {
@@ -83,7 +83,7 @@ export function isPrivacyFieldOverrides(value: unknown): value is PrivacyFieldOv
     && Object.entries(value).every(([key, entry]) => isPrivacyFieldOverride(key, entry));
 }
 
-/** Drop deleted fields and redundant values; originals remain the single source of truth. */
+/** Drop overrides for deleted fields and values equal to the original values. */
 export function normalizePrivacyOverrides(state: CvState): PrivacyFieldOverrides {
   const stored = state.anonymization?.fieldOverrides;
   if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {};
@@ -120,7 +120,7 @@ export function getFieldPrivacyOverride(state: CvState, path: readonly (string |
   return Object.hasOwn(overrides, entry.key) ? overrides[entry.key] : undefined;
 }
 
-/** Original text is shown until the user provides privacy wording for that field. */
+/** Show original text until the user provides privacy wording for that field. */
 export function createPrivacyEditorState(state: CvState): CvState {
   const draft: CvState = JSON.parse(JSON.stringify(state));
   applyPrivacyOverrides(draft, state);
@@ -135,7 +135,7 @@ export function createPrivacyEditorState(state: CvState): CvState {
   return draft;
 }
 
-/** Only privacy settings are updated; draft structure and original content are never copied back. */
+/** Copy back privacy settings only; preserve the original structure and content. */
 export function applyPrivacyEditorChanges(state: CvState, draft: CvState): boolean {
   const originals = new Map(privacyFieldEntries(state).map(entry => [entry.key, entry]));
   const overrides: PrivacyFieldOverrides = {};

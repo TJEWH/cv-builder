@@ -22,8 +22,7 @@ export function createPdfRenderTask(signal?: AbortSignal, { now = () => performa
 
   return {
     check,
-    // Return nothing in the cheap path; callers can avoid creating a Promise
-    // for every node when there is still time left in this batch.
+    // Return nothing within the batch budget to avoid creating a Promise per node.
     checkpoint(force = false) {
       check();
       if (!force && now() - lastYield < budget) return;
@@ -51,8 +50,7 @@ export function createPdfRenderTask(signal?: AbortSignal, { now = () => performa
   };
 }
 
-// Every preview surface owns a slot. Invalidating it cancels in-flight work,
-// not just the eventual publication of its result.
+// Give each preview surface a slot to cancel its in-flight render on invalidation.
 export function createPreviewRenderSlot() {
   let controller: AbortController | undefined;
   return {

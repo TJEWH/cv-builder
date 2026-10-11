@@ -13,10 +13,9 @@ function replaceOnce(source: string, before: string, after: string) {
 
 /**
  * html2canvas 1.4.1 has synchronous DOM cloning/parsing and a microtask-only
- * painter. Retain its layout/paint coordinates but record vector commands,
- * adding checkpoints at node boundaries. Exact-match guards fail on incompatible
- * upgrades instead of silently shipping a blocking or incorrectly patched build.
- * The upstream source/license remains in the dependency, not a vendored copy.
+ * painter. Record vector commands at its layout/paint coordinates and add
+ * checkpoints at node boundaries. Abort the build if an upstream upgrade
+ * changes the patched source. Keep the upstream source and license in the dependency.
  */
 export function makeCanvasCooperative(source: string) {
   const change = (before: string, after: string) => { source = replaceOnce(source, before, after); };
@@ -24,7 +23,7 @@ export function makeCanvasCooperative(source: string) {
   change('var value = testSVG(document);', 'var value = true;');
   change('context = new Context(contextOptions, windowBounds);',
     'context = new Context(contextOptions, windowBounds); context.renderTask = opts.renderTask; context.createVectorContext = opts.createVectorContext;');
-  // Retain the mature DOM/CSS painter, but replace its bitmap surface entirely.
+  // Keep the DOM/CSS painter and replace its bitmap surface with vector recording.
   change("_this._activeEffects = [];\n        _this.canvas = options.canvas ? options.canvas : document.createElement('canvas');\n        _this.ctx = _this.canvas.getContext('2d');",
     '_this._activeEffects = [];\n        _this.canvas = { width: 0, height: 0, style: {} };\n        _this.ctx = context.createVectorContext(_this.canvas);');
   change('this.documentElement = this.cloneNode(element.ownerDocument.documentElement, false);',
@@ -80,8 +79,8 @@ export function makeCanvasCooperative(source: string) {
     'return [4 /*yield*/, parseTreeAsync(context, clonedElement).then(function (root) {');
   change('return [4 /*yield*/, renderer.render(root)];', 'return renderer.render(root); })];');
 
-  // These upstream painting methods already await their children. Yielding here
-  // preserves paint order, clipping and canvas save/restore state exactly.
+  // Yield where upstream painting methods await their children to preserve
+  // paint order, clipping and canvas save/restore state.
   const paintCheckpoints = `
 ['renderStack', 'renderNodeContent', 'renderNodeBackgroundAndBorders'].forEach(function (name) {
     const original = CanvasRenderer.prototype[name];

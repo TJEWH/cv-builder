@@ -2,8 +2,8 @@
 
 The Versions panel has separate export and import actions for content and configuration.
 Export the content file, edit its `data` object in another editor or context, then use
-**Import content** to replace editable content in the selected CV version. Its version name,
-design and other settings remain in place. Public entries absent from the file are removed.
+**Import content** to replace editable content in the selected CV version. You keep its version name,
+design and other settings. The import removes public entries absent from the file.
 Importing into the empty template opens an editable draft.
 
 **Bypass privacy proxy** is off by default and applies to both content export and import.
@@ -15,18 +15,18 @@ content and applicable automatic masking.
 Content imports preserve the current version's original contacts, automatically protected
 fields, protected sections and protected entries. For an existing manual replacement,
 imported text updates the replacement while retaining its original CV field. Keep section
-and item IDs stable so privacy settings follow the same content. If a public section
-containing a private entry is removed from the file, its container is retained for that entry.
-Other editable text imports are literal; exclamation punctuation has no privacy meaning.
+and item IDs stable so privacy settings follow the same content. If you remove a public section
+that contains a private entry, the import keeps the section for that entry.
+The import copies other editable text as written; exclamation punctuation has no privacy meaning.
 
 With bypass enabled, exports contain all original content, including header/contact fields
 and hidden sections/entries. Imports can overwrite those originals. The checkbox resets to
-off when switching versions and never changes configuration imports.
+off when you switch versions and never changes configuration imports.
 
 **Import configuration** replaces design and settings while retaining the CV's text,
 entries and custom sections. Each action accepts only its matching format. Invalid files
-leave the document unchanged. The old `cv-builder/cv` format, raw state objects, and
-browser-storage wrappers are not supported as imports. There is no combined export.
+leave the document unchanged. You cannot import the old `cv-builder/cv` format, raw state
+objects, or browser-storage wrappers. There is no combined export.
 
 Filenames use the selected version title, for example `engineering-2026-content-v7.json`
 and `engineering-2026-config-v7.json`. Unsaved drafts use the `cv-backup` prefix.
@@ -66,12 +66,12 @@ A minimal valid content file is:
 
 Keep the wrapper, required properties, and JSON types intact. Empty strings and arrays
 are valid. Design, language, layout, visibility, completion and anonymization settings
-do not belong in this file. Unknown fields are rejected instead of silently ignored.
+do not belong in this file. The importer rejects unknown fields.
 
 Each entry has a required nonempty `id`. Optional text properties are `name`, `title`,
 `company`, `institution`, `sub`, `place`, `start`, `end`, `bullets`, `desc`, `thesis`,
-`coursesText` and `level`. `state` may be `planned`, `ongoing` or `complete` and is
-only editable and displayed in custom body sections;
+`coursesText` and `level`. `state` may be `planned`, `ongoing` or `complete`; you can
+edit and display it only in custom body sections.
 `levelValue` is a finite number. Not every entry type displays every property.
 
 Custom body sections have `id`, `name`, and `entries`; optional `entryMode` is `fields`
@@ -84,11 +84,11 @@ Keep IDs stable when editing existing items or sections: layout, visibility and
 privacy settings refer to those IDs. Give new entries unique IDs. Custom section IDs
 must be unique and cannot use the built-in IDs `header`, `about`, `education`, `jobs`,
 `languages`, or `hobbies`. Item IDs must be unique across the document and different
-from section IDs. New sections are added to the layout automatically; settings tied
-to removed IDs may be discarded when the document is normalized.
+from section IDs. The import adds new sections to the layout and may discard settings
+tied to removed IDs during normalization.
 
-Unsafe web/email values remain text rather than active links. Other public content is
-retained in privacy-respecting exports; automatic masks do not identify every private detail.
+Unsafe web/email values remain text rather than active links. Privacy-respecting exports
+keep other public content; automatic masks do not identify every private detail.
 Use the Privacy editor to replace specific wording, such as changing "supervised by John Doe"
 to "supervised by a qualified person", without changing the Content field.
 
@@ -111,9 +111,9 @@ Their `data` object contains exactly:
 
 Configuration files contain privacy replacement values, but do not copy original contacts,
 CV text or entry contents. Section/item IDs can still carry user-chosen labels. Applying
-configuration to different content preserves its originals, with ID-specific settings
-applying where IDs match. Unspecified design properties use the app defaults rather than
-retaining the previous design.
+configuration to different content preserves its originals and applies ID-specific settings
+where IDs match. Unspecified design properties use the app defaults, replacing the
+previous design values.
 
 `anonymization.proxyFields` accepts `company`, `institution`, `place`, and `dates`; `dates`
 covers both start and end values. `anonymization.fieldOverrides` is an optional object that
@@ -122,7 +122,7 @@ current original and applicable automatic masking; an empty string is an intenti
 Resetting a replacement, or setting it equal to its original, removes the stored key. Changes
 to other original fields do not create overrides.
 
-Keys are JSON-encoded logical identities, rather than array positions:
+Keys encode the field's identity as JSON; they do not use array positions:
 
 ```json
 {
@@ -139,9 +139,9 @@ Keys are JSON-encoded logical identities, rather than array positions:
 Supported key forms are `["contact", field]`, `["about", "text"]`,
 `["item", itemId, field]`, `["section", sectionId, "name" or "text"]`, and
 `["heading", sectionId]`. Text replacements are strings; an item's `levelValue` can also
-be a finite number, and `state` retains its supported enum values. Invalid keys and value
-types are rejected. Removed items/sections lose their overrides during normalization;
-reordering or moving an existing item retains its override through the stable item ID.
+be a finite number, and `state` retains its supported enum values. The importer rejects
+invalid keys and value types. Normalization removes overrides for deleted items and sections.
+You can reorder or move an existing item without losing its override, which uses the stable item ID.
 This map stays in local state and configuration backups; cloud snapshots contain only the
 resolved privacy content, never the original-to-replacement map.
 

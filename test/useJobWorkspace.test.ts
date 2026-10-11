@@ -565,7 +565,7 @@ test('parallel row receipts do not block state changes or overwrite a newer stro
   assert.equal(workspace.reviews.value[0].state, 'strong_interest');
   assert.equal(workspace.reviews.value[0].reviewed_updated_at, source.updated_at);
   assert.equal(queries.filter(({ operation }) => operation === 'rpc').length, 2);
-  // Unexpected cross-opportunity response is rejected, never applied to the second row.
+  // Reject a response for another opportunity and leave the second row unchanged.
   assert.equal(await workspace.markOpportunityReviewed(source2), null);
   assert.equal(workspace.reviews.value.length, 1);
   scope.stop();

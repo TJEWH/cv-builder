@@ -840,7 +840,7 @@ body,
 
 .cv-builder-app {
   font-family: var(--font-ui);
-  /* Shell rhythm: 8px within controls, 16–24px around working regions. */
+  /* Spacing: 8px within controls, 16–24px around editor regions. */
   --workspace-inset: clamp(16px, 2vw, 24px);
   --workspace-gap: 24px;
   --workspace-control-gap: 8px;

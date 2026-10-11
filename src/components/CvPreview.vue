@@ -126,8 +126,8 @@ const observeTimelines = () => {
   }
   refreshTimelines();
 };
-// Hidden export sources get their rails on the private rendering snapshots.
-// Observing them here doubles layout work on every edit and serves no visible UI.
+// Lay out rails for hidden export sources in the private rendering snapshots.
+// Observing those sources here would repeat layout work on each edit.
 onMounted(observeTimelines);
 onUpdated(observeTimelines);
 watch(() => props.state.design, observeTimelines, { deep: true, flush: 'post' });
