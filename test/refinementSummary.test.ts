@@ -80,7 +80,8 @@ test('prompts request concise scoped summaries without changing the proposal con
     }
     assert.match(prompt, /summary/);
     assert.match(prompt, /no additional properties/);
-    assert.match(prompt, /latest feedback entry beginning "Workflow reset:" starts a fresh iteration/);
+    assert.match(prompt, /latest feedback entry beginning "Workflow reset:" whose scope includes that document starts a fresh iteration/);
     assert.match(prompt, /inactive unless explicitly reconfirmed in later feedback/);
+    assert.match(prompt, /Earlier guidance for the other document remains active/);
   }
 });

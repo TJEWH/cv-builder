@@ -80,6 +80,15 @@ function rowResult(call: ToolCall): ObjectValue {
   return value;
 }
 export function isSqlTool(call: ToolCall): boolean { return /^(?:supabase[_./])?execute_sql$/.test(call.tool); }
+function isTargetedSqlDiscovery(call: ToolCall): boolean {
+  // Discovery transports may use a single query or a query array, and may add
+  // result-limit options. Validate the search target without inventing a full
+  // transport schema or mistaking unrelated tool searches for SQL discovery.
+  const { query, queries } = call.arguments;
+  const target = typeof query === 'string' && queries === undefined ? query
+    : query === undefined && Array.isArray(queries) && queries.length === 1 ? queries[0] : null;
+  return typeof target === 'string' && /^supabase(?:\s+|[_./])execute_sql$/i.test(target.trim());
+}
 export function verifyTrace(fixture: ProtocolCase, trace: Trace, server: string): { passed: boolean; issues: string[]; calls: number } {
   const issues = [...trace.errors];
   const fail = (message: string) => { issues.push(message); };
@@ -87,12 +96,20 @@ export function verifyTrace(fixture: ProtocolCase, trace: Trace, server: string)
   if (!trace.final.trim()) fail('No final agent response.');
   let stage = 0; let stopped = false; let saved = false;
   let saveArgs: string[] | null = null; let retry = false;
+  const discoveryStages = new Set<number>();
   const expectedOrder = ['resolve', 'protocol', 'request', 'save'];
   for (const call of trace.calls) {
-    // Tool discovery is permitted; database discovery is not. It is still recorded.
-    if (call.server === 'codex_apps' && /^(?:search|search_tools)$/.test(call.tool)) continue;
+    if (stopped || saved) { fail('Tool call after the workflow should have stopped.'); continue; }
+    // Targeted loading of this connected capability is distinct from database
+    // exploration. A lookup never advances or restarts the exact SQL sequence.
+    if (call.server === 'codex_apps' && /^(?:search|search_tools)$/.test(call.tool)) {
+      if (!isTargetedSqlDiscovery(call)) { fail('Tool discovery must target only Supabase execute_sql.'); stopped = true; }
+      else if (discoveryStages.has(stage)) { fail('Repeated tool discovery before the next SQL operation.'); stopped = true; }
+      else if (call.error || call.status === 'failed' || (object(call.result) && call.result.isError)) { fail('Tool discovery failed.'); stopped = true; }
+      else discoveryStages.add(stage);
+      continue;
+    }
     if (call.server !== server || !isSqlTool(call)) { fail(`Unexpected tool ${call.server}.${call.tool}.`); continue; }
-    if (stopped || saved) { fail('Database call after the workflow should have stopped.'); continue; }
     try {
       if (call.arguments.project_id !== fixture.projectId) throw new Error('Wrong or missing Supabase project.');
       if (typeof call.arguments.query !== 'string') throw new Error('Missing SQL query.');

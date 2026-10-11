@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { LocalRefinementRequest, RefinementProposalRow, RefinementRequestRow } from '../refinementTypes';
-import { refinementRunMetadata } from '../composables/refinementHistory';
+import type { LocalRefinementRequest, RefinementProposalRow, RefinementRequestRow, RefinementScope } from '../refinementTypes';
+import { refinementMatchesScope, refinementRunMetadata } from '../composables/refinementHistory';
 import RefinementPrivacyPreview from './RefinementPrivacyPreview.vue';
 import ConfirmDeletionDialog from './ConfirmDeletionDialog.vue';
 const props = defineProps<{
   requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; localRequests: Record<string, LocalRefinementRequest>;
+  scope: RefinementScope;
   currentRequestId: string | null; activeId: string; reviewActive: boolean; accepted: boolean;
   canReset?: boolean; canClear?: boolean;
   publicationStatus: 'unpublished' | 'current' | 'outdated' | 'unverifiable'; lang: string; busy: boolean; open: boolean;
@@ -14,7 +15,15 @@ const emit = defineEmits<{ reset: []; clear: []; select: [id: string]; details: 
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const unknown = () => text('Unknown', 'Unbekannt');
 const date = (value?: string | null) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString(props.lang === 'de' ? 'de-DE' : 'en-GB') : unknown();
-const runs = computed(() => props.requests.map(row => ({ row, metadata: refinementRunMetadata(row, props.localRequests[row.id]), proposals: props.proposals.filter(proposal => proposal.request_id === row.id) })));
+const scopeLabel = (scope: RefinementScope) => scope === 'cv' ? 'CV' : scope === 'letter' ? text('Motivation letter', 'Motivationsschreiben') : text('CV and letter', 'CV und Anschreiben');
+const runs = computed(() => props.requests.filter(row => refinementMatchesScope(row.request_json.scope, props.scope, row.cleared_scopes)).map(row => ({ row, metadata: refinementRunMetadata(row, props.localRequests[row.id]), proposals: props.proposals.filter(proposal => proposal.request_id === row.id) })));
+const clearTitle = computed(() => props.scope === 'cv' ? text('Clear CV refinement history?', 'CV-Überarbeitungsverlauf löschen?') : props.scope === 'letter' ? text('Clear letter refinement history?', 'Brief-Überarbeitungsverlauf löschen?') : text('Clear refinement history?', 'Überarbeitungsverlauf löschen?'));
+const clearMessage = computed(() => props.scope === 'cv'
+  ? text('Permanently delete the saved CV refinement rounds, proposals, comments, feedback and original snapshot. Your current CV and letter history are kept. Resetting the CV to its original state will no longer be available.', 'Die gespeicherten CV-Überarbeitungsrunden, Vorschläge, Kommentare, Rückmeldungen und den ursprünglichen CV-Stand endgültig löschen. Der aktuelle Lebenslauf und der Briefverlauf bleiben erhalten. Der ursprüngliche CV-Stand kann danach nicht mehr wiederhergestellt werden.')
+  : props.scope === 'letter'
+    ? text('Permanently delete the saved letter refinement rounds, proposals, comments, feedback and original snapshot. Your current letter and CV history are kept. Resetting the letter to its original state will no longer be available.', 'Die gespeicherten Brief-Überarbeitungsrunden, Vorschläge, Kommentare, Rückmeldungen und den ursprünglichen Briefstand endgültig löschen. Das aktuelle Anschreiben und der CV-Verlauf bleiben erhalten. Der ursprüngliche Briefstand kann danach nicht mehr wiederhergestellt werden.')
+    : text('Permanently delete all saved refinement rounds, proposals, comments, feedback and the original snapshot. Your current CV and letter are kept. Reset to the original state will no longer be available.', 'Alle gespeicherten Überarbeitungsrunden, Vorschläge, Kommentare, Rückmeldungen und den ursprünglichen Stand endgültig löschen. Der aktuelle Lebenslauf und das Anschreiben bleiben erhalten. Der ursprüngliche Stand kann danach nicht mehr wiederhergestellt werden.'));
+const emptyMessage = computed(() => props.scope === 'cv' ? text('No CV refinement history yet.', 'Noch kein CV-Überarbeitungsverlauf.') : props.scope === 'letter' ? text('No motivation letter refinement history yet.', 'Noch kein Überarbeitungsverlauf für das Motivationsschreiben.') : text('No refinement history yet.', 'Noch kein Überarbeitungsverlauf.'));
 const confirmingClear = ref(false);
 const requestClear = () => { if (!props.busy && props.canClear) confirmingClear.value = true; };
 const cancelClear = () => { confirmingClear.value = false; };
@@ -24,14 +33,15 @@ const confirmClear = () => {
   if (!props.busy && props.canClear) emit('clear');
 };
 watch(() => props.busy || !props.canClear, disabled => { if (disabled) cancelClear(); });
+watch(() => props.scope, cancelClear);
 </script>
 
 <template>
   <section class="refinement-history" :aria-label="text('Refinement runs', 'Überarbeitungsrunden')">
     <ConfirmDeletionDialog
       :visible="confirmingClear"
-      :title="text('Clear refinement history?', 'Überarbeitungsverlauf löschen?')"
-      :message="text('Permanently delete all saved refinement rounds, proposals, comments, feedback and the original snapshot. Your current CV and letter are kept. Reset to the original state will no longer be available.', 'Alle gespeicherten Überarbeitungsrunden, Vorschläge, Kommentare, Rückmeldungen und den ursprünglichen Stand endgültig löschen. Der aktuelle Lebenslauf und das Anschreiben bleiben erhalten. Der ursprüngliche Stand kann danach nicht mehr wiederhergestellt werden.')"
+      :title="clearTitle"
+      :message="clearMessage"
       :cancel-label="text('Cancel', 'Abbrechen')"
       :confirm-label="text('Clear history', 'Verlauf löschen')"
       @cancel="cancelClear"
@@ -42,15 +52,16 @@ watch(() => props.busy || !props.canClear, disabled => { if (disabled) cancelCle
       <button type="button" :disabled="busy || !canReset" @click="emit('reset')">{{ text('Reset to original state', 'Ursprünglichen Stand wiederherstellen') }}</button>
       <button type="button" class="btn btn--danger" :disabled="busy || !canClear" @click="requestClear">{{ text('Clear history', 'Verlauf löschen') }}</button>
       <p class="app-hint">{{ text('Historical metadata comes from saved records. Missing versions remain unknown.', 'Historische Metadaten stammen aus gespeicherten Datensätzen. Fehlende Versionen bleiben unbekannt.') }}</p>
+      <p v-if="!runs.length" class="app-hint">{{ emptyMessage }}</p>
       <details v-for="run in runs" :key="run.row.id" class="disclosure-row history-run">
-        <summary>{{ date(run.row.created_at) }} · {{ run.row.request_json.scope }} · {{ run.proposals.length }} {{ text('proposals', 'Vorschläge') }}{{ run.row.id === currentRequestId ? text(' · Current', ' · Aktuell') : '' }}</summary>
+        <summary>{{ date(run.row.created_at) }} · {{ scopeLabel(run.row.request_json.scope) }} · {{ run.proposals.length }} {{ text('proposals', 'Vorschläge') }}{{ run.row.id === currentRequestId ? text(' · Current', ' · Aktuell') : '' }}</summary>
         <dl>
           <dt>{{ text('Request', 'Anfrage') }}</dt><dd><code>{{ run.metadata.requestId }}</code></dd>
           <dt>{{ text('Created', 'Erstellt') }}</dt><dd>{{ date(run.metadata.createdAt) }}</dd>
-          <dt>{{ text('CV source revision', 'CV-Quellrevision') }}</dt><dd>{{ run.metadata.cvRevision ?? unknown() }}</dd>
-          <dt>{{ text('Exact CV version', 'Exakte CV-Version') }}</dt><dd><code>{{ run.metadata.cvVersion ?? unknown() }}</code></dd>
-          <dt>{{ text('Letter source version', 'Brief-Quellversion') }}</dt><dd><code>{{ run.metadata.letterVersion ?? unknown() }}</code></dd>
-          <dt>{{ text('Template', 'Vorlage') }}</dt><dd>{{ run.metadata.templateName }} · r{{ run.metadata.templateRevision }}</dd>
+          <template v-if="scope !== 'letter'"><dt>{{ text('CV source revision', 'CV-Quellrevision') }}</dt><dd>{{ run.metadata.cvRevision ?? unknown() }}</dd>
+          <dt>{{ text('Exact CV version', 'Exakte CV-Version') }}</dt><dd><code>{{ run.metadata.cvVersion ?? unknown() }}</code></dd></template>
+          <template v-if="scope !== 'cv'"><dt>{{ text('Letter source version', 'Brief-Quellversion') }}</dt><dd><code>{{ run.metadata.letterVersion ?? unknown() }}</code></dd>
+          <dt>{{ text('Template', 'Vorlage') }}</dt><dd>{{ run.metadata.templateName }} · r{{ run.metadata.templateRevision }}</dd></template>
           <dt>{{ text('Prompt version', 'Prompt-Version') }}</dt><dd>{{ run.metadata.promptVersion ?? unknown() }}</dd>
           <dt>{{ text('Schema version', 'Schemaversion') }}</dt><dd>{{ run.metadata.protocolVersion }}</dd>
           <dt>{{ text('Approved additional instructions', 'Freigegebene zusätzliche Hinweise') }}</dt><dd class="pre-wrap">{{ run.metadata.instructions || text('None supplied', 'Keine übermittelt') }}</dd>

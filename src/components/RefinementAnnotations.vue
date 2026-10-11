@@ -6,7 +6,7 @@ import { useToasts } from '../composables/useToasts';
 
 type Item = AnnotationView & { target: string; referenceChanged: boolean; included: boolean };
 const props = defineProps<{
-  items: Item[]; lang: string; disabled: boolean;
+  items: Item[]; lang: string; disabled: boolean; questionsOnly?: boolean;
   save: (id: string, status: AnnotationStatus, response: string, previousReviewId: string | null) => Promise<boolean>;
   privacyPreview: (value: string) => string;
 }>();
@@ -87,8 +87,8 @@ const typeLabel = (type: string) => type === 'question' ? text('Question', 'Frag
 </script>
 
 <template>
-  <section v-if="items.length" class="annotations" :aria-label="text('CV and letter annotations', 'Anmerkungen zu CV und Brief')">
-    <h3>{{ text('Comments', 'Kommentare') }}</h3>
+  <section v-if="items.length" class="annotations" :aria-label="questionsOnly ? text('Questions', 'Fragen') : text('CV and letter annotations', 'Anmerkungen zu CV und Brief')">
+    <h3>{{ questionsOnly ? text('Questions', 'Fragen') : text('Comments', 'Kommentare') }}</h3>
     <article v-for="item in items" :key="key(item)" class="annotation-row" :data-annotation-id="item.annotation.id" :aria-busy="drafts[key(item)]!.saving">
       <header><strong>{{ typeLabel(item.annotation.type) }}</strong><span class="target">{{ item.target }}</span></header>
       <p class="annotation-text">{{ item.annotation.text }}</p>

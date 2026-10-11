@@ -1,5 +1,10 @@
 import { refinementSignature } from './applicationRefinement';
-import type { LocalRefinementRequest, RefinementProposalRow, RefinementRequestRow } from '../refinementTypes';
+import type { LocalRefinementRequest, RefinementProposalRow, RefinementRequestRow, RefinementScope } from '../refinementTypes';
+
+export function refinementMatchesScope(requestScope: RefinementScope, scope: RefinementScope, clearedScopes: readonly Exclude<RefinementScope, 'both'>[] = []) {
+  return (['cv', 'letter'] as const).some(document => (requestScope === 'both' || requestScope === document)
+    && (scope === 'both' || scope === document) && !clearedScopes.includes(document));
+}
 
 /** Historical facts come only from the captured request and its matching local receipt. */
 export function refinementRunMetadata(row: RefinementRequestRow, local?: LocalRefinementRequest) {

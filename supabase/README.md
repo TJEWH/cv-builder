@@ -36,6 +36,9 @@ locally.
    repeatable upgrade script: never replay it over an existing workspace.
 3. For an **existing database**, inspect its applied migrations and deployed
    definitions before applying missing changes. Follow the schema maintenance guidance below.
+   The document-scoped history UI requires [`refinement_scoped_history.sql`](refinement_scoped_history.sql)
+   before frontend rollout. This additive upgrade adds clear metadata and the
+   three-argument `clear_refinement_history` RPC while preserving the legacy endpoint.
 4. Provision existing email/password users through Supabase Authentication. The
    app has no signup or recovery flow. For this restricted workspace, keep public
    signup disabled and configure recovery, rate limits and password protection.
@@ -100,8 +103,9 @@ Refinement uses `save_refinement_state`, `publish_refinement_request`, `publish_
 a stable retry UUID and verified receipt. They require `postgres`; no JWT impersonation or wider browser grants are used. The MCP still
 has administrative access beyond this supported workflow.
 
-History clearing uses a separate owner-checked private definer helper behind its public invoker wrapper, with revision checks. It
-grants no access to management read/save helpers. See [the complete refinement contract](REFINEMENT.md).
+History clearing uses a separate owner-checked private definer helper behind its public invoker wrapper, with revision and document-scope
+checks. Shared historical rounds retain the other document's history and any immutable sources its reviews or later rounds still need.
+It grants no access to management read/save helpers. See [the complete refinement contract](REFINEMENT.md).
 
 The active helpers `job_drafting_redact_samples`, `cv_adjustment_validate_request` and `cv_adjustment_validate_response` keep their
 earlier names. Current structured shortening still uses them. Inner `cv.schemaVersion` and `cvStructure.schemaVersion` remain **1**;

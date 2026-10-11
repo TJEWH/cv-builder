@@ -24,11 +24,12 @@ The full suite includes workspace, document, privacy, export and storage tests. 
 npm run test:e2e:serve
 ```
 
-Open [the synthetic runner](http://127.0.0.1:5177/cv-builder/test/e2e/index.html) and click **Run all synthetic flows**. Success is **6/6 browser flows passed**. Each run starts fresh in-memory fixtures and leaves the final workspace visible.
+Open [the synthetic runner](http://127.0.0.1:5177/cv-builder/test/e2e/index.html) and click **Run all synthetic flows**. Success is **7/7 browser flows passed**. Each run starts fresh in-memory fixtures and leaves the final workspace visible.
 
 | Flow | Behavior |
 | --- | --- |
 | `scope-layout` | Scope selection, visible task controls, scoped preview/editor and preparation settings |
+| `scoped-history` | Questions-only current review, removed manual writing instructions, separate CV/letter history, letter-only reset, CV-only clear confirmation and preservation of letter history across reload |
 | `cv` | Publish, sync an operation proposal, apply only to the application CV, compare, reload, save an approved independent variant |
 | `initial-letter` | Publish an empty letter, apply its initial draft, compare and reload |
 | `existing-letter` | Publish the complete current letter, apply a refinement, compare and reload |

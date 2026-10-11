@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { refinementRunMetadata, visibleRefinementProposals } from '../src/composables/refinementHistory';
+import { refinementMatchesScope, refinementRunMetadata, visibleRefinementProposals } from '../src/composables/refinementHistory';
 import { prepareRefinement, refinementSignature } from '../src/composables/applicationRefinement';
 import { DEFAULT_LETTER_TEMPLATES } from '../src/composables/motivationLetters';
 import type { RefinementProposalRow, RefinementRequestRow } from '../src/refinementTypes';
@@ -38,4 +38,18 @@ test('primary view shows current proposals and an explicitly active historical p
   assert.deepEqual(visibleRefinementProposals(rows, 'current', '1').map(row => row.id), ['0', '1', '2']);
   assert.deepEqual(visibleRefinementProposals(rows, null, '').map(row => row.id), []);
   assert.equal(rows.length, 4, 'older runs are retained for history');
+});
+test('scope filtering includes shared rounds only while the requested document history remains', () => {
+  assert.equal(refinementMatchesScope('cv', 'cv'), true);
+  assert.equal(refinementMatchesScope('letter', 'cv'), false);
+  assert.equal(refinementMatchesScope('both', 'cv'), true);
+  assert.equal(refinementMatchesScope('cv', 'letter'), false);
+  assert.equal(refinementMatchesScope('letter', 'letter'), true);
+  assert.equal(refinementMatchesScope('both', 'letter'), true);
+  assert.equal(refinementMatchesScope('both', 'cv', ['cv']), false);
+  assert.equal(refinementMatchesScope('both', 'letter', ['cv']), true);
+  assert.equal(refinementMatchesScope('both', 'both', ['cv']), true);
+  assert.equal(refinementMatchesScope('both', 'both', ['cv', 'letter']), false);
+  assert.equal(refinementMatchesScope('cv', 'both', ['cv']), false);
+  assert.equal(refinementMatchesScope('letter', 'both'), true);
 });

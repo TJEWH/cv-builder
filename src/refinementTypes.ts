@@ -39,6 +39,8 @@ export type RefinementProposal = RefinementProposalV2;
 export interface RefinementRequestRow {
   id: string; application_id: string; user_id: string; request_json: RefinementRequest; created_at: string;
   cv_snapshot?: { snapshotId?: string; revision?: number };
+  /** A shared legacy round can be cleared for one document while retaining the other. */
+  cleared_scopes?: ('cv' | 'letter')[];
 }
 export interface RefinementProposalRow {
   id: string; application_id: string; user_id: string; request_id: string;
@@ -48,6 +50,7 @@ export interface RefinementReviewRow {
   id: string; application_id: string; user_id: string; request_id: string | null;
   kind: 'feedback' | 'approve_cv' | 'approve_letter' | 'reopen_cv' | 'reopen_letter' | 'cv_decisions' | 'annotation';
   payload: Record<string, unknown>; created_at: string;
+  cleared_scopes?: ('cv' | 'letter')[];
 }
 /** Full baseline and reconstruction bindings never cross the upload boundary. */
 export interface LocalRefinementRequest {

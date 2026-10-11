@@ -63,14 +63,57 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
       }
       if (name === 'clear_refinement_history') {
         appFor(args.p_application_id);
+        const scope = args.p_scope ?? 'both';
+        if (!['cv', 'letter', 'both'].includes(String(scope))) throw new Error('Invalid refinement scope.');
         const state = stateFor(args.p_application_id);
         if (!Number.isInteger(args.p_expected_revision) || Number(args.p_expected_revision) < 0
           || args.p_expected_revision !== (state?.revision || 0)) throw new Error('Refinement state changed. Reload and retry.');
         if (!state) return { data: null, error: null };
-        for (const table of ['application_refinement_reviews', 'application_refinement_proposals', 'application_refinement_protocols', 'application_refinement_requests']) {
-          database[table] = database[table].filter(row => row.application_id !== args.p_application_id || row.user_id !== account);
+        const belongs = (row: Row) => row.application_id === args.p_application_id && row.user_id === account;
+        const cleared = (row: Row) => row.cleared_scopes as string[] | undefined;
+        const mark = (row: Row) => { row.cleared_scopes = [...new Set([...(cleared(row) || []), String(scope)])].sort(); };
+        const deletedRequests = new Set<string>();
+        for (const row of database.application_refinement_requests.filter(belongs)) {
+          const requestScope = (row.request_json as RefinementRequest | undefined)?.scope;
+          if (scope === 'both') deletedRequests.add(String(row.id));
+          else if (requestScope === scope || requestScope === 'both') mark(row);
         }
-        Object.assign(state, { current_request_id: null, revision: Number(state.revision) + 1, updated_at: now() });
+        database.application_refinement_reviews = database.application_refinement_reviews.filter(row => {
+          if (!belongs(row)) return true;
+          if (scope === 'both' || deletedRequests.has(String(row.request_id))) return false;
+          const payload = row.payload as Row;
+          const proposal = database.application_refinement_proposals.find(proposal => proposal.id === payload.proposalId)?.proposal_json as RefinementProposal | undefined;
+          const reviewScope = row.kind === 'feedback' ? payload.scope : row.kind === 'annotation'
+            ? proposal?.annotations?.find(annotation => annotation.id === payload.annotationId)?.document
+            : row.kind === 'cv_decisions' || ['approve_cv', 'reopen_cv'].includes(String(row.kind)) ? 'cv' : 'letter';
+          if (reviewScope === scope) return false;
+          if (reviewScope === 'both') { mark(row); return cleared(row)!.length < 2; }
+          return true;
+        });
+        const exhausted = (row: Row) => {
+          const requestScope = (row.request_json as RefinementRequest | undefined)?.scope;
+          return scope === 'both' || requestScope === 'both' ? scope === 'both' || cleared(row)?.length === 2 : cleared(row)?.includes(String(requestScope));
+        };
+        if (scope !== 'both') {
+          let removed = true;
+          while (removed) {
+            removed = false;
+            for (const row of database.application_refinement_requests.filter(row => belongs(row) && !deletedRequests.has(String(row.id)) && exhausted(row))) {
+              const referenced = database.application_refinement_reviews.some(review => review.request_id === row.id)
+                || database.application_refinement_requests.some(child => !deletedRequests.has(String(child.id))
+                  && database.application_refinement_proposals.some(proposal => proposal.request_id === row.id
+                    && proposal.id === (child.request_json as RefinementRequest | undefined)?.parentProposalId));
+              if (!referenced) { deletedRequests.add(String(row.id)); removed = true; }
+            }
+          }
+        }
+        const current = database.application_refinement_requests.find(row => row.id === state.current_request_id);
+        for (const table of ['application_refinement_proposals', 'application_refinement_protocols']) {
+          database[table] = database[table].filter(row => !belongs(row) || scope !== 'both' && !deletedRequests.has(String(row.request_id)));
+        }
+        database.application_refinement_requests = database.application_refinement_requests.filter(row => !belongs(row) || !deletedRequests.has(String(row.id)));
+        Object.assign(state, { current_request_id: scope === 'both' || !current || exhausted(current) ? null : state.current_request_id,
+          revision: Number(state.revision) + 1, updated_at: now() });
         return { data: clone(state), error: null };
       }
       if (name === 'save_refinement_state') {
@@ -96,7 +139,9 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
         if (!same(state.setup_json, setup)) throw new Error('Refinement settings changed.');
         const approvals = state.approvals_json as Row;
         if (approvals.cv && request.scope !== 'letter' || approvals.letter && request.scope !== 'cv') throw new Error('Reopen approved documents first.');
-        const feedback = database.application_refinement_reviews.filter(row => row.application_id === app.id && row.kind === 'feedback').map(row => ({ id: row.id, ...(row.payload as Row), createdAt: row.created_at }));
+        const feedback = database.application_refinement_reviews.filter(row => row.application_id === app.id && row.kind === 'feedback'
+          && (request.scope === 'both' || !(row.cleared_scopes as string[] | undefined)?.includes(request.scope)))
+          .map(row => ({ id: row.id, ...(row.payload as Row), createdAt: row.created_at }));
         if (!same(feedback, request.feedback)) throw new Error('Include all ordered feedback in the request.');
         if (request.parentProposalId && !database.application_refinement_proposals.some(row => row.id === request.parentProposalId && row.application_id === app.id)) throw new Error('Unknown parent proposal.');
         const row = { id: request.requestId, application_id: app.id, user_id: account, request_json: clone(request), opportunity_snapshot: clone(app.context_json),

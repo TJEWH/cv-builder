@@ -133,13 +133,12 @@ async function cvFlow() {
   assert(fixture.creations.length === 0, 'Automatic CV application must keep changes within this application');
   assert(originals === refinementSignature(local.cv), 'Automatic application changed the original private mappings');
   assert(fixture.base.experience.jobs[0].bullets!.includes('private.example.invalid'), 'Omission destroyed the original source link');
-  const changes = root.querySelector<HTMLElement>('.proposal-changes');
-  assert(changes?.getClientRects().length && !changes.closest('details'), 'Automatic changes must remain visible outside disclosures');
+  assert(!root.querySelector('.current-review .proposal-changes'), 'Current Review must contain questions only');
   assert(!root.querySelector('input[aria-label^="Include "]:not(:disabled)'), 'Automatically applied changes must not allow manual selection');
   const applied = refinementSignature(setup.record!.state);
   await click('Preview proposal');
-  await click('Original', root.querySelector('.proposal-content')!); assert(same(setup.previewCvState, local.cv.baselineState), 'Comparison did not show the frozen original CV');
-  await click('Proposed', root.querySelector('.proposal-content')!); assert(refinementSignature(setup.previewCvState) === applied, 'Comparison differs from the applied CV');
+  await click('Original', root.querySelector('.refinement-preview')!); assert(same(setup.previewCvState, local.cv.baselineState), 'Comparison did not show the frozen original CV');
+  await click('Proposed', root.querySelector('.refinement-preview')!); assert(refinementSignature(setup.previewCvState) === applied, 'Comparison differs from the applied CV');
   await click('Close preview'); await click('Sync'); await mount(true); await click('Sync');
   assert(fixture.creations.length === 0 && refinementSignature(setup.record!.state) === applied, 'Repeated sync or reload duplicated the applied CV');
   assert(setup.requests.length === 1, 'Sync started a new iteration without copying the next task');
@@ -166,13 +165,13 @@ async function letterFlow(initial: boolean) {
   await loadProposal(row); await rendered('letter', text);
   assert(setup.letter!.working.body === text, 'Loaded letter was not applied automatically');
   assert(refinementSignature(setup.record!.state) === cv && fixture.creations.length === 0, 'Letter application created or altered a CV');
-  assert(!root.querySelector('.proposal-content')?.textContent?.includes('This extra legacy sentence must not be shown.'), 'Active letter summary must be limited to two sentences');
+  assert(!root.querySelector('.proposal-content')?.textContent?.includes(row.proposal_json.summary), 'Current Review must not duplicate the proposal summary');
+  assert(!root.querySelector('.current-review .proposed-letter'), 'Current Review must not duplicate the letter');
+  assert([...root.querySelectorAll('.current-review .annotation-row header strong')].every(node => node.textContent === 'Question'), 'Current Review must show only questions');
   assert(!root.querySelector('.proposal-content')?.textContent?.includes('Include proposed letter'), 'Letter selection toggle must be removed');
   assert(!surface('letter').querySelector('.document-inline-preview__actions'), 'Refinement must not show standalone preview/download actions');
-  await click('Preview proposal');
-  await click('Original', root.querySelector('.proposal-content')!); assert(setup.previewLetterContent!.body === original, 'Comparison did not show the exact original letter');
-  await click('Proposed', root.querySelector('.proposal-content')!); assert(same(setup.previewLetterContent!.body, text), 'Proposed comparison differs from applied letter');
-  await click('Close preview');
+  await click('Original', root.querySelector('.proposal-preview-action')!); assert(setup.previewLetterContent!.body === original, 'Comparison did not show the exact original letter');
+  await click('Proposed', root.querySelector('.proposal-preview-action')!); assert(same(setup.previewLetterContent!.body, text), 'Proposed comparison differs from applied letter');
   const revisions = setup.letter!.revisions.length;
   await mount(true); await click('Sync'); await rendered('letter', text);
   assert(setup.letter!.working.body === text && setup.letter!.revisions.length === revisions, 'Repeated sync or reload duplicated the applied letter');
@@ -181,9 +180,10 @@ async function proposalReviewFlow() {
   await prepare('letter');
   const originalCv = refinementSignature(setup.record!.state);
   const first = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'First automatically applied proposal.', persist: false });
+  first.proposal_json.annotations!.find(annotation => annotation.document === 'letter')!.type = 'question';
   await loadProposal(first); await rendered('letter', 'First automatically applied proposal.');
   const minor = root.querySelector(sidebarEnabled() ? '#desktop-sidebar-minor' : '.proposal-preview-action')!;
-  assert(minor?.contains(button('Preview proposal')), 'Proposal preview belongs in the minor action area');
+  assert(minor?.contains(button('Original')) && minor?.contains(button('Proposed')), 'Letter comparison belongs in the minor action area');
   assert(root.querySelector(sidebarEnabled() ? '#desktop-sidebar-major' : '.refinement-toolbar')?.contains(button('Approve letter')), 'Approval belongs in the major action area');
   assert(minor?.contains(button('Sync')), 'Sync belongs in the minor action area');
   const applied = snapshot(), input = preview(), beforeSvg = surface('letter').querySelector('.pdf-preview__page')!.innerHTML;
@@ -196,14 +196,18 @@ async function proposalReviewFlow() {
   const annotation = root.querySelector('.annotations article')!;
   assert(!annotation.querySelector('textarea'), 'Ignoring an annotation must hide its response input');
   const firstRequest = setup.requests[0].id;
+  await field('Tone', 'Use a measured, direct tone.');
+  await field('Structure', 'Start with the research question.');
+  await field('Content', 'Explain the experimental method.');
   await click('Copy feedback'); assert(!setup.error, setup.error);
   assert(setup.requests[0].id !== firstRequest && copiedPrompt.includes(setup.requests[0].id), 'Next iteration must publish and copy a new task');
   assert(setup.requests[0].request_json.letter.text === 'First automatically applied proposal.', 'Next iteration lost the applied working letter');
+  assert(setup.requests[0].request_json.feedback.some(item => item.scope === 'letter' && /Tone:[\s\S]*measured[\s\S]*Structure:[\s\S]*research question[\s\S]*Content:[\s\S]*experimental method/.test(item.text)), 'Next iteration must include all three refinement requests');
   const next = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Second automatically applied proposal.', persist: false });
   await loadProposal(next); await rendered('letter', 'Second automatically applied proposal.');
   await disclose('History'); await click('Reset to original state'); assert(!setup.error, setup.error);
   assert(root.querySelector('.initial-refinement') && !root.querySelector('.next-refinement'), 'Reset must restore initial refinement');
-  assert(setup.letter!.working.body === 'Original working letter.' && refinementSignature(setup.record!.state) === originalCv, 'Reset must restore both original documents');
+  assert(setup.letter!.working.body === 'Original working letter.' && refinementSignature(setup.record!.state) === originalCv, 'Letter reset must restore its original source and preserve the CV');
   assert(setup.proposals.length === 2 && setup.letter!.revisions.some(revision => revision.cloudDraftId === next.id), 'Reset must preserve proposal and letter history');
   await click('Sync'); await rendered('letter', 'Original working letter.');
   assert(setup.letter!.working.body === 'Original working letter.', 'Sync replayed a reset proposal');
@@ -347,8 +351,103 @@ async function scopeLayoutFlow() {
     assert(root.querySelector('#desktop-sidebar-minor')?.contains(settings), 'Language and target words belong in the minor sidebar area');
   }
 }
+async function scopedHistoryFlow() {
+  const originalLetter = 'Original letter before either refinement.';
+  await prepare('cv', originalLetter);
+  const originalCv = refinementSignature(setup.record!.state);
+  const cvRequestId = setup.requests[0].id;
+  const cvProposal = fixture.cloud.seedProposal(cvRequestId, { persist: false });
+  const cvQuestion = cvProposal.proposal_json.annotations!.find(annotation => annotation.document === 'cv')!;
+  cvProposal.proposal_json.annotations!.push(
+    { ...cvQuestion, id: 'annotation-3', type: 'comment', text: 'Hidden CV comment for this proposal.' },
+    { ...cvQuestion, id: 'annotation-4', type: 'todo', text: 'Hidden CV ToDo for this proposal.' },
+  );
+  function checkQuestions(row: RefinementProposalRow, questionId: string) {
+    const review = root.querySelector<HTMLElement>('.current-review');
+    assert(review, 'A loaded proposal must show Current Review');
+    const questions = [...review.querySelectorAll<HTMLElement>('.annotation-row')];
+    assert(questions.length === 1 && questions[0].dataset.annotationId === questionId, 'Current Review must contain only the selected document’s question');
+    assert(questions[0].querySelector('header strong')?.textContent === 'Question', 'The current row must be presented as a question');
+    assert(!review.querySelector('.proposed-letter,.proposal-changes'), 'Current Review must omit proposed document content');
+    assert(!review.textContent?.includes(row.proposal_json.summary), 'Current Review must omit the proposal summary');
+    assert(!review.textContent?.includes('Hidden CV') && !review.textContent?.includes('Hidden letter'), 'Current Review must omit comment and ToDo annotations');
+  }
+  function checkHistory(expectedIds: string[]) {
+    const ids = [...root.querySelectorAll('.history-run')].map(run => run.querySelector('dl code')?.textContent || '');
+    assert(same([...ids].sort(), [...expectedIds].sort()), `History must show only ${expectedIds.length} matching refinement round(s)`);
+  }
+  function checkManualEditor() {
+    const manual = [...root.querySelectorAll('summary')].find(summary => summary.textContent?.trim() === 'Edit manually')?.parentElement;
+    assert(manual && !manual.textContent?.includes('Application writing instructions'), 'Manual editing must not expose Application writing instructions');
+  }
+  await loadProposal(cvProposal);
+  const appliedCv = refinementSignature(setup.record!.state);
+  assert(appliedCv !== originalCv, 'The CV fixture must apply an actual refinement');
+  checkQuestions(cvProposal, cvQuestion.id);
+  await disclose('Edit manually'); checkManualEditor();
+  await disclose('History'); checkHistory([cvRequestId]);
+
+  await field('Refinement scope', 'letter');
+  checkHistory([]);
+  assert(root.querySelector('.refinement-history')?.textContent?.includes('No motivation letter refinement history yet.'), 'The new letter scope must show its own empty history');
+  await click('Copy task'); assert(!setup.error, setup.error);
+  const letterRequestId = setup.requests[0].id;
+  assert(letterRequestId !== cvRequestId && setup.requests[0].request_json.scope === 'letter', 'Letter refinement must publish a separate round');
+  const refinedLetter = 'A refined motivation letter with a clear research interest.';
+  const letterProposal = fixture.cloud.seedProposal(letterRequestId, { persist: false, letterText: refinedLetter });
+  const letterQuestion = letterProposal.proposal_json.annotations!.find(annotation => annotation.document === 'letter')!;
+  letterQuestion.type = 'question';
+  letterProposal.proposal_json.annotations!.push(
+    { ...letterQuestion, id: 'annotation-3', type: 'comment', text: 'Hidden letter comment for this proposal.' },
+    { ...letterQuestion, id: 'annotation-4', type: 'todo', text: 'Hidden letter ToDo for this proposal.' },
+  );
+  await loadProposal(letterProposal);
+  checkQuestions(letterProposal, letterQuestion.id);
+  assert(!root.querySelector('.current-review')?.textContent?.includes(refinedLetter), 'The proposed letter must appear only in its preview and manual editor');
+  checkManualEditor();
+  checkHistory([letterRequestId]);
+  assert(refinementSignature(setup.record!.state) === appliedCv, 'Letter refinement must preserve the already refined CV');
+  await field('Refinement scope', 'cv');
+  checkHistory([cvRequestId]); checkQuestions(cvProposal, cvQuestion.id);
+  await field('Refinement scope', 'letter');
+  checkHistory([letterRequestId]);
+
+  await click('Reset to original state', root.querySelector('.refinement-history')!);
+  assert(!setup.error, setup.error);
+  assert(setup.letter!.working.body === originalLetter, 'Letter reset must restore its exact original source');
+  assert(refinementSignature(setup.record!.state) === appliedCv, 'Letter reset must retain the refined CV');
+  checkHistory([letterRequestId]);
+  await field('Refinement scope', 'cv');
+  checkHistory([cvRequestId]);
+  const documentsBeforeClear = snapshot();
+  await click('Clear history', root.querySelector('.refinement-history')!);
+  const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]');
+  assert(dialog, 'Clearing history must open its confirmation dialog');
+  assert(dialog.textContent?.includes('Clear CV refinement history?'), 'Clearing CV history must name that scope in its confirmation');
+  assert(dialog.textContent?.includes('letter history are kept'), 'The confirmation must explain that letter history is retained');
+  await click('Clear history', dialog);
+  assert(!setup.error, setup.error);
+  assert(!document.querySelector('[role="alertdialog"]'), 'The clear confirmation must close after submitting');
+  checkHistory([]);
+  assert(snapshot() === documentsBeforeClear, 'Clearing CV history must preserve both working documents');
+  assert(!setup.requests.some(request => request.id === cvRequestId) && setup.requests.some(request => request.id === letterRequestId), 'Clearing CV history must keep the letter request');
+  assert(!setup.proposals.some(proposal => proposal.id === cvProposal.id) && setup.proposals.some(proposal => proposal.id === letterProposal.id), 'Clearing CV history must keep the letter proposal');
+
+  await field('Refinement scope', 'letter');
+  checkHistory([letterRequestId]);
+  await mount(true); await click('2Refinement'); await disclose('History');
+  checkHistory([letterRequestId]);
+  assert(setup.letter!.working.body === originalLetter && refinementSignature(setup.record!.state) === appliedCv, 'Reload must preserve the letter reset and refined CV');
+  assert(setup.proposals.some(proposal => proposal.id === letterProposal.id), 'Letter proposal history must survive reload after clearing CV history');
+  await field('Refinement scope', 'cv');
+  checkHistory([]);
+  assert(button('Clear history', root.querySelector('.refinement-history')!).disabled, 'The cleared CV history must no longer offer deletion');
+  await field('Refinement scope', 'letter');
+  await rendered('letter', originalLetter);
+}
 const flows = [
   ['scope-layout', 'Scope dropdown → task controls → scoped preview and editor → preparation settings', scopeLayoutFlow],
+  ['scoped-history', 'CV and letter questions → scoped history → letter reset → clear only CV → reload', scopedHistoryFlow],
   ['cv', 'CV snapshot → application-only changes → compare → reload → save approved variant', cvFlow],
   ['initial-letter', 'Initial letter → automatic application → compare → reload', () => letterFlow(true)],
   ['existing-letter', 'Existing letter → automatic refinement → compare → reload', () => letterFlow(false)],

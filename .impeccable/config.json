@@ -21,6 +21,15 @@
         ],
         "createdAt": "2026-10-10T22:46:18.912Z",
         "reason": "Agent: application-status-history ol uses a 2px timeline rail connecting li::before status nodes, with timestamps and aria-current=step for the current status. HEAD already contains the rail and geometry; the polish only replaced its color with a shared token. Preserve the semantic status-history timeline."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/components/RefinementHistory.vue"
+        ],
+        "createdAt": "2026-10-11T14:29:01.056Z",
+        "reason": "Agent review: the existing 2px rule groups nested proposals under their saved request. It is unchanged from HEAD and serves history hierarchy rather than a decorative card accent."
       }
     ]
   }

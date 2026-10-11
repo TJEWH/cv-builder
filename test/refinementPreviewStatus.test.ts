@@ -34,7 +34,9 @@ function compile(filename: string, replacements: Record<string, unknown> = {}) {
   new Function('require', 'exports', code)((name: string) => replacements[name] ?? (name.endsWith('.vue') ? { default: { render: () => null } } : require(name)), result);
   return result.default!;
 }
-const Status = compile('RefinementPreviewStatus.vue');
+const Status = compile('RefinementPreviewStatus.vue', {
+  './RefinementComparisonToggle.vue': { default: compile('RefinementComparisonToggle.vue') },
+});
 const surface = (name: string) => ({ default: defineComponent({
   inheritAttrs: false,
   setup(_props, { attrs, slots }) { return () => h('section', { 'data-surface': name, pages: attrs.pages }, slots.header?.()); },

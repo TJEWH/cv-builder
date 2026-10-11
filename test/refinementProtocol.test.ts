@@ -55,6 +55,15 @@ for (const name of CASE_NAMES) test(`${name}: task resolves to complete literal 
   const trace = goodTrace(fixture);
   assert.deepEqual(verifyTrace(fixture, trace, 'codex_apps').issues, []);
   assert.match(fixture.protocol.text, /Do not list tables, query system catalogs, inspect function definitions/);
+  for (const document of [fixture.task, fixture.protocol.text]) {
+    const targetedDiscovery = document.indexOf('targeted only at "Supabase execute_sql"');
+    const missingCapability = document.indexOf('If execute_sql is unavailable');
+    assert.ok(targetedDiscovery >= 0 && missingCapability > targetedDiscovery, 'load the targeted capability before declaring it absent');
+    assert.match(document, /exposed name may include a namespace prefix/);
+    assert.match(document, /on this same connector/);
+    assert.match(document, /permission, security or approval denial must stop the workflow immediately/);
+    assert.match(document, /do not rediscover or retry to bypass it/);
+  }
 });
 
 test('literal SQL parsing supports quotes, backslashes, Unicode and SQL-looking document text', () => {
@@ -93,6 +102,49 @@ const mutations: [string, (trace: Trace, fixture: ProtocolCase) => void][] = [
 for (const [name, mutate] of mutations) test(`trace fails: ${name}`, () => {
   const fixture = createCase('cv'); const trace = goodTrace(fixture); mutate(trace, fixture);
   assert.equal(verifyTrace(fixture, trace, 'codex_apps').passed, false);
+});
+
+test('trace permits targeted tool loading before SQL and between resolver and protocol without changing the sequence', () => {
+  const fixture = createCase('letter'); const trace = goodTrace(fixture);
+  trace.calls.splice(1, 0, { id: 'rediscover-sql', server: 'codex_apps', tool: 'search_tools',
+    arguments: { queries: ['Supabase execute_sql'], limit: 1 }, status: 'completed' });
+  trace.calls.unshift({ id: 'discover-sql', server: 'codex_apps', tool: 'search',
+    arguments: { query: 'supabase.execute_sql', limit: 1 }, status: 'completed' });
+  // These are equivalent SQL-tool names already supported by the CLI adapter;
+  // the connector server and every bound database argument remain unchanged.
+  trace.calls[3].tool = 'supabase_execute_sql';
+  assert.deepEqual(verifyTrace(fixture, trace, 'codex_apps').issues, []);
+});
+
+test('trace rejects unrelated, broad or repeated tool discovery and another connector', () => {
+  const fixture = createCase('cv');
+  for (const args of [
+    { query: 'Supabase' }, { query: 'execute_sql' }, { query: 'Supabase list_tables' },
+    { query: 'Supabase execute_sql schema tables' }, { queries: ['Supabase execute_sql', 'database schema'] },
+  ]) {
+    const trace = goodTrace(fixture);
+    trace.calls.splice(1, 0, { id: 'discover', server: 'codex_apps', tool: 'search', arguments: args });
+    assert.match(verifyTrace(fixture, trace, 'codex_apps').issues.join(), /discovery must target only/);
+  }
+  const trace = goodTrace(fixture);
+  const discovery: ToolCall = { id: 'discover', server: 'codex_apps', tool: 'search', arguments: { query: 'Supabase execute_sql' } };
+  trace.calls.splice(1, 0, discovery, { ...discovery, id: 'repeat' });
+  assert.match(verifyTrace(fixture, trace, 'codex_apps').issues.join(), /Repeated tool discovery/);
+  trace.calls.splice(1, 2, { ...discovery, server: 'another_connector' });
+  assert.match(verifyTrace(fixture, trace, 'codex_apps').issues.join(), /Unexpected tool another_connector.search/);
+});
+
+test('trace rejects tool rediscovery after a terminal security or permission denial', () => {
+  const fixture = createCase('cv');
+  for (const message of ['Blocked by OpenAI safety check.', 'ERROR: 42501: permission denied for function read_refinement_request']) {
+    const trace = goodTrace(fixture);
+    trace.calls[2].error = { message };
+    trace.calls.splice(3, 1, { id: 'rediscover-after-denial', server: 'codex_apps', tool: 'search_tools',
+      arguments: { query: 'Supabase execute_sql' } });
+    const issues = verifyTrace(fixture, trace, 'codex_apps').issues;
+    assert.ok(issues.some(issue => issue.includes(message)));
+    assert.ok(issues.includes('Tool call after the workflow should have stopped.'));
+  }
 });
 
 test('one uncertain save can retry only the same UUID and identical payload', () => {

@@ -4,9 +4,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createRefinementRepository, refinementSignature } from '../src/composables/applicationRefinement';
 import { createRefinementFixture } from './refinementFixture';
 import { stub } from './helpers';
+import { refinementMatchesScope } from '../src/composables/refinementHistory';
 import { account, applicationId, documents, idle, mount, prepare, refinementKey, type Workspace } from './refinementWorkflowHarness';
 
 const documentFingerprint = (setup: Workspace) => refinementSignature(JSON.parse(documents(setup)));
+const scopedRequests = (setup: Workspace) => setup.requests.filter(row => refinementMatchesScope(row.request_json.scope, setup.pane, row.cleared_scopes));
 
 function history(setup: Workspace) {
   return refinementSignature({ requests: setup.requests, proposals: setup.proposals, reviews: setup.reviews,
@@ -15,8 +17,8 @@ function history(setup: Workspace) {
 }
 
 function assertEmptyHistory(setup: Workspace) {
-  assert.deepEqual(setup.requests, []); assert.deepEqual(setup.proposals, []); assert.deepEqual(setup.reviews, []);
-  assert.deepEqual(setup.localRequests, {});
+  assert.deepEqual(scopedRequests(setup), []);
+  assert.equal(Object.values(setup.localRequests).some(local => !local.publishedAt && refinementMatchesScope(local.request.scope, setup.pane)), false);
   assert.deepEqual(setup.feedbackHistory(), []); assert.deepEqual(setup.resetRequestIds, []);
   assert.equal(setup.parentProposalId, null); assert.equal(setup.selectedProposalId, ''); assert.equal(setup.reviewActive, false);
   assert.deepEqual(setup.proposalAnnotations, []); assert.equal(setup.canClearHistory, false);
@@ -24,13 +26,13 @@ function assertEmptyHistory(setup: Workspace) {
 }
 
 function assertFreshInitialRequest(setup: Workspace) {
-  assert.equal(setup.requests.length, 1);
-  const request = setup.requests[0];
+  assert.equal(scopedRequests(setup).length, 1);
+  const request = scopedRequests(setup)[0];
   assert.equal(setup.cloudState!.current_request_id, request.id);
-  assert.deepEqual(Object.keys(setup.localRequests), [request.id]);
+  assert.ok(setup.localRequests[request.id]);
   assert.equal(setup.localRequests[request.id].publishedAt, request.created_at);
   assert.equal(request.request_json.parentProposalId, null); assert.deepEqual(request.request_json.feedback, []);
-  assert.deepEqual(setup.proposals, []); assert.deepEqual(setup.reviews, []);
+  assert.equal(setup.proposals.some(row => row.request_id === request.id), false);
   assert.deepEqual(setup.feedbackHistory(), []); assert.deepEqual(setup.resetRequestIds, []);
   assert.equal(setup.parentProposalId, null); assert.equal(setup.selectedProposalId, ''); assert.equal(setup.reviewActive, false);
   assert.deepEqual(setup.proposalAnnotations, []); assert.equal(setup.showInitialRefinement, true);
@@ -45,34 +47,31 @@ test('clear history deletes cloud and local iterations while preserving working 
   assert.equal(setup.showInitialRefinement, false);
   assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'Previous iteration answer.', null), true);
   assert.equal(setup.feedbackHistory().length, 1);
-  assert.equal(await setup.saveAnnotation('annotation-1', 'resolved', 'Confirmed the documented CV research methods.', null), true);
   await setup.checkProposals(); setup.openProposal();
-  assert.equal(setup.reviewActive, true); assert.equal(setup.canClearHistory, true);
-  assert.equal(setup.feedbackHistory().length, 2, 'saved CV and letter annotation answers are both included');
+  assert.equal(setup.reviewActive, false); assert.equal(setup.canClearHistory, true);
+  assert.equal(setup.feedbackHistory().length, 1, 'the letter round retains its saved question answer');
   const before = documentFingerprint(setup), state = JSON.parse(JSON.stringify(setup.cloudState));
 
   await setup.clearRefinementHistory();
 
   assert.equal(setup.error, ''); assertEmptyHistory(setup);
   assert.equal(documentFingerprint(setup), before);
-  for (const table of ['application_refinement_requests', 'application_refinement_proposals', 'application_refinement_reviews']) {
-    assert.deepEqual(fixture.database[table], []);
-  }
+  assert.equal(setup.reviews.every(row => row.kind === 'cv_decisions'), true, 'historical CV decision sources remain available');
   assert.equal(setup.cloudState!.revision, state.revision + 1);
   assert.equal(setup.cloudState!.current_request_id, null);
   assert.deepEqual(setup.cloudState!.setup_json, state.setup_json);
   assert.deepEqual(setup.cloudState!.approvals_json, state.approvals_json);
   const stored = JSON.parse(fixture.storage.getItem(refinementKey)!);
-  assert.deepEqual(stored.requests, {});
+  assert.deepEqual(Object.keys(stored.requests).sort(), setup.requests.map(row => row.id).sort());
 
   setup = fixture.reopen(); await idle(setup); await setup.checkProposals();
   assert.equal(setup.error, ''); assertFreshInitialRequest(setup); assert.equal(documentFingerprint(setup), before);
-  const loadedRequestId = setup.requests[0].id;
+  const loadedRequestId = scopedRequests(setup)[0].id;
   await setup.copyIterationTask();
-  assert.equal(setup.error, ''); assert.equal(setup.requests.length, 1);
-  assert.equal(setup.requests[0].id, loadedRequestId, 'copying reuses the initial request automatically published on load');
+  assert.equal(setup.error, ''); assert.equal(scopedRequests(setup).length, 1);
+  assert.equal(scopedRequests(setup)[0].id, loadedRequestId, 'copying reuses the initial request automatically published on load');
   assert.equal(setup.showInitialRefinement, true, 'the first task after clearing history awaits an initial proposal');
-  const next = setup.requests[0].request_json;
+  const next = scopedRequests(setup)[0].request_json;
   assert.notEqual(next.requestId, firstId); assert.equal(next.parentProposalId, null); assert.deepEqual(next.feedback, []);
   assert.equal(next.letter.text, 'Current draft to keep after clearing history.');
   assert.equal(documentFingerprint(setup), before);
@@ -87,12 +86,20 @@ test('clearing iteration history keeps both document approvals and all letter re
   const before = documentFingerprint(setup), approvals = JSON.parse(JSON.stringify(setup.approvals));
   assert.ok(setup.letter!.revisions.length);
 
+  setup.feedbackScope = 'letter'; await idle(setup);
   await setup.clearRefinementHistory();
 
-  assert.equal(setup.error, ''); assertEmptyHistory(setup); assert.equal(documentFingerprint(setup), before);
+  const assertLetterHistoryCleared = () => {
+    assert.equal(setup.error, ''); assert.equal(setup.canClearHistory, false);
+    assert.equal(setup.requests.some(row => refinementMatchesScope(row.request_json.scope, 'letter', row.cleared_scopes)), false);
+    assert.equal(setup.reviews.some(row => row.kind === 'approve_letter'), false);
+    assert.equal(setup.reviews.some(row => row.kind === 'approve_cv'), true, 'CV approval history survives clearing letter history');
+    assert.equal(documentFingerprint(setup), before);
+  };
+  assertLetterHistoryCleared();
   assert.deepEqual(setup.approvals, approvals); assert.equal(setup.cvApproved, true); assert.equal(setup.letterApproved, true);
   setup = fixture.reopen(); await idle(setup);
-  assert.equal(setup.error, ''); assertEmptyHistory(setup); assert.equal(documentFingerprint(setup), before);
+  assertLetterHistoryCleared();
   assert.deepEqual(setup.approvals, approvals); assert.equal(setup.cvApproved, true); assert.equal(setup.letterApproved, true);
 });
 
@@ -127,11 +134,11 @@ test('cloud-confirmed history removal recovers on reload when persisting local c
   await setup.clearRefinementHistory();
 
   assert.equal(documentFingerprint(setup), before);
-  assert.deepEqual(fixture.database.application_refinement_requests, []);
+  assert.equal(fixture.database.application_refinement_requests.every(row => (row.cleared_scopes as string[]).includes('letter')), true);
   setup = fixture.reopen(); await idle(setup); await setup.checkProposals();
   assert.equal(setup.error, ''); assert.equal(setup.saveError, ''); assertFreshInitialRequest(setup);
-  assert.notEqual(setup.requests[0].id, firstId);
-  assert.equal(setup.requests[0].request_json.letter.text, 'Keep this working draft through cleanup recovery.');
+  assert.notEqual(scopedRequests(setup)[0].id, firstId);
+  assert.equal(scopedRequests(setup)[0].request_json.letter.text, 'Keep this working draft through cleanup recovery.');
   assert.equal(documentFingerprint(setup), before);
 });
 
@@ -210,4 +217,94 @@ test('repository clear validates its returned revision, empty current request, o
   let current = account;
   const client = stub<SupabaseClient>({ rpc: async () => { current = 'other'; return { data: receipt, error: null }; } });
   await assert.rejects(createRefinementRepository(client, () => current).clearHistory(applicationId, state.revision), /Session changed/i);
+});
+
+test('scoped repository clearing retains the other document and clears legacy shared rounds one facet at a time', async t => {
+  const fixture = mount(t), setup = await prepare(fixture, 'base', { scope: 'letter' });
+  const repository = createRefinementRepository(fixture.cloud.client, () => account);
+  const letterId = setup.requests[0].id, cvId = crypto.randomUUID(), sharedId = crypto.randomUUID();
+  const source = structuredClone(fixture.database.application_refinement_requests[0]);
+  for (const [id, scope] of [[cvId, 'cv'], [sharedId, 'both']] as const) {
+    const row = structuredClone(source);
+    row.id = id;
+    const request = row.request_json as typeof setup.requests[0]['request_json'];
+    request.requestId = id; request.cv.requestId = id; request.scope = scope;
+    fixture.database.application_refinement_requests.push(row);
+  }
+  for (const id of [letterId, cvId, sharedId]) fixture.cloud.seedProposal(id);
+  const cvFeedback = await repository.saveReview(applicationId, null, 'feedback', { text: 'CV evidence.', scope: 'cv' });
+  const letterFeedback = await repository.saveReview(applicationId, null, 'feedback', { text: 'Letter fit.', scope: 'letter' });
+  const sharedFeedback = await repository.saveReview(applicationId, null, 'feedback', { text: 'Shared research.', scope: 'both' });
+  const cloudState = fixture.database.application_refinement_state[0];
+  cloudState.current_request_id = sharedId;
+  const originalState = structuredClone(cloudState);
+  const originalLetter = refinementSignature(fixture.database.application_refinement_requests.find(row => row.id === letterId));
+
+  const clearedCv = await repository.clearHistory(applicationId, Number(cloudState.revision), 'cv');
+
+  assert.equal(clearedCv!.current_request_id, sharedId);
+  assert.deepEqual(clearedCv!.setup_json, originalState.setup_json);
+  assert.deepEqual(clearedCv!.approvals_json, originalState.approvals_json);
+  const requests = await repository.listRequests(applicationId), reviews = await repository.listReviews(applicationId);
+  assert.equal(requests.some(row => row.id === cvId), false);
+  assert.deepEqual(requests.find(row => row.id === sharedId)!.cleared_scopes, ['cv']);
+  assert.equal(refinementSignature(requests.find(row => row.id === letterId)), originalLetter);
+  assert.equal((await repository.listProposals(applicationId)).some(row => row.request_id === cvId), false);
+  assert.equal(reviews.some(row => row.id === cvFeedback.id), false);
+  assert.deepEqual(reviews.find(row => row.id === letterFeedback.id), letterFeedback);
+  assert.deepEqual(reviews.find(row => row.id === sharedFeedback.id)!.cleared_scopes, ['cv']);
+
+  await assert.rejects(repository.clearHistory(applicationId, Number(originalState.revision), 'letter'), /changed|revision/i);
+  const clearedLetter = await repository.clearHistory(applicationId, clearedCv!.revision, 'letter');
+  assert.equal(clearedLetter!.current_request_id, null);
+  assert.deepEqual(await repository.listRequests(applicationId), []);
+  assert.deepEqual(await repository.listProposals(applicationId), []);
+  assert.deepEqual(await repository.listReviews(applicationId), []);
+});
+
+test('scoped repository clearing preserves a current request belonging only to the other document', async t => {
+  const fixture = mount(t), setup = await prepare(fixture, 'base', { scope: 'letter' });
+  const repository = createRefinementRepository(fixture.cloud.client, () => account);
+  const requestId = setup.requests[0].id;
+  const state = await repository.clearHistory(applicationId, setup.cloudState!.revision, 'cv');
+  assert.equal(state!.current_request_id, requestId);
+  assert.equal((await repository.listRequests(applicationId))[0].id, requestId);
+});
+
+test('scoped clearing keeps historical opposite-document reviews and their original source request', async t => {
+  const fixture = mount(t), setup = await prepare(fixture, 'base', { scope: 'cv' });
+  const repository = createRefinementRepository(fixture.cloud.client, () => account);
+  const requestId = setup.requests[0].id;
+  const proposal = fixture.cloud.seedProposal(requestId);
+  const feedback = await repository.saveReview(applicationId, requestId, 'feedback', { text: 'Letter motivation.', scope: 'letter' });
+  const annotation = await repository.saveReview(applicationId, requestId, 'annotation', {
+    proposalId: proposal.id, annotationId: 'annotation-2', status: 'resolved', response: 'Confirmed motivation.', previousReviewId: null,
+  });
+  const beforeProposal = refinementSignature(await repository.listProposals(applicationId));
+
+  const state = await repository.clearHistory(applicationId, setup.cloudState!.revision, 'cv');
+
+  assert.equal(state!.current_request_id, null, 'cleared CV request must not remain active despite retained letter source');
+  const requests = await repository.listRequests(applicationId);
+  assert.equal(requests.length, 1); assert.deepEqual(requests[0].cleared_scopes, ['cv']);
+  assert.equal(refinementMatchesScope(requests[0].request_json.scope, 'cv', requests[0].cleared_scopes), false);
+  assert.deepEqual(await repository.listReviews(applicationId), [feedback, annotation]);
+  assert.equal(refinementSignature(await repository.listProposals(applicationId)), beforeProposal);
+
+  await repository.clearHistory(applicationId, state!.revision, 'letter');
+  assert.deepEqual(await repository.listRequests(applicationId), []);
+  assert.deepEqual(await repository.listProposals(applicationId), []);
+  assert.deepEqual(await repository.listReviews(applicationId), []);
+});
+
+test('repository readers reject malformed cleared history scopes', async t => {
+  const fixture = mount(t); await prepare(fixture, 'base', { scope: 'letter' });
+  const repository = createRefinementRepository(fixture.cloud.client, () => account);
+  await repository.saveReview(applicationId, null, 'feedback', { text: 'Research evidence.', scope: 'both' });
+  for (const invalid of [null, 'cv', ['both'], ['cv', 'cv'], ['cv', 'letter', 'cv']]) {
+    fixture.database.application_refinement_requests[0].cleared_scopes = invalid;
+    await assert.rejects(repository.listRequests(applicationId), /scopes.*verified/i);
+    fixture.database.application_refinement_reviews[0].cleared_scopes = invalid;
+    await assert.rejects(repository.listReviews(applicationId), /scopes.*verified/i);
+  }
 });

@@ -5,12 +5,20 @@ import { createRequire } from 'node:module';
 import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive, type Component } from 'vue';
+import type { LocalRefinementRequest, RefinementProposalRow, RefinementRequestRow, RefinementScope } from '../src/refinementTypes';
+import { prepareRefinement, refinementSignature } from '../src/composables/applicationRefinement';
+import { DEFAULT_LETTER_TEMPLATES } from '../src/composables/motivationLetters';
+import { createTestState } from './helpers';
 
 interface Setup {
   confirmingClear: boolean;
   requestClear(): void;
   cancelClear(): void;
   confirmClear(): void;
+  runs: { row: RefinementRequestRow; proposals: RefinementProposalRow[] }[];
+  clearTitle: string;
+  clearMessage: string;
+  emptyMessage: string;
 }
 const filename = new URL('../src/components/RefinementHistory.vue', import.meta.url);
 const compiled = compileScript(parse(readFileSync(filename, 'utf8')).descriptor, { id: 'refinement-history-test' });
@@ -25,7 +33,8 @@ const renderer = createRenderer<object, object>({
 });
 
 function mount(t: TestContext) {
-  const props = reactive({ requests: [], proposals: [], localRequests: {}, currentRequestId: null,
+  const props = reactive({ requests: [] as RefinementRequestRow[], proposals: [] as RefinementProposalRow[], localRequests: {} as Record<string, LocalRefinementRequest>, currentRequestId: null,
+    scope: 'cv' as RefinementScope,
     activeId: '', reviewActive: false, accepted: false, canReset: true, canClear: true,
     publicationStatus: 'current' as const, lang: 'en', busy: false, open: true });
   let cleared = 0;
@@ -36,6 +45,11 @@ function mount(t: TestContext) {
   app.mount({}); t.after(() => app.unmount());
   const setup = (mounted as { $: { setupState: Setup } }).$.setupState;
   return { props, setup, cleared: () => cleared };
+}
+
+function request(scope: RefinementScope): RefinementRequestRow {
+  const local = prepareRefinement({ applicationId: crypto.randomUUID(), variantId: 'original', state: createTestState(), setup: { template: DEFAULT_LETTER_TEMPLATES[0], language: 'en', maxWords: 400 }, letterText: 'Frozen letter.', instructions: '', scope, feedback: [], parentProposalId: null, opportunity: {}, baselineSignature: refinementSignature('original') });
+  return { id: local.request.requestId, application_id: local.request.applicationId, user_id: crypto.randomUUID(), created_at: '2026-10-02T00:00:00Z', request_json: local.request };
 }
 
 test('clearing history requires confirmation and cancellation preserves history', t => {
@@ -78,4 +92,38 @@ test('unavailable history cannot be cleared, including after opening confirmatio
   assert.equal(setup.confirmingClear, false);
   setup.confirmClear();
   assert.equal(cleared(), 0);
+});
+
+test('history changes with scope and counts only proposals belonging to visible rounds', async t => {
+  const { props, setup } = mount(t);
+  const cv = request('cv'), letter = request('letter'), both = request('both');
+  props.requests = [cv, letter, both];
+  props.proposals = [cv, letter, both, both].map((row, index) => ({ id: `proposal-${index}`, request_id: row.id }) as RefinementProposalRow);
+  await nextTick();
+  assert.deepEqual(setup.runs.map(run => [run.row.id, run.proposals.length]), [[cv.id, 1], [both.id, 2]]);
+  props.scope = 'letter';
+  await nextTick();
+  assert.deepEqual(setup.runs.map(run => [run.row.id, run.proposals.length]), [[letter.id, 1], [both.id, 2]]);
+  props.requests[2].cleared_scopes = ['letter'];
+  await nextTick();
+  assert.deepEqual(setup.runs.map(run => run.row.id), [letter.id]);
+  props.scope = 'cv';
+  await nextTick();
+  assert.deepEqual(setup.runs.map(run => run.row.id), [cv.id, both.id]);
+});
+
+test('changing scope cancels an open clear confirmation and scopes its wording', async t => {
+  const { props, setup, cleared } = mount(t);
+  assert.equal(setup.clearTitle, 'Clear CV refinement history?');
+  assert.equal(setup.emptyMessage, 'No CV refinement history yet.');
+  assert.match(setup.clearMessage, /letter history are kept/);
+  setup.requestClear();
+  props.scope = 'letter';
+  await nextTick();
+  assert.equal(setup.confirmingClear, false);
+  setup.confirmClear();
+  assert.equal(cleared(), 0);
+  assert.equal(setup.clearTitle, 'Clear letter refinement history?');
+  assert.equal(setup.emptyMessage, 'No motivation letter refinement history yet.');
+  assert.match(setup.clearMessage, /CV history are kept/);
 });
