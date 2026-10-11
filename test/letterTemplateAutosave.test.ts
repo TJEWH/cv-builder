@@ -6,7 +6,7 @@ import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive, type Component } from 'vue';
 import { createLetterRepository, DEFAULT_LETTER_TEMPLATES, DEFAULT_REFINEMENT_SYSTEM_PROMPT } from '../src/composables/motivationLetters';
-import type { LetterTemplate } from '../src/letterTypes';
+import type { LetterFormatting, LetterTemplate } from '../src/letterTypes';
 import { useToasts, useToastWatch } from '../src/composables/useToasts';
 
 const filename = new URL('../src/components/LetterTemplates.vue', import.meta.url);
@@ -22,6 +22,7 @@ const renderer = createRenderer<object, object>({
 interface Editor {
   form: LetterTemplate; selectedId: string; saveStatus: string; error: string; isImporting: boolean;
   select(id: string): void; create(): void; flushSave(): boolean;
+  updateFormatting(value: LetterFormatting | undefined): void;
   importLibrary(event: Event): Promise<void>;
 }
 
@@ -54,6 +55,21 @@ function pendingImport() {
   const input = { files: [{ text: () => pending }], value: 'library.json' };
   return { event: { target: input } as unknown as Event, input, resolve };
 }
+
+test('template formatting autosaves, survives selection and resets to general defaults', t => {
+  const { editor, owner } = importFixture(t);
+  const formatting = { marginMm: 25, fontSizePt: 12, lineHeight: 1.5, headerNameSizePt: 22 };
+  editor.updateFormatting(formatting);
+  t.mock.timers.tick(250);
+  assert.deepEqual(owner.defaultTemplate()?.formatting, formatting);
+  editor.select('industry'); editor.select('research');
+  assert.deepEqual(editor.form.formatting, formatting);
+  editor.updateFormatting(undefined);
+  t.mock.timers.tick(250);
+  assert.equal(owner.defaultTemplate()?.formatting, undefined);
+  editor.select('industry'); editor.select('research');
+  assert.equal(editor.form.formatting, undefined);
+});
 
 test('refinement prompts default in the editor and retain custom or cleared values across autosave and selection', t => {
   const { refinementSystemPrompt: _prompt, ...legacy } = DEFAULT_LETTER_TEMPLATES[0]!;

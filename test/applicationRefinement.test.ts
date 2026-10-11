@@ -83,6 +83,19 @@ test('template interests and question context are filtered in public requests wh
   }
 });
 
+test('template formatting stays in the local baseline and is omitted from shared refinement guidance', () => {
+  const original = setup();
+  original.template.formatting = { marginMm: 25, fontSizePt: 12, lineHeight: 1.5, headerNameSizePt: 22 };
+  const before = structuredClone(original);
+  const prepared = local({ scope: 'letter', setup: original });
+  assert.equal(prepared.request.letter.template.formatting, undefined);
+  assert.deepEqual(prepared.letterBaseline?.setup.template.formatting, before.template.formatting);
+  assert.deepEqual(original, before);
+  assert.doesNotThrow(() => validateLocalRefinementSource(prepared, APP));
+  original.template.formatting.headerNameSizePt = 18;
+  assert.equal(prepared.letterBaseline?.setup.template.formatting?.headerNameSizePt, 22);
+});
+
 test('feedback iterations retain every earlier instruction and current manual corrections', () => {
   const feedback: RefinementFeedback[] = Array.from({ length: 80 }, (_, index) => ({ id: crypto.randomUUID(), scope: 'both', text: `Correction ${index}: avoid generic claims about Taylor Green.`, createdAt: CREATED }));
   const current = state(); current.experience.jobs[0].bullets = 'Built a measurement prototype, not a deployed product.';

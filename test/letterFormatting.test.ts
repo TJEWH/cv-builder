@@ -17,7 +17,8 @@ function repository() {
 }
 
 test('older letters use independent general PhD defaults without rewriting their backups', () => {
-  assert.deepEqual(resolveLetterFormatting(), { marginMm: 20, fontSizePt: 11, lineHeight: 1.2 });
+  assert.deepEqual(resolveLetterFormatting(), { marginMm: 20, fontSizePt: 11, lineHeight: 1.2, headerNameSizePt: 16 });
+  assert.deepEqual(resolveLetterFormatting(custom), { ...custom, headerNameSizePt: 16 });
   const resolved = resolveLetterFormatting();
   resolved.marginMm = 15;
   assert.equal(DEFAULT_LETTER_FORMATTING.marginMm, 20);
@@ -49,7 +50,9 @@ test('formatting validation accepts boundary values and rejects malformed or out
   const store = repository();
   for (const formatting of [null, [], {}, 'default', { ...custom, marginMm: 9 }, { ...custom, marginMm: 31 },
     { ...custom, fontSizePt: 9.9 }, { ...custom, fontSizePt: 14.1 }, { ...custom, lineHeight: .9 }, { ...custom, lineHeight: 2.1 },
-    { ...custom, marginMm: '25' }, { ...custom, lineHeight: Infinity }, { ...custom, fontSizePt: NaN }]) {
+    { ...custom, marginMm: '25' }, { ...custom, lineHeight: Infinity }, { ...custom, fontSizePt: NaN },
+    { ...custom, headerNameSizePt: 9 }, { ...custom, headerNameSizePt: 33 }, { ...custom, headerNameSizePt: '16' },
+    { ...custom, headerNameSizePt: null }, { ...custom, headerNameSizePt: NaN }]) {
     assert.throws(() => readLetterFormatting(formatting), /letter formatting/i);
     assert.throws(() => store.importLetter(JSON.stringify({ ...createLetter(), formatting }), 'application'), /letter formatting/i);
   }
@@ -60,11 +63,48 @@ test('formatting changes only the layout context and explicit defaults match abs
   assert.deepEqual(letterContextVersion(application, state, template, 'en', '', 450, { ...DEFAULT_LETTER_FORMATTING }), context);
   const formatted = letterContextVersion(application, state, template, 'en', '', 450, custom);
   assert.deepEqual(contextChanges(createLetter(), formatted), { content: false, theme: true });
-  for (const change of [{ marginMm: 25 }, { fontSizePt: 12 }, { lineHeight: 1.5 }]) {
+  for (const change of [{ marginMm: 25 }, { fontSizePt: 12 }, { lineHeight: 1.5 }, { headerNameSizePt: 20 }]) {
     const changed = letterContextVersion(application, state, template, 'en', '', 450, { ...DEFAULT_LETTER_FORMATTING, ...change });
     assert.equal(changed.content, context.content);
     assert.notEqual(changed.theme, context.theme);
   }
+});
+
+test('template formatting survives backups and is frozen independently for each application', () => {
+  const store = repository();
+  const formatting = { ...custom, headerNameSizePt: 22 };
+  const saved = store.saveTemplate({ ...template, formatting });
+  const letter = createApplicationLetter('owner', 'application', saved, context);
+  store.save(letter);
+  store.saveTemplate({ ...saved, formatting: { ...formatting, headerNameSizePt: 26 } });
+  assert.deepEqual(store.load('application')?.templateSnapshot?.formatting, formatting);
+  assert.deepEqual(resolveLetterFormatting(letter.formatting, letter.templateSnapshot?.formatting), formatting);
+  const imported = store.importTemplates(store.exportTemplates()).find(item => item.name === saved.name)!;
+  assert.equal(imported.formatting?.headerNameSizePt, 26);
+  assert.deepEqual(store.importLetter(store.exportLetter('application'), 'application').templateSnapshot?.formatting, formatting);
+  const revised = selectApplicationLetterTemplate(letter, imported);
+  assert.equal(resolveLetterFormatting(revised.formatting, revised.templateSnapshot?.formatting).headerNameSizePt, 26);
+  assert.equal(letter.templateSnapshot?.formatting?.headerNameSizePt, 22);
+});
+
+test('application overrides and reset use the frozen template defaults and invalidate only layout approval', () => {
+  const formatting = { ...custom, headerNameSizePt: 22 };
+  const formattedTemplate = { ...template, formatting };
+  const templateContext = letterContextVersion(application, state, formattedTemplate, 'en', '', 450);
+  assert.equal(templateContext.content, context.content, 'rendering defaults do not change writing instructions');
+  assert.notEqual(templateContext.theme, context.theme);
+  const letter = createApplicationLetter('owner', 'application', formattedTemplate, templateContext);
+  const approved = finalizeLetter(editLetter(letter, { subject: '', salutation: '', body: 'Confirmed research experience.', closing: '' }), templateContext, state.contact);
+  const override = { ...formatting, headerNameSizePt: 18 };
+  const overridden = formatLetter(approved, override);
+  assert.equal(overridden.finalRevisionId, null);
+  assert.deepEqual(resolveLetterFormatting(overridden.formatting, overridden.templateSnapshot?.formatting), override);
+  const reset = formatLetter(overridden);
+  assert.equal(reset.formatting, undefined);
+  assert.deepEqual(resolveLetterFormatting(reset.formatting, reset.templateSnapshot?.formatting), formatting);
+  assert.deepEqual(reset.working, approved.working);
+  assert.deepEqual(reset.revisions, approved.revisions);
+  assert.equal(formatLetter(approved, formatting).finalRevisionId, approved.finalRevisionId, 'explicit template defaults preserve approval');
 });
 
 test('formatting edits and reset require fresh approval without changing wording or prior final revisions', () => {

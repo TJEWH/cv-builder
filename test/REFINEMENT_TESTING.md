@@ -33,7 +33,7 @@ Open [the synthetic runner](http://127.0.0.1:5177/cv-builder/test/e2e/index.html
 | `initial-letter` | Publish an empty letter, apply its initial draft, compare and reload |
 | `existing-letter` | Publish the complete current letter, apply a refinement, compare and reload |
 | `proposal-review` | Automatic application, ignored annotation feedback, next iteration, reset and approved PDF generation |
-| `template-questions` | Frozen research interests, contextual questions, saved answer feedback and the next refinement |
+| `template-questions` | Template groups and default expansion, frozen guidance and formatting, contextual questions, saved answer feedback, the next refinement, manual header size and reset to template defaults |
 
 Use `?flow=cv` (or another listed ID) to isolate a flow; `?sidebar=1` exercises the desktop sidebar. A browser driver clicks `#run-tests` and waits for `body[data-result="passed"]` or `body[data-result="failed"]`. Read `#test-status` and `#test-results` for failures. Starting the Vite server does not execute tests.
 

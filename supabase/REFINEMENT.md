@@ -28,6 +28,8 @@ Read the owner-scoped `application_refinement_state`, `application_refinement_re
 
 Requests have `schemaVersion: 2`, request/application IDs, `cv`, `cvStructure`, frozen `letter`, `scope`, ordered `feedback`, `parentProposalId` and optional `privacyLegend`. The nested `cv.schemaVersion: 1` describes the current privacy-field format; it is not the retired outer refinement protocol. Source paths and reverse mappings never enter request JSON.
 
+Template formatting (page margins, body size, header name size and line spacing) stays in the private local template baseline. Application overrides also remain local. These rendering settings are omitted from shared setup and request templates and require no additional database fields.
+
 Exact UUID/payload retries return the original receipt. They do not recapture inputs or reactivate an old request. New inputs, scope, research or feedback require a new request. Reuse requires both the server's current pointer and matching local inputs. Feedback must contain every saved reply exactly once, in order, with unchanged text, scope, ID and equivalent timestamp. Publication fails if privacy rechecking would alter an immutable saved reply or if the complete history exceeds the size limit; it never truncates context silently.
 
 The server-captured CV snapshot ID/revision is distinct from the local CV Studio source revision. State timestamps/revisions can change for setup and approvals and are not document version counters. Local source metadata may be unavailable on another device; show that as unknown instead of inferring it from cloud timestamps.

@@ -60,7 +60,9 @@ async function field(name: string, value: string) {
   const label = [...root.querySelectorAll('label')].find(node => node.firstChild?.textContent?.trim() === name);
   const control = (label?.control ?? label?.querySelector('select,textarea,input')) as HTMLSelectElement | HTMLTextAreaElement | HTMLInputElement | null;
   assert(control, `Missing field: ${name}`); assert(!control.disabled, `Disabled field: ${name}`);
-  control.value = value; control.dispatchEvent(new Event(control.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); await settle();
+  control.value = value; control.dispatchEvent(new Event(control.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
+  if (control instanceof HTMLInputElement && control.type === 'number') control.dispatchEvent(new Event('change', { bubbles: true }));
+  await settle();
 }
 async function mount(reload = false) {
   app?.unmount(); root.replaceChildren();
@@ -222,18 +224,27 @@ async function templateQuestionFlow() {
   app!.unmount(); root.replaceChildren();
   app = createApp({ render: () => h(LetterTemplates, { userId: fixture.props.userId, lang: 'en' }) });
   app.mount(root); await nextTick();
+  const sections = [...root.querySelectorAll<HTMLDetailsElement>('.template-section')];
+  assert(sections.map(section => section.querySelector('summary span')?.textContent).join(',') === 'Main text,Tone,Feedback loop,Formalities', 'Template fields must be grouped into four named sections');
+  assert(sections.every((section, index) => section.open === (index === 0)), 'Only Main text must start expanded');
+  assert(sections.every(section => section.querySelector('summary svg')), 'Each section must have an icon');
   assert(root.querySelector<HTMLTextAreaElement>('textarea[id$="-refinement-system-prompt"]')?.value === DEFAULT_REFINEMENT_SYSTEM_PROMPT, 'New templates must show the default refinement system prompt');
   const interests = 'Reliable robot sensing and reproducible experiments. I am also interested in scientific visualization.';
   const guidance = 'When required or beneficial robot calibration experience has no CV evidence, ask about relevant coursework or projects and a concrete example. If useful, ask about a genuine learning interest instead; do not assume experience.';
   const refinementPrompt = 'Include resolved answers only if they add concrete evidence to the central narrative. Ask a focused follow-up if an answer is too vague to judge.';
-  await field('Main research interests (optional)', interests); await field('Questions and context to ask for (optional)', guidance);
+  await field('Main research interests (optional)', interests); await disclose('Feedback loop'); await field('Questions and context to ask for (optional)', guidance);
   await field('Refinement system prompt (optional)', refinementPrompt);
+  await disclose('Formalities');
+  await field('Page margins (mm)', '25'); await field('Body size (pt)', '12');
+  await field('Header name size (pt)', '22'); await field('Line spacing', '1.5');
   await until(() => [...document.querySelectorAll('.app-toaster [role="status"]')].some(toast => toast.textContent?.includes('All changes saved locally')), 'template guidance autosaves');
   await mount(true); await field('Saved CV', 'base'); await field('Letter template', 'research');
+  assert(setup.letter?.templateSnapshot?.formatting?.headerNameSizePt === 22, 'The application must freeze its template formatting');
   await click('2Refinement'); await field('Refinement scope', 'letter'); await click('Copy task'); assert(!setup.error, setup.error);
   const source = setup.requests[0].request_json;
   assert(source.letter.template.researchInterests === interests && source.letter.template.questionGuidance === guidance, 'Published request lost selected template guidance');
   assert(source.letter.template.refinementSystemPrompt === refinementPrompt, 'Published request lost the refinement system prompt');
+  assert(source.letter.template.formatting === undefined, 'Local rendering defaults must not enter shared writing instructions');
   const first = fixture.cloud.seedProposal(source.requestId, { persist: false, letterText: 'I am interested in reliable robot sensing and reproducible experiments.' });
   (first.proposal_json as RefinementProposalV2).annotations = [{ id: 'annotation-1', type: 'question', document: 'letter', location: null,
     text: 'Robot calibration is beneficial, but the CV does not document it. Have you calibrated a robot in coursework or a project? A concrete example could strengthen the letter; no experience is assumed.' }];
@@ -253,6 +264,22 @@ async function templateQuestionFlow() {
   (second.proposal_json as RefinementProposalV2).annotations = [];
   await loadProposal(second); await rendered('letter', 'measured repeatability');
   assert(setup.letter!.working.body === refinedText, 'Next returned proposal was not applied automatically');
+  await disclose('Edit manually');
+  const formattingSection = root.querySelector<HTMLDetailsElement>('details.letter-formatting');
+  assert(formattingSection, 'Manual refinement must expose letter formatting');
+  formattingSection.querySelector('summary')!.click(); await nextTick();
+  const values = [...formattingSection.querySelectorAll<HTMLInputElement>('input')].map(input => input.value).join(',');
+  assert(values === '25,12,22,1.5', 'Manual formatting must inherit every template default');
+  const headerSize = () => getComputedStyle(root.querySelector<HTMLElement>('.motivation-letter .name')!).fontSize;
+  assert(Math.abs(parseFloat(headerSize()) - 22 * 4 / 3) < 0.01, 'The PDF source must use the template header name size');
+  await field('Header name size (pt)', '18');
+  assert(headerSize() === '24px' && setup.letter?.formatting?.headerNameSizePt === 18, 'Manual header size must update the rendering and saved override');
+  assert(setup.letter!.working.body === refinedText, 'Formatting cannot change the letter wording');
+  await mount(true); await click('2Refinement'); await field('Refinement scope', 'letter'); await disclose('Edit manually');
+  assert(setup.letter?.formatting?.headerNameSizePt === 18, 'Manual header size must survive reload');
+  root.querySelector('details.letter-formatting summary')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); await nextTick();
+  await click('Reset to template defaults');
+  assert(setup.letter?.formatting === undefined && Math.abs(parseFloat(headerSize()) - 22 * 4 / 3) < 0.01, 'Reset must restore the frozen template header size');
 }
 async function scopeLayoutFlow() {
   await prepare('letter');

@@ -5,11 +5,13 @@ export interface LetterContent {
   closing: string;
 }
 
-/** Per-application rendering settings; never part of writing instructions. */
+/** Local rendering settings for a template or application; never writing instructions. */
 export interface LetterFormatting {
   marginMm: number;
   fontSizePt: number;
   lineHeight: number;
+  /** Older backups use the original 16 pt header name. */
+  headerNameSizePt?: number;
 }
 
 export interface LetterTemplateGuidance {
@@ -33,6 +35,8 @@ export interface LetterTemplate extends LetterTemplateGuidance {
   tone: string;
   /** Optional reference wording/style, never evidence of the applicant's experience. */
   exampleText?: string;
+  /** Base rendering settings, frozen with the template when selected for an application. */
+  formatting?: LetterFormatting;
   language: string;
   maxWords: number;
   updatedAt: string;

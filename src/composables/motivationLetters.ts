@@ -1,7 +1,7 @@
 import type { Application } from '../cloudTypes';
 import type { Contact, CvState } from '../types';
 import type { ApplicationLetter, LetterContent, LetterContextVersion, LetterFormatting, LetterRevision, LetterTemplate } from '../letterTypes';
-import { LETTER_LAYOUT_VERSION, readLetterFormatting, resolveLetterFormatting } from './letterFormatting';
+import { DEFAULT_LETTER_FORMATTING, LETTER_LAYOUT_VERSION, readLetterFormatting, resolveLetterFormatting } from './letterFormatting';
 
 interface StorageAdapter { getItem(key: string): string | null; setItem(key: string, value: string): void }
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -60,6 +60,7 @@ export function readLetterTemplate(value: unknown): LetterTemplate {
     throw new Error('The example letter must contain at most 20000 characters.');
   }
   // Older libraries and frozen snapshots keep their original guidance until explicitly edited.
+  const formatting = value.formatting === undefined ? undefined : readLetterFormatting(value.formatting);
   const context: Pick<LetterTemplate, 'researchInterests' | 'questionGuidance' | 'refinementSystemPrompt'> = {};
   for (const key of ['researchInterests', 'questionGuidance', 'refinementSystemPrompt'] as const) {
     if (value[key] === undefined) continue;
@@ -68,7 +69,7 @@ export function readLetterTemplate(value: unknown): LetterTemplate {
     }
     context[key] = value[key];
   }
-  return { ...guidance, ...context, id: String(value.id), name: String(value.name), revision: Number(value.revision), structure: String(value.structure),
+  return { ...guidance, ...context, ...(formatting ? { formatting } : {}), id: String(value.id), name: String(value.name), revision: Number(value.revision), structure: String(value.structure),
     tone: String(value.tone), exampleText: (value.exampleText as string | undefined) ?? '', language: String(value.language), maxWords: Number(value.maxWords), updatedAt: String(value.updatedAt) };
 }
 
@@ -182,12 +183,15 @@ export function sameLetterContextInput(left: unknown, right: unknown) { return f
 export function letterContextVersion(application: Pick<Application, 'context_json' | 'cv_variant_id'>, state: CvState | null, template: LetterTemplate, language: string, instructions: string, maxWords: number, formatting?: LetterFormatting): LetterContextVersion {
   const { design, completedSections: _completed, keepTogetherSections: _together, sectionHeaderSizes: _sizes, ...content } = state || {};
   // Absent optional fields and their empty defaults describe the same legacy context.
-  const { exampleText, researchInterests, questionGuidance, refinementSystemPrompt, ...guidance } = template;
+  const { exampleText, researchInterests, questionGuidance, refinementSystemPrompt, formatting: templateFormatting, ...guidance } = template;
   const templateContext = { ...guidance, ...(exampleText ? { exampleText } : {}),
     ...(researchInterests ? { researchInterests } : {}), ...(questionGuidance ? { questionGuidance } : {}),
     ...(refinementSystemPrompt ? { refinementSystemPrompt } : {}) };
+  const { headerNameSizePt, ...baseFormatting } = resolveLetterFormatting(formatting, templateFormatting);
+  // The original fixed 16 pt name must keep existing layout fingerprints valid.
+  const layoutFormatting = { ...baseFormatting, ...(headerNameSizePt === DEFAULT_LETTER_FORMATTING.headerNameSizePt ? {} : { headerNameSizePt }) };
   return { content: fingerprint({ opportunity: application.context_json, cv: content, template: templateContext, language, instructions, maxWords }),
-    theme: fingerprint({ design: design || {}, letterLayout: LETTER_LAYOUT_VERSION, formatting: resolveLetterFormatting(formatting) }) };
+    theme: fingerprint({ design: design || {}, letterLayout: LETTER_LAYOUT_VERSION, formatting: layoutFormatting }) };
 }
 
 export function createApplicationLetter(userId: string, applicationId: string, template: LetterTemplate, context: LetterContextVersion, lang = template.language): ApplicationLetter {
@@ -221,11 +225,12 @@ export function editLetter(record: ApplicationLetter, content: LetterContent) {
 
 /** Formatting changes need a fresh layout approval while preserving the writing history. */
 export function formatLetter(record: ApplicationLetter, formatting?: LetterFormatting): ApplicationLetter {
-  const resolved = resolveLetterFormatting(formatting);
-  const changed = JSON.stringify(resolved) !== JSON.stringify(resolveLetterFormatting(record.formatting));
+  const templateFormatting = record.templateSnapshot?.formatting;
+  const resolved = resolveLetterFormatting(formatting, templateFormatting);
+  const changed = JSON.stringify(resolved) !== JSON.stringify(resolveLetterFormatting(record.formatting, templateFormatting));
   const copy = clone(record);
   if (formatting === undefined) delete copy.formatting;
-  else copy.formatting = resolved;
+  else copy.formatting = readLetterFormatting(formatting);
   if (changed) { copy.finalRevisionId = null; copy.updatedAt = now(); }
   return copy;
 }

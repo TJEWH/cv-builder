@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faCheck, faDownload, faPlus, faUpload } from '@fortawesome/free-solid-svg-icons';
+import { faAlignLeft, faCheck, faChevronDown, faComments, faDownload, faEnvelopeOpenText, faFeatherPointed, faPlus, faUpload } from '@fortawesome/free-solid-svg-icons';
 import { debounce } from '../composables/useStorage';
-import type { LetterTemplate } from '../letterTypes';
+import type { LetterFormatting, LetterTemplate } from '../letterTypes';
 import { createLetterRepository, DEFAULT_LETTER_TEMPLATES, DEFAULT_QUESTION_GUIDANCE, DEFAULT_REFINEMENT_SYSTEM_PROMPT, LETTER_TEMPLATE_CONTEXT_MAX_LENGTH } from '../composables/motivationLetters';
 import { useToasts, useToastWatch } from '../composables/useToasts';
 import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
+import LetterFormattingControls from './LetterFormattingControls.vue';
 import { useDesktopSidebar } from '../composables/desktopSidebar';
 
 const props = withDefaults(defineProps<{ userId: string; lang?: string; sidebarActive?: boolean }>(), { sidebarActive: true });
@@ -62,6 +63,15 @@ function reload() {
 }
 function replaceForm(value: LetterTemplate | null) {
   replacingForm = true; form.value = value; validationError.value = ''; replacingForm = false;
+}
+function updateFormatting(value: LetterFormatting | undefined) {
+  if (!form.value) return;
+  if (value) form.value.formatting = value;
+  else delete form.value.formatting;
+}
+function revealInvalidSection(event: Event) {
+  const section = (event.target as HTMLElement).closest('details');
+  if (section) section.open = true;
 }
 function create() {
   if (!flushSave()) return;
@@ -164,12 +174,11 @@ async function importLibrary(event: Event) {
       <DesktopSidebarPortal area="major" :active="sidebarActive">
       <aside class="template-library-controls" :aria-label="text('Letter template library', 'Briefvorlagenbibliothek')">
         <div class="template-library-section">
-          <label>{{ text('Template to edit', 'Vorlage zum Bearbeiten') }}<select :value="selectedId" :aria-describedby="`${controlsId}-save-status`" @change="selectFromInput">
+          <label>{{ text('Template to edit', 'Vorlage zum Bearbeiten') }}<select :value="selectedId" @change="selectFromInput">
             <option v-if="!selectedId" value="" disabled>{{ text('New template', 'Neue Vorlage') }}</option>
             <option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }}</option>
           </select></label>
           <p v-if="form" class="template-selection-details">{{ text('Revision', 'Revision') }} {{ form.revision }} · {{ text('Target:', 'Ziel:') }} {{ form.maxWords }} {{ text('words', 'Wörter') }}</p>
-          <p :id="`${controlsId}-save-status`" class="template-control-help" role="status">{{ saveStatus === 'error' ? text('Changes are not saved. Check the form or try again.', 'Änderungen nicht gespeichert. Formular prüfen oder erneut versuchen.') : saveStatus === 'saving' ? text('Saving changes on this device…', 'Änderungen werden auf diesem Gerät gespeichert…') : text('Edits save automatically on this device.', 'Änderungen werden auf diesem Gerät automatisch gespeichert.') }}</p>
           <button class="template-create-action" type="button" @click="create"><FontAwesomeIcon :icon="faPlus" aria-hidden="true" /><span>{{ text('Create new template', 'Neue Vorlage erstellen') }}</span></button>
         </div>
         <section class="template-library-section template-default" :aria-labelledby="`${controlsId}-default-heading`">
@@ -193,19 +202,40 @@ async function importLibrary(event: Event) {
         <input ref="importInput" hidden type="file" accept=".json,application/json" :disabled="isImporting" @change="importLibrary" />
       </aside>
       </DesktopSidebarPortal>
-      <form v-if="form" class="template-form" @submit.prevent="flushSave" @focusout="flushSave">
+      <form v-if="form" class="template-form" @submit.prevent="flushSave" @focusout="flushSave" @invalid.capture="revealInvalidSection">
         <p v-if="validationError" class="app-hint" role="alert">{{ validationError }}</p>
         <label>{{ text('Template name', 'Vorlagenname') }}<input v-model="form.name" required maxlength="120" /></label>
-        <div class="template-form-row"><label>{{ text('Default language', 'Standardsprache') }}<select v-model="form.language"><option value="en">English</option><option value="de">Deutsch</option></select></label><label>{{ text('Target words', 'Zielwortzahl') }}<input v-model.number="form.maxWords" type="number" min="50" max="2000" required /></label></div>
-        <div class="template-field"><label :for="`${controlsId}-subject`">{{ text('Subject instructions', 'Hinweise zum Betreff') }}</label><textarea :id="`${controlsId}-subject`" v-model="form.subjectInstructions" :aria-describedby="`${controlsId}-subject-help`" rows="3" maxlength="1000" /><span :id="`${controlsId}-subject-help`" class="field-description app-hint">{{ text('Describe how to name the position and include a tender reference when available.', 'Beschreiben Sie, wie die Stelle benannt und eine vorhandene Ausschreibungsreferenz aufgenommen werden soll.') }}</span></div>
-        <div class="template-field"><label :for="`${controlsId}-salutation`">{{ text('Salutation instructions', 'Hinweise zur Anrede') }}</label><textarea :id="`${controlsId}-salutation`" v-model="form.salutationInstructions" :aria-describedby="`${controlsId}-salutation-help`" rows="3" maxlength="1000" /><span :id="`${controlsId}-salutation-help`" class="field-description app-hint">{{ text('Describe how to choose the recipient from the tender and how to greet them if no contact is named.', 'Beschreiben Sie, wie der Empfänger aus der Ausschreibung gewählt und ohne genannten Kontakt angesprochen werden soll.') }}</span></div>
-        <label>{{ text('Structure and sections', 'Struktur und Abschnitte') }}<textarea v-model="form.structure" rows="8" required maxlength="16000" /></label>
-        <div class="template-field"><label :for="`${controlsId}-closing`">{{ text('Closing instructions', 'Hinweise zum Abschluss') }}</label><textarea :id="`${controlsId}-closing`" v-model="form.closingInstructions" :aria-describedby="`${controlsId}-closing-help`" rows="3" maxlength="1000" /><span :id="`${controlsId}-closing-help`" class="field-description app-hint">{{ text(`Describe the closing invitation, sign-off and signature. Use ${applicantNamePlaceholder} for the private name.`, `Beschreiben Sie die abschließende Einladung, Grußformel und Unterschrift. Verwenden Sie ${applicantNamePlaceholder} für den privaten Namen.`) }}</span></div>
-        <label>{{ text('Tone and writing guidance', 'Tonalität und Schreibhinweise') }}<textarea v-model="form.tone" rows="4" maxlength="1000" required /></label>
-        <div class="template-field"><label :for="`${controlsId}-research-interests`">{{ text('Main research interests (optional)', 'Zentrale Forschungsinteressen (optional)') }}</label><textarea :id="`${controlsId}-research-interests`" v-model="form.researchInterests" :aria-describedby="`${controlsId}-research-interests-help`" rows="5" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span :id="`${controlsId}-research-interests-help`" class="field-description app-hint">{{ text('Describe the research topics and questions that genuinely interest you, including interests not yet reflected in your CV. They enrich the motivation alongside your experience and the opportunity. Use the relevant interests selectively; the letter need not cover them all. Interests do not establish prior experience or qualifications.', 'Beschreiben Sie Forschungsthemen und Fragestellungen, die Sie wirklich interessieren, auch wenn sie noch nicht im Lebenslauf erscheinen. Sie ergänzen Ihre Erfahrungen und die Ausschreibung als Grundlage der Motivation. Relevante Interessen werden gezielt ausgewählt; der Brief muss nicht alle abdecken. Interessen sind kein Nachweis für Vorerfahrung oder Qualifikationen.') }}</span></div>
-        <div class="template-field"><label :for="`${controlsId}-question-guidance`">{{ text('Questions and context to ask for (optional)', 'Rückfragen und gewünschter Kontext (optional)') }}</label><textarea :id="`${controlsId}-question-guidance`" v-model="form.questionGuidance" :aria-describedby="`${controlsId}-question-guidance-help`" rows="6" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span :id="`${controlsId}-question-guidance-help`" class="field-description app-hint">{{ text('Explain when a question would improve a draft or refinement and what context to ask for. For example, ask about required or beneficial qualifications without CV evidence, then request a relevant example or an honest learning interest. Questions should add value, avoid repeating answered questions and never assume missing experience.', 'Beschreiben Sie, wann eine Rückfrage einen Entwurf oder eine Überarbeitung verbessert und welcher Kontext erfragt werden soll. Zum Beispiel: nach geforderten oder vorteilhaften Qualifikationen ohne Lebenslaufnachweis fragen und um ein relevantes Beispiel oder ehrliches Lerninteresse bitten. Fragen sollen einen Mehrwert bieten, beantwortete Fragen nicht wiederholen und fehlende Erfahrung nicht unterstellen.') }}</span></div>
-        <div class="template-field"><label :for="`${controlsId}-refinement-system-prompt`">{{ text('Refinement system prompt (optional)', 'System-Prompt für Überarbeitungen (optional)') }}</label><textarea :id="`${controlsId}-refinement-system-prompt`" v-model="form.refinementSystemPrompt" :aria-describedby="`${controlsId}-refinement-system-prompt-help`" rows="8" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span :id="`${controlsId}-refinement-system-prompt-help`" class="field-description app-hint">{{ text('Guide each refinement iteration: decide which resolved answers strengthen the letter’s central narrative and add value, which to leave out, and when to ask for more detail.', 'Legen Sie fest, wie jede Überarbeitungsrunde mit Antworten umgeht: Welche stärken den roten Faden und bieten Mehrwert, welche bleiben außen vor und wann sind genauere Rückfragen nötig?') }}</span></div>
-        <div class="template-field"><label :for="`${controlsId}-example`">{{ text('Example letter (optional)', 'Beispielbrief (optional)') }}</label><textarea :id="`${controlsId}-example`" v-model="form.exampleText" :aria-describedby="`${controlsId}-example-help`" rows="8" maxlength="20000" /><span :id="`${controlsId}-example-help`" class="field-description app-hint">{{ text('Use an earlier letter to guide wording, style and structure. Its claims are not evidence about the applicant. Remove or generalize confidential details before sharing.', 'Ein früherer Brief kann Wortwahl, Stil und Struktur vorgeben. Seine Aussagen sind keine Nachweise über die bewerbende Person. Entfernen oder verallgemeinern Sie vertrauliche Details vor dem Teilen.') }}</span></div>
+        <details class="template-section" open>
+          <summary><FontAwesomeIcon :icon="faAlignLeft" aria-hidden="true" /><span>{{ text('Main text', 'Haupttext') }}</span><FontAwesomeIcon class="template-chevron" :icon="faChevronDown" aria-hidden="true" /></summary>
+          <div class="template-section-fields">
+            <label>{{ text('Structure and sections', 'Struktur und Abschnitte') }}<textarea v-model="form.structure" rows="8" required maxlength="16000" /></label>
+            <div class="template-field"><label :for="`${controlsId}-research-interests`">{{ text('Main research interests (optional)', 'Zentrale Forschungsinteressen (optional)') }}</label><textarea :id="`${controlsId}-research-interests`" v-model="form.researchInterests" :aria-describedby="`${controlsId}-research-interests-help`" rows="5" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span :id="`${controlsId}-research-interests-help`" class="field-description app-hint">{{ text('Describe the research topics and questions that genuinely interest you, including interests not yet reflected in your CV. They enrich the motivation alongside your experience and the opportunity. Use the relevant interests selectively; the letter need not cover them all. Interests do not establish prior experience or qualifications.', 'Beschreiben Sie Forschungsthemen und Fragestellungen, die Sie wirklich interessieren, auch wenn sie noch nicht im Lebenslauf erscheinen. Sie ergänzen Ihre Erfahrungen und die Ausschreibung als Grundlage der Motivation. Relevante Interessen werden gezielt ausgewählt; der Brief muss nicht alle abdecken. Interessen sind kein Nachweis für Vorerfahrung oder Qualifikationen.') }}</span></div>
+          </div>
+        </details>
+        <details class="template-section">
+          <summary><FontAwesomeIcon :icon="faFeatherPointed" aria-hidden="true" /><span>{{ text('Tone', 'Tonalität') }}</span><FontAwesomeIcon class="template-chevron" :icon="faChevronDown" aria-hidden="true" /></summary>
+          <div class="template-section-fields">
+            <label>{{ text('Tone and writing guidance', 'Tonalität und Schreibhinweise') }}<textarea v-model="form.tone" rows="4" maxlength="1000" required /></label>
+            <div class="template-field"><label :for="`${controlsId}-example`">{{ text('Example letter (optional)', 'Beispielbrief (optional)') }}</label><textarea :id="`${controlsId}-example`" v-model="form.exampleText" :aria-describedby="`${controlsId}-example-help`" rows="8" maxlength="20000" /><span :id="`${controlsId}-example-help`" class="field-description app-hint">{{ text('Use an earlier letter to guide wording, style and structure. Its claims are not evidence about the applicant. Remove or generalize confidential details before sharing.', 'Ein früherer Brief kann Wortwahl, Stil und Struktur vorgeben. Seine Aussagen sind keine Nachweise über die bewerbende Person. Entfernen oder verallgemeinern Sie vertrauliche Details vor dem Teilen.') }}</span></div>
+          </div>
+        </details>
+        <details class="template-section">
+          <summary><FontAwesomeIcon :icon="faComments" aria-hidden="true" /><span>{{ text('Feedback loop', 'Feedback-Schleife') }}</span><FontAwesomeIcon class="template-chevron" :icon="faChevronDown" aria-hidden="true" /></summary>
+          <div class="template-section-fields">
+            <div class="template-field"><label :for="`${controlsId}-question-guidance`">{{ text('Questions and context to ask for (optional)', 'Rückfragen und gewünschter Kontext (optional)') }}</label><textarea :id="`${controlsId}-question-guidance`" v-model="form.questionGuidance" :aria-describedby="`${controlsId}-question-guidance-help`" rows="6" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span :id="`${controlsId}-question-guidance-help`" class="field-description app-hint">{{ text('Explain when a question would improve a draft or refinement and what context to ask for. For example, ask about required or beneficial qualifications without CV evidence, then request a relevant example or an honest learning interest. Questions should add value, avoid repeating answered questions and never assume missing experience.', 'Beschreiben Sie, wann eine Rückfrage einen Entwurf oder eine Überarbeitung verbessert und welcher Kontext erfragt werden soll. Zum Beispiel: nach geforderten oder vorteilhaften Qualifikationen ohne Lebenslaufnachweis fragen und um ein relevantes Beispiel oder ehrliches Lerninteresse bitten. Fragen sollen einen Mehrwert bieten, beantwortete Fragen nicht wiederholen und fehlende Erfahrung nicht unterstellen.') }}</span></div>
+            <div class="template-field"><label :for="`${controlsId}-refinement-system-prompt`">{{ text('Refinement system prompt (optional)', 'System-Prompt für Überarbeitungen (optional)') }}</label><textarea :id="`${controlsId}-refinement-system-prompt`" v-model="form.refinementSystemPrompt" :aria-describedby="`${controlsId}-refinement-system-prompt-help`" rows="8" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span :id="`${controlsId}-refinement-system-prompt-help`" class="field-description app-hint">{{ text('Guide each refinement iteration: decide which resolved answers strengthen the letter’s central narrative and add value, which to leave out, and when to ask for more detail.', 'Legen Sie fest, wie jede Überarbeitungsrunde mit Antworten umgeht: Welche stärken den roten Faden und bieten Mehrwert, welche bleiben außen vor und wann sind genauere Rückfragen nötig?') }}</span></div>
+          </div>
+        </details>
+        <details class="template-section">
+          <summary><FontAwesomeIcon :icon="faEnvelopeOpenText" aria-hidden="true" /><span>{{ text('Formalities', 'Formalitäten') }}</span><FontAwesomeIcon class="template-chevron" :icon="faChevronDown" aria-hidden="true" /></summary>
+          <div class="template-section-fields">
+            <div class="template-form-row"><label>{{ text('Default language', 'Standardsprache') }}<select v-model="form.language"><option value="en">English</option><option value="de">Deutsch</option></select></label><label>{{ text('Target words', 'Zielwortzahl') }}<input v-model.number="form.maxWords" type="number" min="50" max="2000" required /></label></div>
+            <div class="template-field"><label :for="`${controlsId}-subject`">{{ text('Subject instructions', 'Hinweise zum Betreff') }}</label><textarea :id="`${controlsId}-subject`" v-model="form.subjectInstructions" :aria-describedby="`${controlsId}-subject-help`" rows="3" maxlength="1000" /><span :id="`${controlsId}-subject-help`" class="field-description app-hint">{{ text('Describe how to name the position and include a tender reference when available.', 'Beschreiben Sie, wie die Stelle benannt und eine vorhandene Ausschreibungsreferenz aufgenommen werden soll.') }}</span></div>
+            <div class="template-field"><label :for="`${controlsId}-salutation`">{{ text('Salutation instructions', 'Hinweise zur Anrede') }}</label><textarea :id="`${controlsId}-salutation`" v-model="form.salutationInstructions" :aria-describedby="`${controlsId}-salutation-help`" rows="3" maxlength="1000" /><span :id="`${controlsId}-salutation-help`" class="field-description app-hint">{{ text('Describe how to choose the recipient from the tender and how to greet them if no contact is named.', 'Beschreiben Sie, wie der Empfänger aus der Ausschreibung gewählt und ohne genannten Kontakt angesprochen werden soll.') }}</span></div>
+            <div class="template-field"><label :for="`${controlsId}-closing`">{{ text('Closing instructions', 'Hinweise zum Abschluss') }}</label><textarea :id="`${controlsId}-closing`" v-model="form.closingInstructions" :aria-describedby="`${controlsId}-closing-help`" rows="3" maxlength="1000" /><span :id="`${controlsId}-closing-help`" class="field-description app-hint">{{ text(`Describe the closing invitation, sign-off and signature. Use ${applicantNamePlaceholder} for the private name.`, `Beschreiben Sie die abschließende Einladung, Grußformel und Unterschrift. Verwenden Sie ${applicantNamePlaceholder} für den privaten Namen.`) }}</span></div>
+            <LetterFormattingControls :formatting="form.formatting" :lang="lang || 'en'" template-mode @change="updateFormatting" />
+          </div>
+        </details>
         <p class="template-hint app-hint">{{ text('Templates stay on this device until included in an explicitly published refinement request.', 'Vorlagen bleiben auf diesem Gerät, bis sie Teil einer ausdrücklich veröffentlichten Überarbeitungsanfrage sind.') }}</p>
       </form>
     </div>
@@ -241,8 +271,19 @@ button:disabled{opacity:.55;cursor:default}
 .template-library-files summary:hover{color:var(--ui-text)}
 .template-library-files summary:focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}
 .template-library-actions{display:grid;gap:10px;padding-top:4px}
-.template-form{display:grid;align-content:start;gap:18px;min-height:0;min-width:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;}
+.template-form{display:grid;align-content:start;min-height:0;min-width:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;}
+.template-form > label {margin-bottom:32px;}
 .letter-templates label,.template-library-controls label{display:grid;gap:7px;font:600 12px/1.4 system-ui;color:var(--ui-text)}
+.template-section{min-width:0;border-top:1px solid var(--ui-divider)}
+.template-section > summary{display:flex;align-items:center;gap:10px;min-height:48px;padding:8px 16px;box-sizing:border-box;cursor:pointer;list-style:none;font:600 14px/1.5 var(--font-ui);color:var(--ui-text)}
+.template-section > summary::-webkit-details-marker{display:none}
+.template-section > summary::marker{content:''}
+.template-section > summary > svg{flex:0 0 auto;width:16px;color:var(--ui-accent)}
+.template-section > summary > .template-chevron{margin-left:auto;width:12px;color:var(--ui-muted)}
+.template-section[open] > summary > .template-chevron{transform:rotate(180deg)}
+.template-section > summary:hover{color:var(--ui-accent)}
+.template-section > summary:focus-visible{outline:2px solid var(--ui-accent);outline-offset:3px;border-radius:3px}
+.template-section-fields{display:grid;gap:18px;padding:4px 16px 18px;min-width:0}
 .template-field{display:grid;gap:7px;min-width:0}
 .letter-templates :is(input,select,textarea),.template-library-controls :is(input,select){font:400 14px/1.5 var(--font-ui);min-width:0;width:100%;box-sizing:border-box}
 textarea{resize:vertical}

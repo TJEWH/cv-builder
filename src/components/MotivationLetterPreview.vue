@@ -52,6 +52,7 @@ const sections = computed(() => {
 const margins = computed(() => Array(4).fill(formatting.value.marginMm) as number[]);
 const pageStyle = computed(() => ({
   '--letter-body-size': `${formatting.value.fontSizePt}pt`,
+  '--letter-header-name-size': `${formatting.value.headerNameSizePt}pt`,
   '--letter-line-height': formatting.value.lineHeight,
   width: `${210 - margins.value[1] - margins.value[3]}mm`,
   minHeight: `${297 - margins.value[0] - margins.value[2]}mm`,
@@ -132,7 +133,7 @@ defineExpose({ getPdfBlob, getRenderElement: () => page.value, open: () => { exp
 .motivation-letter .letter-header--single,.motivation-letter[data-contact-layout="below"] .letter-header{grid-template-columns:minmax(0,1fr)}
 .motivation-letter[data-header-layout-style="separator"] .letter-header{border-bottom-width:.75pt}
 .letter-header > .title{min-width:0}
-.letter-header .name{font-size:16pt;line-height:1.2;font-weight:700}
+.letter-header .name{font-size:var(--letter-header-name-size);line-height:1.2;font-weight:700}
 .letter-header .role{font-size:10pt;line-height:1.35}
 .letter-header :deep(.contact){min-width:0;max-width:75mm;gap:1mm;font-size:9pt;line-height:1.35;font-style:normal}
 .letter-header :deep(.contact-icon){display:none}
