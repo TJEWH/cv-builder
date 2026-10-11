@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildOpportunityGroups, checklistKeys, opportunityContextMarkdown, opportunityFieldLabel, personalFitScore } from '../src/composables/opportunityContext';
+import { buildOpportunityGroups, checklistKeys, opportunityContextMarkdown, opportunityFieldLabel, personalFitScore, requirementTableRows } from '../src/composables/opportunityContext';
 import type { OpportunityContextNode } from '../src/composables/opportunityContext';
 
 function flatten(nodes: OpportunityContextNode[]): OpportunityContextNode[] {
@@ -136,12 +136,58 @@ test('duration and research assessments move to their respective groups, includi
   assert.ok(texts('salary').includes('Renewable contract'));
   assert.ok(texts('salary').includes('1 Jan 2027'));
   assert.ok(texts('overview').includes('Training needed'));
-  assert.ok(texts('overview').includes('Mostly software'));
+  assert.equal(texts('overview').includes('Mostly software'), false);
   assert.ok(texts('overview').includes('Academic route'));
   assert.ok(texts('overview').includes('Industry route'));
-  assert.deepEqual(texts('suitability'), ['No', 'Requires more experience']);
+  assert.deepEqual(texts('suitability'), ['No', 'Requires more experience', 'Mostly software']);
   assert.ok(texts('advisor').includes('Robotics group'));
   assert.equal(texts('metadata').includes('48'), false);
+});
+
+test('requirement rows retain content and checklist identities while separating explicit required/optional flags', () => {
+  const requirements = { required: ['Relevant MSc'], optional: [
+    { requirement: 'Programming', required: true, details: ['Python', 'C++'], url: 'https://example.org/requirements' },
+    { requirement: 'German', required: false },
+    { requirement: 'Portfolio', optional: true },
+  ], other: ['Unclassified item'] };
+  for (const lang of ['en', 'de']) {
+    const node = buildOpportunityGroups({ requirements }, lang).find(group => group.id === 'requirements')!.items[0];
+    const snapshot = structuredClone(node);
+    const rows = requirementTableRows(node);
+    assert.deepEqual(rows.map(row => row.requirementStatus), ['required', 'required', 'optional', 'optional', undefined]);
+    assert.deepEqual(rows.map(row => row.checklistKey), checklistKeys([node]));
+    assert.equal(rows[1].label, 'Programming');
+    assert.ok(flatten(rows[1].children || []).some(child => child.text === 'C++'));
+    assert.ok(rows[1].children?.some(child => child.href === 'https://example.org/requirements'));
+    assert.equal(rows[1].children?.some(child => child.id.endsWith('.required')), false);
+    assert.equal(rows[2].children?.length, 0);
+    assert.deepEqual(node, snapshot, 'the table projection must not alter the source or export');
+  }
+  const node = buildOpportunityGroups({ requirements: [{ requirement: 'Conflicting flags', required: true, optional: true }] }, 'en')
+    .find(group => group.id === 'requirements')!.items[0];
+  const [row] = requirementTableRows(node);
+  assert.equal(row.requirementStatus, undefined);
+  assert.equal(row.children?.length, 2, 'conflicting source flags remain visible');
+});
+
+test('item/category records and document statuses produce item rows with their original checklist keys', () => {
+  const context = {
+    requirements: [{ item: 'Degree', category: 'required' }, { item: 'Robotics', category: 'beneficial' }, { item: 'German', required: false, beneficial: true }],
+    required_documents: ['CV', { item: 'Portfolio', status: 'optional' }],
+    desired_skills: { preferred: ['Python'], recommended: ['C++'] },
+  };
+  const groups = buildOpportunityGroups(context, 'en');
+  const requirementGroup = groups.find(group => group.id === 'requirements')!;
+  const rows = requirementGroup.items.flatMap(requirementTableRows);
+  assert.deepEqual(rows.map(row => row.requirementStatus), ['required', 'beneficial', 'beneficial', 'preferred', 'recommended']);
+  assert.deepEqual(rows.slice(0, 3).map(row => row.label), ['Degree', 'Robotics', 'German']);
+  assert.ok(rows.slice(0, 3).every(row => !row.children?.length));
+  assert.equal(rows[1].checklistKey, 'requirements:requirements:{"category":"beneficial","item":"Robotics"}');
+  const documents = groups.find(group => group.id === 'documents')!;
+  assert.deepEqual(documents.items.flatMap(requirementTableRows).map(row => row.requirementStatus), ['required', 'optional']);
+  assert.deepEqual(checklistKeys(documents.items), documents.items.flatMap(requirementTableRows).map(row => row.checklistKey));
+  const unspecified = buildOpportunityGroups({ application_documents: ['CV'] }, 'en').find(group => group.id === 'documents')!;
+  assert.equal(requirementTableRows(unspecified.items[0])[0].requirementStatus, undefined, 'generic document fields do not imply a required status');
 });
 
 test('repeated source URLs merge evidence without losing distinct links, contact details or metadata', () => {

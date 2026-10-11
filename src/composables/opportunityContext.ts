@@ -10,6 +10,8 @@ export interface OpportunityContextNode {
   kind?: 'summary' | 'main-link' | 'fit';
   score?: number;
   checklistKey?: string;
+  requirementStatus?: 'required' | 'optional' | 'beneficial' | 'preferred' | 'recommended' | 'desired';
+  requirementStatusFields?: string[];
 }
 
 export type OpportunityContextGroupId = 'overview' | 'links' | 'suitability' | 'advisor' | 'salary' | 'requirements' | 'documents' | 'metadata';
@@ -33,8 +35,8 @@ const GROUPS: [OpportunityContextGroupId, string, string][] = [
 const FIELD_GROUPS: Record<OpportunityContextGroupId, string[]> = {
   links: ['official_url', 'application_url', 'source_url', 'sources', 'links', 'contacts', 'contact', 'contact_email', 'email', 'website'],
   overview: ['research_summary', 'project_summary', 'project_description', 'personal_fit', 'research_fit',
-    'research_career_potential', 'rd_career_potential', 'hardware_software_balance', 'hardware_software_profile', 'cv_track'],
-  suitability: ['particularly_suitable', 'particularly_suitable_reason', 'special_features'],
+    'research_career_potential', 'rd_career_potential', 'hardware_software_profile', 'cv_track'],
+  suitability: ['particularly_suitable', 'particularly_suitable_reason', 'special_features', 'hardware_software_balance'],
   advisor: ['supervisor_research_focus', 'supervisor_top_papers', 'supervisors', 'supervisor', 'supervisor_reputation',
     'research_context', 'research_focus',
     'lab', 'lab_context', 'lab_research', 'research_group', 'unit'],
@@ -84,6 +86,7 @@ const LABELS: Record<string, [string, string]> = {
   requirements: ['Requirements', 'Anforderungen'], eligibility: ['Eligibility', 'Zulassungsvoraussetzungen'],
   qualifications: ['Qualifications', 'Qualifikationen'], required_skills: ['Required skills', 'Erforderliche Kenntnisse'],
   desired_skills: ['Desired skills', 'Gewünschte Kenntnisse'], language_requirements: ['Language requirements', 'Sprachkenntnisse'],
+  required: ['Required', 'Erforderlich'], optional: ['Optional', 'Optional'],
   required_documents: ['Required documents', 'Erforderliche Unterlagen'], application_documents: ['Application documents', 'Bewerbungsunterlagen'],
   documents: ['Documents', 'Unterlagen'], submission_documents: ['Submission documents', 'Einzureichende Unterlagen'],
   institution: ['Institution', 'Einrichtung'], university: ['Institution', 'Einrichtung'], unit: ['Department / group', 'Fachbereich / Gruppe'],
@@ -174,7 +177,7 @@ function buildNode(value: unknown, key: string, id: string, lang: string, ancest
   const children = Array.isArray(value)
     ? value.map((item, index) => {
       if (isRecord(item)) {
-        const headingKey = ['name', 'title', 'label', 'document', 'requirement'].find((candidate) => typeof item[candidate] === 'string' && String(item[candidate]).trim());
+        const headingKey = ['name', 'title', 'label', 'document', 'requirement', 'item'].find((candidate) => typeof item[candidate] === 'string' && String(item[candidate]).trim());
         if (headingKey) {
           const heading = String(item[headingKey]).trim();
           const detail = Object.fromEntries(Object.entries(item).filter(([childKey]) => childKey !== headingKey));
@@ -209,18 +212,70 @@ function checklistValue(value: unknown, ancestors = new Set<object>()): unknown 
       .map(([key, item]) => [key, checklistValue(item, next)]));
 }
 
+function requirementGroupStatus(key: string): OpportunityContextNode['requirementStatus'] {
+  const normalized = keyName(key);
+  if (['required', 'mandatory', 'essential', 'required_skills', 'required_documents'].includes(normalized)) return 'required';
+  if (normalized === 'optional') return 'optional';
+  if (['beneficial', 'benefitial', 'advantageous'].includes(normalized)) return 'beneficial';
+  if (normalized === 'preferred') return 'preferred';
+  if (normalized === 'recommended') return 'recommended';
+  if (['desired', 'desirable', 'desired_skills'].includes(normalized)) return 'desired';
+}
+
+function explicitRequirementStatus(key: string, value: unknown): OpportunityContextNode['requirementStatus'] {
+  const normalized = keyName(key);
+  if (typeof value === 'boolean' && ['required', 'mandatory', 'optional'].includes(normalized)) {
+    return (normalized === 'optional' ? !value : value) ? 'required' : 'optional';
+  }
+  if (value === true) return requirementGroupStatus(normalized);
+  if (['required', 'optional', 'status', 'type', 'category', 'level', 'priority', 'importance', 'requirement_type'].includes(normalized) && typeof value === 'string') {
+    return requirementGroupStatus(value);
+  }
+}
+
 /** Content identities survive list reordering and language changes; changed requirements start unchecked. */
-function attachChecklistKeys(node: OpportunityContextNode, value: unknown, path: string, arrayItem = false) {
+function attachChecklistKeys(node: OpportunityContextNode, value: unknown, path: string, arrayItem = false,
+  status?: OpportunityContextNode['requirementStatus']) {
+  if (status) node.requirementStatus = status;
   if (Array.isArray(value)) {
-    for (const child of node.children || []) attachChecklistKeys(child, value[Number(child.id.split('.').at(-1))], path, true);
-  } else if (isRecord(value) && !arrayItem && !['name', 'title', 'label', 'document', 'requirement'].some((key) => typeof value[key] === 'string')) {
+    for (const child of node.children || []) attachChecklistKeys(child, value[Number(child.id.split('.').at(-1))], path, true, status);
+  } else if (isRecord(value) && !arrayItem && !['name', 'title', 'label', 'document', 'requirement', 'item'].some((key) => typeof value[key] === 'string')) {
     for (const child of node.children || []) {
       const key = child.id.slice(node.id.length + 1);
-      attachChecklistKeys(child, value[key], `${path}.${key}`);
+      attachChecklistKeys(child, value[key], `${path}.${key}`, false, requirementGroupStatus(key) || status);
     }
   } else {
     node.checklistKey = `${path}:${JSON.stringify(checklistValue(value))}`;
+    if (isRecord(value)) {
+      const fields = Object.entries(value).filter(([key, item]) => explicitRequirementStatus(key, item));
+      const statuses = new Set(fields.map(([key, item]) => explicitRequirementStatus(key, item)));
+      // A beneficial/preferred flag adds detail to required:false rather than contradicting it.
+      if (statuses.size > 1 && !statuses.has('required')) statuses.delete('optional');
+      // Conflicting source flags stay visible in the details instead of choosing one.
+      if (statuses.size === 1) {
+        node.requirementStatus = [...statuses][0];
+        node.requirementStatusFields = fields.map(([key]) => `${node.id}.${key}`);
+      } else if (statuses.size > 1) {
+        delete node.requirementStatus;
+      }
+    }
   }
+}
+
+/** Project checklist entries into rows without changing their saved content identities. */
+export function requirementTableRows(root: OpportunityContextNode): OpportunityContextNode[] {
+  function visit(node: OpportunityContextNode, labels: string[], includeLabel = true): OpportunityContextNode[] {
+    const field = keyName(node.id.split('.').at(-1)!);
+    const redundant = ['requirements', 'required_documents', 'application_documents', 'documents', 'submission_documents'].includes(field);
+    const label = includeLabel && node.label && !redundant && !requirementGroupStatus(field) ? node.label : null;
+    const path = [...labels, ...(label ? [label] : [])];
+    if (node.checklistKey || !node.children?.length) {
+      return [{ ...node, label: path.join(' · ') || null,
+        children: node.children?.filter(child => !node.requirementStatusFields?.includes(child.id)) }];
+    }
+    return node.children.flatMap(child => visit(child, path));
+  }
+  return visit(root, [], false);
 }
 
 export function checklistKeys(nodes: OpportunityContextNode[]): string[] {
@@ -319,7 +374,7 @@ export function buildOpportunityGroups(context: Record<string, unknown>, lang: s
     if (previous.length) node.label += phrase(' (additional detail)', ' (ergänzende Angaben)', lang);
     seen.set(canonicalKey, [...previous, signature]);
     const group = fieldGroup(key);
-    if (group === 'requirements' || group === 'documents') attachChecklistKeys(node, value, `${group}:${canonicalKey}`);
+    if (group === 'requirements' || group === 'documents') attachChecklistKeys(node, value, `${group}:${canonicalKey}`, false, requirementGroupStatus(key));
     byGroup.get(group)!.items.push(node);
   };
   // Put the two advisor context sections first and surface absent research explicitly.

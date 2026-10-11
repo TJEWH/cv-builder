@@ -47,10 +47,14 @@ const database: Record<string, Row[]> = {
       research_career_potential: { score: 9, summary: 'Publish research in human–robot interaction' },
       rd_career_potential: { score: 8, summary: 'Transfer safe learning methods to industrial R&D' },
       particularly_suitable_reason: 'Combines robot learning with practical experiments.',
+      hardware_software_balance: 'Software development with hands-on robot experiments.',
       supervisor_research_focus: { supervisor: 'Prof. Alex Example', summary: 'Learning safe human–robot collaboration from demonstrations.', keywords: ['Robot learning', 'Safety'], evidence: [{ label: 'Lab research', url: 'https://example.org/lab' }] },
       supervisor_top_papers: [{ title: 'Example paper on learning from human feedback', year: 2025, why_relevant: 'Connects interactive learning with safe robotics.', url: 'https://example.org/paper' }],
-      requirements: ['MSc in robotics or computer science', 'Python and C++ experience'],
-      required_documents: ['CV', 'Motivation letter (maximum 400 words)', 'Transcript of records'],
+      requirements: [
+        { item: 'MSc in robotics or computer science', category: 'required' },
+        { requirement: 'Background in wireless communications, robotics, optimization and ML/AI', importance: 'plus' },
+      ],
+      required_documents: ['CV', 'Motivation letter (maximum 400 words)', 'Transcript of records', { item: 'Portfolio', importance: 'plus' }],
       official_url: 'https://example.org/opportunities/robotics', verification_level: 'official listing',
       source_url: 'https://example.org/opportunities/robotics', original_search: 'Robotics',
       sources: [
