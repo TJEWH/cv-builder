@@ -47,7 +47,7 @@ const emit = defineEmits<{ back: [] }>();
   .workspace-detail-header__metadata { margin-top: 6px; }
 }
 @media (max-width: 760px) {
-  .workspace-detail-header { padding: 0 8px 8px; border-bottom: 1px solid var(--ui-border); background: transparent; }
+  .workspace-detail-header { padding: 10px 12px; border-bottom: 1px solid var(--ui-divider); background: var(--ui-shell); }
   .workspace-detail-header__main { gap: 4px 8px; }
   .workspace-detail-header__controls { position: fixed; inset-inline: 0; bottom: calc(var(--mobile-tabs-height, 76px) + var(--mobile-application-tabs-height, 0px)); z-index: 35; display: flex; align-items: center; gap: 8px; box-sizing: border-box; height: var(--mobile-context-row-height, 52px); padding: 3px max(8px, env(safe-area-inset-right, 0px)) 3px max(8px, env(safe-area-inset-left, 0px)); border-top: 1px solid var(--ui-border); background: var(--ui-shell); }
   .workspace-detail-header__back { justify-content: center; width: 44px; min-height: 44px; padding: 0; font-size: 22px; }

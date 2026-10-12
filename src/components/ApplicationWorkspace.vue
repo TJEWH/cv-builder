@@ -1284,15 +1284,16 @@ h3{font-size:16px;margin:0 0 14px}p{line-height:1.6;font-size:13px}button,input,
 .preparation-selection select:disabled{background:var(--ui-shell);color:var(--ui-muted);cursor:not-allowed;opacity:.65}
 .preparation-selection-hint{color:var(--ui-muted);font-size:12px;font-weight:400;line-height:1.5}
 @media(max-width:760px){
-  .application-workspace{--mobile-application-tabs-height:53px}
+  .application-workspace{--mobile-application-tabs-height:53px;border:1px solid var(--ui-divider);background:var(--ui-surface)}
   .workspace-subtabs{height:var(--mobile-application-tabs-height);gap:4px;padding-inline:max(8px,env(safe-area-inset-left,0px)) max(8px,env(safe-area-inset-right,0px))}
   .workspace-subtabs button{flex:1 0 auto;justify-content:center;min-height:44px;padding:4px 3px}
-  .application-mobile-title{display:block;flex-shrink:0;margin:0;padding:0 8px 8px;font-size:17px;line-height:1.25;overflow-wrap:anywhere;border-bottom:1px solid var(--ui-border)}
+  .application-mobile-title{display:block;flex-shrink:0;margin:0;padding:10px 12px;font-size:16px;line-height:1.35;overflow-wrap:anywhere;border-bottom:1px solid var(--ui-divider);background:var(--ui-shell)}
   .application-scroll-content{display:block;flex:1;min-height:0;overflow:auto;scrollbar-width:thin;scroll-padding-block:8px}
   .application-header{padding-top:8px}
   .application-header :deep(.workspace-detail-header__title h1){display:none}
   .application-header :deep(.application-identifier),.application-header :deep(.application-deadline-calendar){display:none}
-  .workflow-body{flex:1 0 auto;overflow:visible}
+  .workflow-body{flex:1 0 auto;overflow:visible;padding:12px}
+  .stage-heading h2{font-size:17px;line-height:1.35}
   .refinement-controls{padding-right:0}
   .refinement-toolbar:not(:has(.approved-variant-save)){display:none}
   .approved-variant-save{margin-top:0;padding-top:0;border-top:0}

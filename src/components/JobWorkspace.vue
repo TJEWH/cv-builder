@@ -637,7 +637,16 @@ tr.is-expanded { background: var(--ui-active); }
   .opportunity-detail { padding: 32px; }
 }
 @media (max-width: 760px) {
-  .jobs-workspace { padding: 0; font-size: 16px; }
+  .jobs-workspace {
+    --ui-surface: #112129;
+    --ui-surface-hover: #20363e;
+    --ui-control: #1a2d35;
+    --ui-shell: #101c24;
+    --ui-border: #3b555d;
+    --ui-divider: #2b424b;
+    padding: 0;
+    font-size: 14px;
+  }
   .opportunity-detail__body, .jobs-workspace :deep(.application-scroll-content) { overflow-x: hidden; }
   .jobs-heading h1 { font-size: 23px; }
   .jobs-heading p { font-size: 12px; }
@@ -653,11 +662,11 @@ tr.is-expanded { background: var(--ui-active); }
   .jobs-workspace :is(input, select, textarea) { font-size: 16px; }
   .jobs-workspace label { font-size: 14px; }
   .jobs-workspace > .jobs-table-scroll { padding: 2px 2px 12px; scrollbar-gutter: auto; }
-  table { font-size: 16px; }
-  .jobs-row-toggle { min-height: 44px; align-items: center; font-size: 18px; line-height: 1.35; }
+  table { font-size: 14px; }
+  .jobs-row-toggle { min-height: 44px; align-items: center; font-size: 16px; line-height: 1.35; }
   .jobs-workspace .jobs-row-toggle:focus-visible { outline-offset: -2px; }
-  .jobs-subline { margin-top: 4px; font-size: 14px; line-height: 1.5; }
-  .jobs-topics { font-size: 15px; }
+  .jobs-subline { margin-top: 4px; font-size: 13px; line-height: 1.5; }
+  .jobs-topics { font-size: 14px; }
   td[data-label]::before { margin-bottom: 4px; font-size: 12px; text-transform: none; letter-spacing: 0; }
   .jobs-workspace .jobs-group-row th { font-size: 15px; padding: 12px 2px 4px; border: 0; background: transparent; }
   table tbody { gap: 12px; }
@@ -666,7 +675,7 @@ tr.is-expanded { background: var(--ui-active); }
   .jobs-workspace td { padding: 10px 14px; }
   .jobs-workspace .jobs-cell-state { display: none; }
   .jobs-workspace .jobs-application-state { display: flex; padding-top: 0; }
-  .jobs-workspace .jobs-cell-heading { padding-top: 12px; padding-bottom: 12px; background: transparent; }
+  .jobs-workspace .jobs-cell-heading { padding-top: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--ui-divider); background: rgb(220 230 226 / 4%); }
   .jobs-cell-heading :deep(.application-identifier) { margin-top: 8px; }
   .jobs-opportunity-badges { margin-top: 8px; }
   .jobs-opportunity--unseen-new { border-color: #47738a; }
@@ -681,29 +690,36 @@ tr.is-expanded { background: var(--ui-active); }
   .jobs-workspace .jobs-opportunities-table td { padding: 8px 12px; }
   .jobs-workspace .jobs-opportunities-table .jobs-cell-heading { padding-block: 10px; }
   .jobs-workspace .jobs-opportunities-table .jobs-group-row th { font-size: 13px; }
-  .opportunity-detail { padding: 0; border: 0; border-radius: 0; background: transparent; }
+  .opportunity-detail { padding: 0; border: 1px solid var(--ui-divider); border-radius: 0; background: var(--ui-surface); }
   .opportunity-detail__header :deep(.workspace-detail-header__title h1) { font-size: 16px; line-height: 1.35; }
   .opportunity-detail__header :deep(.workspace-detail-header__metadata) { flex-wrap: nowrap; gap: 8px; }
   .opportunity-detail__country { flex: 0 1 auto; max-width: 28%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .opportunity-detail__deadline { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .opportunity-detail__deadline-label { display: none; }
   .opportunity-detail__fit { flex-shrink: 0; margin: 0; padding: 0; border-radius: 0; background: transparent; font-size: 12px; }
-  .opportunity-detail__body { padding: 10px 8px 0; scrollbar-gutter: auto; }
-  .opportunity-comment { gap: 6px; margin-bottom: 12px; }
+  .opportunity-detail__body { padding: 12px 12px 0; scrollbar-gutter: auto; }
+  .opportunity-comment { gap: 8px; margin-bottom: 16px; }
   .jobs-workspace .opportunity-comment label { font-size: 13px; }
   .jobs-workspace .opportunity-comment textarea { min-height: 64px; padding: 8px 10px; font-size: 16px; line-height: 1.4; }
-  .opportunity-detail :deep(.opportunity-context__group) { --disclosure-row-inset: 8px; }
-  .opportunity-detail :deep(.opportunity-context__group > summary) { min-height: 44px; padding-block: 11px; font-size: 14px; line-height: 1.5; }
-  .opportunity-detail :deep(.opportunity-context__group[open]) { padding-bottom: 12px; }
-  .opportunity-detail :deep(.opportunity-context__group[open] > summary) { margin-bottom: 6px; }
-  .opportunity-detail :deep(.opportunity-context__fields) { gap: 14px; }
-  .opportunity-detail :deep(.opportunity-context__field dt) { margin-bottom: 4px; font-size: 12px; }
-  .opportunity-detail :deep(.opportunity-context__value) { font-size: 14px; line-height: 1.5; }
-  .opportunity-detail :deep(.opportunity-context__score) { gap: 6px; margin: 4px 0 8px; }
-  .opportunity-detail :deep(.opportunity-context__score-number) { font-size: 18px; }
-  .opportunity-detail :deep(.opportunity-context__score-track) { height: 6px; }
-  .opportunity-detail :deep(.opportunity-context__list), .opportunity-detail :deep(.opportunity-context__values) { gap: 6px; }
-  .opportunity-detail :deep(.opportunity-context__requirements-table th), .opportunity-detail :deep(.opportunity-context__requirements-table td) { padding-block: 8px; }
+  .jobs-workspace :deep(.opportunity-context__group) { --disclosure-row-inset: 10px; border-top: 1px solid var(--ui-divider); background: transparent; }
+  .jobs-workspace :deep(.opportunity-context__group > summary) { min-height: 44px; padding-block: 11px; font-size: 14px; line-height: 1.5; }
+  .jobs-workspace :deep(.opportunity-context__group > summary:active) { background: var(--ui-surface-hover); }
+  .jobs-workspace :deep(.opportunity-context__group[open]) { padding-bottom: 16px; }
+  .jobs-workspace :deep(.opportunity-context__group[open] > summary) { margin-bottom: 12px; border-bottom: 1px solid var(--ui-divider); }
+  .jobs-workspace :deep(.opportunity-context__fields) { gap: 16px; }
+  .jobs-workspace :deep(.opportunity-context__field dt) { margin-bottom: 4px; color: var(--ui-muted); font-size: 12px; }
+  .jobs-workspace :deep(.opportunity-context__value) { font-size: 14px; line-height: 1.5; }
+  .jobs-workspace :deep(.opportunity-context__score) { gap: 6px; margin: 4px 0 8px; }
+  .jobs-workspace :deep(.opportunity-context__score-details > summary) { padding: 8px 10px; border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-control); }
+  .jobs-workspace :deep(.opportunity-context__score-details:not([open]) > summary) { margin-bottom: 0; }
+  .jobs-workspace :deep(.opportunity-context__score-details[open] > summary) { border-color: var(--ui-accent-border); }
+  .jobs-workspace :deep(.opportunity-context__score-details > summary:active) { background: var(--ui-surface-hover); }
+  .jobs-workspace :deep(.opportunity-context__score-number) { font-size: 18px; }
+  .jobs-workspace :deep(.opportunity-context__score-track) { height: 6px; }
+  .jobs-workspace :deep(.opportunity-context__list), .jobs-workspace :deep(.opportunity-context__values) { gap: 6px; }
+  .jobs-workspace :deep(.opportunity-context__requirements-table th), .jobs-workspace :deep(.opportunity-context__requirements-table td) { padding-block: 8px; border-bottom-color: var(--ui-divider); }
+  .jobs-toolbar > .btn, .jobs-workspace :deep(.workspace-detail-header__controls .btn:not(.btn--danger)) { background: var(--ui-control); }
+  .jobs-workspace :is(input, select, textarea):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
   .jobs-workspace .jobs-detail-state { flex: 1; }
   .jobs-workspace .jobs-detail-state select { width: 100%; height: 40px; padding: 6px; }
   .jobs-detail-action { flex-shrink: 0; min-height: 40px; padding: 7px 10px; }
