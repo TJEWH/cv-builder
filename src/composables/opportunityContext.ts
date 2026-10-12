@@ -113,7 +113,7 @@ const PRIVATE_KEYS = new Set(['id', 'user_id']);
 const FIT_FIELDS = new Set(['personal_fit', 'research_fit', 'research_career_potential', 'rd_career_potential']);
 const SUMMARY_FIELDS = new Set(['research_summary', 'project_summary', 'project_description']);
 const PRIMARY_LINK_FIELDS = ['official_url', 'application_url', 'source_url'];
-const SOURCE_METADATA_FIELDS = new Set(['type', 'supports', 'checked_at']);
+const SOURCE_METADATA_FIELDS = new Set(['type', 'supports', 'supported_fields', 'checked_at']);
 const ENUM_KEYS = new Set(['role', 'availability', 'verification_level', 'historical_match_status', 'period']);
 
 function keyName(value: string) { return value.replace(/([a-z\d])([A-Z])/g, '$1_$2').toLowerCase().replace(/[ -]+/g, '_'); }

@@ -230,10 +230,10 @@ test('repeated source URLs merge evidence without losing distinct links, contact
   assert.ok(markdown.includes('Duration'));
 });
 
-test('primary source type, supports and checked date move to metadata in both languages', () => {
+test('primary source type, supports, supported fields and checked date move to metadata in both languages', () => {
   const context = {
     research_summary: 'Research into safe collaboration', official_url: 'https://example.org/job',
-    sources: [{ url: 'https://example.org/job', type: 'Official vacancy', supports: ['Project'], checked_at: '2026-09-20', notes: 'Keep this note' }],
+    sources: [{ url: 'https://example.org/job', type: 'Official vacancy', supports: ['Project'], supported_fields: ['Deadline', 'Requirements'], checked_at: '2026-09-20', notes: 'Keep this note' }],
     data: { sources: [{ url: 'https://example.org/job', supports: ['Project', 'Funding'] }] },
   };
   const original = structuredClone(context);
@@ -245,9 +245,9 @@ test('primary source type, supports and checked date move to metadata in both la
     const relocated = metadata.items.find(({ text }) => text === source.text)!;
     assert.equal(source.href, context.official_url);
     assert.ok(flatten(source.children || []).some(({ text }) => text === 'Keep this note'));
-    assert.deepEqual(relocated.children?.map(({ label }) => label), lang === 'de' ? ['Typ', 'Belegt', 'Geprüft'] : ['Type', 'Supports', 'Checked']);
+    assert.deepEqual(relocated.children?.map(({ label }) => label), lang === 'de' ? ['Typ', 'Belegt', 'Supported fields', 'Geprüft'] : ['Type', 'Supports', 'Supported fields', 'Checked']);
     const metadataValues = flatten(relocated.children || []).map(({ text }) => text);
-    for (const value of ['Official vacancy', 'Project', 'Funding']) {
+    for (const value of ['Official vacancy', 'Project', 'Funding', 'Deadline', 'Requirements']) {
       assert.equal(metadataValues.filter(text => text === value).length, 1);
       assert.equal(flatten(overview.items).some(({ text }) => text === value), false);
     }
