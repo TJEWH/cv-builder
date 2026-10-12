@@ -174,18 +174,3 @@ test('required/optional table rows keep their saved checkboxes when completion i
   assert.equal(inputs.filter(node => node.props.checked).length, 2);
   assert.ok(inputs.every(node => node.props.disabled));
 });
-
-test('legacy ratings show a localized unverified label and never render a score meter', t => {
-  for (const lang of ['en', 'de']) {
-    for (const value of [4, '4/5', 'very good', { score: 4, summary: 'Original rationale' }]) {
-      const view = mountContext(undefined, { lang, context: { personal_fit: value }, checklist: false });
-      t.after(view.unmount);
-      assert.equal(view.nodes.some(node => node.props.role === 'meter'), false);
-      assert.ok(view.nodes.some(node => node.text === (lang === 'de' ? 'Skala nicht verifiziert' : 'Scale unverified')));
-      assert.ok(view.nodes.some(node => node.text === (typeof value === 'object' ? 'Original rationale' : String(value))));
-    }
-    const view = mountContext(undefined, { lang, context: { personal_fit: { score: 8.25, scale_min: 0, scale_max: 10, summary: 'Verified scale' } } });
-    t.after(view.unmount);
-    assert.ok(view.nodes.some(node => node.props.role === 'meter' && node.props['aria-valuenow'] === 8.25));
-  }
-});

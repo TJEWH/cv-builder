@@ -62,7 +62,7 @@ const ContextValue = defineComponent({
           h('div', { class: 'opportunity-context__score-track', role: 'meter', 'aria-label': node.label,
             'aria-valuemin': 0, 'aria-valuemax': 10, 'aria-valuenow': score, 'aria-valuetext': node.text },
           h('span', { class: 'opportunity-context__score-fill', style: { width: `${score * 10}%` }, 'aria-hidden': 'true' })),
-        ]) : h('span', { class: 'opportunity-context__missing' }, node.assessmentNotice || (props.lang === 'de' ? 'Keine Bewertung auf der Skala 0–10' : 'No score on the 0–10 scale')),
+        ]) : h('span', { class: 'opportunity-context__missing' }, props.lang === 'de' ? 'Keine Bewertung auf der Skala 0–10' : 'No score on the 0–10 scale'),
         score === undefined && node.text ? value : null, children]);
       }
       if (!children) return value;

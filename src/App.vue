@@ -24,7 +24,6 @@ import SupabaseAuth from './components/SupabaseAuth.vue';
 import JobWorkspace from './components/JobWorkspace.vue';
 import { useSupabaseAuth } from './composables/useSupabaseAuth';
 import LetterTemplates from './components/LetterTemplates.vue';
-import SearchTemplates from './components/SearchTemplates.vue';
 import LocalAttachments from './components/LocalAttachments.vue';
 import AppToaster from './components/AppToaster.vue';
 import { useToasts, useToastWatch } from './composables/useToasts';
@@ -64,9 +63,6 @@ const t = makeT(lang);
 const { notify } = useToasts();
 type Workspace = 'opportunities' | 'cv-studio' | 'applications';
 const activeWorkspace = ref<Workspace>('cv-studio');
-const activeOpportunityTab = ref<'results' | 'templates'>('results');
-const searchTemplatesVisible = computed(() => activeWorkspace.value === 'opportunities' && activeOpportunityTab.value === 'templates');
-const jobWorkspaceVisible = computed(() => isCloudTab.value && !searchTemplatesVisible.value);
 const activeBuilderGroup = ref('content');
 const studioNavigation = ref<HTMLElement | null>(null);
 function revealActiveStudioSection() {
@@ -85,10 +81,9 @@ try {
   const cached = JSON.parse(sessionStorage.getItem('CV_WORKSPACE_NAV') || '{}');
   if (['opportunities', 'cv-studio', 'applications'].includes(cached.workspace)) activeWorkspace.value = cached.workspace;
   if (['versions', 'content', 'design', 'privacy', 'templates', 'attachments'].includes(cached.cvTab)) activeBuilderGroup.value = cached.cvTab;
-  if (['results', 'templates'].includes(cached.opportunityTab)) activeOpportunityTab.value = cached.opportunityTab;
 } catch { /* Navigation is available without browser storage. */ }
-watch([activeWorkspace, activeBuilderGroup, activeOpportunityTab], () => {
-  try { sessionStorage.setItem('CV_WORKSPACE_NAV', JSON.stringify({ workspace: activeWorkspace.value, cvTab: activeBuilderGroup.value, opportunityTab: activeOpportunityTab.value })); } catch { /* Optional preference. */ }
+watch([activeWorkspace, activeBuilderGroup], () => {
+  try { sessionStorage.setItem('CV_WORKSPACE_NAV', JSON.stringify({ workspace: activeWorkspace.value, cvTab: activeBuilderGroup.value })); } catch { /* Optional preference. */ }
 });
 const isCloudTab = computed(() => activeWorkspace.value !== 'cv-studio');
 const studioHasPreview = computed(() => !['templates', 'attachments'].includes(activeBuilderGroup.value));
@@ -693,7 +688,7 @@ function selectBuilderGroup(group: string) {
 </script>
 
 <template>
-  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode, 'is-cloud-workspace': isCloudTab, 'has-mobile-context-row': !isCloudTab || (!!cloudUser && !searchTemplatesVisible), 'has-mobile-studio-tools': !isCloudTab && ['versions', 'content'].includes(activeBuilderGroup) }" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
+  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode, 'is-cloud-workspace': isCloudTab, 'has-mobile-context-row': !isCloudTab || !!cloudUser, 'has-mobile-studio-tools': !isCloudTab && ['versions', 'content'].includes(activeBuilderGroup) }" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
     <AppToaster :lang="lang" />
     <div ref="pdfRenderSource" class="pdf-render-source" aria-hidden="true">
       <CvPreview :state="state" export-source />
@@ -740,22 +735,16 @@ function selectBuilderGroup(group: string) {
         <button v-if="isMobile && studioHasPreview" class="btn cv-studio-open-preview" type="button" :aria-label="t('openPreview')" :title="t('openPreview')" :disabled="isEmptyDocument" @click="openFullPreview"><font-awesome-icon :icon="['fas', 'eye']" aria-hidden="true" /></button>
       </div>
       </DesktopSidebarPortal>
-      <DesktopSidebarPortal area="subtabs" :active="activeWorkspace === 'opportunities' && !!cloudUser">
-        <nav v-show="activeWorkspace === 'opportunities' && !!cloudUser" class="opportunity-subtabs" :aria-label="lang === 'de' ? 'Stellenangebote-Bereiche' : 'Opportunity sections'">
-          <button class="btn" type="button" :class="{ 'is-active': activeOpportunityTab === 'results' }" :aria-pressed="activeOpportunityTab === 'results'" @click="activeOpportunityTab = 'results'"><font-awesome-icon :icon="['fas', 'briefcase']" aria-hidden="true" /><span>{{ lang === 'de' ? 'Ergebnisse' : 'Results' }}</span></button>
-          <button class="btn" type="button" :class="{ 'is-active': activeOpportunityTab === 'templates' }" :aria-pressed="activeOpportunityTab === 'templates'" @click="activeOpportunityTab = 'templates'"><font-awesome-icon :icon="['fas', 'sliders']" aria-hidden="true" /><span>{{ lang === 'de' ? 'Suchvorlagen' : 'Search templates' }}</span></button>
-        </nav>
-      </DesktopSidebarPortal>
       <section v-if="isCloudTab && !cloudUser" class="workspace-sign-in"><h1>{{ activeWorkspace === 'opportunities' ? (lang === 'de' ? 'Stellenangebote entdecken' : 'Discover opportunities') : (lang === 'de' ? 'Bewerbungen vorbereiten' : 'Prepare applications') }}</h1><p class="app-hint">{{ lang === 'de' ? 'Melde dich bei Supabase an, um auf deinen Bewerbungsbereich zuzugreifen. Das CV-Studio ist auch ohne Anmeldung verfügbar.' : 'Sign in to Supabase to access your application workspace. CV Studio remains available without an account.' }}</p></section>
 
       <JobWorkspace
         v-if="cloudUser"
-        v-show="jobWorkspaceVisible"
+        v-show="isCloudTab"
         :key="cloudUser.id"
         :client="supabaseClient"
         :user-id="cloudUser.id"
         :tab="cloudTab"
-        :active="jobWorkspaceVisible"
+        :active="isCloudTab"
         :lang="lang"
         :configurations="selectableConfigurations"
         :selected-id="selectedConfigurationId"
@@ -764,15 +753,6 @@ function selectBuilderGroup(group: string) {
         @navigate="selectBuilderGroup"
         @save-career-variant="saveCareerVariant"
         @edit-variant="openStudioVariant"
-      />
-      <SearchTemplates
-        v-if="cloudUser"
-        v-show="searchTemplatesVisible"
-        :key="`search-templates:${cloudUser.id}`"
-        :client="supabaseClient"
-        :user-id="cloudUser.id"
-        :lang="lang"
-        :sidebar-active="searchTemplatesVisible"
       />
 
       <footer v-show="isMobile && !isCloudTab && studioHasPreview && ['versions', 'content'].includes(activeBuilderGroup)" class="studio-bottom-bar" :aria-label="lang === 'de' ? 'CV-Studio-Aktionen' : 'CV Studio actions'">
@@ -896,10 +876,7 @@ body,
   overflow: hidden;
 }
 
-.builder-shell > .builder-layout, .builder-shell > .jobs-workspace, .builder-shell > .search-templates { flex: 1 1 auto; height: auto; }
-.opportunity-subtabs { display:flex; flex:0 0 auto; gap:8px; min-width:0; }
-.opportunity-subtabs .btn { display:inline-flex; gap:8px; align-items:center; justify-content:flex-start; text-align:left; min-height:44px; }
-.opportunity-subtabs .is-active { border-color:var(--ui-accent-border); background:var(--ui-active); color:var(--ui-accent); }
+.builder-shell > .builder-layout, .builder-shell > .jobs-workspace { flex: 1 1 auto; height: auto; }
 .builder-shell > .builder-topbar, .cv-studio-navigation { flex: 0 0 auto; }
 .builder-topbar { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; }
 .cv-studio-navigation { display: block; }
@@ -1106,8 +1083,7 @@ body,
   .builder-shell > .desktop-sidebar { grid-column: 1; grid-row: 1 / 3; }
   .builder-shell > .builder-topbar { grid-column: 2; grid-row: 1; display: block; min-width: 0}
   .builder-topbar__tabs { height: 100%; }
-  .builder-shell > .builder-layout, .builder-shell > .jobs-workspace, .builder-shell > .workspace-sign-in, .builder-shell > .search-templates { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; margin-bottom: 0; }
-  .builder-shell > .search-templates { padding:var(--workspace-inset); }
+  .builder-shell > .builder-layout, .builder-shell > .jobs-workspace, .builder-shell > .workspace-sign-in { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; margin-bottom: 0; }
   .builder-layout { padding: var(--workspace-inset); }
   .builder-layout:not(.builder-layout--library) { grid-template-columns: minmax(0, 1fr) minmax(280px, 34%); grid-template-rows: minmax(0, 1fr); gap: var(--workspace-gap); }
   .builder-layout__controls .builder-group-panel { padding: 0; }

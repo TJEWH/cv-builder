@@ -33,13 +33,6 @@ function zonedWallTime(timestamp: number, timeZone: string): WallTime {
 function wallTimeToTimestamp(parts: WallTime, timeZone: string | null): number | null {
   const target = utcTime(parts);
   const zone = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const fixedZone = ({ EEST: 'UTC+03:00', AoE: 'UTC-12:00' } as Record<string, string>)[zone] || zone;
-  const fixed = /^UTC([+-])((?:0\d|1[0-3])):([0-5]\d)$|^UTC([+-])(14):(00)$/.exec(fixedZone);
-  if (fixed) {
-    const sign = fixed[1] || fixed[4];
-    const minutes = Number(fixed[2] || fixed[5]) * 60 + Number(fixed[3] || fixed[6]);
-    return target - (sign === '+' ? minutes : -minutes) * 60_000;
-  }
   try {
     const offsets = new Set([-36, 0, 36].map((hours) => {
       const probe = target + hours * 3_600_000;
@@ -66,8 +59,6 @@ export function resolveDeadline(input: DeadlineInput): Deadline | null {
   if (!dateOnly && !timestampMatch) return null;
   const rawTime = dateOnly ? details.deadline_time_local : timestampMatch?.[1];
   const time = typeof rawTime === 'string' && rawTime.trim() ? rawTime.trim() : null;
-  // A recorded clock time without its zone is not the viewer's local time.
-  if (time && !timeZone && !timestampMatch?.[2]) return null;
   const match = time?.match(/^(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?$/);
   if ((rawTime !== undefined && rawTime !== null && rawTime !== '' && !time) || (time && !match)) return null;
   const [year, month, day] = date.split('-').map(Number);
@@ -103,17 +94,8 @@ export function opportunityDeadlineSortKey(input: DeadlineInput): number {
 
 export function formatOpportunityDeadline(input: DeadlineInput, lang: string): string {
   const deadline = resolveDeadline(input);
+  if (!deadline) return lang === 'de' ? 'Keine bestätigte Frist' : 'No confirmed deadline';
   const locale = lang === 'de' ? 'de-DE' : 'en-GB';
-  if (!deadline) {
-    const details = record(input);
-    if (typeof details.deadline === 'string' && validDate(details.deadline)
-      && typeof details.deadline_time_local === 'string' && /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(details.deadline_time_local)
-      && !details.deadline_timezone) {
-      const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${details.deadline}T00:00:00Z`));
-      return `${date}, ${details.deadline_time_local} (${lang === 'de' ? 'Zeitzone nicht bestätigt' : 'Timezone unverified'})`;
-    }
-    return lang === 'de' ? 'Keine bestätigte Frist' : 'No confirmed deadline';
-  }
   if (deadline.dateOnly) {
     const label = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' })
       .format(new Date(`${deadline.date}T00:00:00Z`));

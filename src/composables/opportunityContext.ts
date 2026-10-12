@@ -1,4 +1,3 @@
-import { isOpportunityAssessment } from './opportunityAssessment';
 import { safeEmailUrl, safeLinkUrl, safeWebUrl } from './safeUrl';
 
 export interface OpportunityContextNode {
@@ -10,7 +9,6 @@ export interface OpportunityContextNode {
   missing?: boolean;
   kind?: 'summary' | 'main-link' | 'fit';
   score?: number;
-  assessmentNotice?: string;
   checklistKey?: string;
   requirementStatus?: 'required' | 'optional' | 'beneficial' | 'preferred' | 'recommended' | 'desired';
   requirementStatusFields?: string[];
@@ -103,10 +101,6 @@ const LABELS: Record<string, [string, string]> = {
   metadata_schema_version: ['Record format version', 'Version des Datensatzformats'], created_at: ['Added', 'Hinzugefügt'],
   updated_at: ['Updated', 'Aktualisiert'], last_checked_at: ['Last checked', 'Zuletzt geprüft'],
   type: ['Type', 'Typ'], supports: ['Supports', 'Belegt'],
-  kind: ['Source kind', 'Quellenart'], unmapped_supports: ['Field coverage to verify', 'Zu prüfende Feldzuordnung'],
-  legacy: ['Original source metadata', 'Ursprüngliche Quellenmetadaten'],
-  research_methods: ['Research methods', 'Forschungsmethoden'], teaching_load: ['Teaching duties', 'Lehrverpflichtungen'],
-  deadline_timezone_original: ['Original deadline timezone', 'Ursprüngliche Zeitzone der Frist'],
   checked_at: ['Checked', 'Geprüft'], context_captured_at: ['Context captured', 'Kontext gespeichert'],
   historical_context: ['Historical context', 'Historischer Kontext'], official_listing: ['Official listing', 'Offizielle Ausschreibung'],
   open: ['Open', 'Offen'], closed: ['Closed', 'Geschlossen'], unknown: ['Unknown', 'Unbekannt'],
@@ -119,7 +113,7 @@ const PRIVATE_KEYS = new Set(['id', 'user_id']);
 const FIT_FIELDS = new Set(['personal_fit', 'research_fit', 'research_career_potential', 'rd_career_potential']);
 const SUMMARY_FIELDS = new Set(['research_summary', 'project_summary', 'project_description']);
 const PRIMARY_LINK_FIELDS = ['official_url', 'application_url', 'source_url'];
-const SOURCE_METADATA_FIELDS = new Set(['type', 'kind', 'supports', 'supported_fields', 'unmapped_supports', 'legacy', 'checked_at']);
+const SOURCE_METADATA_FIELDS = new Set(['type', 'supports', 'checked_at']);
 const ENUM_KEYS = new Set(['role', 'availability', 'verification_level', 'historical_match_status', 'period']);
 
 function keyName(value: string) { return value.replace(/([a-z\d])([A-Z])/g, '$1_$2').toLowerCase().replace(/[ -]+/g, '_'); }
@@ -130,7 +124,10 @@ function phrase(en: string, de: string, lang: string) { return lang === 'de' ? d
 
 /** Read an explicit 0–10 score without inferring one from the assessment text. */
 export function personalFitScore(value: unknown): number | undefined {
-  return isOpportunityAssessment(value) ? value.score : undefined;
+  const raw = isRecord(value) ? value.score : value;
+  if (typeof raw !== 'number' && !(typeof raw === 'string' && /^\d+(?:\.\d+)?$/.test(raw.trim()))) return;
+  const score = Number(raw);
+  return Number.isFinite(score) && score >= 0 && score <= 10 ? score : undefined;
 }
 
 export function opportunityFieldLabel(key: string, lang: string): string {
@@ -367,9 +364,7 @@ export function buildOpportunityGroups(context: Record<string, unknown>, lang: s
         node.score = score;
         node.text = `${humanText(score, 'score', lang)} / 10`;
         // Keep the rationale while avoiding a second, unformatted copy of the score.
-        node.children = node.children?.filter((child) => !['score', 'scale_min', 'scale_max'].some(key => child.id === `${node.id}.${key}`));
-      } else {
-        node.assessmentNotice = phrase('Scale unverified', 'Skala nicht verifiziert', lang);
+        node.children = node.children?.filter((child) => child.id !== `${node.id}.score`);
       }
     }
     const canonicalKey = ALIASES[key] || key;
@@ -429,7 +424,7 @@ function nodeMarkdown(node: OpportunityContextNode, depth = 0, completed?: Set<s
   const text = node.text ? escapeMarkdown(node.text) : '';
   const value = node.href ? `[${text}](<${node.href}>)` : text;
   const checkbox = completed && node.checklistKey ? `[${completed.has(node.checklistKey) ? 'x' : ' '}] ` : '';
-  const line = `${indentation}- ${checkbox}${[label, node.assessmentNotice ? escapeMarkdown(node.assessmentNotice) : null, value].filter(Boolean).join(' ')}`;
+  const line = `${indentation}- ${checkbox}${[label, value].filter(Boolean).join(' ')}`;
   return [line.replace(/\n/g, `\n${indentation}  `), ...(node.children || []).map((child) => nodeMarkdown(child, depth + 1, completed))].join('\n');
 }
 

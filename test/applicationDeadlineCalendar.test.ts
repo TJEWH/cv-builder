@@ -41,12 +41,12 @@ test('timezone daylight-saving offsets follow the actual deadline date, includin
   }
 });
 
-test('timed deadlines without a source timezone cannot export a guessed instant', () => {
+test('timed deadlines without a source timezone use the device timezone', () => {
   const previous = process.env.TZ;
   try {
-    for (const zone of ['America/Los_Angeles', 'Europe/Berlin']) {
+    for (const [zone, expected] of [['America/Los_Angeles', '20260920T163000Z'], ['Europe/Berlin', '20260920T073000Z']]) {
       process.env.TZ = zone;
-      assert.equal(buildApplicationDeadlineCalendar({ ...base, context_json: { deadline: '2026-09-20', deadline_time_local: '09:30' } }, 'en', now), null);
+      assert.ok(calendar({ deadline: '2026-09-20', deadline_time_local: '09:30' }).unfolded.includes(`DTSTART:${expected}\r\n`));
       assert.match(calendar({ deadline: '2026-09-20' }).unfolded, /DTSTART;VALUE=DATE:20260920\r\n/);
     }
   } finally {

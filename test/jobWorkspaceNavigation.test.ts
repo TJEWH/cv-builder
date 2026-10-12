@@ -437,20 +437,17 @@ test('personal fit sorts numeric structured scores high to low within groups, wi
   const make = (id: string, score: unknown, extra: Record<string, unknown> = {}) => normalizeOpportunity({
     id, title: id, deadline: null, particularly_suitable: false,
     created_at: '2026-10-01T12:00:00Z', updated_at: '2026-10-01T12:00:00Z',
-    personal_fit: { score, scale_min: 0, scale_max: 10, summary: 'Synthetic fit rationale' }, ...extra,
+    personal_fit: { score, summary: 'Synthetic fit rationale' }, ...extra,
   });
-  const nested = make('nested-nine', undefined, { personal_fit: null, data: { personal_fit: { score: 9.1, scale_min: 0, scale_max: 10, summary: 'Nested fit' } } });
+  const nested = make('nested-nine', undefined, { personal_fit: null, data: { personal_fit: { score: '9.1' } } });
   const missing = make('unknown', undefined);
   const zero = make('zero', 0);
-  const legacy = make('legacy', undefined, { personal_fit: { score: 9.9, summary: 'Unknown scale' } });
   const ten = make('ten', 10);
   const recent = make('recent-eight', 8, { created_at: '2026-10-06T11:00:00Z', updated_at: '2026-10-06T11:00:00Z' });
-  opportunities.value = [missing, zero, nested, recent, ten, legacy];
+  opportunities.value = [missing, zero, nested, recent, ten];
   setup.sortBy = 'personal_fit';
-  assert.equal(setup.fitScoreById.get('legacy'), undefined);
-  assert.equal(setup.fitLabel(setup.fitScoreById.get('legacy')), '');
   assert.deepEqual(setup.opportunityGroups.map(({ key, items }) => [key, items.map(item => item.id)]), [
-    ['recent', ['recent-eight']], ['other', ['ten', 'nested-nine', 'zero', 'unknown', 'legacy']],
+    ['recent', ['recent-eight']], ['other', ['ten', 'nested-nine', 'zero', 'unknown']],
   ], 'fit sorting also includes opportunities without the old strong-fit flag');
   for (const score of [-1, 11, NaN, Infinity, true, '', '9.8 / 10', 'high']) {
     opportunities.value = [make('invalid', score), zero, ten];
@@ -461,7 +458,7 @@ test('personal fit sorts numeric structured scores high to low within groups, wi
 test('strong-fit scores use the requested color boundaries without fabricating missing values', async (t) => {
   const { setup, opportunities, props } = mount(t);
   for (const [score, tone] of [[10, 'red'], [9.6, 'red'], [9.5, 'yellow'], [9.1, 'yellow'], [9, undefined], [8.8, undefined], [0, undefined], [undefined, undefined], [11, undefined]] as const) {
-    const item = normalizeOpportunity({ id: 'strong-fit', title: 'Strong fit role', particularly_suitable: true, personal_fit: { score, scale_min: 0, scale_max: 10, summary: 'Strong fit' } });
+    const item = normalizeOpportunity({ id: 'strong-fit', title: 'Strong fit role', particularly_suitable: true, personal_fit: { score } });
     opportunities.value = [item];
     const parsed = setup.fitScoreById.get(item.id);
     assert.equal(setup.fitTone(parsed), tone, String(score));
