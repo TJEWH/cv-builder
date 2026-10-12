@@ -77,7 +77,6 @@ details.disclosure-row{
     border:0;
     border-top:1px solid var(--ui-divider);
     border-radius:0;
-    background:var(--ui-surface);
 }
 .builder .content-section{
     margin:0;

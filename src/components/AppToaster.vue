@@ -102,7 +102,7 @@ onBeforeUnmount(() => { observer?.disconnect(); document.removeEventListener('vi
 .app-toast button:disabled { opacity: .6; cursor: wait; }
 .toast-enter-active, .toast-leave-active { transition: opacity .18s ease, transform .18s ease; }
 .toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(16px); }
-@media (max-width: 760px) { .app-toaster { inset: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) auto auto; width: min(380px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); } .app-toast__close { flex-basis: 44px; width: 44px; height: 44px; } }
+@media (max-width: 760px) { .app-toaster { display: none !important; } }
 @media (prefers-reduced-motion: reduce) { .toast-enter-active, .toast-leave-active { transition: none; } }
 @media print { .app-toaster { display: none !important; } }
 </style>
