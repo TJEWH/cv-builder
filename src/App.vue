@@ -699,7 +699,7 @@ function selectBuilderGroup(group: string) {
 </script>
 
 <template>
-  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode, 'is-cloud-workspace': isCloudTab, 'has-mobile-context-row': !isCloudTab || !!cloudUser, 'has-mobile-studio-tools': !isCloudTab && ['versions', 'content'].includes(activeBuilderGroup) }" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
+  <main class="cv-builder-app" :class="{ 'is-preview-mode': previewMode, 'is-cloud-workspace': isCloudTab, 'has-mobile-context-row': !isCloudTab || !!cloudUser }" @pointerdown.capture="onPreviewSliderPointerDown" @pointerup.capture="commitDeferredSliderPreview" @pointercancel.capture="commitDeferredSliderPreview">
     <AppToaster :lang="lang" />
     <div ref="pdfRenderSource" class="pdf-render-source" aria-hidden="true">
       <CvPreview :state="state" export-source />
@@ -767,9 +767,6 @@ function selectBuilderGroup(group: string) {
         @edit-variant="openStudioVariant"
       />
 
-      <footer v-show="isMobile && !isCloudTab && studioHasPreview && ['versions', 'content'].includes(activeBuilderGroup)" class="studio-bottom-bar" :aria-label="lang === 'de' ? 'CV-Studio-Aktionen' : 'CV Studio actions'">
-        <div id="cv-studio-tools" class="studio-bottom-bar__tools" />
-      </footer>
       <DesktopSidebarPortal area="minor" :active="!isCloudTab && studioHasPreview">
         <div v-show="!isMobile && !isCloudTab && studioHasPreview" class="studio-sidebar-preview">
           <button class="btn" type="button" :disabled="isEmptyDocument" @click="openFullPreview">{{ t('openPreview') }}</button>
@@ -787,7 +784,7 @@ function selectBuilderGroup(group: string) {
               class="builder-group-panel"
               :state="state"
               :lang="lang"
-              :selector-target="isMobile ? '#cv-studio-tools' : '#desktop-sidebar-major'"
+              :selector-target="isMobile ? '' : '#desktop-sidebar-major'"
               :selector-visible="!isCloudTab && activeBuilderGroup === 'versions'"
               :selected-id="selectedConfigurationId"
               :on-save="scheduleStateSave"
@@ -801,7 +798,9 @@ function selectBuilderGroup(group: string) {
             />
           </Transition>
           <Transition name="builder-group">
-            <FormBuilder v-show="activeBuilderGroup === 'content' && !isEmptyDocument" id="builder-group-content" ref="formBuilder" class="builder-group-panel" :toolbar-target="isMobile ? '#cv-studio-tools' : '#desktop-sidebar-major'" :toolbar-visible="!isCloudTab && activeBuilderGroup === 'content' && !isEmptyDocument" :state="state" :configurations="selectableConfigurations" :selected-id="selectedConfigurationId" :read-version="readSectionVersion" :save-version="saveSectionVersion" @section-save-status="sectionSaveStatus = $event" />
+            <FormBuilder v-show="activeBuilderGroup === 'content' && !isEmptyDocument" id="builder-group-content" ref="formBuilder" class="builder-group-panel" :toolbar-target="isMobile ? '#cv-studio-content-tools' : '#desktop-sidebar-major'" :toolbar-visible="!isCloudTab && activeBuilderGroup === 'content' && !isEmptyDocument" :state="state" :configurations="selectableConfigurations" :selected-id="selectedConfigurationId" :read-version="readSectionVersion" :save-version="saveSectionVersion" @section-save-status="sectionSaveStatus = $event">
+              <template #before-content><div v-if="isMobile" id="cv-studio-content-tools" /></template>
+            </FormBuilder>
           </Transition>
           <Transition name="builder-group">
             <DesignPanel
@@ -1029,8 +1028,6 @@ body,
 
 .builder-layout__controls .builder-group-panel { padding: 16px; box-sizing: border-box; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
 .builder-layout__controls .builder-group-panel > .content-panel { padding: 0; background: transparent; border: 0; border-radius: 0; }
-.studio-bottom-bar { position: fixed; inset-inline: 0; bottom: 0; z-index: 30; display: flex; align-items: center; gap: 20px; min-height: 66px; padding: 12px max(20px, calc((100vw - 1484px) / 2)); box-sizing: border-box; border-top: 1px solid var(--ui-divider); background: #06141f; }
-.studio-bottom-bar__tools { display: flex; align-items: center; flex: 1; min-width: 0; }
 .studio-sidebar-preview { display: flex; flex-direction: column; gap: 8px; }
 .studio-sidebar-preview .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; width: 100%; }
 
@@ -1046,20 +1043,24 @@ body,
     --mobile-tabs-height: calc(72px + env(safe-area-inset-bottom, 0px));
     --mobile-context-row-height: 53px;
     --mobile-context-row-space: 0px;
-    --mobile-studio-tools-space: 0px;
-    padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) calc(var(--mobile-tabs-height) + var(--mobile-context-row-space) + var(--mobile-studio-tools-space) + 8px) max(8px, env(safe-area-inset-left, 0px));
+    padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) calc(var(--mobile-tabs-height) + var(--mobile-context-row-space) + 8px) max(8px, env(safe-area-inset-left, 0px));
   }
 
   .cv-builder-app.has-mobile-context-row { --mobile-context-row-space: var(--mobile-context-row-height); }
-  .cv-builder-app.has-mobile-studio-tools:not(.is-preview-mode) { --mobile-studio-tools-space: 53px; }
-  .studio-bottom-bar { bottom: calc(var(--mobile-tabs-height) + var(--mobile-context-row-height)); min-height: 53px; height: 53px; padding: 4px max(8px, env(safe-area-inset-right, 0px)) 4px max(8px, env(safe-area-inset-left, 0px)); gap: 8px; }
-  .cv-builder-app .studio-bottom-bar .studio-bottom-bar__tools :is(button, select) { min-height: 44px; }
+  #cv-studio-content-tools { min-width: 0; padding: 8px 0 12px; border-bottom: 1px solid var(--ui-divider); }
+  #cv-studio-content-tools button, .builder-layout__controls .backup-manager__actions :is(button, select) { min-height: 44px; }
+  .builder-layout__controls .backup-manager__actions { flex-wrap: nowrap; margin-bottom: 8px; }
+  .builder-layout__controls .backup-manager__actions select { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--ui-border); border-radius: 7px; background: var(--ui-control); color: var(--ui-text); font: inherit; font-size: 16px; }
+  .builder-layout__controls .backup-manager__actions .btn { flex-shrink: 0; }
   .cv-builder-app.is-preview-mode { overflow: hidden; }
-  .cv-studio-navigation { position: fixed; inset: auto 0 var(--mobile-tabs-height); z-index: 35; display: flex; align-items: stretch; gap: var(--workspace-control-gap); height: var(--mobile-context-row-height); padding: 4px max(8px, env(safe-area-inset-right, 0px)) 4px max(8px, env(safe-area-inset-left, 0px)); border-top: 1px solid #24504e; background: #06141f; }
-  .cv-studio-subtabs { flex: 1; flex-wrap: nowrap; gap: 6px; height: 100%; margin: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .cv-studio-navigation { position: fixed; inset: auto 0 var(--mobile-tabs-height); z-index: 35; display: flex; align-items: center; gap: 8px; height: var(--mobile-context-row-height); padding: 4px max(8px, env(safe-area-inset-right, 0px)) 4px max(8px, env(safe-area-inset-left, 0px)); border-top: 1px solid #2b424b; background: #101c24; }
+  .cv-studio-subtabs { flex: 1; flex-wrap: nowrap; gap: 0; height: 44px; margin: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
   .cv-studio-subtabs::-webkit-scrollbar { display: none; }
-  .cv-studio-subtabs .btn { flex: 0 0 auto; min-width: 44px; padding: 6px 10px; font-size: 14px; line-height: 1.2; white-space: nowrap; }
-  .cv-studio-open-preview { display: grid; place-items: center; width: 44px; padding: 0; font-size: 18px; }
+  .cv-studio-subtabs .btn { flex: 1 0 auto; min-width: 44px; min-height: 44px; padding: 6px 8px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--ui-muted); font-size: 12px; line-height: 1.2; white-space: nowrap; }
+  .cv-studio-subtabs .btn.is-active { border-bottom-color: var(--ui-accent); background: var(--ui-active); color: var(--ui-text); }
+  .cv-studio-subtabs .svg-inline--fa { display: none; }
+  .cv-studio-navigation .cv-studio-open-preview { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; padding: 0; border: 0; border-left: 1px solid #2b424b; border-radius: 0; background: transparent; color: var(--ui-text); font-size: 20px; }
+  .cv-studio-navigation .btn:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
   .builder-shell { grid-template-rows: auto minmax(0, 1fr); gap: 10px; }
   .builder-layout { grid-template-rows: minmax(0, 1fr); gap: 0; }
 

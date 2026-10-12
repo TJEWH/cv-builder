@@ -50,6 +50,7 @@ const emit = defineEmits<{ close: []; 'edit-variant': [id: string]; toggleCheckl
 const desktopSidebar = useDesktopSidebar();
 const mobileActions = ref<HTMLElement | null>(null);
 const mobileScrollContent = ref<HTMLElement | null>(null);
+const stageNavigation = ref<HTMLElement | null>(null);
 provideWorkspaceMobileActions(mobileActions);
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -441,6 +442,11 @@ watch(tab, value => {
 });
 watch(tab, () => {
   if (mobileScrollContent.value) mobileScrollContent.value.scrollTop = 0;
+}, { flush: 'post' });
+watch([tab, stageNavigation, desktopSidebar, () => props.active, () => props.lang], () => {
+  if (props.active && stageNavigation.value && window.matchMedia('(max-width: 760px)').matches) {
+    stageNavigation.value?.querySelector<HTMLElement>('[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
 }, { flush: 'post' });
 function selectStage(stage: Stage) {
   if (stage === tab.value) emit('change-stage', stage);
@@ -1121,7 +1127,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 </script>
 
 <template>
-  <section class="application-workspace" :class="{ 'application-workspace--sidebar': desktopSidebar }">
+  <section class="application-workspace" :class="{ 'application-workspace--sidebar': desktopSidebar, 'application-workspace--preparation': tab === 'preparation' }">
     <h1 class="application-mobile-title">{{ String(application.context_json.title || text('Application', 'Bewerbung')) }}</h1>
     <div ref="mobileScrollContent" class="application-scroll-content">
     <WorkspaceDetailHeader class="application-header" :title="String(application.context_json.title || text('Application', 'Bewerbung'))" :subtitle="String(application.context_json.institution || application.context_json.university || '')" :back-label="text('All applications', 'Alle Bewerbungen')" @back="emit('close')">
@@ -1225,8 +1231,8 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
     </div>
     <DesktopSidebarPortal area="subtabs" :active="active">
     <footer class="workflow-navigation" :class="{ 'workflow-navigation--sidebar': desktopSidebar }">
-      <button class="workflow-back" type="button" @click="emit('close')"><span aria-hidden="true">←</span>{{ text('All applications', 'Alle Bewerbungen') }}</button>
-      <nav class="workspace-subtabs" :aria-label="text('Application stages', 'Bewerbungsphasen')">
+      <button class="workflow-back" type="button" :aria-label="text('All applications', 'Alle Bewerbungen')" @click="emit('close')"><svg class="workflow-back__icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 4-6 6 6 6M2 10h16" /></svg><span class="workflow-back__label">{{ text('All applications', 'Alle Bewerbungen') }}</span></button>
+      <nav ref="stageNavigation" class="workspace-subtabs" :aria-label="text('Application stages', 'Bewerbungsphasen')">
         <button v-for="(stage, index) in stages" :key="stage" type="button" :class="{ 'is-active': tab === stage }" :aria-pressed="tab === stage" @click="selectStage(stage)"><span class="stage-number">{{ index + 1 }}</span>{{ ({ preparation: text('Preparation', 'Vorbereitung'), refinement: text('Refinement', 'Überarbeitung'), review: text('Attachments', 'Anhänge'), tracking: text('Tracking', 'Verlauf') })[stage] }}</button>
       </nav>
     </footer>
@@ -1249,6 +1255,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 
 .selection-checkbox{display:flex;align-items:center;gap:9px;min-height:36px;cursor:pointer}.selection-checkbox input{width:18px;height:18px;accent-color:#67c8a6}.preview-review-label{font-size:12px;color:#efcc87;margin:0}.application-workspace{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden;color:var(--ui-text);font-family:var(--font-ui,system-ui)}
 .workflow-navigation{display:contents}.workflow-back{display:none}
+.workflow-back__icon{width:16px;height:16px;flex-shrink:0}
 .workspace-subtabs{display:flex;gap:6px;flex:1;min-width:0}
 .workspace-subtabs button{display:flex;align-items:center;gap:8px;flex:1;text-align:left}.workspace-subtabs .is-active{background:var(--ui-active);border-color:var(--ui-accent-border);color:var(--ui-accent)}.stage-number{color:var(--ui-muted);font-size:12px;font-variant-numeric:tabular-nums}
 .workflow-body{flex:1;min-height:0;min-width:0;overflow:auto;padding:14px 0 0 0}.workflow-body--refinement,.workflow-body--review{display:flex;flex-direction:column;overflow:hidden}
@@ -1285,11 +1292,23 @@ h3{font-size:16px;margin:0 0 14px}p{line-height:1.6;font-size:13px}button,input,
 .preparation-selection-hint{color:var(--ui-muted);font-size:12px;font-weight:400;line-height:1.5}
 @media(max-width:760px){
   .application-workspace{--mobile-application-tabs-height:53px;border:1px solid var(--ui-divider);background:var(--ui-surface)}
-  .workspace-subtabs{height:var(--mobile-application-tabs-height);gap:4px;padding-inline:max(8px,env(safe-area-inset-left,0px)) max(8px,env(safe-area-inset-right,0px))}
-  .workspace-subtabs button{flex:1 0 auto;justify-content:center;min-height:44px;padding:4px 3px}
+  /* The app shell already reserves one bottom row; preparation needs only navigation. */
+  .application-workspace--preparation{padding-bottom:0}
+  .workflow-navigation{position:fixed;inset-inline:0;bottom:var(--mobile-tabs-height,76px);z-index:36;display:flex;align-items:center;gap:8px;height:var(--mobile-application-tabs-height);padding:4px max(8px,env(safe-area-inset-right,0px)) 4px max(8px,env(safe-area-inset-left,0px));border-top:1px solid var(--ui-divider);background:var(--ui-shell)}
+  .workflow-back{display:inline-flex;align-items:center;justify-content:center;flex:0 0 44px;width:44px;height:44px;padding:0;border:0;border-right:1px solid var(--ui-divider);border-radius:0;background:transparent;color:var(--ui-text)}
+  .workflow-back__icon{width:20px;height:20px}
+  .workflow-back__label{display:none}
+  .workspace-subtabs{position:static;inset:auto;flex:1;min-width:0;height:44px;gap:0;margin:0;padding:0;border:0;background:transparent;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none}
+  .workspace-subtabs::-webkit-scrollbar{display:none}
+  .workspace-subtabs button{flex:1 0 auto;justify-content:center;min-height:44px;padding:6px 8px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--ui-muted)}
+  .workspace-subtabs .is-active{border-bottom-color:var(--ui-accent);background:var(--ui-active);color:var(--ui-text)}
+  .workflow-navigation button:focus-visible{outline:2px solid var(--ui-accent);outline-offset:-2px}
   .application-mobile-title{display:block;flex-shrink:0;margin:0;padding:10px 12px;font-size:16px;line-height:1.35;overflow-wrap:anywhere;border-bottom:1px solid var(--ui-divider);background:var(--ui-shell)}
   .application-scroll-content{display:block;flex:1;min-height:0;overflow:auto;scrollbar-width:thin;scroll-padding-block:8px}
   .application-header{padding-top:8px}
+  .application-header :deep(.workspace-detail-header__back){display:none}
+  .application-workspace--preparation .application-header :deep(.workspace-detail-header__controls){display:none}
+  .application-header :deep(.workspace-detail-header__controls){padding-block:4px;border-top-color:var(--ui-divider)}
   .application-header :deep(.workspace-detail-header__title h1){display:none}
   .application-header :deep(.application-identifier),.application-header :deep(.application-deadline-calendar){display:none}
   .workflow-body{flex:1 0 auto;overflow:visible;padding:12px}
