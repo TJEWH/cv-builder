@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="connect-src 'self' ws://127.0.0.1:*; img-src 'self' data:; font-src 'self' data:; form-action 'none'" />
+    <title>Search templates browser fixture</title>
+    <style>
+      html,body,#app{height:100%;min-height:0;margin:0;overflow:hidden}
+      .search-fixture{font-family:var(--font-ui);color:var(--ui-text);height:100dvh;display:grid;grid-template-columns:260px minmax(0,1fr);grid-template-rows:66px minmax(0,1fr);min-height:0}
+      .search-fixture>.desktop-sidebar{grid-column:1;grid-row:1 / 3}
+      .fixture-heading{grid-column:2;grid-row:1;display:flex;align-items:center;gap:14px;padding:12px 24px;min-width:0;border-bottom:1px solid var(--ui-divider)}
+      .fixture-heading strong{font-size:14px}
+      .fixture-heading button{margin-left:auto}
+      .search-fixture>.search-templates{grid-column:2;grid-row:2;padding:24px}
+      .fixture-account{padding:22px 16px;font-size:13px}
+      .fixture-opportunity-tabs{display:flex;gap:8px}
+      .fixture-opportunity-tabs button{display:flex;align-items:center;gap:8px}
+      .fixture-mobile-tabs{display:none}
+      @media(max-width:760px){
+        .search-fixture{display:flex;flex-direction:column;padding:8px 8px 80px;box-sizing:border-box}
+        .fixture-heading{flex:0 0 auto;min-height:40px;padding:4px 8px 12px}
+        .search-fixture>.search-templates{flex:1;min-height:0;height:auto;padding:8px}
+        .fixture-opportunity-tabs{flex:0 0 auto;padding:0 8px 8px}
+        .fixture-opportunity-tabs button{min-height:44px}
+        .fixture-mobile-tabs{position:fixed;inset:auto 0 0;display:grid;grid-template-columns:repeat(3,1fr);height:72px;padding:8px;gap:8px;background:var(--ui-shell);border-top:1px solid var(--ui-divider);box-sizing:border-box}
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./search-templates.ts"></script>
+  </body>
+</html>

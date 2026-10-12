@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
     env.VITE_SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL,
     env.VITE_SUPABASE_PUBLISHABLE_KEY || env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     mode === 'development',
+    env.VITE_SUPABASE_PROJECT_REF || env.NEXT_PUBLIC_SUPABASE_PROJECT_REF,
   );
   return {
     plugins: [responsivePdfRenderer(), vectorFontDecompression(), pdfPreviewAssets(), vue()],

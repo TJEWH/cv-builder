@@ -57,3 +57,19 @@ test('local date-only deadlines default to browser local day, and labels do not 
   assert.match(formatOpportunityDeadline({ deadline: '2026-09-20', deadline_time_local: '17:30:00', deadline_timezone: 'Europe/Berlin' }, 'en'), /17:30.*Europe\/Berlin/);
   assert.equal(formatOpportunityDeadline(null, 'de'), 'Keine bestätigte Frist');
 });
+
+test('explicit fixed offsets and historical deadline labels retain their meaning', () => {
+  for (const zone of ['UTC+03:00', 'EEST']) {
+    assert.equal(opportunityDeadlineSortKey({ deadline: '2026-10-23', deadline_time_local: '23:59', deadline_timezone: zone }),
+      Date.parse('2026-10-23T20:59:00Z'));
+  }
+  for (const zone of ['UTC-12:00', 'AoE']) {
+    assert.equal(opportunityDeadlineSortKey({ deadline: '2026-10-15', deadline_time_local: '23:59', deadline_timezone: zone }),
+      Date.parse('2026-10-16T11:59:00Z'));
+  }
+  assert.equal(opportunityDeadlineSortKey({ deadline: '2026-10-15', deadline_timezone: 'UTC+14:00' }), Date.parse('2026-10-15T09:59:59.999Z'));
+  assert.equal(opportunityDeadlineSortKey({ deadline: '2026-10-15', deadline_time_local: '23:59' }), Infinity);
+  assert.match(formatOpportunityDeadline({ deadline: '2026-10-15', deadline_time_local: '23:59' }, 'en'), /23:59.*Timezone unverified/);
+  assert.match(formatOpportunityDeadline({ deadline: '2026-10-15', deadline_time_local: '23:59' }, 'de'), /Zeitzone nicht bestätigt/);
+  assert.equal(opportunityDeadlineSortKey({ deadline: '2026-10-15', deadline_timezone: 'UTC+14:30' }), Infinity);
+});

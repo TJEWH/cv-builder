@@ -38,14 +38,22 @@ local. There is no Storage bucket or cloud application-attachment table. To expo
 4. Provision existing email/password users through Supabase Authentication. The
    app has no signup or recovery flow. For this restricted workspace, keep public
    signup disabled and configure recovery, rate limits and password protection.
-5. Maintain `public.opportunities` through trusted administrative tooling. The
+5. Opportunity search templates require [`opportunity_search.sql`](opportunity_search.sql) on existing databases.
+   Fresh `schema.sql` includes the same contract and generated protocol release. See [search setup, protocol updates and verification](OPPORTUNITY_SEARCH.md).
+6. Maintain `public.opportunities` through trusted administrative tooling or the supported search-ingestion helpers. The
    frontend reads shared research and changes only the signed-in owner's records.
 
 ## Schema maintenance
 
 [`schema.sql`](schema.sql) is the current fresh-install baseline. Find historical upgrade scripts in Git and deployed migration history
-in Supabase. No upgrade is pending for
-**phd-workflow** as of 2026-10-11 (Europe/Tirane).
+in Supabase. **phd-workflow** is current as of 2026-10-12 (Europe/Tirane).
+
+Migration `20261012133249` (`opportunity_search_templates_and_protocol`) installs saved search templates,
+versioned research instructions, query/run receipts, canonical ingestion and schedule creation claims.
+Protocol `opportunity-search-v1-2026-10-12` is active. The rollback-only search SQL suite passed on the live project;
+all 154 opportunity rows and 10 application rows retained their exact pre-upgrade fingerprints. No test templates,
+runs or schedule claims remain. ChatGPT scheduling and desktop/mobile visual inspection still need an authorized
+browser session; database and automated frontend checks do not establish those results.
 
 Migration `20261011122600` (`letter_refinement_system_prompt`) adds the optional `refinementSystemPrompt` template field to the
 existing validator, with a 4,000 UTF-16-unit limit. Use the targeted [`refinement_system_prompt.sql`](refinement_system_prompt.sql) upgrade
@@ -76,6 +84,8 @@ constraints, permissions, policies, triggers and indexes were checked against th
 | `application_refinement_protocols` | Immutable connected instructions bound to an exact request and protocol hash. |
 | `application_refinement_proposals` | Owner-readable, management-appended v2 operations, comments, annotations and letter text. |
 | `application_refinement_reviews` | Append-only feedback, annotation responses, CV decisions and approval/reopen records. |
+| `opportunity_search_templates` | Owner-only saved search criteria, schedule and optimistic revision. |
+| `opportunity_search_query_revisions`, `opportunity_search_runs`, `opportunity_search_schedule_bindings`, `opportunity_search_receipts` | Owner-readable, management-written search history, generated queries, confirmed task and verified catalogue receipts. |
 | `local_attachment_metadata` | Owner-only attachment `id`, `user_id`, manually entered `name` and `description`. |
 
 One owner can have one application per opportunity. Server-assigned application codes are immutable; exact codes or complete UUIDs
@@ -128,3 +138,5 @@ and opportunity records.
 
 The original **14 CV snapshots** and **9 refinement requests** retain their exact checksums
 `47dc553d28f6a757f1505bba5d12040a` and `98137e9ad01658c3d0b34fdb8ca0dbec` respectively; the later records are additional activity.
+
+For the explicit 0–10 scoring contract, apply [`opportunity_search_release.sql`](./opportunity_search_release.sql) to install helpers and activate the new protocol atomically. See [assessment scales and historical data](./OPPORTUNITY_SEARCH.md#explicit-assessment-scales-scoring-release-2). Existing unverified ratings are preserved; the app labels their scale instead of guessing it.

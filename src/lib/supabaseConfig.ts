@@ -1,13 +1,14 @@
 export type SupabaseConfiguration =
   | { status: 'missing' }
   | { status: 'invalid'; reason: 'incomplete' | 'url' | 'key' }
-  | { status: 'ready'; url: string; publishableKey: string };
+  | { status: 'ready'; url: string; publishableKey: string; projectRef?: string };
 
 /** Only public credentials may be serialized into the frontend build. */
 export function parseSupabaseConfiguration(
   urlValue: unknown,
   keyValue: unknown,
   allowLocalHttp = false,
+  projectRefValue?: unknown,
 ): SupabaseConfiguration {
   const rawUrl = typeof urlValue === 'string' ? urlValue.trim() : '';
   const key = typeof keyValue === 'string' ? keyValue.trim() : '';
@@ -37,5 +38,8 @@ export function parseSupabaseConfiguration(
     } catch { /* Malformed and privileged keys are rejected. */ }
   }
   if (!publicKey) return { status: 'invalid', reason: 'key' };
-  return { status: 'ready', url: url.origin, publishableKey: key };
+  const projectRef = typeof projectRefValue === 'string' ? projectRefValue.trim() : '';
+  // This optional public identifier is checked by the connected-task resolver.
+  // Invalid search targeting must not disable otherwise usable local CV work.
+  return { status: 'ready', url: url.origin, publishableKey: key, ...(projectRef ? { projectRef } : {}) };
 }

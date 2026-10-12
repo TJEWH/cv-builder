@@ -13,6 +13,10 @@
     "refinement:prompts:check": "tsx test/refinementProtocol/generate.ts --check",
     "test:refinement-protocol": "tsx --test test/refinementProtocol.test.ts",
     "refinement:live": "tsx test/refinementProtocol/run.ts",
+    "search:protocol": "tsx test/opportunitySearch/generate.ts",
+    "search:protocol:check": "tsx test/opportunitySearch/generate.ts --check",
+    "test:search": "tsx --test test/opportunitySearchProtocol.test.ts test/searchTemplatePersistence.test.ts test/searchTemplatesView.test.ts test/opportunityAssessment.test.ts test/opportunityContext.test.ts test/opportunityContextComponent.test.ts test/jobWorkspaceNavigation.test.ts",
+    "test:sql": "node test/opportunitySearch/sqlRunner.mjs",
     "test:e2e:serve": "vite --config test/e2e/vite.config.ts",
     "typecheck": "vue-tsc --noEmit"
   },
@@ -35,6 +39,7 @@
     "wawoff2": "2.0.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@types/fontkit": "^2.0.9",
     "@types/node": "^26.6.1",
     "@types/pdfkit": "^0.17.6",

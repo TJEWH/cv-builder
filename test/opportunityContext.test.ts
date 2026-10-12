@@ -260,8 +260,8 @@ test('primary source type, supports and checked date move to metadata in both la
 });
 
 test('overview puts research, the main link and normalized fit scores first; topics live in metadata', () => {
-  const context = { topics: ['Robotics'], rd_career_potential: { score: 7, summary: 'Industry opportunities' },
-    research_career_potential: { score: '9.5', summary: 'Academic opportunities' }, personal_fit: { score: 8.8, gaps: ['Learn C++'] },
+  const context = { topics: ['Robotics'], rd_career_potential: { score: 7, scale_min: 0, scale_max: 10, summary: 'Industry opportunities' },
+    research_career_potential: { score: 9.5, scale_min: 0, scale_max: 10, summary: 'Academic opportunities' }, personal_fit: { score: 8.8, scale_min: 0, scale_max: 10, summary: 'Methods fit', gaps: ['Learn C++'] },
     research_summary: 'Research into safe collaboration', official_url: 'https://example.org/job',
     source_url: 'https://example.org/job', sources: [{ url: 'https://example.org/job', supports: ['Project'] }] };
   const groups = buildOpportunityGroups(context, 'en');
@@ -280,32 +280,32 @@ test('overview puts research, the main link and normalized fit scores first; top
 });
 
 test('fit visualization accepts zero and ten, but never invents or clamps missing and invalid scores', () => {
-  for (const value of [0, 10, 0.5, '8.25']) {
-    const fit = buildOpportunityGroups({ personal_fit: { score: value, summary: 'Rationale' } }, 'en')[0].items[0];
+  for (const value of [0, 10, 0.5, 8.25]) {
+    const fit = buildOpportunityGroups({ personal_fit: { score: value, scale_min: 0, scale_max: 10, summary: 'Rationale' } }, 'en')[0].items[0];
     assert.equal(fit.score, Number(value));
     assert.equal(fit.children?.some((node) => node.label === 'Score'), false);
   }
   for (const value of [null, undefined, '', ' ', true, false, -1, 11, 88, NaN, Infinity, 'high', '8/10']) {
-    const fit = buildOpportunityGroups({ personal_fit: { score: value, summary: 'Rationale' } }, 'en')[0].items[0];
+    const fit = buildOpportunityGroups({ personal_fit: { score: value, scale_min: 0, scale_max: 10, summary: 'Rationale' } }, 'en')[0].items[0];
     assert.equal(fit.kind, 'fit');
     assert.equal(fit.score, undefined, String(value));
     assert.ok(flatten([fit]).some((node) => node.text === 'Rationale'));
   }
-  const nested = buildOpportunityGroups({ data: { personal_fit: { score: 8.8 } } }, 'de')[0].items[0];
+  const nested = buildOpportunityGroups({ data: { personal_fit: { score: 8.8, scale_min: 0, scale_max: 10, summary: 'Methods fit' } } }, 'de')[0].items[0];
   assert.equal(nested.text, '8,8 / 10');
 });
 
 test('personal fit sorting and badges read the same explicit scores as the detail view', () => {
   for (const [value, expected] of [
     [0, 0], [10, 10], [9.1, 9.1], [9.5, 9.5], [9.6, 9.6],
-    [' 9.6 ', 9.6], ['0.00', 0], ['10.0', 10], ['8.25', 8.25],
+    [0.00, 0], [10.0, 10], [8.25, 8.25],
   ] as const) {
-    assert.equal(personalFitScore(value), expected);
-    const structured = { score: value, summary: 'An assessment with 2 gaps' };
+    assert.equal(personalFitScore(value), undefined, 'Bare historical numbers have no known scale');
+    const structured = { score: value, scale_min: 0, scale_max: 10, summary: 'An assessment with 2 gaps' };
     assert.equal(personalFitScore(structured), expected);
     const fit = buildOpportunityGroups({ personal_fit: structured }, 'en')[0].items[0];
     assert.equal(fit.score, expected);
-    assert.deepEqual(structured, { score: value, summary: 'An assessment with 2 gaps' });
+    assert.deepEqual(structured, { score: value, scale_min: 0, scale_max: 10, summary: 'An assessment with 2 gaps' });
   }
 });
 
