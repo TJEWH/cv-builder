@@ -130,6 +130,11 @@ export function personalFitScore(value: unknown): number | undefined {
   return Number.isFinite(score) && score >= 0 && score <= 10 ? score : undefined;
 }
 
+/** Shared thresholds for opportunity badges and research assessment scores. */
+export function fitScoreTone(score: number | undefined): 'red' | 'yellow' | undefined {
+  return score !== undefined && score >= 9.6 ? 'red' : score !== undefined && score >= 9.1 ? 'yellow' : undefined;
+}
+
 export function opportunityFieldLabel(key: string, lang: string): string {
   const known = LABELS[keyName(key)];
   if (known) return known[lang === 'de' ? 1 : 0];

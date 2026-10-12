@@ -8,7 +8,7 @@ import { useJobWorkspace } from '../composables/useJobWorkspace';
 import { safeEmailUrl } from '../composables/safeUrl';
 import { isOpportunityDeadlinePassed, opportunityDeadlineSortKey, formatOpportunityDeadline } from '../composables/opportunityDeadline';
 import { hasReviewedOpportunity, opportunityRecency } from '../composables/opportunityRecency';
-import { personalFitScore } from '../composables/opportunityContext';
+import { personalFitScore, fitScoreTone as fitTone } from '../composables/opportunityContext';
 import { applicationStatusHistory, applicationStatusLabel, applicationTrackingStarted } from '../composables/applicationTracking';
 import { useApplicationNotesAutosave } from '../composables/useApplicationNotesAutosave';
 import OpportunityContext from './OpportunityContext.vue';
@@ -83,7 +83,6 @@ const unseenById = computed(() => new Map(opportunities.value.map((item) => {
   return [item.id, hasReviewedOpportunity(item, reviewedVersion) || visitedWithoutVersion ? null : recencyById.value.get(item.id) || (reviewedVersion ? 'updated' : 'new')];
 })));
 const fitScoreById = computed(() => new Map(opportunities.value.map((item) => [item.id, personalFitScore(item.details.personal_fit ?? item.data.personal_fit)])));
-function fitTone(score: number | undefined) { return score !== undefined && score >= 9.6 ? 'red' : score !== undefined && score >= 9.1 ? 'yellow' : undefined; }
 function fitLabel(score: number | undefined) { return score === undefined ? '' : `${props.lang === 'de' ? String(score).replace('.', ',') : score} / 10`; }
 const reviewState = (id: string): OpportunityReviewState => reviewById.value.get(id)?.state || 'unreviewed';
 const applicationByOpportunity = computed(() => new Map(applications.value.map((item) => [item.opportunity_id, item])));
@@ -579,8 +578,8 @@ td a { color: var(--ui-accent); overflow-wrap: anywhere; }
 .jobs-opportunity-badges { display: flex; flex-wrap: wrap; gap: 6px; }
 .jobs-badge--new { background: #153e57; color: #b9e5ff; }
 .jobs-badge--updated { background: #49351c; color: #ffe0a0; }
-.jobs-fit-score--red { background: #591f2b; color: #ffadb7; }
-.jobs-fit-score--yellow { background: #4a3c10; color: #ffe278; }
+.jobs-fit-score--red { background: var(--ui-score-red-bg); color: var(--ui-score-red); }
+.jobs-fit-score--yellow { background: var(--ui-score-yellow-bg); color: var(--ui-score-yellow); }
 tr.jobs-opportunity--new { background: #0b202e; }
 tr.jobs-opportunity--updated { background: #24241e; }
 .jobs-opportunity--unseen-new > td:first-child { box-shadow: inset 3px 0 #77caff; }

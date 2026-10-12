@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, useId } from 'vue';
 import type { PropType, VNode } from 'vue';
-import { buildOpportunityGroups, checklistKeys, requirementTableRows } from '../composables/opportunityContext';
+import { buildOpportunityGroups, checklistKeys, fitScoreTone, requirementTableRows } from '../composables/opportunityContext';
 import type { OpportunityContextNode, OpportunityContextGroupId } from '../composables/opportunityContext';
 
 const props = defineProps<{ context: Record<string, unknown>; lang: string; checklist?: boolean; completedKeys?: string[]; saving?: boolean; defaultOpenGroups?: string[]; onlyGroups?: OpportunityContextGroupId[] }>();
@@ -20,6 +20,18 @@ function requirementStatusLabel(status: OpportunityContextNode['requirementStatu
   return status ? labels[status][props.lang === 'de' ? 1 : 0] : props.lang === 'de' ? 'Nicht angegeben' : 'Not specified';
 }
 
+function toggleScoreSummaries(event: MouseEvent) {
+  if (!window.matchMedia('(min-width: 761px)').matches) return;
+  const summary = event.currentTarget as HTMLElement;
+  const selected = summary.parentElement as HTMLDetailsElement;
+  const context = summary.closest('.opportunity-context');
+  if (!context) return;
+  event.preventDefault();
+  const open = !selected.open;
+  // Only synchronize this opportunity's scores; mobile retains native independent toggles.
+  for (const detail of context.querySelectorAll<HTMLDetailsElement>('.opportunity-context__score-details')) detail.open = open;
+}
+
 // Vue escapes every supplied text node, including requirement table cells.
 const ContextValue = defineComponent({
   name: 'OpportunityContextValue',
@@ -27,7 +39,7 @@ const ContextValue = defineComponent({
   setup(valueProps) {
     const inputPrefix = useId();
     const checklistInputId = (node: OpportunityContextNode) => `${inputPrefix}-checklist-${encodeURIComponent(node.id)}`;
-    function renderValue(node: OpportunityContextNode, withCheckbox = true, labelFor?: string, includeLabel = false): VNode {
+    function renderValue(node: OpportunityContextNode, withCheckbox = true, labelFor?: string, includeLabel = false, scoreProse = false): VNode {
       if (props.checklist && withCheckbox && node.checklistKey) {
         const key = node.checklistKey;
         const checked = completed.value.has(key);
@@ -51,19 +63,30 @@ const ContextValue = defineComponent({
       }
       const value = node.href ? h('a', { href: node.href, ...(node.href.startsWith('http') ? { target: '_blank', rel: 'noopener noreferrer' } : {}) }, node.text)
         : h(labelFor ? 'label' : 'span', { ...(labelFor ? { for: labelFor } : {}), class: { 'opportunity-context__checklist-label': !!labelFor, 'opportunity-context__missing': node.missing } }, node.text);
-      const children = node.children?.length ? h(valueProps.table ? 'div' : 'ul', { class: valueProps.table ? 'opportunity-context__values' : 'opportunity-context__list' }, node.children.map((child) => {
+      const withinScore = scoreProse || node.kind === 'fit';
+      const singleScorePoint = withinScore && node.children?.length === 1;
+      const plainChildren = valueProps.table || singleScorePoint;
+      const children = node.children?.length ? h(plainChildren ? 'div' : 'ul', { class: valueProps.table ? 'opportunity-context__values' : singleScorePoint ? 'opportunity-context__prose' : 'opportunity-context__list' }, node.children.map((child) => {
         const checklistChild = !!(props.checklist && !labelFor && child.checklistKey);
-        return h(valueProps.table ? 'div' : 'li', { key: child.id }, [child.label && !checklistChild ? h(labelFor ? 'label' : 'span', { ...(labelFor ? { for: labelFor } : {}), class: ['opportunity-context__nested-label', { 'opportunity-context__checklist-label': !!labelFor }] }, `${child.label}: `) : null, renderValue(child, !labelFor, labelFor, checklistChild)]);
+        return h(plainChildren ? 'div' : 'li', { key: child.id }, [child.label && !checklistChild ? h(labelFor ? 'label' : 'span', { ...(labelFor ? { for: labelFor } : {}), class: ['opportunity-context__nested-label', { 'opportunity-context__checklist-label': !!labelFor }] }, `${child.label}: `) : null, renderValue(child, !labelFor, labelFor, checklistChild, withinScore)]);
       })) : null;
       if (node.kind === 'fit') {
         const score = node.score;
-        return h('div', [score !== undefined ? h('div', { class: 'opportunity-context__score' }, [
+        const explanation = [score === undefined && node.text ? value : null, children].filter(Boolean) as VNode[];
+        const expandable = explanation.length > 0;
+        const scoreContent = score !== undefined ? [
           h('strong', { class: 'opportunity-context__score-number' }, node.text),
-          h('div', { class: 'opportunity-context__score-track', role: 'meter', 'aria-label': node.label,
+          h('span', { class: 'opportunity-context__score-track', role: 'meter', 'aria-label': node.label,
             'aria-valuemin': 0, 'aria-valuemax': 10, 'aria-valuenow': score, 'aria-valuetext': node.text },
           h('span', { class: 'opportunity-context__score-fill', style: { width: `${score * 10}%` }, 'aria-hidden': 'true' })),
-        ]) : h('span', { class: 'opportunity-context__missing' }, props.lang === 'de' ? 'Keine Bewertung auf der Skala 0–10' : 'No score on the 0–10 scale'),
-        score === undefined && node.text ? value : null, children]);
+        ] : [h('span', { class: 'opportunity-context__missing' }, props.lang === 'de' ? 'Keine Bewertung auf der Skala 0–10' : 'No score on the 0–10 scale')];
+        const heading = h(expandable ? 'summary' : 'div', {
+          class: ['opportunity-context__score', fitScoreTone(score) && `opportunity-context__score--${fitScoreTone(score)}`],
+          ...(expandable ? { 'aria-label': [node.label, score !== undefined ? node.text : null].filter(Boolean).join(': '), onClick: toggleScoreSummaries } : {}),
+        }, scoreContent);
+        return expandable
+          ? h('details', { class: 'opportunity-context__score-details' }, [heading, ...explanation])
+          : h('div', [heading]);
       }
       if (!children) return value;
       return h('div', [node.text ? value : null, children]);
@@ -148,12 +171,19 @@ const ContextValue = defineComponent({
 .opportunity-context :deep(.opportunity-context__checklist-item.is-complete > div) { color: #9bbaad; }
 .opportunity-context :deep(.opportunity-context__list) { display: grid; gap: 8px; margin: 4px 0; padding-left: 18px; }
 .opportunity-context :deep(.opportunity-context__list .opportunity-context__list) { margin-top: 3px; }
+.opportunity-context :deep(.opportunity-context__prose) { margin: 4px 0; }
 .opportunity-context :deep(.opportunity-context__nested-label) { color: #abc9bb; font-weight: 500; }
 .opportunity-context :deep(.opportunity-context__missing) { color: #9bada7; font-style: italic; }
 .opportunity-context :deep(.opportunity-context__score) { display: grid; gap: 8px; margin: 5px 0 16px; }
-.opportunity-context :deep(.opportunity-context__score-number) { color: #b7f3d9; font-size: 23px; font-variant-numeric: tabular-nums; line-height: 1.2; }
-.opportunity-context :deep(.opportunity-context__score-track) { height: 10px; overflow: hidden; border-radius: 5px; background: #071b20; border: 1px solid #3c6256; }
-.opportunity-context :deep(.opportunity-context__score-fill) { display: block; height: 100%; background: #65d8ac; border-radius: inherit; }
+.opportunity-context :deep(.opportunity-context__score-details > summary) { min-height: 44px; align-content: center; cursor: pointer; list-style: none; border-radius: 3px; }
+.opportunity-context :deep(.opportunity-context__score-details > summary::-webkit-details-marker) { display: none; }
+.opportunity-context :deep(.opportunity-context__score-details > summary:focus-visible) { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+.opportunity-context :deep(.opportunity-context__score-details:not([open]) > summary) { margin-bottom: 0; }
+.opportunity-context :deep(.opportunity-context__score--red) { --score-color: var(--ui-score-red); --score-background: var(--ui-score-red-bg); }
+.opportunity-context :deep(.opportunity-context__score--yellow) { --score-color: var(--ui-score-yellow); --score-background: var(--ui-score-yellow-bg); }
+.opportunity-context :deep(.opportunity-context__score-number) { color: var(--score-color, #b7f3d9); font-size: 23px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.opportunity-context :deep(.opportunity-context__score-track) { height: 10px; overflow: hidden; border-radius: 5px; background: var(--score-background, #071b20); border: 1px solid var(--score-color, #3c6256); }
+.opportunity-context :deep(.opportunity-context__score-fill) { display: block; height: 100%; background: var(--score-color, #65d8ac); border-radius: inherit; }
 .opportunity-context :deep(a) { color: #9be8c7; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
 .opportunity-context :deep(a:focus-visible) { outline: 2px solid #9be8c7; outline-offset: 3px; border-radius: 2px; }
 @media (max-width: 760px) {
