@@ -249,6 +249,11 @@ const Fixture = defineComponent({
     const lang = ref('en');
     const draftStatus = ref('');
     const workspaceKey = ref(0);
+    const workspace = ref<InstanceType<typeof JobWorkspace> | null>(null);
+    async function openWorkspaceList(value: 'opportunities' | 'applications') {
+      if (workspace.value && !await workspace.value.openList(value)) return;
+      tab.value = value;
+    }
     const cv = createSampleDocument();
     const fixtureVariants = ref<SavedConfiguration[]>([{ id: 'sample-cv', name: 'Sample research CV', mtime: 1 }]);
     const fixtureStates = new Map<string, CvState>([['sample-cv', cv]]);
@@ -312,6 +317,109 @@ const Fixture = defineComponent({
       }
       document.body.dataset.filterTestMessage = draftStatus.value;
     });
+    // Exercise the same list-navigation API as App.vue using both device layouts.
+    // /test/browser/job-workspace.html?flow=job-navigation
+    onMounted(async () => {
+      if (new URLSearchParams(location.search).get('flow') !== 'job-navigation') return;
+      const assert: (condition: unknown, message: string) => asserts condition = (condition, message) => {
+        if (!condition) throw new Error(message);
+      };
+      const settle = async () => { await nextTick(); await new Promise(requestAnimationFrame); };
+      const until = async (check: () => unknown, message: string) => {
+        const deadline = performance.now() + 5000;
+        do { await settle(); } while (!check() && performance.now() < deadline);
+        assert(check(), message);
+      };
+      const rows = () => [...document.querySelectorAll<HTMLElement>('.jobs-result-row')];
+      const listVisible = () => !!document.querySelector<HTMLElement>('.jobs-table-scroll')?.getClientRects().length;
+      const detailTitle = () => document.querySelector(tab.value === 'opportunities' ? '.opportunity-detail h1' : '.application-header h1')?.textContent;
+      const openRow = async (index: number) => {
+        const row = rows()[index];
+        assert(row, `Result ${index + 1} must exist.`);
+        const title = row.querySelector('strong')?.textContent;
+        row.querySelector<HTMLButtonElement>('.jobs-row-toggle')!.click();
+        await until(() => !listVisible() && detailTitle() === title, 'Opening a result must show its detail.');
+        return title;
+      };
+      const navigate = async (value: 'opportunities' | 'applications') => {
+        const selector = desktop.value ? '.fixture-toolbar button' : '.fixture-mobile-nav button';
+        const button = [...document.querySelectorAll<HTMLButtonElement>(selector)].find(item => item.textContent === value);
+        assert(button, `The ${value} workspace button must exist.`);
+        button.click();
+        await until(() => tab.value === value && listVisible(), `Clicking ${value} must open its list.`);
+      };
+      const swipe = async (target: HTMLElement, dx: number, dy = 0) => {
+        const startX = dx < 0 ? 250 : 90, startY = 260;
+        const touch = (x: number, y: number) => new Touch({ identifier: 1, target, clientX: x, clientY: y });
+        const start = touch(startX, startY), end = touch(startX + dx, startY + dy);
+        target.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [start], changedTouches: [start] }));
+        target.dispatchEvent(new TouchEvent('touchmove', { bubbles: true, cancelable: true, touches: [end], changedTouches: [end] }));
+        target.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], changedTouches: [end] }));
+        await settle();
+      };
+      document.body.dataset.navigationTest = 'running';
+      try {
+        for (const key of ['CV_SELECTED_OPPORTUNITY', 'CV_SELECTED_APPLICATION']) sessionStorage.removeItem(`${key}:${account}`);
+        for (const opportunity of database.opportunities.slice(0, 2)) {
+          await client.rpc('create_job_application', { p_application_id: crypto.randomUUID(), p_opportunity_id: opportunity.id });
+        }
+        workspaceKey.value++;
+        await until(() => rows().length >= 3 && listVisible(), 'Synthetic opportunities must load.');
+        if (!desktop.value) {
+          const scroll = document.querySelector<HTMLElement>('.jobs-table-scroll')!;
+          assert(scroll.scrollWidth <= scroll.clientWidth + 1, 'Mobile job cards must fit without horizontal list scrolling.');
+          assert(getComputedStyle(rows()[0]).display !== 'table-row', 'Mobile opportunities must use cards.');
+        }
+        await openRow(0);
+        await navigate('opportunities');
+        await openRow(0);
+        await navigate('applications');
+        assert(rows().length === 2, 'The application list must contain both seeded applications.');
+        await openRow(0);
+        await navigate('applications');
+        await openRow(0);
+        await navigate('opportunities');
+        const opportunityTitles = rows().map(row => row.querySelector('strong')?.textContent);
+        const firstOpportunityId = rows()[0].dataset.itemId;
+        await openRow(0);
+        if (!desktop.value) {
+          const comment = document.querySelector<HTMLTextAreaElement>('#opportunity-comment')!;
+          const evaluation = 'Swipe navigation preserves this evaluation.';
+          comment.value = evaluation;
+          comment.dispatchEvent(new Event('input', { bubbles: true }));
+          await swipe(comment, -160);
+          assert(detailTitle() === opportunityTitles[0], 'Editing a textarea must not swipe to another opportunity.');
+          await swipe(document.querySelector<HTMLElement>('.opportunity-detail__body')!, -10, 150);
+          assert(detailTitle() === opportunityTitles[0], 'Vertical scrolling must keep the selected opportunity.');
+          await swipe(document.querySelector<HTMLElement>('.opportunity-detail__body')!, -160);
+          await until(() => detailTitle() === opportunityTitles[1], 'A left swipe must open the next opportunity in list order.');
+          assert(database.opportunity_reviews.find(row => row.opportunity_id === firstOpportunityId)?.comment === evaluation, 'Swiping must save the outgoing evaluation.');
+          await swipe(document.querySelector<HTMLElement>('.opportunity-detail__body')!, 160);
+          await until(() => detailTitle() === opportunityTitles[0], 'A right swipe must open the previous opportunity.');
+          await swipe(document.querySelector<HTMLElement>('.opportunity-detail__body')!, 160);
+          assert(detailTitle() === opportunityTitles[0], 'Swiping before the first opportunity must stay on that item.');
+        }
+        document.querySelector<HTMLButtonElement>('.jobs-detail-action')!.click();
+        await until(() => tab.value === 'applications' && !listVisible() && detailTitle() === opportunityTitles[0], 'Apply must still navigate directly to the created application.');
+        await navigate('applications');
+        assert(rows().length === 3, 'The created application must join the list.');
+        const applicationTitles = rows().map(row => row.querySelector('strong')?.textContent);
+        await openRow(0);
+        if (!desktop.value) {
+          await swipe(document.querySelector<HTMLElement>('.application-scroll-content')!, -160);
+          await until(() => detailTitle() === applicationTitles[1], 'A left swipe must open the next application.');
+          await swipe(document.querySelector<HTMLElement>('.application-scroll-content')!, 160);
+          await until(() => detailTitle() === applicationTitles[0], 'A right swipe must open the previous application.');
+        }
+        await navigate('applications');
+        draftStatus.value = `PASS: ${desktop.value ? 'Desktop' : 'Mobile'} lists, workspace clicks, application creation${desktop.value ? '' : ', cards and horizontal swipes'}.`;
+        document.body.dataset.navigationTest = 'passed';
+      } catch (cause) {
+        draftStatus.value = `FAIL: ${cause instanceof Error ? cause.message : String(cause)}`;
+        document.body.dataset.navigationTest = 'failed';
+      }
+      document.body.dataset.navigationTestMessage = draftStatus.value;
+    });
     async function select400WordScenario() {
       const template = { ...DEFAULT_LETTER_TEMPLATES[0], maxWords: 400 };
       createLetterRepository(localStorage, account).saveTemplate(template);
@@ -330,7 +438,7 @@ const Fixture = defineComponent({
       h(DesktopSidebar, { lang: lang.value, style: desktop.value ? '' : 'display:none' }, { header: () => h('span', { style: 'display:grid;place-items:center' }, 'Synthetic account') }),
       h('header', { class: 'fixture-toolbar', style: 'display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 16px;color:#9be8c7' }, [
         h('strong', 'Browser fixture · In-memory data only'),
-        ...(['opportunities', 'applications'] as const).map((value) => h('button', { class: 'btn', onClick: () => { tab.value = value; } }, value)),
+        ...(['opportunities', 'applications'] as const).map((value) => h('button', { class: 'btn', onClick: () => openWorkspaceList(value) }, value)),
         h('button', { class: 'btn', onClick: () => { lang.value = lang.value === 'en' ? 'de' : 'en'; } }, lang.value === 'en' ? 'Deutsch' : 'English'),
         h('button', { class: 'btn', onClick: select400WordScenario }, '400-word PhD scenario'),
         h('button', { class: 'btn', onClick: () => { workspaceKey.value++; draftStatus.value = 'Workspace reopened with existing browser documents and cloud data.'; } }, 'Reopen workspace'),
@@ -338,7 +446,7 @@ const Fixture = defineComponent({
         h('button', { class: 'btn', onClick: () => returnRefinementProposal(true) }, 'Return over-limit proposal'),
         draftStatus.value ? h('span', { role: 'status', style: 'font-size:12px' }, draftStatus.value) : null,
       ]),
-      h(JobWorkspace, { key: workspaceKey.value, client, userId: account, tab: tab.value, lang: lang.value, projectId: 'fixture',
+      h(JobWorkspace, { ref: workspace, key: workspaceKey.value, client, userId: account, tab: tab.value, lang: lang.value, projectId: 'fixture',
         configurations: fixtureVariants.value, selectedId: 'sample-cv',
         readVersion: (id: string) => fixtureStates.has(id) ? structuredClone(fixtureStates.get(id)!) : null,
         createVariant: (name: string, state: CvState) => {
@@ -348,7 +456,7 @@ const Fixture = defineComponent({
         onEditVariant: (id: string) => { draftStatus.value = `Open ${fixtureVariants.value.find(item => item.id === id)?.name} in CV Studio (fixture).`; },
         onNavigate: (value: 'opportunities' | 'applications') => { tab.value = value; } }),
       h('nav', { class: 'fixture-mobile-nav', 'aria-label': 'Fixture workspaces' },
-        (['opportunities', 'applications'] as const).map((value) => h('button', { class: 'btn', 'aria-pressed': tab.value === value, onClick: () => { tab.value = value; } }, value))),
+        (['opportunities', 'applications'] as const).map((value) => h('button', { class: 'btn', 'aria-pressed': tab.value === value, onClick: () => openWorkspaceList(value) }, value))),
     ]);
   },
 });

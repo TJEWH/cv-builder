@@ -101,7 +101,7 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   app.mount({});
   unmount = () => app.unmount();
   const setup = (mounted as { $: { setupState: {
-    query: string; statusFilter: string; reviewFilter: string; hideWithApplication: boolean; hideNotInterested: boolean; sortBy: string; deadlineFilter: 'current' | 'past'; now: Date;
+    query: string; statusFilter: string; reviewFilter: string; hideWithApplication: boolean; hideNotInterested: boolean; sortBy: string; applicationSortBy: string; deadlineFilter: 'current' | 'past'; now: Date;
     statusLabel(status: string): string;
     notes: string; notesStatus: string; notesError: string; flushNotes(): Promise<boolean>;
     opportunityComment: string; commentStatus: string; commentError: string; flushComment(): Promise<boolean>;
@@ -111,12 +111,179 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
     opportunityGroups: { key: string; title: string; items: Opportunity[] }[];
     removingId: string | null; removalDialog: { open?: boolean; showModal(): void; close(): void };
     openOpportunity(id: string): void; closeOpportunity(): Promise<void>; closeApplication(): Promise<void>; startApplication(item: Opportunity): Promise<void>;
+    openApplication(item: Application): void; openList(kind: 'opportunities' | 'applications'): Promise<boolean>; navigateDetail(direction: -1 | 1): Promise<void>;
     changeApplicationStatus(item: Application, event: Event): Promise<void>;
     requestDetailRemoval(item: Application): Promise<void>; cancelRemoval(): void; confirmRemoval(item: Application): Promise<void>;
   } } }).$.setupState;
   const componentProps = (mounted as { $props: { active: boolean } }).$props;
   return { setup, props, componentProps, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, applicationUpdates, commentUpdates, stageUpdates, failNextNotesSave: () => { failNotes = true; }, failNextCommentSave: () => { failComment = true; }, created: () => created };
 }
+
+test('opportunity navigation follows captured group order, skips removed results, and stops at either end', async (t) => {
+  const { setup, opportunities, reviews } = mount(t);
+  setup.now = new Date('2026-10-06T12:00:00Z');
+  const make = (id: string, title: string, recent = false) => normalizeOpportunity({
+    id, title, deadline: null,
+    created_at: recent ? '2026-10-06T11:00:00Z' : '2026-10-01T12:00:00Z',
+    updated_at: recent ? '2026-10-06T11:00:00Z' : '2026-10-01T12:00:00Z',
+  });
+  const alpha = make('alpha', 'Research Alpha');
+  const bravo = make('bravo', 'Research Bravo', true);
+  const charlie = make('charlie', 'Research Charlie');
+  const delta = make('delta', 'Research Delta', true);
+  opportunities.value = [charlie, delta, make('excluded', 'Other role', true), bravo, alpha];
+  setup.query = 'Research';
+  setup.sortBy = 'title';
+  assert.deepEqual(setup.opportunityGroups.flatMap(group => group.items.map(item => item.id)), ['bravo', 'delta', 'alpha', 'charlie']);
+  setup.openOpportunity(bravo.id);
+  assert.deepEqual(setup.opportunityGroups.flatMap(group => group.items.map(item => item.id)), ['delta', 'alpha', 'bravo', 'charlie']);
+  await setup.navigateDetail(-1);
+  assert.equal(setup.selectedOpportunity?.id, bravo.id, 'the first result does not wrap to the last');
+  await setup.navigateDetail(1);
+  assert.equal(setup.selectedOpportunity?.id, delta.id, 'read receipts do not change the captured navigation order');
+  reviews.value = [{ user_id: 'account-one', opportunity_id: delta.id, state: 'not_interested', reviewed_updated_at: delta.updated_at, created_at: '', updated_at: '' }];
+  assert.equal(setup.filteredOpportunities.some(item => item.id === delta.id), false);
+  await setup.navigateDetail(1);
+  assert.equal(setup.selectedOpportunity?.id, alpha.id, 'a review that hides the current result still allows navigation');
+  opportunities.value = opportunities.value.filter(item => item.id !== delta.id);
+  await setup.navigateDetail(-1);
+  assert.equal(setup.selectedOpportunity?.id, bravo.id, 'removed results are skipped');
+  await setup.navigateDetail(1);
+  await setup.navigateDetail(1);
+  assert.equal(setup.selectedOpportunity?.id, charlie.id);
+  await setup.navigateDetail(1);
+  assert.equal(setup.selectedOpportunity?.id, charlie.id, 'the last result does not wrap to the first');
+  assert.equal(setup.query, 'Research');
+  assert.equal(setup.sortBy, 'title');
+  assert.equal(setup.hideNotInterested, true);
+});
+
+test('opportunity navigation saves evaluations and retains the current draft when saving fails', async (t) => {
+  const { setup, opportunity, opportunities, reviews, failNextCommentSave } = mount(t);
+  const other = normalizeOpportunity({ id: 'other', title: 'Second research role', deadline: null });
+  opportunities.value = [opportunity, other];
+  setup.sortBy = 'title';
+  setup.openOpportunity(opportunity.id);
+  setup.opportunityComment = 'Ask about access to the robotics lab.';
+  failNextCommentSave();
+  await setup.navigateDetail(1);
+  assert.equal(setup.selectedOpportunity?.id, opportunity.id);
+  assert.equal(setup.opportunityComment, 'Ask about access to the robotics lab.');
+  assert.equal(setup.commentStatus, 'error');
+  await setup.navigateDetail(1);
+  assert.equal(setup.selectedOpportunity?.id, other.id);
+  assert.equal(setup.opportunityComment, '');
+  assert.equal(reviews.value.find(item => item.opportunity_id === opportunity.id)?.comment, 'Ask about access to the robotics lab.');
+  await setup.navigateDetail(-1);
+  assert.equal(setup.selectedOpportunity?.id, opportunity.id);
+  assert.equal(setup.opportunityComment, 'Ask about access to the robotics lab.');
+});
+
+test('application navigation follows sorted filtered results and saves notes before changing the selection', async (t) => {
+  const { setup, props, application, applications, failNextNotesSave } = mount(t);
+  const make = (id: string, title: string): Application => ({ ...application, id, context_json: { ...application.context_json, title, institution: 'Example University', university: 'Example University' } });
+  const alpha = make('alpha', 'Research Alpha');
+  const bravo = make('bravo', 'Research Bravo');
+  const charlie = make('charlie', 'Research Charlie');
+  applications.value = [charlie, { ...make('excluded-status', 'Research Between'), status: 'submitted' }, bravo, make('excluded-query', 'Other role'), alpha];
+  props.tab = 'applications';
+  await nextTick();
+  setup.query = 'Research';
+  setup.statusFilter = 'preparation';
+  setup.applicationSortBy = 'title';
+  assert.deepEqual(setup.filteredApplications.map(item => item.id), ['alpha', 'bravo', 'charlie']);
+  setup.openApplication(alpha);
+  await setup.navigateDetail(-1);
+  assert.equal(setup.editingApplication?.id, alpha.id);
+  setup.notes = 'Discuss the start date.';
+  failNextNotesSave();
+  await setup.navigateDetail(1);
+  assert.equal(setup.editingApplication?.id, alpha.id);
+  assert.equal(setup.notes, 'Discuss the start date.');
+  assert.equal(setup.notesStatus, 'error');
+  await setup.navigateDetail(1);
+  assert.equal(setup.editingApplication?.id, bravo.id);
+  assert.equal(applications.value.find(item => item.id === alpha.id)?.notes, 'Discuss the start date.');
+  assert.equal(setup.notes, '');
+  await setup.navigateDetail(1);
+  assert.equal(setup.editingApplication?.id, charlie.id);
+  await setup.navigateDetail(1);
+  assert.equal(setup.editingApplication?.id, charlie.id, 'the last application does not wrap');
+  applications.value = applications.value.filter(item => item.id !== bravo.id);
+  await setup.navigateDetail(-1);
+  assert.equal(setup.editingApplication?.id, alpha.id, 'removed applications are skipped');
+  assert.equal(setup.notes, 'Discuss the start date.');
+  assert.equal(setup.query, 'Research');
+  assert.equal(setup.statusFilter, 'preparation');
+  assert.equal(setup.applicationSortBy, 'title');
+});
+
+test('workspace list navigation clears same-tab and cross-tab details while internal application links still open details', async (t) => {
+  const { setup, props, opportunity, application, storage, created } = mount(t);
+  setup.query = 'Robotics';
+  setup.openOpportunity(opportunity.id);
+  assert.equal(await setup.openList('opportunities'), true);
+  await nextTick();
+  assert.equal(setup.showingDetail, false);
+  assert.equal(storage.has('CV_SELECTED_OPPORTUNITY:account-one'), false);
+  assert.equal(setup.query, 'Robotics');
+  setup.openOpportunity(opportunity.id);
+  await setup.startApplication(opportunity);
+  assert.equal(props.tab, 'applications');
+  assert.equal(setup.editingApplication?.id, application.id, 'internal creation opens the resulting application');
+  setup.query = 'Research';
+  assert.equal(await setup.openList('opportunities'), true);
+  props.tab = 'opportunities';
+  await nextTick();
+  assert.equal(setup.showingDetail, false, 'switching to opportunities clears its remembered detail');
+  assert.equal(setup.query, 'Robotics');
+  assert.equal(await setup.openList('applications'), true);
+  props.tab = 'applications';
+  await nextTick();
+  assert.equal(setup.showingDetail, false, 'switching to applications clears its remembered detail');
+  assert.equal(setup.query, 'Research');
+  assert.equal(storage.has('CV_SELECTED_APPLICATION:account-one'), false);
+  await setup.startApplication(opportunity);
+  assert.equal(created(), 1, 'an internal link reopens the existing application');
+  assert.equal(setup.editingApplication?.id, application.id);
+  assert.equal(await setup.openList('applications'), true);
+  assert.equal(setup.showingDetail, false, 'clicking the active applications tab returns to its list');
+});
+
+test('workspace list navigation remains in the current detail until evaluation and notes saves succeed', async (t) => {
+  const { setup, props, opportunity, application, reviews, applications, failNextCommentSave, failNextNotesSave } = mount(t);
+  setup.openOpportunity(opportunity.id);
+  setup.opportunityComment = 'Funding needs clarification.';
+  failNextCommentSave();
+  assert.equal(await setup.openList('applications'), false);
+  assert.equal(props.tab, 'opportunities');
+  assert.equal(setup.selectedOpportunity?.id, opportunity.id);
+  assert.equal(setup.opportunityComment, 'Funding needs clarification.');
+  assert.equal(await setup.openList('opportunities'), true);
+  assert.equal(reviews.value[0].comment, 'Funding needs clarification.');
+  await setup.startApplication(opportunity);
+  setup.notes = 'Confirm funding before submitting.';
+  failNextNotesSave();
+  assert.equal(await setup.openList('applications'), false);
+  assert.equal(setup.editingApplication?.id, application.id);
+  assert.equal(setup.notes, 'Confirm funding before submitting.');
+  assert.equal(await setup.openList('applications'), true);
+  assert.equal(setup.showingDetail, false);
+  assert.equal(applications.value[0].notes, 'Confirm funding before submitting.');
+});
+
+test('the latest list request wins and opening a detail cancels a pending list request', async (t) => {
+  const { setup, opportunity } = mount(t);
+  setup.openOpportunity(opportunity.id);
+  const earlier = setup.openList('opportunities');
+  const later = setup.openList('applications');
+  assert.deepEqual(await Promise.all([earlier, later]), [false, true]);
+  assert.equal(setup.selectedOpportunity?.id, opportunity.id);
+  const pending = setup.openList('opportunities');
+  setup.openOpportunity(opportunity.id);
+  assert.equal(await pending, false);
+  assert.equal(setup.selectedOpportunity?.id, opportunity.id);
+});
 
 test('opportunity comments save before closing, reopen independently, and can be cleared', async (t) => {
   const { setup, opportunity, opportunities, reviews, commentUpdates } = mount(t);

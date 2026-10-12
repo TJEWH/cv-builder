@@ -20,6 +20,7 @@ import { removeApplicationCv } from '../composables/applicationCv';
 import { useToasts, useToastWatch } from '../composables/useToasts';
 import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
 import { useDesktopSidebar } from '../composables/desktopSidebar';
+import { createJobSwipe } from '../composables/jobSwipe';
 
 const props = withDefaults(defineProps<{
   client: SupabaseClient | null; userId: string; tab: 'opportunities' | 'applications'; lang: string;
@@ -58,7 +59,12 @@ watch(editingId, (id) => { try { if (id) sessionStorage.setItem(`CV_SELECTED_APP
 const notice = ref('');
 const formError = ref('');
 const tableScroll = ref<HTMLElement | null>(null);
+const workspaceElement = ref<HTMLElement | null>(null);
 const opportunityDetail = ref<HTMLElement | null>(null);
+const opportunityNavigationIds = ref<string[]>([]);
+const applicationNavigationIds = ref<string[]>([]);
+let detailNavigationPending = false;
+let listNavigationRequest = 0;
 const now = ref(new Date());
 const clockTimer = window.setInterval(() => { now.value = new Date(); }, 30_000);
 onBeforeUnmount(() => { window.clearInterval(clockTimer); });
@@ -192,13 +198,18 @@ function focusResult(kind: 'opportunities' | 'applications', id: string) {
     row?.querySelector<HTMLButtonElement>('.jobs-row-toggle')?.focus({ preventScroll: true });
   });
 }
-function openOpportunity(id: string) {
+function openOpportunity(id: string, keepOrder = false) {
   const opportunity = opportunityById.value.get(id);
   if (!opportunity) return;
+  listNavigationRequest++;
+  if (!keepOrder) opportunityNavigationIds.value = opportunityGroups.value.flatMap(group => group.items.map(item => item.id));
   filtersOpen.value = false;
   recordOpportunityVisit(opportunity);
   selectedOpportunityId.value = id;
-  nextTick(() => opportunityDetail.value?.focus({ preventScroll: true }));
+  nextTick(() => {
+    opportunityDetail.value?.querySelector('.opportunity-detail__body')?.scrollTo({ top: 0 });
+    opportunityDetail.value?.focus({ preventScroll: true });
+  });
 }
 function recordOpportunityVisit(opportunity: Opportunity) {
   const version = opportunity.updated_at || opportunity.created_at;
@@ -225,10 +236,13 @@ async function changeReview(item: Opportunity, event: Event) {
     ? text('Marked as not interesting. Uncheck “Hide not interesting” to show it again.', 'Als nicht interessant markiert. Deaktiviere „Nicht interessante ausblenden“, um sie wieder anzuzeigen.')
     : text('Your review state was saved.', 'Deine Bewertung wurde gespeichert.');
 }
-function openApplication(application: Application) {
+function openApplication(application: Application, keepOrder = false) {
+  listNavigationRequest++;
+  if (!keepOrder) applicationNavigationIds.value = filteredApplications.value.map(item => item.id);
   filtersOpen.value = false;
   editingId.value = application.id;
   formError.value = '';
+  nextTick(() => workspaceElement.value?.querySelector<HTMLElement>('.application-workspace')?.focus({ preventScroll: true }));
 }
 watch(editingApplication, (application, previous) => { if (application && !previous) openApplication(application); });
 async function closeApplication() {
@@ -238,6 +252,58 @@ async function closeApplication() {
   editingId.value = null;
   if (id) focusResult('applications', id);
 }
+// The main workspace buttons always open a list, even when its tab is already active.
+// Keep this separate from internal navigation that opens a particular application.
+async function openList(kind: 'opportunities' | 'applications'): Promise<boolean> {
+  const request = ++listNavigationRequest;
+  const owner = props.userId;
+  const opportunityId = selectedOpportunityId.value;
+  const applicationId = editingId.value;
+  if (!await flushComment() || !await flushNotes()) return false;
+  if (request !== listNavigationRequest || props.userId !== owner || selectedOpportunityId.value !== opportunityId || editingId.value !== applicationId) return false;
+  filtersOpen.value = false;
+  cancelRemoval();
+  notice.value = '';
+  if (kind === 'opportunities') selectedOpportunityId.value = null;
+  else editingId.value = null;
+  const id = kind === 'opportunities' ? opportunityId : applicationId;
+  if (id) focusResult(kind, id);
+  return true;
+}
+defineExpose({ openList });
+
+async function navigateDetail(direction: -1 | 1) {
+  if (detailNavigationPending || saving.value || removingId.value) return;
+  const kind = props.tab;
+  const owner = props.userId;
+  const currentId = kind === 'opportunities' ? selectedOpportunityId.value : editingId.value;
+  const orderedIds = kind === 'opportunities'
+    ? (opportunityNavigationIds.value.length ? opportunityNavigationIds.value : opportunityGroups.value.flatMap(group => group.items.map(item => item.id)))
+      .filter(id => opportunityById.value.has(id))
+    : (applicationNavigationIds.value.length ? applicationNavigationIds.value : filteredApplications.value.map(item => item.id))
+      .filter(id => applications.value.some(item => item.id === id));
+  const index = orderedIds.indexOf(currentId || '');
+  const nextId = index < 0 ? undefined : orderedIds[index + direction];
+  if (!nextId) return;
+  detailNavigationPending = true;
+  try {
+    const saved = await (kind === 'opportunities' ? flushComment() : flushNotes());
+    if (!saved || props.userId !== owner || props.tab !== kind || props.active === false
+      || currentId !== (kind === 'opportunities' ? selectedOpportunityId.value : editingId.value)) return;
+    if (kind === 'opportunities') openOpportunity(nextId, true);
+    else {
+      const application = applications.value.find(item => item.id === nextId);
+      if (application) openApplication(application, true);
+    }
+  } finally { detailNavigationPending = false; }
+}
+const swipe = createJobSwipe({
+  enabled: () => props.active !== false && showingDetail.value && !saving.value && !removingId.value
+    && window.matchMedia('(max-width: 760px)').matches,
+  onSwipe: direction => { void navigateDetail(direction); },
+});
+watch([() => props.tab, () => props.active, () => props.userId, selectedOpportunityId, editingId], () => swipe.cancel());
+onBeforeUnmount(() => swipe.cancel());
 async function toggleApplication(application: Application) {
   if (saving.value) return;
   formError.value = '';
@@ -311,7 +377,8 @@ useToastWatch(() => notice.value, () => {
 </script>
 
 <template>
-  <section :id="`builder-group-${tab}`" class="jobs-workspace" :aria-label="tab === 'opportunities' ? text('Opportunities', 'Stellenangebote') : text('Applications', 'Bewerbungen')">
+  <section :id="`builder-group-${tab}`" ref="workspaceElement" class="jobs-workspace" :aria-label="tab === 'opportunities' ? text('Opportunities', 'Stellenangebote') : text('Applications', 'Bewerbungen')"
+    @touchstart.passive="swipe.onTouchStart" @touchmove="swipe.onTouchMove" @touchend.passive="swipe.onTouchEnd" @touchcancel.passive="swipe.cancel" @click.capture="swipe.onClickCapture">
     <DesktopSidebarPortal area="major" :active="props.active !== false && !showingDetail">
     <div v-show="!showingDetail" class="jobs-toolbar jobs-sidebar-controls" :class="{ 'jobs-toolbar--sidebar': sidebarActive }" @keydown.esc="closeFilters">
       <label class="jobs-search"><span>{{ text('Search', 'Suchen') }}</span><input v-model="query" type="search" :placeholder="tab === 'applications' ? text('Title, institution or application ID…', 'Titel, Einrichtung oder Bewerbungs-ID…') : text('Title, institution or country…', 'Titel, Einrichtung oder Land…')" /></label>
@@ -330,7 +397,7 @@ useToastWatch(() => notice.value, () => {
       <span class="jobs-count">{{ tab === 'opportunities' ? filteredOpportunities.length : filteredApplications.length }} {{ text('results', 'Ergebnisse') }}</span>
     </div>
     </DesktopSidebarPortal>
-    <div v-show="!showingDetail" ref="tableScroll" class="jobs-table-scroll" tabindex="0" :aria-label="text('Scrollable results table', 'Scrollbare Ergebnistabelle')">
+    <div v-show="!showingDetail" ref="tableScroll" class="jobs-table-scroll" tabindex="0" :aria-label="text('Job results', 'Stellen und Bewerbungen')">
       <table v-if="tab === 'opportunities'" class="jobs-opportunities-table">
         <colgroup><col style="width: 38%" /><col style="width: 25%" /><col style="width: 10%" /><col style="width: 12%" /><col style="width: 15%" /></colgroup>
         <thead><tr><th scope="col">{{ text('Opportunity', 'Stelle') }}</th><th scope="col">{{ text('Topics', 'Themen') }}</th><th scope="col">{{ text('Country', 'Land') }}</th><th scope="col">{{ text('Deadline', 'Frist') }}</th><th scope="col">{{ text('Your review', 'Deine Bewertung') }}</th></tr></thead>
@@ -380,7 +447,7 @@ useToastWatch(() => notice.value, () => {
         <OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity.details" :lang="lang" />
       </div>
     </section>
-    <ApplicationWorkspace v-if="editingApplication" v-show="tab === 'applications'" :active="props.active !== false && tab === 'applications'" :checklist-saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-variant="createVariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @change-stage="stage => setApplicationStage(editingApplication!.id, stage)" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
+    <ApplicationWorkspace tabindex="-1" :aria-label="editingApplication ? contextTitle(editingApplication) : undefined" v-if="editingApplication" v-show="tab === 'applications'" :active="props.active !== false && tab === 'applications'" :checklist-saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-variant="createVariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @change-stage="stage => setApplicationStage(editingApplication!.id, stage)" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
       <template #preparation-actions>
         <button class="btn btn--danger jobs-remove-application" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(editingApplication)}`" @click="requestDetailRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button>
       </template>
@@ -419,6 +486,7 @@ useToastWatch(() => notice.value, () => {
 
 .jobs-workspace > :not(.jobs-table-scroll) { flex-shrink: 0; }
 .jobs-workspace > .application-workspace, .jobs-workspace > .opportunity-detail { flex: 1 1 auto; min-height: 0; }
+.jobs-workspace > .application-workspace:focus, .opportunity-detail:focus { outline: none; }
 .opportunity-detail { display: flex; flex-direction: column; min-width: 0; padding: 32px; overflow: hidden;}
 .opportunity-detail__body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-gutter: stable; }
 .opportunity-comment { display: grid; gap: 8px; margin-bottom: 24px; }
@@ -558,20 +626,28 @@ tr.is-expanded { background: var(--ui-active); }
   .jobs-search > span { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .jobs-workspace :is(input, select, textarea) { font-size: 16px; }
   .jobs-workspace label { font-size: 14px; }
+  .jobs-workspace > .jobs-table-scroll { padding: 2px 2px 12px; scrollbar-gutter: auto; }
   table { font-size: 16px; }
-  .jobs-row-toggle { min-height: 40px; font-size: 18px; }
+  .jobs-row-toggle { min-height: 44px; align-items: center; font-size: 18px; line-height: 1.35; }
   .jobs-workspace .jobs-row-toggle:focus-visible { outline-offset: -2px; }
-  .jobs-subline { font-size: 14px; }
+  .jobs-subline { margin-top: 4px; font-size: 14px; line-height: 1.5; }
   .jobs-topics { font-size: 15px; }
-  td[data-label]::before { font-size: 12px; }
-  .jobs-workspace .jobs-group-row th { font-size: 15px; padding: 11px 0; }
-  table tbody { gap: 8px; }
-  table tr { column-gap: 12px; border: 0; border-bottom: 1px solid var(--ui-border); border-radius: 0; background: transparent; }
-  .jobs-workspace td { padding: 8px 0; }
+  td[data-label]::before { margin-bottom: 4px; font-size: 12px; text-transform: none; letter-spacing: 0; }
+  .jobs-workspace .jobs-group-row th { font-size: 15px; padding: 12px 2px 4px; border: 0; background: transparent; }
+  table tbody { gap: 12px; }
+  table tr { column-gap: 0; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface); }
+  table .jobs-group-row { border: 0; border-radius: 0; background: transparent; }
+  .jobs-workspace td { padding: 10px 14px; }
   .jobs-workspace .jobs-cell-state { display: none; }
-  .jobs-workspace .jobs-application-state { display: flex; }
-  .jobs-cell-heading { background: transparent; }
-  .jobs-opportunity--unseen-new > td:first-child, .jobs-opportunity--unseen-updated > td:first-child { padding-left: 10px; }
+  .jobs-workspace .jobs-application-state { display: flex; padding-top: 0; }
+  .jobs-workspace .jobs-cell-heading { padding-top: 12px; padding-bottom: 12px; background: transparent; }
+  .jobs-cell-heading :deep(.application-identifier) { margin-top: 8px; }
+  .jobs-opportunity-badges { margin-top: 8px; }
+  .jobs-opportunity--unseen-new { border-color: #47738a; }
+  .jobs-opportunity--unseen-updated { border-color: #806a43; }
+  .jobs-opportunity--unseen-new > td:first-child, .jobs-opportunity--unseen-updated > td:first-child { box-shadow: none; }
+  .jobs-result-row:active { background: var(--ui-active); }
+  .jobs-workspace .jobs-cell-contacts .jobs-subline:first-child { margin-top: 0; }
   .opportunity-detail { padding: 0; border: 0; border-radius: 0; background: transparent; }
   .opportunity-detail__header :deep(.workspace-detail-header__metadata) { flex-wrap: nowrap; gap: 8px; }
   .opportunity-detail__country { flex: 0 1 auto; max-width: 28%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

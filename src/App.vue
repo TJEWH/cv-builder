@@ -100,8 +100,18 @@ const workspaceGroups = computed(() => [
   { key: 'opportunities' as const, label: lang.value === 'de' ? 'Stellenangebote' : 'Opportunities', icon: 'briefcase' },
   { key: 'applications' as const, label: lang.value === 'de' ? 'Bewerbungen' : 'Applications', icon: 'envelope' },
 ]);
+const jobWorkspace = ref<InstanceType<typeof JobWorkspace> | null>(null);
+let workspaceNavigationRequest = 0;
 function selectWorkspace(workspace: Workspace) {
+  workspaceNavigationRequest++;
   if (!prepareConfigurationChange()) return;
+  activeWorkspace.value = workspace; previewMode.value = false;
+}
+async function selectWorkspaceList(workspace: Workspace) {
+  const request = ++workspaceNavigationRequest;
+  if (!prepareConfigurationChange()) return;
+  if (workspace !== 'cv-studio' && jobWorkspace.value && !await jobWorkspace.value.openList(workspace)) return;
+  if (request !== workspaceNavigationRequest) return;
   activeWorkspace.value = workspace; previewMode.value = false;
 }
 function saveCareerVariant(name: string, data: CvState) {
@@ -113,6 +123,7 @@ function createVariant(name: string, data: CvState): string | null {
 }
 function openStudioVariant(id: string) {
   if (!backupManager.value?.selectConfiguration(id)) return;
+  workspaceNavigationRequest++;
   activeWorkspace.value = 'cv-studio'; activeBuilderGroup.value = 'content'; previewMode.value = false;
 }
 const savedConfigurations = ref<SavedConfiguration[]>([]);
@@ -718,7 +729,7 @@ function selectBuilderGroup(group: string) {
             :class="{ 'is-active': activeWorkspace === group.key }"
             type="button"
             :aria-pressed="activeWorkspace === group.key"
-            @click="selectWorkspace(group.key)"
+            @click="selectWorkspaceList(group.key)"
           >
             <font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" />
             <span>{{ group.label }}</span>
@@ -738,6 +749,7 @@ function selectBuilderGroup(group: string) {
       <section v-if="isCloudTab && !cloudUser" class="workspace-sign-in"><h1>{{ activeWorkspace === 'opportunities' ? (lang === 'de' ? 'Stellenangebote entdecken' : 'Discover opportunities') : (lang === 'de' ? 'Bewerbungen vorbereiten' : 'Prepare applications') }}</h1><p class="app-hint">{{ lang === 'de' ? 'Melde dich bei Supabase an, um auf deinen Bewerbungsbereich zuzugreifen. Das CV-Studio ist auch ohne Anmeldung verfügbar.' : 'Sign in to Supabase to access your application workspace. CV Studio remains available without an account.' }}</p></section>
 
       <JobWorkspace
+        ref="jobWorkspace"
         v-if="cloudUser"
         v-show="isCloudTab"
         :key="cloudUser.id"
@@ -821,7 +833,7 @@ function selectBuilderGroup(group: string) {
     </section>
 
     <nav class="mobile-bottom-tabs" :aria-label="lang === 'de' ? 'Arbeitsbereiche' : 'Workspaces'">
-      <button v-for="group in workspaceGroups" :key="group.key" class="builder-topbar__tab" :class="{ 'is-active': activeWorkspace === group.key }" :aria-pressed="activeWorkspace === group.key" type="button" @click="selectWorkspace(group.key)"><font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" /><span>{{ group.label }}</span></button>
+      <button v-for="group in workspaceGroups" :key="group.key" class="builder-topbar__tab" :class="{ 'is-active': activeWorkspace === group.key }" :aria-pressed="activeWorkspace === group.key" type="button" @click="selectWorkspaceList(group.key)"><font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" /><span>{{ group.label }}</span></button>
       <SupabaseAuth v-if="isMobile" class="mobile-bottom-auth" :lang="lang === 'de' ? 'de' : 'en'" bottom-bar />
     </nav>
   </main>
