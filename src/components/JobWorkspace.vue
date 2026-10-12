@@ -272,6 +272,29 @@ async function openList(kind: 'opportunities' | 'applications'): Promise<boolean
 }
 defineExpose({ openList });
 
+let swipeAnimations: Animation[] = [];
+function cancelSwipeTransition() {
+  swipeAnimations.forEach(animation => animation.cancel());
+  swipeAnimations = [];
+}
+function animateSwipedDetail(kind: 'opportunities' | 'applications', direction: -1 | 1) {
+  cancelSwipeTransition();
+  const root = workspaceElement.value;
+  if (!root || !window.matchMedia('(max-width: 760px)').matches) return;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Animate content only: transforming the whole workspace would move its fixed controls.
+  const selector = kind === 'opportunities'
+    ? '.opportunity-detail__body, .opportunity-detail .workspace-detail-header__title, .opportunity-detail .workspace-detail-header__metadata'
+    : '.application-mobile-title, .application-workspace .workflow-body, .application-header .workspace-detail-header__title, .application-header .workspace-detail-header__metadata';
+  for (const element of root.querySelectorAll<HTMLElement>(selector)) {
+    if (!element.animate || !element.getClientRects().length) continue;
+    swipeAnimations.push(element.animate([
+      { opacity: 0.82, transform: reducedMotion ? 'none' : `translateX(${direction * 20}px)` },
+      { opacity: 1, transform: reducedMotion ? 'none' : 'translateX(0)' },
+    ], { duration: reducedMotion ? 100 : 180, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }));
+  }
+}
+
 async function navigateDetail(direction: -1 | 1) {
   if (detailNavigationPending || saving.value || removingId.value) return;
   const kind = props.tab;
@@ -295,6 +318,9 @@ async function navigateDetail(direction: -1 | 1) {
       const application = applications.value.find(item => item.id === nextId);
       if (application) openApplication(application, true);
     }
+    await nextTick();
+    if (props.userId === owner && props.tab === kind && props.active
+      && nextId === (kind === 'opportunities' ? selectedOpportunityId.value : editingId.value)) animateSwipedDetail(kind, direction);
   } finally { detailNavigationPending = false; }
 }
 const swipe = createJobSwipe({
@@ -302,8 +328,8 @@ const swipe = createJobSwipe({
     && window.matchMedia('(max-width: 760px)').matches,
   onSwipe: direction => { void navigateDetail(direction); },
 });
-watch([() => props.tab, () => props.active, () => props.userId, selectedOpportunityId, editingId], () => swipe.cancel());
-onBeforeUnmount(() => swipe.cancel());
+watch([() => props.tab, () => props.active, () => props.userId, selectedOpportunityId, editingId], () => { swipe.cancel(); cancelSwipeTransition(); });
+onBeforeUnmount(() => { swipe.cancel(); cancelSwipeTransition(); });
 async function toggleApplication(application: Application) {
   if (saving.value) return;
   formError.value = '';
@@ -613,6 +639,7 @@ tr.is-expanded { background: var(--ui-active); }
 }
 @media (max-width: 760px) {
   .jobs-workspace { padding: 0; font-size: 16px; }
+  .opportunity-detail__body, .jobs-workspace :deep(.application-scroll-content) { overflow-x: hidden; }
   .jobs-heading h1 { font-size: 23px; }
   .jobs-heading p { font-size: 12px; }
   .jobs-toolbar { position: fixed; left: 0; right: 0; bottom: var(--mobile-tabs-height, 76px); z-index: 35; height: var(--mobile-context-row-height, 52px); box-sizing: border-box; align-items: center; margin: 0; padding: 3px max(8px, env(safe-area-inset-right, 0px)) 3px max(8px, env(safe-area-inset-left, 0px)); border-top: 1px solid var(--ui-border); background: var(--ui-shell); }
