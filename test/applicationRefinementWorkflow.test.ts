@@ -597,6 +597,30 @@ test('stage clicks emit once and reselecting a tab preserves explicitly chosen t
   assert.equal(fixture.props.application.status, 'ready');
 });
 
+test('stage navigation awaits personal evaluation persistence and stays in preparation on failure', async t => {
+  const fixture = mount(t), setup = fixture.setup; await idle(setup);
+  let release!: (saved: boolean) => void;
+  let attempts = 0;
+  const props = fixture.props as typeof fixture.props & { flushEvaluation?: () => Promise<boolean> };
+  props.flushEvaluation = () => { attempts++; return new Promise<boolean>(resolve => { release = resolve; }); };
+  await idle(setup);
+  const navigation = setup.selectStage('refinement');
+  await idle(setup);
+  assert.equal(attempts, 1);
+  assert.equal(setup.tab, 'preparation', 'the editor stays visible until its evaluation is saved');
+  assert.equal(fixture.props.application.workflow_stage, 'preparation');
+  release(false);
+  await navigation;
+  assert.equal(setup.tab, 'preparation', 'failed evaluation saving must prevent the stage change');
+  const retry = setup.selectStage('refinement');
+  await idle(setup);
+  assert.equal(attempts, 2);
+  release(true);
+  await retry; await idle(setup);
+  assert.equal(setup.tab, 'refinement');
+  assert.equal(fixture.props.application.workflow_stage, 'refinement');
+});
+
 test('new applications and saved combined scopes select a separate document scope', async t => {
   const fixture = mount(t); await idle(fixture.setup);
   assert.equal(fixture.setup.feedbackScope, 'cv');

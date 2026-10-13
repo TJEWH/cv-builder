@@ -126,8 +126,11 @@ const { notes, status: notesStatus, error: notesError, flush: flushNotes } = use
   errorMessage: () => error.value || text('Could not save notes. Please retry.', 'Notizen konnten nicht gespeichert werden. Bitte erneut versuchen.'),
 });
 const selectedOpportunity = computed(() => opportunityById.value.get(selectedOpportunityId.value || ''));
+// Both editors share one draft and recovery key for the underlying opportunity.
+const evaluationOpportunityId = computed(() => props.tab === 'applications'
+  ? editingApplication.value?.opportunity_id : selectedOpportunity.value?.id);
 const { notes: opportunityComment, status: commentStatus, error: commentError, flush: flushComment } = useApplicationNotesAutosave({
-  application: () => selectedOpportunity.value ? { id: selectedOpportunity.value.id, notes: reviewById.value.get(selectedOpportunity.value.id)?.comment } : null,
+  application: () => evaluationOpportunityId.value ? { id: evaluationOpportunityId.value, notes: reviewById.value.get(evaluationOpportunityId.value)?.comment } : null,
   save: async (id, comment) => Boolean(await setOpportunityComment(id, comment)),
   owner: () => props.userId,
   storagePrefix: 'CV_OPPORTUNITY_COMMENT_DRAFT',
@@ -496,7 +499,16 @@ useToastWatch(() => notice.value, () => {
         <OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity.details" :lang="lang" />
       </div>
     </section>
-    <ApplicationWorkspace ref="applicationWorkspace" tabindex="-1" :aria-label="editingApplication ? contextTitle(editingApplication) : undefined" v-if="editingApplication" v-show="tab === 'applications'" :active="props.active !== false && tab === 'applications'" :checklist-saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-variant="createVariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @change-stage="stage => setApplicationStage(editingApplication!.id, stage)" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
+    <ApplicationWorkspace ref="applicationWorkspace" tabindex="-1" :aria-label="editingApplication ? contextTitle(editingApplication) : undefined" v-if="editingApplication" v-show="tab === 'applications'" :active="props.active !== false && tab === 'applications'" :checklist-saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-variant="createVariant" :flush-evaluation="flushComment" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @change-stage="stage => setApplicationStage(editingApplication!.id, stage)" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
+      <template #preparation-evaluation>
+        <details class="application-evaluation disclosure-row" open>
+          <summary :id="`application-evaluation-${editingApplication.id}`">{{ text('Personal Evaluation', 'Persönliche Einschätzung') }}</summary>
+          <div class="opportunity-comment">
+            <AutosaveTextarea v-model="opportunityComment" :aria-labelledby="`application-evaluation-${editingApplication.id}`" rows="3" maxlength="5000" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @commit="flushComment" />
+            <div class="jobs-form-footer jobs-autosave" aria-live="polite"><template v-if="commentError"><span class="jobs-autosave-error">{{ commentError }}</span><button class="btn" type="button" @click="flushComment">{{ text('Retry', 'Erneut versuchen') }}</button></template><span v-else>{{ commentStatus === 'saving' ? text('Saving…', 'Speichert…') : commentStatus === 'unsaved' ? text('Unsaved changes', 'Ungespeicherte Änderungen') : text('All changes saved', 'Alle Änderungen gespeichert') }}</span></div>
+          </div>
+        </details>
+      </template>
       <template #preparation-actions>
         <button class="btn btn--danger jobs-remove-application" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(editingApplication)}`" @click="requestDetailRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button>
       </template>
@@ -542,6 +554,8 @@ useToastWatch(() => notice.value, () => {
 .jobs-workspace .opportunity-comment label { display: block; font-size: 14px; font-weight: 600; }
 .jobs-workspace .opportunity-comment textarea { box-sizing: border-box; min-height: 76px; resize: vertical; font-size: 14px; line-height: 1.5; }
 .opportunity-comment textarea::placeholder { color: var(--ui-muted); opacity: 1; }
+.jobs-workspace .application-evaluation { border-top-color: transparent; }
+.application-evaluation .opportunity-comment { margin-bottom: 0; }
 .application-status-history h3 { color: var(--ui-accent); margin: 0 0 12px; }
 .application-status-history ol { list-style: none; margin: 12px 0 0 5px; padding: 0 0 0 18px; border-left: 2px solid var(--ui-accent-border); }
 .application-status-history li { position: relative; padding: 0 0 18px; font-size: 13px; }
@@ -552,7 +566,7 @@ useToastWatch(() => notice.value, () => {
 .jobs-workspace .jobs-detail-state { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
 .jobs-workspace .jobs-detail-state select { width: auto; min-width: 0; max-width: 100%; padding: 6px 9px; }
 .jobs-action-mobile { display: none; }
-.jobs-remove-application { min-height: 44px; padding: 10px 16px; border-color: #ef4444; background: #b91c1c; color: #fff; font-weight: 600; }
+.jobs-remove-application { width: 100%; min-height: 44px; padding: 10px 16px; border-color: #ef4444; background: #b91c1c; color: #fff; font-weight: 600; }
 .jobs-remove-application:hover:not(:disabled) { border-color: #f87171; background: #991b1b; }
 .jobs-workspace > .jobs-table-scroll { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-width: thin; }
 .jobs-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }

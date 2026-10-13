@@ -40,7 +40,7 @@ export interface Workspace {
   openProposal(): void; discardReview(): void; acceptSelectedChanges(): Promise<void>;
   persist(): void;
   feedbackScope: 'cv' | 'letter' | 'both'; pane: 'cv' | 'letter'; tab: string; historyOpen: boolean;
-  selectStage(stage: ApplicationStage): void;
+  selectStage(stage: ApplicationStage): Promise<void>;
   selectReviewProposal(id: string): void;
   approve(kind: 'cv' | 'letter', reopen?: boolean): Promise<void>;
   updateLetter(value: string): void; toggleProposedChange(id: string, included: boolean): void;

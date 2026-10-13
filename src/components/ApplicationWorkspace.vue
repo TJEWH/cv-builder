@@ -47,6 +47,7 @@ const props = withDefaults(defineProps<{
   configurations: SavedConfiguration[]; readVersion: (id: string) => CvState | null;
   publishCv: (state: CvState) => Promise<Application | null>;
   createVariant?: (name: string, state: CvState) => string | null;
+  flushEvaluation?: () => Promise<boolean>;
 }>(), { active: true });
 const emit = defineEmits<{ close: []; 'edit-variant': [id: string]; toggleChecklist: [key: string, completed: boolean]; 'change-stage': [stage: ApplicationStage] }>();
 const desktopSidebar = useDesktopSidebar();
@@ -462,6 +463,7 @@ watch([tab, stageNavigation, desktopSidebar, () => props.active, () => props.lan
 }, { flush: 'post' });
 async function flushTextareas(): Promise<boolean> {
   commitPendingTextareas();
+  if (props.flushEvaluation && !await props.flushEvaluation()) return false;
   if (annotations.value && !await annotations.value.flush()) return false;
   persist();
   return !saveError.value;
@@ -1183,6 +1185,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
             <label>{{ text('Target words', 'Zielwortzahl') }}<input v-model.number="letter.maxWords" type="number" min="50" max="2000" :disabled="busy || reviewActive || letterApproved" /></label>
           </div>
         </DesktopSidebarPortal>
+        <slot name="preparation-evaluation" />
         <OpportunityContext :context="application.context_json" :lang="lang" :default-open-groups="['overview', 'requirements', 'documents']" />
         <DesktopSidebarPortal v-if="$slots['preparation-actions']" area="minor" :active="active && tab === 'preparation'">
           <div class="preparation-actions" :class="{ 'preparation-actions--sidebar': desktopSidebar }"><slot name="preparation-actions" /></div>
@@ -1293,7 +1296,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 .workspace-subtabs button{display:flex;align-items:center;gap:8px;flex:1;text-align:left}.workspace-subtabs .is-active{background:var(--ui-active);border-color:var(--ui-accent-border);color:var(--ui-accent)}.stage-number{color:var(--ui-muted);font-size:12px;font-variant-numeric:tabular-nums}
 .workflow-body{flex:1;min-height:0;min-width:0;overflow:auto;padding:14px 0 0 0}.workflow-body--refinement,.workflow-body--review{display:flex;flex-direction:column;overflow:hidden}
 .workflow-body--review{overflow:auto}.workflow-body--review :deep(.application-documents){flex:1 0 auto;min-height:360px}
-.preparation-actions{display:flex;justify-content:flex-end;padding:20px 0;border-top:1px solid #61343a}
+.preparation-actions{display:flex;justify-content:center;}
 .refinement-toolbar{position:sticky;top:0;z-index:10;min-width:0;padding-bottom:12px;border-bottom:1px solid var(--ui-border);background:#0b0f14}
 .refinement-toolbar > .action-row{margin:0}
 .approved-variant-save{margin-top:16px;padding-top:16px;border-top:1px solid var(--ui-border)}.approved-variant-save p{margin:0 0 12px;max-width:65ch;color:var(--ui-muted)}.approved-variant-save button{width:100%}

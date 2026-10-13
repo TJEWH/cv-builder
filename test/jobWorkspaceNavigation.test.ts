@@ -204,6 +204,53 @@ test('opportunity navigation saves evaluations and retains the current draft whe
   assert.equal(setup.opportunityComment, 'Ask about access to the robotics lab.');
 });
 
+test('application evaluations share opportunity drafts and block record navigation on save failure', async t => {
+  const f = mount(t);
+  const secondOpportunity = normalizeOpportunity({ id: 'opportunity-two', title: 'Second research role', deadline: null });
+  const second = { ...f.application, id: 'application-two', opportunity_id: secondOpportunity.id, context_json: secondOpportunity.details };
+  f.opportunities.value.push(secondOpportunity);
+  f.applications.value = [f.application, second];
+  f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'interested', comment: 'Existing personal evaluation.', reviewed_updated_at: null, created_at: '', updated_at: '' }];
+  f.props.tab = 'applications';
+  await nextTick();
+  f.setup.openApplication(f.application);
+  assert.equal(f.setup.opportunityComment, 'Existing personal evaluation.');
+  f.setup.opportunityComment = 'Updated while preparing the application.';
+  await nextTick();
+  assert.equal(f.commentUpdates.length, 0, 'typing must remain a local draft');
+  f.setup.applicationWorkspace = { flushTextareas: () => f.setup.flushComment() };
+  f.failNextCommentSave();
+  await f.setup.navigateDetail(1);
+  assert.equal(f.setup.editingApplication?.id, f.application.id);
+  assert.equal(f.setup.commentStatus, 'error');
+  assert.equal(f.setup.opportunityComment, 'Updated while preparing the application.');
+  await f.setup.navigateDetail(1);
+  assert.equal(f.setup.editingApplication?.id, second.id);
+  assert.equal(f.setup.opportunityComment, '', 'each opportunity has its own evaluation');
+  assert.ok(f.commentUpdates.every(update => update.id === f.opportunity.id), 'evaluations save under opportunity IDs, never application IDs');
+  assert.equal(f.reviews.value.find(review => review.opportunity_id === f.opportunity.id)?.comment, 'Updated while preparing the application.');
+  f.props.tab = 'opportunities';
+  await nextTick();
+  f.setup.openOpportunity(f.opportunity.id);
+  assert.equal(f.setup.opportunityComment, 'Updated while preparing the application.', 'both editors share the same evaluation');
+});
+
+test('application evaluation remains available without its live opportunity and is isolated by account', async t => {
+  const f = mount(t);
+  f.applications.value = [f.application];
+  f.opportunities.value = [];
+  f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.application.opportunity_id, state: 'interested', comment: 'Saved before the listing was removed.', reviewed_updated_at: null, created_at: '', updated_at: '' }];
+  f.props.tab = 'applications';
+  await nextTick();
+  f.setup.openApplication(f.application);
+  assert.equal(f.setup.opportunityComment, 'Saved before the listing was removed.');
+  f.setup.opportunityComment = 'Private unsaved application evaluation.';
+  f.props.userId = 'account-two';
+  await nextTick();
+  assert.equal(f.setup.opportunityComment, '');
+  assert.deepEqual(f.commentUpdates, [], 'changing accounts cannot send the previous owner’s draft');
+});
+
 test('application navigation follows sorted filtered results and saves notes before changing the selection', async (t) => {
   const { setup, props, application, applications, failNextNotesSave } = mount(t);
   const make = (id: string, title: string): Application => ({ ...application, id, context_json: { ...application.context_json, title, institution: 'Example University', university: 'Example University' } });

@@ -434,6 +434,11 @@ const Fixture = defineComponent({
         const opportunityIds = rows().map(row => row.dataset.itemId!);
         const firstOpportunityId = rows()[0].dataset.itemId;
         await openRow(0);
+        const initialComment = document.querySelector<HTMLTextAreaElement>('#opportunity-comment')!;
+        initialComment.value = 'Saved evaluation before application preparation.';
+        initialComment.dispatchEvent(new Event('input', { bubbles: true }));
+        initialComment.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await until(() => database.opportunity_reviews.find(row => row.opportunity_id === firstOpportunityId)?.comment === initialComment.value, 'Opportunity evaluation must save before opening its application.');
         if (!desktop.value) {
           const comment = document.querySelector<HTMLTextAreaElement>('#opportunity-comment')!;
           const evaluation = 'Swipe navigation preserves this evaluation.';
@@ -456,8 +461,37 @@ const Fixture = defineComponent({
         }
         document.querySelector<HTMLButtonElement>('.jobs-detail-action')!.click();
         await until(() => tab.value === 'applications' && !listVisible() && detailTitle() === opportunityTitles[0], 'Apply must still navigate directly to the created application.');
+        const evaluationSection = document.querySelector<HTMLDetailsElement>('.application-evaluation');
+        assert(evaluationSection && evaluationSection === document.querySelector('.preparation-stage details'), 'Personal Evaluation must be the first collapsible in Preparation.');
+        assert(evaluationSection.open, 'Personal Evaluation must be expanded initially on both layouts.');
+        const applicationComment = evaluationSection.querySelector<HTMLTextAreaElement>('textarea')!;
+        const savedComment = () => database.opportunity_reviews.find(row => row.opportunity_id === firstOpportunityId)?.comment;
+        assert(applicationComment.value === savedComment(), 'Application Preparation must load the existing opportunity evaluation.');
+        evaluationSection.querySelector('summary')!.click();
+        await until(() => !evaluationSection.open, 'Personal Evaluation must collapse when its heading is clicked.');
+        evaluationSection.querySelector('summary')!.click();
+        await until(() => evaluationSection.open && applicationComment.getClientRects().length, 'Personal Evaluation must reopen without losing its editor.');
+        const beforeTyping = savedComment();
+        applicationComment.value = 'Updated in application preparation.';
+        applicationComment.dispatchEvent(new Event('input', { bubbles: true })); await settle();
+        assert(savedComment() === beforeTyping, 'Typing in the application evaluation must not save per character.');
+        applicationComment.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await until(() => savedComment() === 'Updated in application preparation.', 'Enter must save the shared personal evaluation.');
+        const stageButtons = [...document.querySelectorAll<HTMLButtonElement>('.workspace-subtabs button')];
+        assert(stageButtons.length === 4, 'All four application stage controls must remain available in the navigation bar or sidebar.');
+        applicationComment.value = 'Evaluation retained when changing preparation stage.';
+        applicationComment.dispatchEvent(new Event('input', { bubbles: true }));
+        stageButtons[1].click();
+        await until(() => stageButtons[1].getAttribute('aria-pressed') === 'true' && savedComment() === applicationComment.value, 'Changing stage must commit and save the evaluation before leaving Preparation.');
+        stageButtons[0].click();
+        await until(() => stageButtons[0].getAttribute('aria-pressed') === 'true', 'Preparation must remain accessible after saving.');
+        assert(applicationComment.value === savedComment(), 'Returning to Preparation must preserve the evaluation.');
         await navigate('applications');
         assert(rows().length === 3, 'The created application must join the list.');
+        const preparedApplication = database.applications.find(row => row.opportunity_id === firstOpportunityId)!;
+        const evaluationCard = rows().find(row => row.dataset.itemId === preparedApplication.id)?.querySelector<HTMLElement>('.jobs-card-evaluation');
+        assert(evaluationCard && evaluationCard.textContent?.trim() === savedComment(), 'The application card must share the saved personal evaluation.');
+        assert(Boolean(evaluationCard.getClientRects().length) === !desktop.value, 'List evaluation text remains mobile-only.');
         const applicationTitles = rows().map(row => row.querySelector('strong')?.textContent);
         const applicationIds = rows().map(row => row.dataset.itemId!);
         await openRow(0);
@@ -471,7 +505,7 @@ const Fixture = defineComponent({
           await until(() => detailTitle() === applicationTitles[0], 'A right swipe must open the previous application.');
         }
         await navigate('applications');
-        draftStatus.value = `PASS: ${desktop.value ? 'Desktop' : 'Mobile'} lists, workspace clicks, application creation${desktop.value ? '' : ', cards and horizontal swipes'}.`;
+        draftStatus.value = `PASS: ${desktop.value ? 'Desktop' : 'Mobile'} lists, workspace clicks, application creation, preparation evaluation${desktop.value ? '' : ', cards and horizontal swipes'}.`;
         document.body.dataset.navigationTest = 'passed';
       } catch (cause) {
         draftStatus.value = `FAIL: ${cause instanceof Error ? cause.message : String(cause)}`;
