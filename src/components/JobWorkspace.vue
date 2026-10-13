@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { faFilter } from '@fortawesome/free-solid-svg-icons';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CvState, SavedConfiguration } from '../types';
 import type { Application, Opportunity, OpportunityReviewState } from '../cloudTypes';
@@ -454,7 +455,7 @@ useToastWatch(() => notice.value, () => {
     <DesktopSidebarPortal area="major" :active="props.active !== false && !showingDetail">
     <div v-show="!showingDetail" class="jobs-toolbar jobs-sidebar-controls" :class="{ 'jobs-toolbar--sidebar': sidebarActive }" @keydown.esc="closeFilters">
       <label class="jobs-search"><span>{{ text('Search', 'Suchen') }}</span><input v-model="query" type="search" :placeholder="tab === 'applications' ? text('Title, institution or application ID…', 'Titel, Einrichtung oder Bewerbungs-ID…') : text('Title, institution or country…', 'Titel, Einrichtung oder Land…')" /></label>
-      <button ref="filterToggle" class="btn jobs-filter-toggle" type="button" :aria-expanded="filtersOpen" :aria-controls="`jobs-${tab}-filters`" @click="filtersOpen = !filtersOpen">{{ text('Filters', 'Filter') }}</button>
+      <button ref="filterToggle" class="btn jobs-filter-toggle" type="button" :aria-label="text('Filters', 'Filter')" :title="text('Filters', 'Filter')" :aria-expanded="filtersOpen" :aria-controls="`jobs-${tab}-filters`" @click="filtersOpen = !filtersOpen"><font-awesome-icon :icon="faFilter" aria-hidden="true" /></button>
       <div :id="`jobs-${tab}-filters`" class="jobs-filters" :class="{ 'is-open': filtersOpen }">
         <template v-if="tab === 'opportunities'">
         <label>{{ text('Review state', 'Bewertung') }}<select v-model="reviewFilter"><option value="all">{{ text('All review states', 'Alle Bewertungen') }}</option><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
@@ -731,7 +732,7 @@ tr.is-expanded { background: var(--ui-active); }
   .jobs-heading p { font-size: 12px; }
   .jobs-toolbar { position: fixed; left: 0; right: 0; bottom: var(--mobile-tabs-height, 76px); z-index: 35; height: var(--mobile-context-row-height, 52px); box-sizing: border-box; align-items: center; margin: 0; padding: 3px max(8px, env(safe-area-inset-right, 0px)) 3px max(8px, env(safe-area-inset-left, 0px)); border-top: 1px solid var(--ui-border); background: var(--ui-shell); }
   .jobs-toolbar > :not(.jobs-search) { display: none; }
-  .jobs-toolbar > .jobs-filter-toggle { display: block; flex-shrink: 0; min-height: 44px; }
+  .jobs-toolbar > .jobs-filter-toggle { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 44px; min-height: 44px; padding: 10px; }
   .jobs-toolbar:has(.jobs-filter-toggle) .jobs-search { flex-basis: 0; }
   .jobs-toolbar > .jobs-filters.is-open { display: grid; position: absolute; bottom: 100%; left: 0; right: 0; max-height: calc(100dvh - var(--mobile-tabs-height, 76px) - var(--mobile-context-row-height, 52px) - env(safe-area-inset-top, 0px) - 12px); overflow: auto; overscroll-behavior: contain; gap: 14px; padding: 16px max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px)); border-top: 1px solid var(--ui-border); background: var(--ui-shell); box-shadow: 0 -8px 24px rgb(0 0 0 / 25%); }
   .jobs-filters :is(select, .jobs-check) { min-height: 44px; }
