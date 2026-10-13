@@ -29,7 +29,7 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   let unmount = () => {};
   t.after(() => unmount());
   for (const [key, value] of Object.entries({
-    window: { setInterval: () => 1, clearInterval() {} },
+    window: { setInterval: () => 1, clearInterval() {}, matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }) },
     sessionStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
   })) {
     const previous = Object.getOwnPropertyDescriptor(globalThis, key);
@@ -851,11 +851,11 @@ test('strong-fit scores use the requested color boundaries without fabricating m
     opportunities.value = [item];
     const parsed = setup.fitScoreById.get(item.id);
     assert.equal(setup.fitTone(parsed), tone, String(score));
-    assert.equal(setup.fitLabel(parsed), score === undefined || score === 11 ? '' : `${score} / 10`);
+    assert.equal(setup.fitLabel(parsed), score === undefined || score === 11 ? '' : String(score));
   }
   props.lang = 'de';
   await nextTick();
-  assert.equal(setup.fitLabel(9.6), '9,6 / 10');
+  assert.equal(setup.fitLabel(9.6), '9,6');
 });
 
 test('only unseen additions and updates from the last 24 hours form a separate group', async (t) => {

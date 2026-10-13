@@ -23,6 +23,8 @@ import { useToasts, useToastWatch } from '../composables/useToasts';
 import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
 import { useDesktopSidebar } from '../composables/desktopSidebar';
 import { createJobSwipe } from '../composables/jobSwipe';
+import { createJobCardSwipe } from '../composables/jobCardSwipe';
+import { useJobCardTrackHeight } from '../composables/useJobCardTrackHeight';
 import { commitPendingTextareas } from '../composables/textareaCommit';
 
 const props = withDefaults(defineProps<{
@@ -91,7 +93,16 @@ const unseenById = computed(() => new Map(opportunities.value.map((item) => {
   return [item.id, hasReviewedOpportunity(item, reviewedVersion) || visitedWithoutVersion ? null : recencyById.value.get(item.id) || (reviewedVersion ? 'updated' : 'new')];
 })));
 const fitScoreById = computed(() => new Map(opportunities.value.map((item) => [item.id, personalFitScore(item.details.personal_fit ?? item.data.personal_fit)])));
-function fitLabel(score: number | undefined) { return score === undefined ? '' : `${props.lang === 'de' ? String(score).replace('.', ',') : score} / 10`; }
+function researchSummary(item: Opportunity): string {
+  const value = item.details.research_summary ?? item.data.research_summary;
+  return typeof value === 'string' ? value.trim() : Array.isArray(value)
+    ? value.filter((part): part is string => typeof part === 'string').join('\n') : '';
+}
+function opportunityLocation(item: Opportunity): string {
+  const location = item.details.location ?? item.data.location ?? item.details.city ?? item.data.city;
+  return [...new Set([typeof location === 'string' ? location.trim() : '', item.country].filter(Boolean))].join(', ') || '—';
+}
+function fitLabel(score: number | undefined) { return score === undefined ? '' : props.lang === 'de' ? String(score).replace('.', ',') : String(score); }
 const reviewState = (id: string): OpportunityReviewState => reviewById.value.get(id)?.state || 'unreviewed';
 const applicationByOpportunity = computed(() => new Map(applications.value.map((item) => [item.opportunity_id, item])));
 const filteredOpportunities = computed(() => {
@@ -176,6 +187,7 @@ watch([() => props.userId, selectedOpportunityId, () => props.tab, () => props.a
   });
 onBeforeUnmount(clearCommentToast);
 const showingDetail = computed(() => props.tab === 'opportunities' ? Boolean(selectedOpportunity.value) : Boolean(editingApplication.value));
+useJobCardTrackHeight(tableScroll, () => props.active !== false && !showingDetail.value);
 const statusNames: Record<string, [string, string]> = {
   unreviewed: ['Not reviewed', 'Ungeprüft'], interested: ['Interested', 'Interessant'], strong_interest: ['Strong interest', 'Starkes Interesse'], not_interested: ['Not interesting', 'Nicht interessant'],
 };
@@ -357,8 +369,13 @@ const swipe = createJobSwipe({
     && window.matchMedia('(max-width: 760px)').matches,
   onSwipe: direction => { void navigateDetail(direction); },
 });
-watch([() => props.tab, () => props.active, () => props.userId, selectedOpportunityId, editingId], () => { swipe.cancel(); cancelSwipeTransition(); });
-onBeforeUnmount(() => { swipe.cancel(); cancelSwipeTransition(); });
+const cardSwipe = createJobCardSwipe({
+  enabled: () => props.active !== false && !showingDetail.value && !filtersOpen.value
+    && window.matchMedia('(max-width: 760px)').matches,
+  root: () => tableScroll.value,
+});
+watch([() => props.tab, () => props.active, () => props.userId, selectedOpportunityId, editingId], () => { swipe.cancel(); cardSwipe.cancel(); cancelSwipeTransition(); });
+onBeforeUnmount(() => { swipe.cancel(); cardSwipe.cancel(); cancelSwipeTransition(); });
 async function toggleApplication(application: Application) {
   if (saving.value) return;
   formError.value = '';
@@ -477,22 +494,24 @@ useToastWatch(() => notice.value, () => {
       <span class="jobs-count">{{ tab === 'opportunities' ? filteredOpportunities.length : filteredApplications.length }} {{ text('results', 'Ergebnisse') }}</span>
     </div>
     </DesktopSidebarPortal>
-    <div v-show="!showingDetail" ref="tableScroll" class="jobs-table-scroll" tabindex="0" :aria-label="text('Job results', 'Stellen und Bewerbungen')">
+    <div v-show="!showingDetail" ref="tableScroll" class="jobs-table-scroll" :class="{ 'jobs-table-scroll--opportunities': tab === 'opportunities' }" tabindex="0" :aria-label="text('Job results', 'Stellen und Bewerbungen')"
+      @touchstart.passive="cardSwipe.onTouchStart" @touchmove="cardSwipe.onTouchMove" @touchend.passive="cardSwipe.onTouchEnd" @touchcancel.passive="cardSwipe.cancel" @wheel.passive="cardSwipe.onWheel" @click.capture="cardSwipe.onClickCapture">
       <table v-if="tab === 'opportunities'" class="jobs-opportunities-table">
         <colgroup><col style="width: 38%" /><col style="width: 25%" /><col style="width: 10%" /><col style="width: 12%" /><col style="width: 15%" /></colgroup>
         <thead><tr><th scope="col">{{ text('Opportunity', 'Stelle') }}</th><th scope="col">{{ text('Topics', 'Themen') }}</th><th scope="col">{{ text('Country', 'Land') }}</th><th scope="col">{{ text('Deadline', 'Frist') }}</th><th scope="col">{{ text('Your review', 'Deine Bewertung') }}</th></tr></thead>
+        <tbody v-if="filteredOpportunities.length" class="jobs-card-track">
         <template v-for="group in opportunityGroups" :key="group.key">
-        <tbody v-if="group.title" class="jobs-card-group-heading"><tr class="jobs-group-row" :data-opportunity-group="group.key"><th scope="rowgroup" colspan="5">{{ group.title }} <span>{{ group.items.length }}</span></th></tr></tbody>
-        <tbody class="jobs-card-track">
+          <tr v-if="group.title" class="jobs-group-row" :data-opportunity-group="group.key"><th scope="rowgroup" colspan="5">{{ group.title }} <span>{{ group.items.length }}</span></th></tr>
           <template v-for="item in group.items" :key="item.id">
           <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'jobs-opportunity--new': recencyById.get(item.id) === 'new', 'jobs-opportunity--updated': recencyById.get(item.id) === 'updated', 'jobs-opportunity--unseen-new': unseenById.get(item.id) === 'new', 'jobs-opportunity--unseen-updated': unseenById.get(item.id) === 'updated' }" @click="openOpportunity(item.id)">
             <td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :aria-label="`${text('Open opportunity:', 'Stelle öffnen:')} ${item.title}`" @click.stop="openOpportunity(item.id)"><strong>{{ item.title }}</strong></button><span class="jobs-subline">{{ item.university || '—' }}</span><div v-if="recencyById.get(item.id) || (item.particularly_suitable && fitScoreById.get(item.id) !== undefined)" class="jobs-opportunity-badges"><span v-if="recencyById.get(item.id)" class="jobs-badge" :class="`jobs-badge--${recencyById.get(item.id)}`" :title="recencyById.get(item.id) === 'new' ? text('Added within the last 24 hours', 'In den letzten 24 Stunden hinzugefügt') : text('Updated within the last 24 hours', 'In den letzten 24 Stunden aktualisiert')">{{ recencyById.get(item.id) === 'new' ? text('New · 24h', 'Neu · 24 Std.') : text('Updated · 24h', 'Aktualisiert · 24 Std.') }}</span><span v-if="item.particularly_suitable && fitScoreById.get(item.id) !== undefined" class="jobs-badge jobs-fit-score" :class="fitTone(fitScoreById.get(item.id)) && `jobs-fit-score--${fitTone(fitScoreById.get(item.id))}`" :aria-label="`${text('Personal fit', 'Persönliche Passung')}: ${fitLabel(fitScoreById.get(item.id))}`" :title="text('Personal fit score', 'Bewertung der persönlichen Passung')">{{ fitLabel(fitScoreById.get(item.id)) }}</span></div></td>
+            <td v-if="researchSummary(item)" class="jobs-card-summary jobs-cell-wide"><p>{{ researchSummary(item) }}</p></td>
             <td class="jobs-topics jobs-cell-wide" :data-label="text('Topics', 'Themen')">{{ item.topics.join(' · ') || '—' }}</td>
-            <td :data-label="text('Country', 'Land')">{{ item.country || '—' }}</td><td :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.details, now) }">{{ formatOpportunityDeadline(item.details, lang) }}</span></td>
+            <td class="jobs-card-location" :data-label="text('Country', 'Land')" :data-mobile-label="text('Location', 'Ort')"><span class="jobs-card-country">{{ item.country || '—' }}</span><span class="jobs-card-location-text">{{ opportunityLocation(item) }}</span></td><td class="jobs-card-deadline" :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.details, now) }">{{ formatOpportunityDeadline(item.details, lang) }}</span></td>
             <td class="jobs-cell-state" :data-label="text('Your review', 'Deine Bewertung')" @click.stop><select class="jobs-review-select" :aria-label="`${text('Review state for', 'Bewertung für')} ${item.title}`" :value="reviewState(item.id)" :disabled="saving" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></td>
             <td v-if="reviewById.get(item.id)?.comment?.trim()" class="jobs-cell-wide jobs-card-evaluation" :data-label="text('Personal Evaluation', 'Persönliche Einschätzung')"><p>{{ reviewById.get(item.id)?.comment }}</p></td>
           </tr>
-        </template></tbody></template><tbody v-if="!filteredOpportunities.length"><tr><td colspan="5" class="jobs-empty"><p :class="{ 'app-hint': !loading }">{{ loading ? text('Loading opportunities…', 'Stellenangebote werden geladen…') : text('No matching opportunities. Adjust the deadline, application, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewerbungs-, Bewertungs- oder Suchfilter.') }}</p></td></tr></tbody>
+        </template></template></tbody><tbody v-if="!filteredOpportunities.length"><tr><td colspan="5" class="jobs-empty"><p :class="{ 'app-hint': !loading }">{{ loading ? text('Loading opportunities…', 'Stellenangebote werden geladen…') : text('No matching opportunities. Adjust the deadline, application, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewerbungs-, Bewertungs- oder Suchfilter.') }}</p></td></tr></tbody>
       </table>
       <table v-else class="jobs-applications-table">
         <colgroup><col style="width: 48%" /><col style="width: 18%" /><col style="width: 22%" /><col style="width: 12%" /></colgroup>
@@ -640,7 +659,7 @@ td a { color: var(--ui-accent); overflow-wrap: anywhere; }
 .jobs-application-deadline :deep(.application-deadline-calendar) { max-width: 100%; }
 .jobs-subline { display: block; margin-top: 5px; color: var(--ui-muted); font-size: 11px; }
 .jobs-topics { min-width: 130px; max-width: 220px; color: var(--ui-muted); }
-.jobs-workspace .jobs-card-evaluation { display: none; }
+.jobs-workspace .jobs-card-evaluation, .jobs-workspace .jobs-card-summary, .jobs-card-location-text { display: none; }
 .jobs-workspace .jobs-review-select, .jobs-workspace .jobs-row-select { width: 100%; min-width: 0; padding: 7px 5px; font-size: 11px; cursor: pointer; }
 .jobs-removal-confirm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; color: #fecaca; }
 .jobs-removal-confirm p { flex: 1; min-width: 240px; margin: 0; }
@@ -741,16 +760,19 @@ tr.is-expanded { background: var(--ui-active); }
   .jobs-search > span { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .jobs-workspace :is(input, select, textarea) { font-size: 16px; }
   .jobs-workspace label { font-size: 14px; }
-  .jobs-workspace > .jobs-table-scroll { padding: 2px 2px 12px; scrollbar-gutter: auto; }
+  .jobs-workspace > .jobs-table-scroll { padding: 2px; scrollbar-gutter: auto; }
+  .jobs-workspace > .jobs-table-scroll--opportunities { scrollbar-width: none; }
+  .jobs-table-scroll--opportunities::-webkit-scrollbar { display: none; }
   .jobs-workspace .jobs-card-track {
     display: flex;
     align-items: flex-start;
     gap: 12px;
     width: 100%;
+    height: var(--jobs-card-track-height, auto);
     box-sizing: border-box;
     margin-top: 0;
-    padding: 2px 2px 10px;
     overflow-x: auto;
+    overflow-y: hidden;
     scroll-snap-type: x mandatory;
     scroll-padding-inline: 2px;
     overscroll-behavior-x: contain;
@@ -763,8 +785,7 @@ tr.is-expanded { background: var(--ui-active); }
     scroll-snap-align: start;
     scroll-snap-stop: always;
   }
-  .jobs-workspace .jobs-card-track > .jobs-result-row:only-child { flex-basis: 100%; }
-  .jobs-workspace .jobs-card-group-heading { margin-top: 0; margin-bottom: 6px; }
+  .jobs-workspace .jobs-card-track:not(:has(> .jobs-result-row ~ .jobs-result-row)) > .jobs-result-row { flex-basis: 100%; }
   table { font-size: 14px; }
   .jobs-row-toggle { min-height: 44px; align-items: center; font-size: 16px; line-height: 1.35; }
   .jobs-workspace .jobs-row-toggle:focus-visible { outline-offset: -2px; }
@@ -774,20 +795,35 @@ tr.is-expanded { background: var(--ui-active); }
   .jobs-workspace .jobs-group-row th { font-size: 15px; padding: 12px 2px 4px; border: 0; background: transparent; }
   table tbody { gap: 12px; }
   table tr { column-gap: 0; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface); }
-  table .jobs-group-row { border: 0; border-radius: 0; background: transparent; }
+  table .jobs-group-row { display: none; }
   .jobs-workspace td { padding: 10px 14px; }
   .jobs-workspace .jobs-cell-state { display: none; }
   .jobs-workspace .jobs-application-state { display: flex; padding-top: 0; }
   .jobs-workspace .jobs-cell-heading { padding-top: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--ui-divider); background: rgb(220 230 226 / 4%); }
   .jobs-cell-heading :deep(.application-identifier) { margin-top: 8px; }
-  .jobs-opportunity-badges { margin-top: 8px; }
+  .jobs-opportunities-table .jobs-cell-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; }
+  .jobs-opportunities-table .jobs-cell-heading > .jobs-row-toggle { grid-area: 1 / 1 / 2 / -1; }
+  .jobs-opportunities-table .jobs-cell-heading > .jobs-subline { grid-area: 3 / 1; align-self: end; }
+  .jobs-opportunity-badges { display: contents; }
+  .jobs-opportunity-badges > .jobs-badge:not(.jobs-fit-score) { grid-area: 2 / 1 / 3 / -1; justify-self: start; margin: 4px 0 2px; }
+  .jobs-opportunity-badges > .jobs-fit-score { grid-area: 3 / 2; align-self: end; justify-self: end; margin: 0; }
   .jobs-opportunity--unseen-new { border-width: 2px; border-color: #55b6ff; }
   .jobs-opportunity--unseen-updated { border-width: 2px; border-color: #f2d24f; }
   .jobs-opportunity--unseen-new > td:first-child, .jobs-opportunity--unseen-updated > td:first-child { box-shadow: none; }
   .jobs-result-row:active { background: var(--ui-active); }
   .jobs-workspace .jobs-cell-contacts .jobs-subline:first-child { margin-top: 0; }
   .jobs-workspace .jobs-card-evaluation { display: block; border-top: 1px solid var(--ui-divider); }
-  .jobs-card-evaluation p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; }
+  .jobs-workspace .jobs-card-summary { display: block; }
+  .jobs-card-evaluation p, .jobs-card-summary p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; }
+  .jobs-opportunities-table .jobs-cell-heading { order: 0; }
+  .jobs-card-summary { order: 1; }
+  .jobs-card-deadline { order: 2; }
+  .jobs-card-location { order: 3; }
+  .jobs-workspace .jobs-card-location::before { content: attr(data-mobile-label); }
+  .jobs-card-country { display: none; }
+  .jobs-card-location-text { display: inline; }
+  .jobs-opportunities-table .jobs-card-evaluation { order: 4; }
+  .jobs-opportunities-table .jobs-topics { order: 5; border-top: 1px solid var(--ui-divider); }
   .jobs-opportunities-table { font-size: 14px; }
   .jobs-opportunities-table .jobs-row-toggle { font-size: 16px; }
   .jobs-opportunities-table .jobs-subline { font-size: 13px; }

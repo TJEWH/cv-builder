@@ -32,6 +32,9 @@ if (!import.meta.env.DEV) throw new Error('The browser fixture is available only
 
 type Row = Record<string, unknown>;
 const account = '90000000-0000-4000-8000-000000000001';
+if (new URLSearchParams(location.search).get('flow') === 'job-navigation') {
+  for (const key of ['CV_SELECTED_OPPORTUNITY', 'CV_SELECTED_APPLICATION']) sessionStorage.removeItem(`${key}:${account}`);
+}
 const now = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 const recent = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
 const database: Record<string, Row[]> = {
@@ -76,7 +79,9 @@ const database: Record<string, Row[]> = {
     { id: '10000000-0000-4000-8000-000000000006', opportunity_key: 'older-unseen', title: 'Applied Robotics Fellowship', institution: 'Example Institute', country: 'Denmark', deadline: null, topics: ['Robotics'], particularly_suitable: true, personal_fit: { score: 9.5 }, created_at: now, updated_at: now },
     { id: '10000000-0000-4000-8000-000000000007', opportunity_key: 'older-update', title: 'Control Systems Researcher', institution: 'Synthetic Science University', country: 'Finland', deadline: null, topics: ['Control'], particularly_suitable: true, personal_fit: { score: 9.4 }, created_at: '2025-01-01T12:00:00Z', updated_at: now },
     { id: '10000000-0000-4000-8000-000000000008', opportunity_key: 'already-viewed', title: 'Reviewed AI Fellowship', institution: 'Synthetic Science University', country: 'Germany', deadline: null, topics: ['AI'], particularly_suitable: false, personal_fit: { score: 9.8 }, created_at: now, updated_at: recent },
-    { id: '10000000-0000-4000-8000-000000000009', opportunity_key: 'unknown-fit', title: 'Research Assistant — Fit not scored', institution: 'Example Institute', country: 'France', deadline: null, topics: ['Research'], particularly_suitable: true, created_at: now, updated_at: now },
+    { id: '10000000-0000-4000-8000-000000000009', opportunity_key: 'unknown-fit', title: 'Research Assistant — Fit not scored', institution: 'Example Institute', country: 'France', deadline: null, topics: ['Research'], particularly_suitable: true,
+      research_summary: Array.from({ length: 8 }, () => 'This synthetic project combines experimental research, collaborative analysis and the development of reproducible methods.').join('\n\n'),
+      created_at: now, updated_at: now },
   ],
   applications: [],
   cv_variants: [],
@@ -379,48 +384,146 @@ const Fixture = defineComponent({
           return;
         }
         const outer = document.querySelector<HTMLElement>('.jobs-table-scroll')!;
+        const atTop = (track: HTMLElement) => Math.abs(track.getBoundingClientRect().top - outer.getBoundingClientRect().top
+          - outer.clientTop - parseFloat(getComputedStyle(outer).paddingTop)) < 2;
         assert(outer.scrollWidth <= outer.clientWidth + 1, 'Horizontal card scrolling must stay inside each track.');
+        assert(tracks.length === 1, 'All mobile results must share one continuous swipe row.');
+        if (tab.value === 'opportunities') {
+          assert(getComputedStyle(outer).scrollbarWidth === 'none', 'The mobile opportunity list must hide its vertical scrollbar.');
+          const recentFlags = rows().map(row => row.matches('.jobs-opportunity--new, .jobs-opportunity--updated'));
+          const firstOther = recentFlags.indexOf(false);
+          assert(firstOther < 0 || recentFlags.slice(firstOther).every(recent => !recent), 'New and updated cards must precede all other opportunities.');
+        }
         for (const track of tracks) {
           const style = getComputedStyle(track);
           assert(['auto', 'scroll'].includes(style.overflowX) && style.scrollSnapType.startsWith('x'), 'Mobile card tracks must scroll and snap horizontally.');
-          assert(!track.querySelector('.jobs-group-row'), 'Opportunity group labels must stay outside the swiping cards.');
+          assert([...track.querySelectorAll<HTMLElement>('.jobs-group-row')].every(heading => !heading.getClientRects().length),
+            'Mobile opportunity cards must not have separate group headings.');
           for (const row of track.querySelectorAll<HTMLElement>('.jobs-result-row')) {
             assert(getComputedStyle(row).display !== 'table-row' && getComputedStyle(row).scrollSnapAlign.includes('start'), 'Mobile entries must be cards with start snap points.');
           }
+        }
+        const longTrack = tracks.find(item => item.querySelectorAll('.jobs-result-row').length >= 4);
+        if (longTrack) {
+          const cards = [...longTrack.querySelectorAll<HTMLElement>('.jobs-result-row')];
+          const tallCard = cards.at(-1)!;
+          const tallHeight = tallCard.getBoundingClientRect().height;
+          assert(tallHeight > cards[0].getBoundingClientRect().height * 2, 'The fixture must include a distant card with much longer content.');
+          await until(() => longTrack.clientHeight < tallHeight - 100, 'A distant tall card must not inflate the current card row.');
+          const compactScrollHeight = outer.scrollHeight;
+          const adjacent = cards.at(-2)!;
+          longTrack.scrollTo({ left: longTrack.scrollLeft + adjacent.getBoundingClientRect().left - longTrack.getBoundingClientRect().left - 2, behavior: 'instant' });
+          const trackPadding = parseFloat(getComputedStyle(longTrack).paddingTop) + parseFloat(getComputedStyle(longTrack).paddingBottom);
+          await until(() => Math.abs(longTrack.clientHeight - adjacent.getBoundingClientRect().height - trackPadding) <= 1,
+            'The row must match the current card even with a tall card immediately beside it.');
+          assert(outer.scrollHeight <= compactScrollHeight + 1, 'A tall adjacent card must not create extra vertical scrolling.');
+          longTrack.scrollTo({ left: longTrack.scrollWidth, behavior: 'instant' });
+          await until(() => Math.abs(longTrack.clientHeight - tallHeight - trackPadding) <= 1,
+            'The row must expand to the tall card only when it becomes current.');
+          assert(outer.scrollHeight > compactScrollHeight, 'The current tall card must be fully scrollable.');
+          outer.scrollTop = 120;
+          await settle();
+          assert(longTrack.getBoundingClientRect().top < outer.getBoundingClientRect().top - 80, 'The fixture must start reading partway down a card.');
+          const nativeOffset = longTrack.scrollLeft;
+          const previousOffset = longTrack.scrollLeft + adjacent.getBoundingClientRect().left - longTrack.getBoundingClientRect().left - 2;
+          await swipe(tallCard, 160, 0, outer.getBoundingClientRect().top + 40, {
+            afterMove(event) {
+              assert(!event.defaultPrevented, 'Touches inside a card must retain native horizontal dragging.');
+              assert(atTop(longTrack),
+                'Native card swipes must reset to the top before the first horizontal movement.');
+              assert(longTrack.scrollLeft === nativeOffset, 'Resetting vertically must precede native horizontal scrolling.');
+              // Synthetic touch events have no native scroll default action.
+              longTrack.scrollTo({ left: previousOffset, behavior: 'instant' });
+            },
+          });
+          await until(() => Math.abs(longTrack.clientHeight - adjacent.getBoundingClientRect().height - trackPadding) <= 1,
+            'Leaving the tall card must immediately restore the short card height.');
+          assert(atTop(longTrack),
+            'The incoming card must remain at the top throughout the swipe.');
+          longTrack.scrollTo({ left: longTrack.scrollWidth, behavior: 'instant' });
+          await until(() => longTrack.clientHeight >= tallHeight, 'The tall card must remain horizontally reachable and not clipped.');
+          outer.scrollTop += 120;
+          await settle();
+          const readingPosition = outer.scrollTop;
+          await swipe(tallCard, -10, 100, outer.getBoundingClientRect().top + 40);
+          assert(outer.scrollTop === readingPosition, 'Vertical reading inside a card must not reset its position.');
+          await swipe(outer, -10, 100, outer.getBoundingClientRect().top + 40);
+          assert(outer.scrollTop === readingPosition, 'Vertical reading must not trigger a jump to the top.');
+          await swipe(outer, 160, 0, outer.getBoundingClientRect().top + 40, {
+            afterEnd() {
+              assert(atTop(longTrack),
+                'Surrounding-area swipes must reset before their smooth horizontal transition, without a settling timer.');
+            },
+          });
+          await until(() => Math.abs(longTrack.scrollLeft - previousOffset) < 2
+            && atTop(longTrack)
+            && Math.abs(longTrack.clientHeight - adjacent.getBoundingClientRect().height - trackPadding) <= 1,
+          'Swiping back from surrounding space must also return the previous card to the top.');
+          longTrack.scrollTo({ left: 0, behavior: 'instant' });
+          await until(() => longTrack.clientHeight < tallHeight - 100 && outer.scrollHeight <= compactScrollHeight + 1,
+            'Returning to short cards must remove the extra vertical scrolling space.');
         }
         const track = tracks.find(item => item.querySelectorAll('.jobs-result-row').length > 1);
         assert(track, 'The fixture must include multiple cards in a track.');
         assert(track.scrollWidth > track.clientWidth, 'Adjacent cards must overflow their horizontal track.');
         const cards = [...track.querySelectorAll<HTMLElement>('.jobs-result-row')];
         const card = cards[1];
-        const heading = track.previousElementSibling?.querySelector('.jobs-group-row');
-        const headingLeft = heading?.getBoundingClientRect().left;
         const padding = parseFloat(getComputedStyle(track).scrollPaddingLeft) || 0;
         const target = card.getBoundingClientRect().left - track.getBoundingClientRect().left + track.scrollLeft - padding;
+        const snappedTarget = Math.min(target, track.scrollWidth - track.clientWidth);
         track.scrollLeft = target;
         await until(() => track.scrollLeft > 0 && card.getBoundingClientRect().left >= track.getBoundingClientRect().left - 1
           && card.getBoundingClientRect().right <= track.getBoundingClientRect().right + 1, 'Horizontal scrolling must reveal the next card.');
         assert(listVisible(), 'Scrolling list cards must keep the list open.');
-        if (heading) assert(heading.getBoundingClientRect().left === headingLeft, 'Group labels must remain stationary while their cards scroll.');
         track.scrollLeft = 0;
         await settle();
+        const swipeY = Math.max(outer.getBoundingClientRect().top + 1, track.getBoundingClientRect().top + 1);
+        await swipe(outer, -160, 0, swipeY);
+        await until(() => Math.abs(track.scrollLeft - snappedTarget) < 2, 'Swiping the surrounding results area must advance the nearest card row.');
+        await swipe(outer, 160, 0, swipeY);
+        await until(() => track.scrollLeft < 2, 'A reverse swipe in the surrounding space must return to the previous card.');
+        await swipe(outer, 160, 0, swipeY);
+        assert(track.scrollLeft < 2, 'Swiping past the first card must stay at the start.');
+        await swipe(outer, -10, 150, swipeY);
+        assert(track.scrollLeft < 2, 'Vertical scrolling in the surrounding space must not change cards.');
         const selectedId = card.dataset.itemId!;
         await openRow(rows().indexOf(card));
         await navigate(tab.value);
         await assertReturnedCard(selectedId);
       };
-      const swipe = async (target: HTMLElement, dx: number, dy = 0) => {
-        const startX = dx < 0 ? 250 : 90, startY = 260;
+      const swipe = async (target: HTMLElement, dx: number, dy = 0, startY = 260, observe: {
+        afterMove?: (event: TouchEvent) => void; afterEnd?: () => void;
+      } = {}) => {
+        const startX = dx < 0 ? 250 : 90;
         const touch = (x: number, y: number) => new Touch({ identifier: 1, target, clientX: x, clientY: y });
         const start = touch(startX, startY), end = touch(startX + dx, startY + dy);
         target.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [start], changedTouches: [start] }));
-        target.dispatchEvent(new TouchEvent('touchmove', { bubbles: true, cancelable: true, touches: [end], changedTouches: [end] }));
+        const move = new TouchEvent('touchmove', { bubbles: true, cancelable: true, touches: [end], changedTouches: [end] });
+        target.dispatchEvent(move);
+        observe.afterMove?.(move);
         target.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], changedTouches: [end] }));
+        observe.afterEnd?.();
         await settle();
       };
       document.body.dataset.navigationTest = 'running';
       try {
         for (const key of ['CV_SELECTED_OPPORTUNITY', 'CV_SELECTED_APPLICATION']) sessionStorage.removeItem(`${key}:${account}`);
+        await until(() => rows().length && listVisible(), 'Opportunity cards must load.');
+        const researchCard = rows().find(row => row.dataset.itemId === database.opportunities[0].id)!;
+        const summary = researchCard.querySelector<HTMLElement>('.jobs-card-summary')!;
+        assert(summary.textContent?.includes('Study how robots'), 'The mobile card must retain its research summary.');
+        if (desktop.value) {
+          assert(!summary.getClientRects().length, 'Desktop tables must keep their existing columns.');
+        } else {
+          const header = researchCard.querySelector('.jobs-cell-heading')!.getBoundingClientRect();
+          const deadline = researchCard.querySelector('.jobs-card-deadline')!.getBoundingClientRect();
+          const location = researchCard.querySelector('.jobs-card-location')!.getBoundingClientRect();
+          const topics = researchCard.querySelector('.jobs-topics')!.getBoundingClientRect();
+          assert(summary.getBoundingClientRect().top >= header.bottom && deadline.top >= summary.getBoundingClientRect().bottom,
+            'Research summary must appear directly after the header, before deadline and location.');
+          assert(deadline.top === location.top && deadline.left < location.left && topics.top >= deadline.bottom,
+            'Deadline must precede location, with topics below them.');
+        }
         for (const opportunity of database.opportunities.slice(0, 2)) {
           await client.rpc('create_job_application', { p_application_id: crypto.randomUUID(), p_opportunity_id: opportunity.id });
         }
@@ -460,6 +563,11 @@ const Fixture = defineComponent({
           assert(database.opportunity_reviews.find(row => row.opportunity_id === firstOpportunityId)?.comment === evaluation, 'Swiping must save the outgoing evaluation.');
           await navigate('opportunities');
           await assertReturnedCard(opportunityIds[1]);
+          const evaluatedCard = rows().find(row => row.dataset.itemId === firstOpportunityId)!;
+          const evaluationBounds = evaluatedCard.querySelector('.jobs-card-evaluation')!.getBoundingClientRect();
+          assert(evaluationBounds.top >= evaluatedCard.querySelector('.jobs-card-location')!.getBoundingClientRect().bottom
+            && evaluatedCard.querySelector('.jobs-topics')!.getBoundingClientRect().top >= evaluationBounds.bottom,
+          'Personal evaluation must sit below deadline/location and above topics.');
           await openRow(1);
           await swipe(document.querySelector<HTMLElement>('.opportunity-detail__body')!, 160);
           await until(() => detailTitle() === opportunityTitles[0], 'A right swipe must open the previous opportunity.');
