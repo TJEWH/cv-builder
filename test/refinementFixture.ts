@@ -297,7 +297,7 @@ export function createSyntheticRefinementWorkspace(source = createSampleDocument
   const props = reactive({ application, client: cloud.client, userId: account, lang: 'en', projectId: 'fixture',
     configurations: [{ id: 'base', name: 'Research' }] as SavedConfiguration[], readVersion: (id: string) => states.get(id) || null,
     onChangeStage: (stage: ApplicationStage) => {
-      const status = ({ preparation: 'preparation', refinement: 'refinement', review: 'attachments', tracking: 'ready' } as const)[stage];
+      const status = stage === 'tracking' ? props.application.status : ({ preparation: 'preparation', refinement: 'refinement', review: 'attachments' } as const)[stage];
       props.application = { ...props.application, workflow_stage: stage, ...(!props.application.tracking_started ? { status } : {}) };
       Object.assign(database.applications[0], { workflow_stage: stage, status: props.application.status });
     },

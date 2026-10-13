@@ -180,13 +180,20 @@ const client = {
         const application = database.applications.find(row => row.id === parameters.p_application_id && row.user_id === account);
         if (!application) return { error: new Error('Missing fixture application') };
         const stage = String(parameters.p_stage);
-        const status = ({ preparation: 'preparation', refinement: 'refinement', review: 'attachments', tracking: 'ready' } as Record<string, string>)[stage];
-        if (!status) return { error: new Error('Invalid fixture application stage') };
+        const status = ({ preparation: 'preparation', refinement: 'refinement', review: 'attachments' } as Record<string, string>)[stage];
+        if (stage !== 'tracking' && !status) return { error: new Error('Invalid fixture application stage') };
         application.workflow_stage = stage;
-        if (!application.tracking_started && status !== application.status) {
+        if (status && !application.tracking_started && status !== application.status) {
           application.status = status;
           application.status_history = [...(application.status_history as Row[] || []), { status, changedAt: new Date().toISOString() }];
         }
+        application.updated_at = new Date().toISOString();
+        return { data: structuredClone(application), error: null };
+      } else if (name === 'reset_job_application_history') {
+        const application = database.applications.find(row => row.id === parameters.p_application_id && row.user_id === account);
+        if (!application) return { error: new Error('Missing fixture application') };
+        const current = (application.status_history as Row[] || []).findLast(entry => entry.status === application.status);
+        application.status_history = [current || { status: application.status, changedAt: null }];
         application.updated_at = new Date().toISOString();
         return { data: structuredClone(application), error: null };
       } else if (name === 'set_job_application_checklist_item') {
@@ -483,12 +490,28 @@ const Fixture = defineComponent({
         applicationComment.dispatchEvent(new Event('input', { bubbles: true }));
         stageButtons[1].click();
         await until(() => stageButtons[1].getAttribute('aria-pressed') === 'true' && savedComment() === applicationComment.value, 'Changing stage must commit and save the evaluation before leaving Preparation.');
+        const preparedApplication = database.applications.find(row => row.opportunity_id === firstOpportunityId)!;
+        await until(() => preparedApplication.status === 'refinement', 'Refinement must save its automatic preparation status.');
+        const historyBeforeTracking = JSON.stringify(preparedApplication.status_history);
+        const currentHistoryEntry = (preparedApplication.status_history as Row[]).at(-1)!;
+        stageButtons[3].click();
+        await until(() => preparedApplication.workflow_stage === 'tracking' && stageButtons[3].getAttribute('aria-pressed') === 'true', 'Tracking must save the selected tab.');
+        assert(preparedApplication.status === 'refinement' && preparedApplication.tracking_started === false, 'Opening Tracking must preserve the previous status without choosing Ready.');
+        assert(JSON.stringify(preparedApplication.status_history) === historyBeforeTracking, 'Opening Tracking must not append a status history entry.');
+        const trackingStatus = document.querySelector<HTMLSelectElement>('select.application-status[aria-label^="Status for "]');
+        assert(trackingStatus?.value === '', 'Tracking must still ask for an explicit status choice.');
+        const resetHistory = document.querySelector<HTMLButtonElement>('.application-status-history__header button');
+        assert(resetHistory, 'Tracking must expose the Reset history button.');
+        await until(() => !resetHistory.disabled, 'Existing transitions must make history reset available.');
+        resetHistory.click();
+        await until(() => (preparedApplication.status_history as Row[]).length === 1 && resetHistory.disabled, 'Reset must retain only the current status entry.');
+        assert(JSON.stringify(preparedApplication.status_history) === JSON.stringify([currentHistoryEntry]), 'Reset must preserve the current status timestamp.');
+        assert(preparedApplication.status === 'refinement' && preparedApplication.tracking_started === false && trackingStatus.value === '', 'Reset must not choose Ready or start tracking.');
         stageButtons[0].click();
         await until(() => stageButtons[0].getAttribute('aria-pressed') === 'true', 'Preparation must remain accessible after saving.');
         assert(applicationComment.value === savedComment(), 'Returning to Preparation must preserve the evaluation.');
         await navigate('applications');
         assert(rows().length === 3, 'The created application must join the list.');
-        const preparedApplication = database.applications.find(row => row.opportunity_id === firstOpportunityId)!;
         const evaluationCard = rows().find(row => row.dataset.itemId === preparedApplication.id)?.querySelector<HTMLElement>('.jobs-card-evaluation');
         assert(evaluationCard && evaluationCard.textContent?.trim() === savedComment(), 'The application card must share the saved personal evaluation.');
         assert(Boolean(evaluationCard.getClientRects().length) === !desktop.value, 'List evaluation text remains mobile-only.');
@@ -505,7 +528,7 @@ const Fixture = defineComponent({
           await until(() => detailTitle() === applicationTitles[0], 'A right swipe must open the previous application.');
         }
         await navigate('applications');
-        draftStatus.value = `PASS: ${desktop.value ? 'Desktop' : 'Mobile'} lists, workspace clicks, application creation, preparation evaluation${desktop.value ? '' : ', cards and horizontal swipes'}.`;
+        draftStatus.value = `PASS: ${desktop.value ? 'Desktop' : 'Mobile'} lists, workspace clicks, application creation, preparation evaluation, Tracking without status changes${desktop.value ? '' : ', cards and horizontal swipes'}.`;
         document.body.dataset.navigationTest = 'passed';
       } catch (cause) {
         draftStatus.value = `FAIL: ${cause instanceof Error ? cause.message : String(cause)}`;

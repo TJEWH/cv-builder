@@ -511,14 +511,15 @@ test('an empty letter publishes an explicit first-draft task and switches to ref
   assert.equal(setup.requests[0].request_json.letter.text, 'A complete manually written letter.');
 });
 
-test('the persisted application stage restores navigation and drives the status until tracking begins', async t => {
+test('the persisted application stage restores navigation and Tracking retains the status until explicitly chosen', async t => {
   const fixture = mount(t); await idle(fixture.setup);
   const navigationKey = `CV_APPLICATION_TAB:${account}:${applicationId}`;
   let setup = fixture.setup;
-  for (const [stage, status] of [['refinement', 'refinement'], ['review', 'attachments'], ['tracking', 'ready'], ['preparation', 'preparation']] as const) {
+  for (const [stage, status] of [['tracking', 'preparation'], ['refinement', 'refinement'], ['tracking', 'refinement'], ['review', 'attachments'], ['tracking', 'attachments'], ['preparation', 'preparation']] as const) {
     setup.tab = stage; await idle(setup);
     assert.equal(fixture.props.application.workflow_stage, stage);
     assert.equal(fixture.props.application.status, status);
+    assert.equal(fixture.props.application.tracking_started, false, 'navigation must not choose a tracking status');
     fixture.storage.setItem(navigationKey, stage === 'refinement' ? 'tracking' : 'refinement');
     setup = fixture.reopen(); await idle(setup);
     assert.equal(setup.tab, stage, 'the saved application stage takes precedence over an old session tab');

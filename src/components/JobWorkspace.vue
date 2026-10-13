@@ -9,7 +9,7 @@ import { safeEmailUrl } from '../composables/safeUrl';
 import { isOpportunityDeadlinePassed, opportunityDeadlineSortKey, formatOpportunityDeadline } from '../composables/opportunityDeadline';
 import { hasReviewedOpportunity, opportunityRecency } from '../composables/opportunityRecency';
 import { personalFitScore, fitScoreTone as fitTone } from '../composables/opportunityContext';
-import { applicationStatusHistory, applicationStatusLabel, applicationTrackingStarted } from '../composables/applicationTracking';
+import { applicationStatusHistory, applicationStatusLabel, applicationStatusTone, applicationTrackingStarted } from '../composables/applicationTracking';
 import { useApplicationNotesAutosave } from '../composables/useApplicationNotesAutosave';
 import AutosaveTextarea from './AutosaveTextarea.vue';
 import OpportunityContext from './OpportunityContext.vue';
@@ -35,7 +35,7 @@ const desktopSidebar = useDesktopSidebar();
 const sidebarActive = computed(() => desktopSidebar.value && props.active !== false);
 const emit = defineEmits<{ navigate: [tab: 'opportunities' | 'applications']; 'save-career-variant': [name: string, state: CvState]; 'edit-variant': [id: string] }>();
 const { opportunities, applications, reviews, loading, saving, error, opportunityCommentError, createApplication,
-  updateApplication, setApplicationStage, setApplicationChecklistItem, removeApplication, setOpportunityReview, setOpportunityComment, markOpportunityReviewed } = useJobWorkspace(props.client, () => props.userId);
+  updateApplication, setApplicationStage, setApplicationChecklistItem, resetApplicationHistory, removeApplication, setOpportunityReview, setOpportunityComment, markOpportunityReviewed } = useJobWorkspace(props.client, () => props.userId);
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const queries = reactive({ opportunities: '', applications: '' });
 const query = computed({ get: () => queries[props.tab], set: (value: string) => { queries[props.tab] = value; } });
@@ -60,6 +60,8 @@ try { editingId.value = sessionStorage.getItem(`CV_SELECTED_APPLICATION:${props.
 watch(editingId, (id) => { try { if (id) sessionStorage.setItem(`CV_SELECTED_APPLICATION:${props.userId}`, id); else sessionStorage.removeItem(`CV_SELECTED_APPLICATION:${props.userId}`); } catch { /* Optional preference. */ } });
 const notice = ref('');
 const formError = ref('');
+const resettingHistory = ref(false);
+const historyResetError = ref('');
 const tableScroll = ref<HTMLElement | null>(null);
 const workspaceElement = ref<HTMLElement | null>(null);
 const opportunityDetail = ref<HTMLElement | null>(null);
@@ -188,6 +190,7 @@ function contacts(item: Application): { name: string; email: string }[] {
   return people.length ? people : item.contact_email ? [{ name: '', email: item.contact_email }] : [];
 }
 const statusHistory = computed(() => editingApplication.value ? applicationStatusHistory(editingApplication.value) : []);
+watch([editingId, () => props.userId], () => { historyResetError.value = ''; });
 function timestampLabel(value: string) {
   return new Intl.DateTimeFormat(props.lang === 'de' ? 'de-DE' : 'en-GB', { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(value));
 }
@@ -384,6 +387,24 @@ async function changeApplicationStatus(item: Application, event: Event) {
   if (!result) target.value = applicationTrackingStarted(item) ? item.status : '';
   else { notice.value = text('Application status saved.', 'Bewerbungsstatus gespeichert.'); }
 }
+async function resetTrackingHistory(item: Application) {
+  if (saving.value || resettingHistory.value || statusHistory.value.length < 2) return;
+  const owner = props.userId;
+  resettingHistory.value = true;
+  historyResetError.value = '';
+  try {
+    const draftsSaved = await flushApplicationTextareas();
+    if (props.userId !== owner || editingId.value !== item.id) return;
+    if (!draftsSaved) {
+      historyResetError.value = text('Pending edits could not be saved. Please retry.', 'Ausstehende Änderungen konnten nicht gespeichert werden. Bitte erneut versuchen.');
+      return;
+    }
+    const result = await resetApplicationHistory(item.id);
+    if (props.userId !== owner || editingId.value !== item.id) return;
+    if (!result) historyResetError.value = text('Could not reset history. Please retry.', 'Der Verlauf konnte nicht zurückgesetzt werden. Bitte erneut versuchen.');
+    else notice.value = text('Application history reset.', 'Bewerbungsverlauf zurückgesetzt.');
+  } finally { resettingHistory.value = false; }
+}
 async function changeChecklist(item: Application, key: string, completed: boolean) {
   await setApplicationChecklistItem(item.id, key, completed);
 }
@@ -469,7 +490,7 @@ useToastWatch(() => notice.value, () => {
         <tbody :class="{ 'jobs-card-track': filteredApplications.length }"><template v-for="item in filteredApplications" :key="item.id">
           <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'is-expanded': editingId === item.id }" :aria-disabled="saving" @click="toggleApplication(item)"><td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :disabled="saving" :aria-label="`${text('Open application:', 'Bewerbung öffnen:')} ${contextTitle(item)}`" @click.stop="toggleApplication(item)"><strong>{{ contextTitle(item) }}</strong></button><span class="jobs-subline">{{ contextInstitution(item) }}</span><ApplicationIdentifier :application="item" :lang="lang" /></td><td class="jobs-cell-wide" :data-label="text('Deadline', 'Frist')"><div class="jobs-application-deadline"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.context_json, now) }">{{ formatOpportunityDeadline(item.context_json, lang) }}</span><ApplicationDeadlineCalendar :application="item" :lang="lang" /></div></td>
             <td class="jobs-cell-wide jobs-cell-contacts" :data-label="text('Contact person', 'Kontaktperson')"><template v-for="(person, index) in contacts(item)" :key="index"><span class="jobs-subline">{{ person.name }}</span><a v-if="safeEmailUrl(person.email)" :href="safeEmailUrl(person.email)!" @click.stop>{{ person.email }}</a><span v-else>{{ person.email }}</span></template><span v-if="!contacts(item).length">{{ text('Not recorded', 'Nicht erfasst') }}</span></td>
-            <td class="jobs-cell-state jobs-application-state" :data-label="text('Status', 'Status')" @click.stop><span class="jobs-badge">{{ statusLabel(item.status) }}</span></td>
+            <td class="jobs-cell-state jobs-application-state" :data-label="text('Status', 'Status')" @click.stop><span class="jobs-badge" :class="`application-status--${applicationStatusTone(item.status)}`">{{ statusLabel(item.status) }}</span></td>
             <td v-if="reviewById.get(item.opportunity_id)?.comment?.trim()" class="jobs-cell-wide jobs-card-evaluation" :data-label="text('Personal Evaluation', 'Persönliche Einschätzung')"><p>{{ reviewById.get(item.opportunity_id)?.comment }}</p></td>
           </tr>
 
@@ -513,13 +534,14 @@ useToastWatch(() => notice.value, () => {
         <button class="btn btn--danger jobs-remove-application" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(editingApplication)}`" @click="requestDetailRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button>
       </template>
       <template #tracking-actions>
-        <label class="jobs-detail-state"><span class="jobs-action-label">{{ text('Status', 'Status') }}</span><select :aria-label="`${text('Status for', 'Status für')} ${contextTitle(editingApplication)}`" :value="applicationTrackingStarted(editingApplication) ? editingApplication.status : ''" :disabled="saving" @change="changeApplicationStatus(editingApplication, $event)"><option value="" disabled>{{ text('Choose tracking status…', 'Verlaufsstatus wählen…') }}</option><option v-for="status in TRACKING_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label>
+        <label class="jobs-detail-state"><span class="jobs-action-label">{{ text('Status', 'Status') }}</span><select class="application-status" :class="`application-status--${applicationStatusTone(applicationTrackingStarted(editingApplication) ? editingApplication.status : '')}`" :aria-label="`${text('Status for', 'Status für')} ${contextTitle(editingApplication)}`" :value="applicationTrackingStarted(editingApplication) ? editingApplication.status : ''" :disabled="saving" @change="changeApplicationStatus(editingApplication, $event)"><option value="" disabled>{{ text('Choose tracking status…', 'Verlaufsstatus wählen…') }}</option><option v-for="status in TRACKING_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label>
       </template>
       <template #tracking>
         <section class="application-status-history" :aria-label="text('Status history', 'Statusverlauf')">
-          <h3>{{ text('Status history', 'Statusverlauf') }}</h3>
+          <div class="application-status-history__header"><h3>{{ text('Status history', 'Statusverlauf') }}</h3><button class="btn" type="button" :disabled="saving || resettingHistory || statusHistory.length < 2" @click="resetTrackingHistory(editingApplication)">{{ resettingHistory ? text('Resetting…', 'Wird zurückgesetzt…') : text('Reset history', 'Verlauf zurücksetzen') }}</button></div>
+          <p v-if="historyResetError" class="jobs-autosave-error" role="alert">{{ historyResetError }}</p>
           <p v-if="statusHistory.some(entry => !entry.changedAt)" class="app-hint jobs-subline">{{ text('Earlier status changes and their times were not recorded.', 'Frühere Statusänderungen und ihre Zeitpunkte wurden nicht erfasst.') }}</p>
-          <ol><li v-for="(entry, index) in statusHistory" :key="index" :aria-current="index === statusHistory.length - 1 ? 'step' : undefined">
+          <ol><li v-for="(entry, index) in statusHistory" :key="index" :class="`application-status--${applicationStatusTone(entry.status)}`" :aria-current="index === statusHistory.length - 1 ? 'step' : undefined">
             <strong>{{ statusLabel(entry.status) }}</strong><span v-if="index === statusHistory.length - 1" class="jobs-badge">{{ text('Current', 'Aktuell') }}</span>
             <time v-if="entry.changedAt" :datetime="entry.changedAt">{{ timestampLabel(entry.changedAt) }}</time><span v-else class="jobs-subline">{{ text('Time not recorded', 'Zeitpunkt nicht erfasst') }}</span>
           </li></ol>
@@ -557,14 +579,20 @@ useToastWatch(() => notice.value, () => {
 .jobs-workspace .application-evaluation { border-top-color: transparent; }
 .application-evaluation .opportunity-comment { margin-bottom: 0; }
 .application-status-history h3 { color: var(--ui-accent); margin: 0 0 12px; }
+.application-status-history__header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.application-status-history__header h3 { margin: 0; }
+.application-status-history__header .btn { min-height: 44px; }
 .application-status-history ol { list-style: none; margin: 12px 0 0 5px; padding: 0 0 0 18px; border-left: 2px solid var(--ui-accent-border); }
 .application-status-history li { position: relative; padding: 0 0 18px; font-size: 13px; }
+.application-status-history li strong { color: var(--ui-accent); }
 .application-status-history li::before { content: ''; position: absolute; left: -24px; top: 5px; width: 10px; height: 10px; border-radius: 50%; background: var(--ui-accent-border); }
 .application-status-history li[aria-current=step]::before { background: var(--ui-accent); }
 .application-status-history time { display: block; margin-top: 5px; color: var(--ui-muted); font-variant-numeric: tabular-nums; }
 .application-status-history .jobs-badge { margin-left: 9px; }
 .jobs-workspace .jobs-detail-state { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
 .jobs-workspace .jobs-detail-state select { width: auto; min-width: 0; max-width: 100%; padding: 6px 9px; }
+.jobs-workspace select.application-status { color: var(--ui-accent); background: var(--ui-active); border-color: var(--ui-accent-border); }
+.jobs-workspace select.application-status option { color: var(--ui-text); background: var(--ui-control); }
 .jobs-action-mobile { display: none; }
 .jobs-remove-application { width: 100%; min-height: 44px; padding: 10px 16px; border-color: #ef4444; background: #b91c1c; color: #fff; font-weight: 600; }
 .jobs-remove-application:hover:not(:disabled) { border-color: #f87171; background: #991b1b; }

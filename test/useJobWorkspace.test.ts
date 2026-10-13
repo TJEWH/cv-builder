@@ -833,12 +833,12 @@ test('stage saves queue with explicit tracking choices and preserve the server l
   const firstWrite = deferred<Result>();
   let held = true;
   let stored: Application = { ...application(), workflow_stage: 'preparation', tracking_started: false };
-  const stages = { preparation: 'preparation', refinement: 'refinement', review: 'attachments', tracking: 'ready' } as const;
+  const stages = { preparation: 'preparation', refinement: 'refinement', review: 'attachments', tracking: null } as const;
   const { client, queries } = fakeClient(async query => {
     if (query.operation === 'rpc' && query.table === 'set_job_application_stage') {
       if (held) { held = false; await firstWrite.promise; }
       const stage = query.payload!.p_stage as keyof typeof stages;
-      stored = { ...stored, workflow_stage: stage, status: stored.tracking_started ? stored.status : stages[stage] };
+      stored = { ...stored, workflow_stage: stage, status: stored.tracking_started ? stored.status : stages[stage] ?? stored.status };
       return { data: { ...stored }, error: null };
     }
     if (query.operation === 'update') {
@@ -856,7 +856,7 @@ test('stage saves queue with explicit tracking choices and preserve the server l
   const lastStage = workspace.setApplicationStage(stored.id, 'review');
   assert.equal(queries.filter(query => query.operation !== 'select').length, 1);
   firstWrite.resolve({ data: null, error: null });
-  assert.equal((await stage)?.status, 'ready');
+  assert.equal((await stage)?.status, 'preparation');
   assert.equal((await explicitReady)?.tracking_started, true);
   assert.equal((await lastStage)?.workflow_stage, 'review');
   assert.equal(workspace.applications.value[0].status, 'ready');
@@ -864,6 +864,161 @@ test('stage saves queue with explicit tracking choices and preserve the server l
     ['set_job_application_stage', 'applications', 'set_job_application_stage']);
   assert.deepEqual(queries.find(query => query.operation === 'update')?.payload, { status: 'ready', tracking_started: true });
   scope.stop();
+});
+
+test('opening Tracking and resetting history keep the preparation status until an explicit tracking choice', async t => {
+  const currentEntry = { status: 'attachments' as const, changedAt: '2026-10-12T10:00:00.000Z' };
+  let stored: Application = { ...application(), status: 'attachments', workflow_stage: 'review', tracking_started: false,
+    status_history: [{ status: 'preparation', changedAt: '2026-10-11T09:00:00.000Z' }, currentEntry] };
+  const { client, queries } = fakeClient(query => {
+    if (query.operation === 'rpc') {
+      if (query.table === 'set_job_application_stage') stored = { ...stored, workflow_stage: 'tracking' };
+      else if (query.table === 'reset_job_application_history') stored = { ...stored, status_history: [currentEntry] };
+      else assert.fail(`Unexpected RPC: ${query.table}`);
+      return { data: { ...stored }, error: null };
+    }
+    if (query.operation === 'update') {
+      stored = { ...stored, ...query.payload };
+      return { data: { ...stored }, error: null };
+    }
+    return { data: query.table === 'applications' ? [stored] : [], error: null };
+  });
+  const scope = effectScope(); t.after(() => scope.stop());
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  const opened = await workspace.setApplicationStage(stored.id, 'tracking');
+  assert.equal(opened?.workflow_stage, 'tracking');
+  assert.equal(opened?.status, 'attachments');
+  assert.equal(opened?.tracking_started, false);
+  assert.equal(opened?.status_history?.length, 2);
+  const reset = await workspace.resetApplicationHistory(stored.id);
+  assert.equal(reset?.status, 'attachments');
+  assert.equal(reset?.tracking_started, false);
+  assert.deepEqual(reset?.status_history, [currentEntry]);
+  assert.deepEqual(workspace.applications.value, [reset]);
+  assert.deepEqual(queries.filter(query => query.operation !== 'select').map(query => [query.table, query.payload]), [
+    ['set_job_application_stage', { p_application_id: stored.id, p_stage: 'tracking' }],
+    ['reset_job_application_history', { p_application_id: stored.id }],
+  ], 'opening Tracking and resetting history must not send a status update');
+  const ready = await workspace.updateApplication(stored.id, { status: 'ready' });
+  assert.equal(ready?.status, 'ready');
+  assert.equal(ready?.tracking_started, true);
+  assert.deepEqual(queries.find(query => query.operation === 'update')?.payload, { status: 'ready', tracking_started: true });
+});
+
+test('history reset accepts the server baseline and preserves application details and other rows', async (t) => {
+  const currentEntry = { status: 'contacted' as const, changedAt: '2026-10-12T10:00:00.000Z' };
+  const original: Application = { ...application(), status: 'contacted', workflow_stage: 'tracking', tracking_started: true,
+    notes: 'Ask about project funding', completed_checklist_keys: ['documents:cv'], contacted_at: currentEntry.changedAt,
+    status_history: [{ status: 'ready', changedAt: '2026-10-11T09:00:00.000Z' }, currentEntry] };
+  const reset: Application = { ...original, status_history: [currentEntry], updated_at: '2026-10-13T11:00:00.000Z' };
+  const other = application('application-2');
+  const { client, queries } = fakeClient(query => query.operation === 'rpc' ? { data: reset, error: null }
+    : { data: query.table === 'applications' ? [original, other] : [], error: null });
+  const scope = effectScope(); t.after(() => scope.stop());
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  assert.deepEqual(await workspace.resetApplicationHistory(original.id), reset);
+  assert.deepEqual(workspace.applications.value, [reset, other]);
+  const writes = queries.filter(query => query.operation !== 'select');
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].table, 'reset_job_application_history');
+  assert.deepEqual(writes[0].payload, { p_application_id: original.id });
+  assert.equal(workspace.error.value, '');
+});
+
+test('failed history resets retain the visible history and report the failure', async (t) => {
+  const original: Application = { ...application(), status_history: [{ status: 'preparation', changedAt: null }] };
+  const { client } = fakeClient(query => query.operation === 'rpc' ? { data: null, error: { message: 'Connection failed' } }
+    : { data: query.table === 'applications' ? [original] : [], error: null });
+  const scope = effectScope(); t.after(() => scope.stop());
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  assert.equal(await workspace.resetApplicationHistory(original.id), null);
+  assert.deepEqual(workspace.applications.value, [original]);
+  assert.match(workspace.error.value, /Could not reset the application history/);
+  assert.equal(workspace.saving.value, false);
+});
+
+test('history reset rejects another owner, another application, and malformed baseline history', async (t) => {
+  const original: Application = { ...application(), status_history: [{ status: 'preparation', changedAt: null }] };
+  const invalidRows: unknown[] = [
+    { ...original, user_id: 'account-b' },
+    { ...original, id: 'application-2' },
+    { ...original, status_history: undefined },
+    { ...original, status_history: [] },
+    { ...original, status_history: [null] },
+    { ...original, status_history: [{ status: 'ready', changedAt: null }] },
+    { ...original, status_history: [{ status: 'preparation', changedAt: 'not a date' }] },
+    { ...original, status_history: [{ status: 'preparation' }] },
+    { ...original, status: 'unknown', status_history: [{ status: 'unknown', changedAt: null }] },
+    { ...original, status_history: [...original.status_history!, ...original.status_history!] },
+  ];
+  const { client } = fakeClient(query => query.operation === 'rpc' ? { data: invalidRows.shift(), error: null }
+    : { data: query.table === 'applications' ? [original] : [], error: null });
+  const scope = effectScope(); t.after(() => scope.stop());
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  while (invalidRows.length) {
+    assert.equal(await workspace.resetApplicationHistory(original.id), null);
+    assert.deepEqual(workspace.applications.value, [original]);
+    assert.match(workspace.error.value, /history reset could not be confirmed/);
+  }
+});
+
+test('account changes discard an in-flight history reset without overwriting the next account', async (t) => {
+  const resetting = deferred<Result>();
+  const original: Application = { ...application(), status_history: [{ status: 'preparation', changedAt: null }] };
+  const next = { ...application('next-account-application'), user_id: 'account-b' };
+  const { client, queries } = fakeClient(query => query.operation === 'rpc' ? resetting.promise
+    : { data: query.table === 'applications' ? query.filters.user_id === 'account-b' ? [next] : [original] : [], error: null });
+  const scope = effectScope(); t.after(() => scope.stop());
+  const account = ref('account-a');
+  const workspace = scope.run(() => useJobWorkspace(client, account))!;
+  await settleUntil(() => !workspace.loading.value);
+  const pending = workspace.resetApplicationHistory(original.id);
+  await settleUntil(() => queries.some(query => query.operation === 'rpc'));
+  const rpc = queries.find(query => query.operation === 'rpc')!;
+  account.value = 'account-b';
+  await settleUntil(() => !workspace.loading.value);
+  assert.equal(rpc.signal?.aborted, true);
+  resetting.resolve({ data: original, error: null });
+  assert.equal(await pending, null);
+  assert.deepEqual(workspace.applications.value, [next]);
+  assert.equal(workspace.error.value, '');
+});
+
+test('history reset runs after preceding note and tracking saves and preserves their latest values', async (t) => {
+  const writing = deferred<Result>();
+  let stored: Application = { ...application(), status_history: [{ status: 'preparation', changedAt: null }] };
+  const { client, queries } = fakeClient(async query => {
+    if (query.operation === 'update') {
+      await writing.promise;
+      stored = { ...stored, ...query.payload, status_history: [...stored.status_history!, { status: 'contacted', changedAt: '2026-10-13T09:00:00.000Z' }] };
+      return { data: { ...stored }, error: null };
+    }
+    if (query.operation === 'rpc') {
+      stored = { ...stored, status_history: [stored.status_history!.at(-1)!] };
+      return { data: { ...stored }, error: null };
+    }
+    return { data: query.table === 'applications' ? [stored] : [], error: null };
+  });
+  const scope = effectScope(); t.after(() => scope.stop());
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  const save = workspace.updateApplication(stored.id, { notes: 'New note', status: 'contacted' });
+  await settleUntil(() => queries.some(query => query.operation === 'update'));
+  const reset = workspace.resetApplicationHistory(stored.id);
+  assert.equal(queries.some(query => query.operation === 'rpc'), false);
+  writing.resolve({ data: null, error: null });
+  assert.equal((await save)?.notes, 'New note');
+  const result = await reset;
+  assert.equal(result?.notes, 'New note');
+  assert.equal(result?.status, 'contacted');
+  assert.equal(result?.tracking_started, true);
+  assert.deepEqual(result?.status_history, [{ status: 'contacted', changedAt: '2026-10-13T09:00:00.000Z' }]);
+  assert.deepEqual(workspace.applications.value, [result]);
+  assert.deepEqual(queries.filter(query => query.operation !== 'select').map(query => query.table), ['applications', 'reset_job_application_history']);
 });
 
 test('queued application writes cannot run under the next account', async () => {

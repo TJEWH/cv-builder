@@ -2,7 +2,7 @@ import { onScopeDispose, ref, toValue, watch } from 'vue';
 import type { MaybeRefOrGetter } from 'vue';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Application, ApplicationContext, ApplicationStage, CloudCvSnapshot, CloudCvVariant, CreateApplicationInput, Opportunity, OpportunityReview, OpportunityReviewState, UpdateApplicationInput } from '../cloudTypes';
-import { APPLICATION_STAGES, TRACKING_STATUSES, OPPORTUNITY_REVIEW_STATES } from '../cloudTypes';
+import { APPLICATION_STAGES, APPLICATION_STATUSES, TRACKING_STATUSES, OPPORTUNITY_REVIEW_STATES } from '../cloudTypes';
 import { SAMPLE_CONTACT } from '../defaults';
 import { CV_STATE_VERSION } from '../types';
 import { createCloudCvSnapshot } from './cloudCvPrivacy';
@@ -291,6 +291,26 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
     }, rememberApplication, 'Could not save the application stage. Check your connection and retry.');
   }
 
+  function resetApplicationHistory(id: string): Promise<Application | null> {
+    return runMutation(async (account, _generation, signal) => {
+      const { data, error: queryError } = await client!.rpc('reset_job_application_history', {
+        p_application_id: id,
+      }).abortSignal(signal);
+      if (queryError) throw queryError;
+      if (!isRecord(data) || data.id !== id || data.user_id !== account || !Array.isArray(data.status_history)
+        || data.status_history.length !== 1 || !isRecord(data.status_history[0])) {
+        throw new Error('The application history reset could not be confirmed. Refresh the workspace.');
+      }
+      const application = normalizeApplication(data as unknown as Application);
+      const entry = application.status_history![0];
+      if (!APPLICATION_STATUSES.includes(application.status) || entry.status !== application.status
+        || !(entry.changedAt === null || typeof entry.changedAt === 'string' && Number.isFinite(Date.parse(entry.changedAt)))) {
+        throw new Error('The application history reset could not be confirmed. Refresh the workspace.');
+      }
+      return application;
+    }, rememberApplication, 'Could not reset the application history. Check your connection and retry.');
+  }
+
   function setApplicationChecklistItem(id: string, key: string, completed: boolean): Promise<Application | null> {
     return runMutation(async (account, _generation, signal) => {
       if (!/^(requirements|documents):/.test(key) || key.length > 16000) throw new Error('Invalid checklist item.');
@@ -440,5 +460,5 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
 
   watch(() => toValue(userId), () => { reset(); void refresh(); }, { immediate: true, flush: 'sync' });
   onScopeDispose(() => { disposed = true; reset(); });
-  return { opportunities, applications, cvVariants, reviews, loading, saving, error, opportunityCommentError, refresh, createApplication, updateApplication, setApplicationStage, setApplicationChecklistItem, removeApplication, refreshApplicationContext, setOpportunityReview, setOpportunityComment, markOpportunityReviewed, getApplicationContext };
+  return { opportunities, applications, cvVariants, reviews, loading, saving, error, opportunityCommentError, refresh, createApplication, updateApplication, setApplicationStage, resetApplicationHistory, setApplicationChecklistItem, removeApplication, refreshApplicationContext, setOpportunityReview, setOpportunityComment, markOpportunityReviewed, getApplicationContext };
 }

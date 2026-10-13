@@ -41,6 +41,9 @@ body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f1
 .note{align-self:center;color:#94a3b8}
 .app-hint.app-hint{padding:10px 12px;border:0;border-left:1px solid var(--ui-accent-border);border-radius:0;background:var(--ui-surface);color:var(--ui-muted);line-height:1.6;overflow-wrap:anywhere;text-align:left;align-self:stretch}
 .jobs-badge{display:inline-block;padding:3px 7px;margin-top:4px;border-radius:5px;background:var(--ui-active);color:var(--ui-accent);font-size:10px;white-space:nowrap}
+.application-status--neutral{--ui-accent:var(--ui-text);--ui-accent-border:var(--ui-muted);--ui-active:var(--ui-surface-hover)}
+.application-status--yellow{--ui-accent:var(--ui-score-yellow);--ui-accent-border:var(--ui-score-yellow);--ui-active:var(--ui-score-yellow-bg)}
+.application-status--red{--ui-accent:var(--ui-score-red);--ui-accent-border:var(--ui-score-red);--ui-active:var(--ui-score-red-bg)}
 @media(max-width:760px){.jobs-badge{font-size:12px}}
 
 .workbench{

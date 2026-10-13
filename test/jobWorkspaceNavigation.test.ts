@@ -52,8 +52,10 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   const applicationUpdates: { id: string; changes: Partial<Application> }[] = [];
   const commentUpdates: { id: string; comment: string }[] = [];
   const stageUpdates: { id: string; stage: ApplicationStage }[] = [];
+  const historyResets: { id: string; notes: string | null }[] = [];
   let failNotes = false;
   let failComment = false;
+  let failHistoryReset = false;
   const saveApplication = (id: string, changes: Partial<Application>) => {
     const current = applications.value.find(item => item.id === id);
     if (!current) return null;
@@ -74,8 +76,15 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
     setApplicationStage: async (id: string, stage: ApplicationStage) => {
       stageUpdates.push({ id, stage });
       const current = applications.value.find(item => item.id === id);
-      const status = ({ preparation: 'preparation', refinement: 'refinement', review: 'attachments', tracking: 'ready' } as const)[stage];
+      const status = stage === 'tracking' ? current?.status : ({ preparation: 'preparation', refinement: 'refinement', review: 'attachments' } as const)[stage];
       return saveApplication(id, { workflow_stage: stage, ...(!current?.tracking_started ? { status } : {}) });
+    },
+    resetApplicationHistory: async (id: string) => {
+      const current = applications.value.find(item => item.id === id);
+      historyResets.push({ id, notes: current?.notes ?? null });
+      if (failHistoryReset) { failHistoryReset = false; return null; }
+      if (!current) return null;
+      return saveApplication(id, { status_history: current.status_history?.slice(-1) });
     },
     setApplicationChecklistItem: async () => false,
     setOpportunityComment: async (id: string, comment: string) => {
@@ -114,11 +123,147 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
     openOpportunity(id: string): void; closeOpportunity(): Promise<void>; closeApplication(): Promise<void>; startApplication(item: Opportunity): Promise<void>;
     openApplication(item: Application): void; openList(kind: 'opportunities' | 'applications'): Promise<boolean>; navigateDetail(direction: -1 | 1): Promise<void>;
     changeApplicationStatus(item: Application, event: Event): Promise<void>;
+    resetTrackingHistory(item: Application): Promise<void>; resettingHistory: boolean; historyResetError: string;
+    statusHistory: NonNullable<Application['status_history']>;
     requestDetailRemoval(item: Application): Promise<void>; cancelRemoval(): void; confirmRemoval(item: Application): Promise<void>;
   } } }).$.setupState;
   const componentProps = (mounted as { $props: { active: boolean } }).$props;
-  return { setup, props, componentProps, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, applicationUpdates, commentUpdates, stageUpdates, failNextNotesSave: () => { failNotes = true; }, failNextCommentSave: () => { failComment = true; }, created: () => created };
+  return { setup, props, componentProps, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, applicationUpdates, commentUpdates, stageUpdates, historyResets, failNextNotesSave: () => { failNotes = true; }, failNextCommentSave: () => { failComment = true; }, failNextHistoryReset: () => { failHistoryReset = true; }, created: () => created };
 }
+
+function applicationWithHistory(application: Application): Application {
+  return { ...application, status: 'contacted', workflow_stage: 'tracking', tracking_started: true, status_history: [
+    { status: 'ready', changedAt: '2026-10-11T09:00:00Z' },
+    { status: 'contacted', changedAt: '2026-10-12T10:00:00Z' },
+  ] };
+}
+
+test('tracking history reset saves pending notes first and retains the current status and timestamp', async t => {
+  const f = mount(t);
+  const item = applicationWithHistory(f.application);
+  f.applications.value = [item];
+  f.props.tab = 'applications';
+  await nextTick();
+  f.setup.openApplication(item);
+  f.setup.notes = 'Confirm the funding before applying.';
+  let nestedFlushed = false;
+  f.setup.applicationWorkspace = { flushTextareas: async () => { nestedFlushed = true; return true; } };
+  await f.setup.resetTrackingHistory(item);
+  assert.equal(nestedFlushed, true);
+  assert.deepEqual(f.historyResets, [{ id: item.id, notes: 'Confirm the funding before applying.' }]);
+  assert.deepEqual(f.setup.statusHistory, [item.status_history![1]]);
+  assert.equal(f.setup.editingApplication?.status, 'contacted');
+  assert.equal(f.setup.editingApplication?.tracking_started, true);
+  assert.equal(f.setup.historyResetError, '');
+  assert.equal(f.setup.resettingHistory, false);
+});
+
+test('resetting history before choosing a tracking status preserves the preparation state', async t => {
+  const f = mount(t);
+  const currentEntry = { status: 'attachments' as const, changedAt: '2026-10-12T10:00:00Z' };
+  const item: Application = { ...f.application, status: 'attachments', workflow_stage: 'tracking', tracking_started: false,
+    status_history: [{ status: 'preparation', changedAt: '2026-10-11T09:00:00Z' }, currentEntry] };
+  f.applications.value = [item];
+  f.props.tab = 'applications';
+  await nextTick();
+  f.setup.openApplication(item);
+  await f.setup.resetTrackingHistory(item);
+  assert.deepEqual(f.setup.statusHistory, [currentEntry]);
+  assert.equal(f.setup.editingApplication?.status, 'attachments');
+  assert.equal(f.setup.editingApplication?.workflow_stage, 'tracking');
+  assert.equal(f.setup.editingApplication?.tracking_started, false);
+  assert.deepEqual(f.applicationUpdates, [], 'resetting history must not choose a tracking status');
+  assert.deepEqual(f.stageUpdates, [], 'resetting history must not select another workflow tab');
+});
+
+test('tracking history reset stops when pending textarea saves fail and succeeds after retry', async t => {
+  const f = mount(t);
+  const item = applicationWithHistory(f.application);
+  f.applications.value = [item];
+  f.props.tab = 'applications';
+  await nextTick();
+  f.setup.openApplication(item);
+  f.setup.notes = 'Unsaved follow-up note.';
+  f.failNextNotesSave();
+  await f.setup.resetTrackingHistory(item);
+  assert.deepEqual(f.historyResets, []);
+  assert.deepEqual(f.setup.statusHistory, item.status_history);
+  assert.equal(f.setup.notes, 'Unsaved follow-up note.');
+  assert.equal(f.setup.notesStatus, 'error');
+  assert.equal(f.setup.historyResetError, 'Pending edits could not be saved. Please retry.');
+  assert.equal(f.setup.resettingHistory, false);
+  f.setup.applicationWorkspace = { flushTextareas: async () => false };
+  await f.setup.resetTrackingHistory(item);
+  assert.deepEqual(f.historyResets, [], 'a failed nested editor save must also stop the reset');
+  assert.equal(f.setup.historyResetError, 'Pending edits could not be saved. Please retry.');
+  f.setup.applicationWorkspace = { flushTextareas: async () => true };
+  await f.setup.resetTrackingHistory(item);
+  assert.deepEqual(f.historyResets, [{ id: item.id, notes: 'Unsaved follow-up note.' }]);
+  assert.deepEqual(f.setup.statusHistory, [item.status_history![1]]);
+  assert.equal(f.setup.historyResetError, '');
+});
+
+test('failed tracking history reset preserves history and reports an inline error until retry', async t => {
+  const f = mount(t);
+  const item = applicationWithHistory(f.application);
+  f.applications.value = [item];
+  f.props.tab = 'applications';
+  await nextTick();
+  f.setup.openApplication(item);
+  f.failNextHistoryReset();
+  await f.setup.resetTrackingHistory(item);
+  assert.equal(f.historyResets.length, 1);
+  assert.deepEqual(f.setup.statusHistory, item.status_history);
+  assert.match(f.setup.historyResetError, /history/i);
+  assert.equal(f.setup.resettingHistory, false);
+  await f.setup.resetTrackingHistory(item);
+  assert.equal(f.historyResets.length, 2);
+  assert.deepEqual(f.setup.statusHistory, [item.status_history![1]]);
+  assert.equal(f.setup.historyResetError, '');
+});
+
+test('changing applications while a history reset flushes cannot reset either record', async t => {
+  const f = mount(t);
+  const item = applicationWithHistory(f.application);
+  const other = applicationWithHistory({ ...f.application, id: 'application-two' });
+  f.applications.value = [item, other];
+  f.props.tab = 'applications';
+  await nextTick();
+  f.setup.openApplication(item);
+  let release!: (value: boolean) => void;
+  f.setup.applicationWorkspace = { flushTextareas: () => new Promise(resolve => { release = resolve; }) };
+  const pending = f.setup.resetTrackingHistory(item);
+  assert.equal(f.setup.resettingHistory, true);
+  f.setup.openApplication(other);
+  release(true);
+  await pending;
+  assert.deepEqual(f.historyResets, []);
+  assert.equal(f.setup.editingApplication?.id, other.id);
+  assert.deepEqual(f.setup.statusHistory, other.status_history);
+  assert.equal(f.setup.resettingHistory, false);
+});
+
+test('tracking history reset errors clear when selecting another application or account', async t => {
+  const f = mount(t);
+  const item = applicationWithHistory(f.application);
+  const other = applicationWithHistory({ ...f.application, id: 'application-two' });
+  f.applications.value = [item, other];
+  f.props.tab = 'applications';
+  await nextTick();
+  f.setup.openApplication(item);
+  f.failNextHistoryReset();
+  await f.setup.resetTrackingHistory(item);
+  assert.notEqual(f.setup.historyResetError, '');
+  f.setup.openApplication(other);
+  await nextTick();
+  assert.equal(f.setup.historyResetError, '');
+  f.failNextHistoryReset();
+  await f.setup.resetTrackingHistory(other);
+  assert.notEqual(f.setup.historyResetError, '');
+  f.props.userId = 'account-two';
+  await nextTick();
+  assert.equal(f.setup.historyResetError, '');
+});
 
 test('opportunity navigation follows captured group order, skips removed results, and stops at either end', async (t) => {
   const { setup, opportunities, reviews } = mount(t);

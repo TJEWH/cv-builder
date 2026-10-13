@@ -24,9 +24,10 @@ begin
   if saved.status <> 'refinement' or saved.workflow_stage <> 'refinement' or saved.tracking_started then raise exception 'FAIL: Refinement tab was not saved'; end if;
   saved := public.set_job_application_stage(app, 'review');
   if saved.status <> 'attachments' or saved.workflow_stage <> 'review' or saved.tracking_started then raise exception 'FAIL: Attachments mapping failed'; end if;
-  saved := public.set_job_application_stage(app, 'tracking');
-  if saved.status <> 'ready' or saved.workflow_stage <> 'tracking' or saved.tracking_started then raise exception 'FAIL: Tracking tab did not become Ready'; end if;
   previous_history := saved.status_history;
+  saved := public.set_job_application_stage(app, 'tracking');
+  if saved.status <> 'attachments' or saved.workflow_stage <> 'tracking' or saved.tracking_started
+    or saved.status_history <> previous_history then raise exception 'FAIL: Tracking tab changed status or history'; end if;
   saved := public.set_job_application_stage(app, 'tracking');
   if saved.status_history <> previous_history then raise exception 'FAIL: stage retry duplicated history'; end if;
   saved := public.set_job_application_stage(app, 'preparation');
@@ -36,7 +37,15 @@ begin
   if (select tracking_started from public.applications where id = app) then raise exception 'FAIL: CV assignment locked tracking'; end if;
   saved := public.set_job_application_stage(app, 'tracking');
   previous_history := saved.status_history;
-  -- The FIRST explicit Ready selection locks, although the status value is unchanged.
+  -- Ready is selected explicitly, never inferred from opening Tracking.
+  update public.applications set status = 'ready', tracking_started = true where id = app;
+  select * into saved from public.applications where id = app;
+  if saved.status <> 'ready' or not saved.tracking_started
+    or saved.status_history -> -1 ->> 'status' <> 'ready'
+    or jsonb_array_length(saved.status_history) <> jsonb_array_length(previous_history) + 1 then
+    raise exception 'FAIL: explicit Ready was not recorded and locked';
+  end if;
+  previous_history := saved.status_history;
   update public.applications set status = 'ready', tracking_started = true where id = app;
   saved := public.set_job_application_stage(app, 'refinement');
   if saved.status <> 'ready' or saved.workflow_stage <> 'refinement' or not saved.tracking_started

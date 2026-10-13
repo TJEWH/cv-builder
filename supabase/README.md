@@ -35,6 +35,12 @@ local. There is no Storage bucket or cloud application-attachment table. To expo
    The document-scoped history UI requires [`refinement_scoped_history.sql`](refinement_scoped_history.sql)
    before frontend rollout. This additive upgrade adds clear metadata and the
    three-argument `clear_refinement_history` RPC while preserving the legacy endpoint.
+   The Tracking tab's Reset history button requires
+   [`application_history_reset.sql`](application_history_reset.sql) before frontend rollout.
+   Installing it leaves existing history intact; an owner's explicit reset retains
+   only the current status and its original recorded time.
+   [`application_tracking_navigation.sql`](application_tracking_navigation.sql) keeps
+   Tracking navigation and history resets from automatically assigning Ready.
 4. Provision existing email/password users through Supabase Authentication. The
    app has no signup or recovery flow. For this restricted workspace, keep public
    signup disabled and configure recovery, rate limits and password protection.
@@ -44,8 +50,15 @@ local. There is no Storage bucket or cloud application-attachment table. To expo
 ## Schema maintenance
 
 [`schema.sql`](schema.sql) is the current fresh-install baseline. Find historical upgrade scripts in Git and deployed migration history
-in Supabase. No upgrade is pending for
-**phd-workflow** as of 2026-10-11 (Europe/Tirane).
+in Supabase. Migration `20261013122212` (`application_history_reset`) was applied to
+**phd-workflow** on 2026-10-13 (Europe/Tirane). Owner-only reset, timestamp and note
+preservation, repeated resets, later status changes and access checks passed using
+temporary records in a rolled-back transaction. Existing application rows were unchanged.
+
+Migration `20261013124138` (`application_tracking_navigation`) was applied to
+**phd-workflow** on 2026-10-13. The live rollback test confirmed that entering
+Tracking, saving notes and resetting history preserve the preceding status;
+explicit Ready and subsequent status changes still work. Existing application rows were unchanged.
 
 Migration `20261011122600` (`letter_refinement_system_prompt`) adds the optional `refinementSystemPrompt` template field to the
 existing validator, with a 4,000 UTF-16-unit limit. Use the targeted [`refinement_system_prompt.sql`](refinement_system_prompt.sql) upgrade
@@ -92,7 +105,9 @@ applies permitted edits. Authoritative capture rejects forged research context.
 
 `review_job_opportunity` records interest/source receipts; `save_opportunity_comment` changes private reasoning. `strong_interest` is
 independent of fit scores. Checklist, stage, context-refresh and removal RPCs retain their scoped contracts. Saved stages and explicit
-tracking are separate; server-maintained status history leaves unknown historical times unrecorded.
+tracking are separate. Before an explicit tracking choice, Preparation, Refinement and Attachments set the matching status.
+Opening Tracking preserves the status and history; Ready is an explicit dropdown choice. Reset history also preserves the current
+status. Server-maintained status history leaves unknown historical times unrecorded.
 
 Refinement uses `save_refinement_state`, `publish_refinement_request`, `publish_refinement_protocol`, `save_refinement_review` and
 `clear_refinement_history`. Private management helpers resolve an exact reference, read its request/protocol and append a proposal with

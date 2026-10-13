@@ -10,6 +10,13 @@ export function applicationStatusLabel(status: string, lang: string = 'en'): str
   return labels[status]?.[lang === 'de' ? 1 : 0] ?? status;
 }
 
+/** Shared colors for workflow stages and the explicitly selected tracking status. */
+export function applicationStatusTone(status: string): 'neutral' | 'yellow' | 'red' {
+  if (['submitted', 'interview', 'offer', 'rejected', 'withdrawn'].includes(status)) return 'red';
+  if (['review', 'attachments', 'tracking', 'ready', 'contacted', 'shortlist'].includes(status)) return 'yellow';
+  return 'neutral';
+}
+
 /** Legacy Shortlist rows remain readable while a database is awaiting its upgrade. */
 export function normalizeApplication(application: Application): Application {
   const normalize = (status: unknown): ApplicationStatus => status === 'shortlist' ? 'ready' : status as ApplicationStatus;

@@ -12,7 +12,7 @@ import { cloneCv, createApplicationCv, cvDifferences, isApplicationCvPublished, 
 import { isMainCvVariant } from '../composables/careerVariants';
 import { addIncomingDraft, createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, editLetter, finalizeLetter, formatLetter, letterContextVersion, letterFromEditableText, openLetterRevision, saveWorkingRevision, selectApplicationLetterTemplate, unresolvedLetterPlaceholders } from '../composables/motivationLetters';
 import { applyRefinementProposal, createRefinementRepository, describeCvOperation, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText, validateLocalRefinementSource } from '../composables/applicationRefinement';
-import { applicationStage, applicationStatusLabel, applicationTrackingStarted } from '../composables/applicationTracking';
+import { applicationStage, applicationStatusLabel, applicationStatusTone, applicationTrackingStarted } from '../composables/applicationTracking';
 import { formatOpportunityDeadline } from '../composables/opportunityDeadline';
 import FormBuilder from './FormBuilder.vue';
 import DocumentCvPreview from './DocumentCvPreview.vue';
@@ -1167,7 +1167,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
     <div ref="mobileScrollContent" class="application-scroll-content">
     <WorkspaceDetailHeader class="application-header" :title="String(application.context_json.title || text('Application', 'Bewerbung'))" :subtitle="String(application.context_json.institution || application.context_json.university || '')" :back-label="text('All applications', 'Alle Bewerbungen')" @back="emit('close')">
       <template #actions><slot name="actions" /><div ref="mobileActions" class="application-mobile-actions" /></template>
-      <template #metadata><ApplicationIdentifier :application="application" :lang="lang" /><span>{{ text('Deadline', 'Bewerbungsfrist') }}: {{ formatOpportunityDeadline(application.context_json, lang) }}</span><ApplicationDeadlineCalendar :application="application" :lang="lang" /><span class="jobs-badge application-header__state">{{ applicationStatusLabel(application.status, lang) }}</span></template>
+      <template #metadata><ApplicationIdentifier :application="application" :lang="lang" /><span>{{ text('Deadline', 'Bewerbungsfrist') }}: {{ formatOpportunityDeadline(application.context_json, lang) }}</span><ApplicationDeadlineCalendar :application="application" :lang="lang" /><span class="jobs-badge application-header__state" :class="`application-status--${applicationStatusTone(application.status)}`">{{ applicationStatusLabel(application.status, lang) }}</span></template>
     </WorkspaceDetailHeader>
     <div class="workflow-body" :class="{ 'workflow-body--refinement': tab === 'refinement', 'workflow-body--review': tab === 'review' }">
       <section v-show="tab === 'preparation'" class="preparation-stage">
@@ -1269,7 +1269,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
     <footer class="workflow-navigation" :class="{ 'workflow-navigation--sidebar': desktopSidebar }">
       <button class="workflow-back" type="button" :aria-label="text('All applications', 'Alle Bewerbungen')" @click="emit('close')"><svg class="workflow-back__icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 4-6 6 6 6M2 10h16" /></svg><span class="workflow-back__label">{{ text('All applications', 'Alle Bewerbungen') }}</span></button>
       <nav ref="stageNavigation" class="workspace-subtabs" :aria-label="text('Application stages', 'Bewerbungsphasen')">
-        <button v-for="(stage, index) in stages" :key="stage" type="button" :class="{ 'is-active': tab === stage }" :aria-pressed="tab === stage" @click="selectStage(stage)"><span class="stage-number">{{ index + 1 }}</span>{{ ({ preparation: text('Preparation', 'Vorbereitung'), refinement: text('Refinement', 'Überarbeitung'), review: text('Attachments', 'Anhänge'), tracking: text('Tracking', 'Verlauf') })[stage] }}</button>
+        <button v-for="(stage, index) in stages" :key="stage" type="button" :class="[`application-status--${applicationStatusTone(stage)}`, { 'is-active': tab === stage }]" :aria-pressed="tab === stage" @click="selectStage(stage)"><span class="stage-number">{{ index + 1 }}</span>{{ ({ preparation: text('Preparation', 'Vorbereitung'), refinement: text('Refinement', 'Überarbeitung'), review: text('Attachments', 'Anhänge'), tracking: text('Tracking', 'Verlauf') })[stage] }}</button>
       </nav>
     </footer>
     </DesktopSidebarPortal>
@@ -1293,7 +1293,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 .workflow-navigation{display:contents}.workflow-back{display:none}
 .workflow-back__icon{width:16px;height:16px;flex-shrink:0}
 .workspace-subtabs{display:flex;gap:6px;flex:1;min-width:0}
-.workspace-subtabs button{display:flex;align-items:center;gap:8px;flex:1;text-align:left}.workspace-subtabs .is-active{background:var(--ui-active);border-color:var(--ui-accent-border);color:var(--ui-accent)}.stage-number{color:var(--ui-muted);font-size:12px;font-variant-numeric:tabular-nums}
+.workspace-subtabs button{display:flex;align-items:center;gap:8px;flex:1;text-align:left;color:var(--ui-accent)}.workspace-subtabs .is-active,.workspace-subtabs button.is-active:hover{background:var(--ui-active);border-color:var(--ui-accent-border);color:var(--ui-accent)}.stage-number{color:inherit;font-size:12px;font-variant-numeric:tabular-nums}
 .workflow-body{flex:1;min-height:0;min-width:0;overflow:auto;padding:14px 0 0 0}.workflow-body--refinement,.workflow-body--review{display:flex;flex-direction:column;overflow:hidden}
 .workflow-body--review{overflow:auto}.workflow-body--review :deep(.application-documents){flex:1 0 auto;min-height:360px}
 .preparation-actions{display:flex;justify-content:center;}
@@ -1336,8 +1336,8 @@ h3{font-size:16px;margin:0 0 14px}p{line-height:1.6;font-size:13px}button,input,
   .workflow-back__label{display:none}
   .workspace-subtabs{position:static;inset:auto;flex:1;min-width:0;height:44px;gap:0;margin:0;padding:0;border:0;background:transparent;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none}
   .workspace-subtabs::-webkit-scrollbar{display:none}
-  .workspace-subtabs button{flex:1 0 auto;justify-content:center;min-height:44px;padding:6px 8px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--ui-muted)}
-  .workspace-subtabs .is-active{border-bottom-color:var(--ui-accent);background:var(--ui-active);color:var(--ui-text)}
+  .workspace-subtabs button{flex:1 0 auto;justify-content:center;min-height:44px;padding:6px 8px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--ui-accent)}
+  .workspace-subtabs .is-active{border-bottom-color:var(--ui-accent);background:var(--ui-active);color:var(--ui-accent)}
   .workflow-navigation button:focus-visible{outline:2px solid var(--ui-accent);outline-offset:-2px}
   .application-mobile-title{display:block;flex-shrink:0;margin:0;padding:10px 12px;font-size:16px;line-height:1.35;overflow-wrap:anywhere;border-bottom:1px solid var(--ui-divider);background:var(--ui-shell)}
   .application-scroll-content{display:block;flex:1;min-height:0;overflow:auto;scrollbar-width:thin;scroll-padding-block:8px}
