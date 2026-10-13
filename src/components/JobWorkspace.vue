@@ -48,6 +48,8 @@ const filterToggle = ref<HTMLButtonElement | null>(null);
 const hideWithApplication = ref(true);
 const sortBy = ref('deadline');
 const applicationSortBy = ref('deadline');
+const showApplicationIds = ref(false);
+const showApplicationCalendars = ref(false);
 const removingId = ref<string | null>(null);
 const removalDialog = ref<HTMLDialogElement | null>(null);
 const removedOpportunityId = ref<string | null>(null);
@@ -462,7 +464,14 @@ useToastWatch(() => notice.value, () => {
           <div class="jobs-filter-checks jobs-sidebar-controls"><label class="jobs-check"><input v-model="hideWithApplication" type="checkbox" /> {{ text('Hide applications', 'Stellen mit Bewerbungen ausblenden') }}</label><label class="jobs-check"><input v-model="hideNotInterested" type="checkbox" /> {{ text('Hide not interesting', 'Nicht interessante ausblenden') }}</label></div>
         </DesktopSidebarPortal>
         </template>
-        <template v-else><label>{{ text('Status', 'Status') }}<select v-model="statusFilter"><option value="">{{ text('All statuses', 'Alle Status') }}</option><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label><label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="applicationSortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option></select></label></template>
+        <template v-else><label>{{ text('Status', 'Status') }}<select v-model="statusFilter"><option value="">{{ text('All statuses', 'Alle Status') }}</option><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label><label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="applicationSortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option></select></label>
+        <DesktopSidebarPortal area="minor" :active="props.active !== false && !showingDetail">
+          <div class="jobs-filter-checks jobs-sidebar-controls jobs-application-display-options">
+            <label class="jobs-check"><input v-model="showApplicationIds" type="checkbox" /> {{ text('Show application ID', 'Bewerbungs-ID anzeigen') }}</label>
+            <label class="jobs-check"><input v-model="showApplicationCalendars" type="checkbox" /> {{ text('Show ICS download', 'ICS-Download anzeigen') }}</label>
+          </div>
+        </DesktopSidebarPortal>
+        </template>
       </div>
       <span class="jobs-count">{{ tab === 'opportunities' ? filteredOpportunities.length : filteredApplications.length }} {{ text('results', 'Ergebnisse') }}</span>
     </div>
@@ -488,7 +497,7 @@ useToastWatch(() => notice.value, () => {
         <colgroup><col style="width: 48%" /><col style="width: 18%" /><col style="width: 22%" /><col style="width: 12%" /></colgroup>
         <thead><tr><th scope="col">{{ text('Application', 'Bewerbung') }}</th><th scope="col">{{ text('Deadline', 'Frist') }}</th><th scope="col">{{ text('Contact person', 'Kontaktperson') }}</th><th scope="col">{{ text('Status', 'Status') }}</th></tr></thead>
         <tbody :class="{ 'jobs-card-track': filteredApplications.length }"><template v-for="item in filteredApplications" :key="item.id">
-          <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'is-expanded': editingId === item.id }" :aria-disabled="saving" @click="toggleApplication(item)"><td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :disabled="saving" :aria-label="`${text('Open application:', 'Bewerbung öffnen:')} ${contextTitle(item)}`" @click.stop="toggleApplication(item)"><strong>{{ contextTitle(item) }}</strong></button><span class="jobs-subline">{{ contextInstitution(item) }}</span><ApplicationIdentifier :application="item" :lang="lang" /></td><td class="jobs-cell-wide" :data-label="text('Deadline', 'Frist')"><div class="jobs-application-deadline"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.context_json, now) }">{{ formatOpportunityDeadline(item.context_json, lang) }}</span><ApplicationDeadlineCalendar :application="item" :lang="lang" /></div></td>
+          <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'is-expanded': editingId === item.id }" :aria-disabled="saving" @click="toggleApplication(item)"><td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :disabled="saving" :aria-label="`${text('Open application:', 'Bewerbung öffnen:')} ${contextTitle(item)}`" @click.stop="toggleApplication(item)"><strong>{{ contextTitle(item) }}</strong></button><span class="jobs-subline">{{ contextInstitution(item) }}</span><ApplicationIdentifier v-if="showApplicationIds" :application="item" :lang="lang" /></td><td class="jobs-cell-wide" :data-label="text('Deadline', 'Frist')"><div class="jobs-application-deadline"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.context_json, now) }">{{ formatOpportunityDeadline(item.context_json, lang) }}</span><ApplicationDeadlineCalendar v-if="showApplicationCalendars" :application="item" :lang="lang" /></div></td>
             <td class="jobs-cell-wide jobs-cell-contacts" :data-label="text('Contact person', 'Kontaktperson')"><template v-for="(person, index) in contacts(item)" :key="index"><span class="jobs-subline">{{ person.name }}</span><a v-if="safeEmailUrl(person.email)" :href="safeEmailUrl(person.email)!" @click.stop>{{ person.email }}</a><span v-else>{{ person.email }}</span></template><span v-if="!contacts(item).length">{{ text('Not recorded', 'Nicht erfasst') }}</span></td>
             <td class="jobs-cell-state jobs-application-state" :data-label="text('Status', 'Status')" @click.stop><span class="jobs-badge" :class="`application-status--${applicationStatusTone(item.status)}`">{{ statusLabel(item.status) }}</span></td>
             <td v-if="reviewById.get(item.opportunity_id)?.comment?.trim()" class="jobs-cell-wide jobs-card-evaluation" :data-label="text('Personal Evaluation', 'Persönliche Einschätzung')"><p>{{ reviewById.get(item.opportunity_id)?.comment }}</p></td>
@@ -704,6 +713,9 @@ tr.is-expanded { background: var(--ui-active); }
   .opportunity-detail { padding: 32px; }
 }
 @media (max-width: 760px) {
+  .jobs-application-display-options,
+  .jobs-applications-table :deep(.application-identifier),
+  .jobs-applications-table :deep(.application-deadline-calendar) { display: none; }
   .jobs-workspace {
     --ui-surface: #112129;
     --ui-surface-hover: #20363e;
