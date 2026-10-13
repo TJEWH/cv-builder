@@ -780,8 +780,8 @@ tr.is-expanded { background: var(--ui-active); }
   .jobs-workspace .jobs-cell-heading { padding-top: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--ui-divider); background: rgb(220 230 226 / 4%); }
   .jobs-cell-heading :deep(.application-identifier) { margin-top: 8px; }
   .jobs-opportunity-badges { margin-top: 8px; }
-  .jobs-opportunity--unseen-new { border-color: #47738a; }
-  .jobs-opportunity--unseen-updated { border-color: #806a43; }
+  .jobs-opportunity--unseen-new { border-width: 2px; border-color: #55b6ff; }
+  .jobs-opportunity--unseen-updated { border-width: 2px; border-color: #f2d24f; }
   .jobs-opportunity--unseen-new > td:first-child, .jobs-opportunity--unseen-updated > td:first-child { box-shadow: none; }
   .jobs-result-row:active { background: var(--ui-active); }
   .jobs-workspace .jobs-cell-contacts .jobs-subline:first-child { margin-top: 0; }
