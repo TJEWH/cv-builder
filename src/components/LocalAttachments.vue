@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch } from 'vue';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { faCloud, faCloudArrowUp, faLaptop, faTriangleExclamation, faPen } from '@fortawesome/free-solid-svg-icons';
 import PreviewDialog from './PreviewDialog.vue';
@@ -11,6 +11,7 @@ import { usePdfBlobPreview } from '../composables/usePdfBlobPreview';
 import { useToastWatch } from '../composables/useToasts';
 import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
 import AutosaveTextarea from './AutosaveTextarea.vue';
+import SectionHeading from './SectionHeading.vue';
 import { commitPendingTextareas } from '../composables/textareaCommit';
 import { useDesktopSidebar } from '../composables/desktopSidebar';
 
@@ -44,6 +45,8 @@ useToastWatch(() => error.value, () => ({
 }));
 const editingId = ref('');
 const formVisible = ref(false);
+const formCollapsed = ref(false);
+const formContentId = `attachment-editor-${useId()}`;
 const name = ref('');
 const description = ref('');
 const file = ref<File | null>(null);
@@ -51,6 +54,7 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const dirty = ref(false);
 const editingEntry = computed(() => entries.value.find((entry) => entry.id === editingId.value));
 const attachmentForm = ref<HTMLFormElement | null>(null);
+const newAttachmentButton = ref<HTMLButtonElement | null>(null);
 const previewDocument = shallowRef<LocalDocument | null>(null);
 const previewUrl = ref('');
 const previewName = computed(() => previewDocument.value?.name || '');
@@ -99,18 +103,36 @@ function clearDraft(key = draftKey()) {
   if (typeof localStorage === 'undefined') return;
   try { localStorage.removeItem(key); } catch (reason) { error.value = message(reason); }
 }
-function cancelEdit() { clearDraft(); resetForm(); }
+function focusNewAttachment() { void nextTick(() => { if (props.active) newAttachmentButton.value?.focus({ preventScroll: true }); }); }
+function cancelEdit() { clearDraft(); resetForm(); focusNewAttachment(); }
 function resetForm() {
-  editingId.value = ''; formVisible.value = false; name.value = ''; description.value = ''; file.value = null; dirty.value = false;
+  editingId.value = ''; formVisible.value = false; formCollapsed.value = false; name.value = ''; description.value = ''; file.value = null; dirty.value = false;
   if (fileInput.value) fileInput.value.value = '';
+}
+function focusAttachmentForm() {
+  void nextTick(() => {
+    const form = attachmentForm.value;
+    if (!form || !props.active) return;
+    form.querySelector('input')?.focus({ preventScroll: true });
+    form.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  });
+}
+function toggleForm() {
+  commitPendingTextareas(); if (!persistDraft()) return;
+  formCollapsed.value = !formCollapsed.value;
 }
 function edit(entry?: Entry) {
   if (busy.value) return;
   commitPendingTextareas(); if (!persistDraft()) return;
+  if (formVisible.value && editingId.value === (entry?.id || '')) {
+    formCollapsed.value = false;
+    focusAttachmentForm();
+    return;
+  }
   editingId.value = entry?.id || ''; name.value = entry?.description?.trim() ? entry.name : ''; description.value = entry?.description || '';
-  file.value = null; dirty.value = false; formVisible.value = true; error.value = ''; notice.value = '';
+  file.value = null; dirty.value = false; formVisible.value = true; formCollapsed.value = false; error.value = ''; notice.value = '';
   restoreDraft();
-  void nextTick(() => { attachmentForm.value?.scrollIntoView({ block: 'nearest' }); attachmentForm.value?.querySelector('input')?.focus({ preventScroll: true }); });
+  focusAttachmentForm();
   if (fileInput.value) fileInput.value.value = '';
 }
 function chooseFile(event: Event) { file.value = (event.target as HTMLInputElement).files?.[0] || null; dirty.value = true; }
@@ -181,7 +203,7 @@ async function save() {
       cloudSaved = true;
       sharedDocuments.value = [saved, ...sharedDocuments.value.filter((entry) => entry.id !== id)]; cloudFailed.value = false;
     } else if (!localSaved) throw new Error(text('The local file is unavailable. Attach it before saving offline.', 'Die lokale Datei fehlt. Zum Offline-Speichern zuerst hinzufügen.'));
-    clearDraft(savedDraftKey); clearDraft(); dirty.value = false; resetForm();
+    clearDraft(savedDraftKey); clearDraft(); dirty.value = false; resetForm(); focusNewAttachment();
     notice.value = cloud ? text('Saved. Only your name and description were shared; the file stays on this device.', 'Gespeichert. Nur der eingegebene Name und die Beschreibung wurden geteilt; die Datei bleibt auf diesem Gerät.') : text('Attachment saved in this local profile. To use it in an account, sign in and add the file, name and description to that account’s library.', 'Anhang in diesem lokalen Profil gespeichert. Zur Verwendung in einem Konto anmelden und Datei, Name und Beschreibung zu dessen Bibliothek hinzufügen.');
   } catch (reason) {
     if (current(token)) error.value = (localSaved ? text('The file and your metadata are saved locally. Cloud sync failed; save again to retry. ', 'Datei und Metadaten sind lokal gespeichert. Cloud-Synchronisierung fehlgeschlagen; zum Wiederholen erneut speichern. ') : '') + message(reason);
@@ -265,7 +287,7 @@ async function importBackup(event: Event) {
         <p class="app-hint">{{ text('Could not load files saved on this device. Retry to access your attachment library.', 'Die auf diesem Gerät gespeicherten Dateien konnten nicht geladen werden. Erneut versuchen, um die Anhänge zu öffnen.') }}</p>
         <button type="button" :disabled="loading || busy" @click="load">{{ text('Retry loading files', 'Dateien erneut laden') }}</button>
       </div>
-      <p v-else-if="!loading && !entries.length" class="empty app-hint">{{ text('No attachments yet. Add a local file and give it a name and description.', 'Noch keine Anhänge. Eine lokale Datei hinzufügen und Name und Beschreibung eingeben.') }}</p>
+      <p v-else-if="!loading && !entries.length && !formVisible" class="empty app-hint">{{ text('No attachments yet. Add a local file and give it a name and description.', 'Noch keine Anhänge. Eine lokale Datei hinzufügen und Name und Beschreibung eingeben.') }}</p>
       <ul class="attachment-list">
         <li v-for="entry in entries" :key="entry.id">
           <div class="attachment-copy">
@@ -284,15 +306,20 @@ async function importBackup(event: Event) {
           </div>
         </li>
       </ul>
-      <button class="add-attachment-row" type="button" :disabled="busy || loading || loadFailed" @click="edit()"><font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />{{ text('New attachment', 'Neuer Anhang') }}</button>
-      <form v-if="formVisible" ref="attachmentForm" class="attachment-form" @submit.prevent="save">
-        <h3>{{ editingId ? text('Edit attachment', 'Anhang bearbeiten') : text('New attachment', 'Neuer Anhang') }}</h3>
+      <form v-if="formVisible" ref="attachmentForm" class="attachment-form editor-subsection" :class="{ collapsed: formCollapsed }" @submit.prevent="save">
+        <div class="section-head" @click="toggleForm">
+          <SectionHeading :title="editingId ? text('Edit attachment', 'Anhang bearbeiten') : text('New attachment', 'Neuer Anhang')" :collapsed="formCollapsed" :controls="formContentId" @activate="toggleForm" />
+        </div>
+        <p v-if="error" class="attachment-form-error" role="alert">{{ error }}</p>
+        <div v-show="!formCollapsed" :id="formContentId" class="attachment-form__body" :inert="formCollapsed">
         <label>{{ text('Attachment name', 'Name des Anhangs') }}<input v-model="name" maxlength="200" required :disabled="busy" @input="dirty = true" /></label>
         <label>{{ text('Description', 'Beschreibung') }}<AutosaveTextarea v-model="description" @commit="commitDescription" maxlength="4000" rows="4" required :disabled="busy" @input="dirty = true" /><small class="app-hint">{{ text('Write the context you want to share, without copying private details you want to keep local.', 'Den gewünschten Kontext eingeben und private Angaben weglassen, die lokal bleiben sollen.') }}</small></label>
         <label>{{ editingEntry?.local ? text('Replace local file (optional)', 'Lokale Datei ersetzen (optional)') : text('Local PDF or image', 'Lokales PDF oder Bild') }}<input ref="fileInput" type="file" accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg" :required="!editingId" :disabled="busy" @change="chooseFile" /><small class="app-hint">{{ text('PDF, PNG or JPEG, up to 50 MB. Choosing a file never fills the name or description.', 'PDF, PNG oder JPEG, bis 50 MB. Die Dateiauswahl füllt Name und Beschreibung nicht aus.') }}</small></label>
         <p v-if="editingEntry && !editingEntry.local && !file" class="missing app-hint">{{ text('This attachment has no file on this device. Add the original file to use it in a PDF package.', 'Für diesen Anhang fehlt die Datei auf diesem Gerät. Zum Verwenden in einer PDF-Zusammenstellung die Originaldatei hinzufügen.') }}</p>
         <div class="actions"><button class="primary" type="submit" :disabled="busy || loading || loadFailed">{{ busy ? text('Saving…', 'Speichern…') : text('Save attachment', 'Anhang speichern') }}</button><button type="button" :disabled="busy" @click="cancelEdit">{{ text('Cancel', 'Abbrechen') }}</button></div>
+        </div>
       </form>
+      <button ref="newAttachmentButton" class="add-attachment-row" type="button" :disabled="busy || loading || loadFailed" @click="edit()"><font-awesome-icon :icon="['fas', 'plus']" aria-hidden="true" />{{ text('New attachment', 'Neuer Anhang') }}</button>
 
     </div>
     <FullDocumentPreview :model-value="previewPdfOpen" v-model:page="previewPage" :pages="previewPages" :is-updating="previewLoading" :title="previewName" :lang="lang || 'en'" :error="previewError" @update:model-value="(open) => { if (!open) clearPreview(); }" @download="downloadPreview">
@@ -309,8 +336,19 @@ async function importBackup(event: Event) {
 .local-attachments > .app-hint{margin-bottom:14px}.attachments-scroll{min-height:0;overflow:auto;overscroll-behavior:contain;padding-right:4px}.library-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13px;margin-bottom:14px}
 .local-attachments :is(button,input,textarea,.file-button){font:inherit;border:1px solid var(--ui-border);border-radius:7px;background:var(--ui-control);color:var(--ui-text);padding:9px 12px;box-sizing:border-box}.local-attachments button,.file-button{font-size:12px;cursor:pointer;min-height:38px}.local-attachments button:hover:not(:disabled){background:var(--ui-surface-hover)}.local-attachments button:disabled{opacity:.5;cursor:not-allowed}.local-attachments :is(button,input,textarea):focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}.local-attachments .primary{background:var(--ui-active);border-color:var(--ui-accent-border);color:var(--ui-accent)}.local-attachments .primary:hover:not(:disabled){background:var(--ui-active);border-color:var(--ui-accent);color:var(--ui-text)}
 .backup-actions :is(button,.file-button){font:inherit;font-size:12px;min-height:38px;border:1px solid var(--ui-border);border-radius:7px;background:var(--ui-control);color:var(--ui-text);padding:9px 12px;box-sizing:border-box;cursor:pointer}.backup-actions button:hover:not(:disabled),.backup-actions .file-button:hover:not(:has(input:disabled)){background:var(--ui-surface-hover)}.backup-actions button:disabled,.backup-actions .file-button:has(input:disabled){opacity:.5;cursor:not-allowed}.backup-actions button:focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}
-.attachment-form{display:grid;gap:16px;padding:18px;background:var(--ui-surface);border:1px solid var(--ui-border);border-radius:8px;margin:0 0 20px;max-width:760px}.attachment-form h3,.attachment-copy h3{font:600 15px/1.4 system-ui;margin:0;color:var(--ui-text);text-transform:none;letter-spacing:0}.attachment-form label{display:grid;gap:7px;font:600 12px/1.4 system-ui;color:var(--ui-text)}.attachment-form :is(input,textarea){font:400 13px/1.5 system-ui;min-width:0;width:100%}.attachment-form textarea{resize:vertical}.attachment-form small{font-weight:400;color:var(--ui-muted);line-height:1.5}
-.attachment-list{padding:0;margin:0;list-style:none}.attachment-list li{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:18px 0;border-bottom:1px solid var(--ui-border)}.attachment-copy{min-width:0}.attachment-copy h3{overflow-wrap:anywhere}.local-attachments .attachment-description{white-space:pre-wrap;overflow-wrap:anywhere;margin:7px 0}.attachment-copy small{display:block;font-size:11px;color:var(--ui-muted);line-height:1.5;margin-top:4px}.local-attachments .missing{color:#f2c6a7}.actions{display:flex;gap:7px;flex-wrap:wrap}.attachment-list .actions{flex-shrink:0;flex-wrap:nowrap}.attachment-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap}.attachment-status{display:flex;gap:12px;margin-top:8px;color:#9be8c7}.attachment-status [role=img]{display:inline-flex;align-items:center;justify-content:center;min-width:20px;min-height:24px}.local-attachments .empty{margin-bottom:14px}.backup-actions{flex-shrink:0;justify-content:flex-end}.backup-actions .file-button{position:relative;display:inline-flex;align-items:center;white-space:nowrap}.local-attachments .add-attachment-row{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin:0 0 16px;min-height:54px;padding:8px;border:0;border-top:1px dashed var(--ui-border);border-bottom:1px dashed var(--ui-border);border-radius:0;background:transparent;color:var(--ui-muted);font:inherit}.local-attachments .add-attachment-row:hover:not(:disabled){border-color:var(--ui-accent-border);background:var(--ui-surface-hover);color:var(--ui-accent)}.backup-actions .file-button input{position:absolute;inset:50% auto auto 0;width:1px;min-width:0;height:1px;padding:0;border:0;opacity:0}.attachment-image{display:block;width:100%;height:100%;object-fit:contain}.file-button:focus-within{outline:2px solid var(--ui-accent);outline-offset:2px}
+.attachment-form{padding:8px;background:transparent;border:0;border-top:1px solid var(--ui-divider);border-radius:0;margin:0;min-width:0}
+.attachment-form > .section-head{min-height:40px;margin-bottom:8px;cursor:pointer}
+.attachment-form :deep(.section-heading-button),.attachment-form :deep(.section-heading-button:hover){min-height:40px;padding:5px 6px;border:1px solid transparent;background:transparent;font:inherit}
+.attachment-form.collapsed > .section-head{margin-bottom:0}
+.attachment-form__body{display:grid;gap:16px;margin:0 8px 8px}
+.attachment-form h3,.attachment-copy h3{font:600 15px/1.4 var(--font-ui,system-ui);margin:0;color:var(--ui-text);text-transform:none;letter-spacing:0}
+.attachment-form label{display:grid;gap:7px;font:400 13px/1.5 var(--font-ui,system-ui);color:var(--ui-muted)}
+.attachment-form :is(input,textarea){font:inherit;min-width:0;width:100%}
+.attachment-form textarea{resize:vertical}
+.attachment-form small{font-weight:400;color:var(--ui-muted);line-height:1.5}
+.local-attachments .attachment-form-error{margin:8px;color:#fecaca}
+.attachment-list{padding:0;margin:0;list-style:none}.attachment-list li{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:18px 0;border-top:1px solid var(--ui-border)}.attachment-copy{min-width:0}.attachment-copy h3{overflow-wrap:anywhere}.local-attachments .attachment-description{white-space:pre-wrap;overflow-wrap:anywhere;margin:7px 0}.attachment-copy small{display:block;font-size:11px;color:var(--ui-muted);line-height:1.5;margin-top:4px}.local-attachments .missing{color:#f2c6a7}.actions{display:flex;gap:7px;flex-wrap:wrap}.attachment-list .actions{flex-shrink:0;flex-wrap:nowrap}.attachment-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap}.attachment-status{display:flex;gap:12px;margin-top:8px;color:#9be8c7}.attachment-status [role=img]{display:inline-flex;align-items:center;justify-content:center;min-width:20px;min-height:24px}.local-attachments .empty{margin-bottom:14px}.backup-actions{flex-shrink:0;justify-content:flex-end}.backup-actions .file-button{position:relative;display:inline-flex;align-items:center;white-space:nowrap}.local-attachments .add-attachment-row{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin:0;min-height:54px;padding:8px;border:0;border-top:1px dashed var(--ui-border);border-bottom:1px dashed var(--ui-border);border-radius:0;background:transparent;color:var(--ui-muted);font:inherit}.local-attachments .add-attachment-row:is(:hover,:focus-visible):not(:disabled){border-color:var(--ui-accent-border);background:var(--ui-surface-hover);color:var(--ui-accent)}.backup-actions .file-button input{position:absolute;inset:50% auto auto 0;width:1px;min-width:0;height:1px;padding:0;border:0;opacity:0}.attachment-image{display:block;width:100%;height:100%;object-fit:contain}.file-button:focus-within{outline:2px solid var(--ui-accent);outline-offset:2px}
+.local-attachments .add-attachment-row:focus-visible{outline-offset:-3px}
 .backup-actions--sidebar{display:grid;width:100%;grid-template-columns:minmax(0,1fr)}.backup-actions--sidebar :is(button,.file-button){width:100%;white-space:normal;text-align:left;justify-content:flex-start}
 @media(max-width:850px){.attachment-list li{flex-direction:column}.attachment-list .actions{max-width:none}}@media(max-width:700px){.attachment-actions button{min-width:44px}.attachment-actions button span{display:none}.backup-actions{width:100%;justify-content:flex-end}.backup-actions button,.backup-actions .file-button{font-size:11px;padding:8px}.attachments-heading{flex-direction:column;gap:10px}.attachment-form{padding:12px}.attachments-scroll{padding-right:0}}
 @media (max-width:760px), (max-width:960px) and (max-height:500px) and (pointer:coarse) {
@@ -320,6 +358,7 @@ async function importBackup(event: Event) {
   .attachment-list li{flex-direction:column}
   .attachment-list .actions{flex-wrap:wrap;max-width:100%}
   .attachment-form :is(input,textarea){font-size:16px}
+  .attachment-form :deep(.section-heading-button),.attachment-form :deep(.section-heading-button:hover){min-height:44px}
   .local-attachments button,.backup-actions :is(button,.file-button){min-height:44px}
   .attachment-actions button{min-width:44px}
   .backup-actions :is(button,.file-button){max-width:100%;white-space:normal;overflow-wrap:anywhere}

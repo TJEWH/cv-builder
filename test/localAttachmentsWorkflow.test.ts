@@ -10,6 +10,9 @@ import type { ApplicationPackageManifest, AttachmentMetadata, LocalDocument, Loc
 import { LocalDocumentRepository, type LocalDocumentStorage } from '../src/composables/localDocuments';
 import { attachmentAccount, createAttachmentFixture } from './attachmentFixture';
 
+const requireFromComponents = createRequire(new URL('../src/components/LocalAttachments.vue', import.meta.url));
+const { registerTextareaCommit } = requireFromComponents('../composables/textareaCommit') as typeof import('../src/composables/textareaCommit');
+
 function component(name: string) {
   const filename = new URL(`../src/components/${name}.vue`, import.meta.url);
   const { descriptor } = parse(readFileSync(filename, 'utf8'));
@@ -32,7 +35,8 @@ const renderer = createRenderer<object, object>({ createElement: () => ({}), cre
 type Entry = AttachmentMetadata & { local?: LocalDocumentMetadata };
 interface LibraryState {
   loading: boolean; loadFailed: boolean; busy: boolean; error: string; name: string; description: string; file: File | null;
-  commitDescription(): void; cancelEdit(): void;
+  formVisible: boolean; formCollapsed: boolean;
+  commitDescription(): void; cancelEdit(): void; toggleForm(): void;
   entries: Entry[]; localDocuments: LocalDocumentMetadata[]; sharedDocuments: AttachmentMetadata[]; editingId: string;
   previewDocument: LocalDocument | null; previewUrl: string; previewPage: number;
   edit(entry?: Entry): void; chooseFile(event: Event): void; save(): Promise<void>; load(): Promise<void>;
@@ -341,6 +345,70 @@ test('attachment description commits retain a private draft until the explicit a
   await setup.save();
   assert.equal(draftData.size, 0, 'successful explicit save clears the matching draft');
   assert.equal(fixture.rows[0]?.description, 'A new description waiting for approval.');
+});
+
+test('reopening the new attachment editor preserves its selected file and commits only a private draft', async t => {
+  const { setup, fixture, draftData } = mount<LibraryState>(t, Library); await idle(setup);
+  const selectedFile = pdf();
+  setup.edit(); setup.name = 'Research reference'; setup.chooseFile(fileEvent(selectedFile));
+  let pendingDescription = 'A private description waiting for the explicit attachment save.';
+  const unregister = registerTextareaCommit(() => {
+    if (!pendingDescription) return;
+    setup.description = pendingDescription; pendingDescription = ''; setup.commitDescription();
+  });
+  t.after(unregister);
+
+  setup.edit();
+
+  assert.equal(setup.formVisible, true); assert.equal(setup.formCollapsed, false);
+  assert.equal(setup.editingId, ''); assert.equal(setup.name, 'Research reference');
+  assert.equal(setup.description, 'A private description waiting for the explicit attachment save.');
+  assert.equal(setup.file, selectedFile, 'reopening an existing new draft cannot discard the selected file');
+  assert.deepEqual([...draftData.values()].map(value => JSON.parse(value)), [{ name: setup.name, description: setup.description }]);
+  assert.equal(fixture.local.size, 0, 'reopening a draft cannot create a local attachment');
+  assert.equal(fixture.rows.length, 0);
+  assert.equal(fixture.calls.filter(call => call.name === 'save_local_attachment_metadata').length, 0);
+});
+
+test('collapsing and reopening the attachment editor retains its file and private text without publishing metadata', async t => {
+  const { setup, fixture, draftData } = mount<LibraryState>(t, Library); await idle(setup);
+  const selectedFile = pdf();
+  setup.edit(); setup.name = 'Academic record'; setup.chooseFile(fileEvent(selectedFile));
+  let pendingDescription = 'Academic modules and grades, still a private draft.';
+  const unregister = registerTextareaCommit(() => {
+    if (!pendingDescription) return;
+    setup.description = pendingDescription; pendingDescription = ''; setup.commitDescription();
+  });
+  t.after(unregister);
+
+  setup.toggleForm();
+  assert.equal(setup.formCollapsed, true); assert.equal(setup.formVisible, true);
+  assert.equal(setup.description, 'Academic modules and grades, still a private draft.');
+  assert.deepEqual([...draftData.values()].map(value => JSON.parse(value)), [{ name: setup.name, description: setup.description }]);
+  setup.toggleForm();
+  assert.equal(setup.formCollapsed, false); assert.equal(setup.file, selectedFile);
+  setup.toggleForm(); setup.edit();
+  assert.equal(setup.formCollapsed, false, 'New attachment reopens its existing collapsed draft');
+  assert.equal(setup.name, 'Academic record'); assert.equal(setup.file, selectedFile);
+  assert.equal(fixture.local.size, 0); assert.equal(fixture.rows.length, 0);
+  assert.equal(fixture.calls.filter(call => call.name === 'save_local_attachment_metadata').length, 0);
+});
+
+test('a failed attachment draft write prevents collapse and preserves the editor for retry', async t => {
+  const { setup, fixture, draftData } = mount<LibraryState>(t, Library); await idle(setup);
+  const selectedFile = pdf();
+  setup.edit(); setup.name = 'Reference letter'; setup.description = 'Unsaved private context.'; setup.chooseFile(fileEvent(selectedFile));
+  const writes = t.mock.method(localStorage, 'setItem', () => { throw new Error('Storage full'); });
+
+  setup.toggleForm();
+
+  assert.equal(setup.formVisible, true); assert.equal(setup.formCollapsed, false);
+  assert.equal(setup.name, 'Reference letter'); assert.equal(setup.description, 'Unsaved private context.');
+  assert.equal(setup.file, selectedFile); assert.equal(setup.error, 'Storage full');
+  assert.equal(draftData.size, 0); assert.equal(fixture.local.size, 0); assert.equal(fixture.rows.length, 0);
+  writes.mock.restore(); setup.toggleForm();
+  assert.equal(setup.formCollapsed, true); assert.equal(setup.file, selectedFile);
+  assert.deepEqual([...draftData.values()].map(value => JSON.parse(value)), [{ name: setup.name, description: setup.description }]);
 });
 
 test('cancelling attachment edits clears the private description draft', async t => {
