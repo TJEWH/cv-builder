@@ -202,6 +202,10 @@ function focusResult(kind: 'opportunities' | 'applications', id: string) {
   nextTick(() => {
     if (props.tab !== kind) return;
     const row = Array.from(tableScroll.value?.querySelectorAll<HTMLElement>('[data-item-id]') || []).find((item) => item.dataset.itemId === id);
+    if (row && window.matchMedia('(max-width: 760px)').matches) {
+      const track = row.closest<HTMLElement>('.jobs-card-track');
+      if (track) track.scrollTo({ left: track.scrollLeft + row.getBoundingClientRect().left - track.getBoundingClientRect().left - 2, behavior: 'instant' });
+    }
     row?.querySelector<HTMLButtonElement>('.jobs-row-toggle')?.focus({ preventScroll: true });
   });
 }
@@ -443,8 +447,9 @@ useToastWatch(() => notice.value, () => {
       <table v-if="tab === 'opportunities'" class="jobs-opportunities-table">
         <colgroup><col style="width: 38%" /><col style="width: 25%" /><col style="width: 10%" /><col style="width: 12%" /><col style="width: 15%" /></colgroup>
         <thead><tr><th scope="col">{{ text('Opportunity', 'Stelle') }}</th><th scope="col">{{ text('Topics', 'Themen') }}</th><th scope="col">{{ text('Country', 'Land') }}</th><th scope="col">{{ text('Deadline', 'Frist') }}</th><th scope="col">{{ text('Your review', 'Deine Bewertung') }}</th></tr></thead>
-        <tbody v-for="group in opportunityGroups" :key="group.key">
-          <tr v-if="group.title" class="jobs-group-row" :data-opportunity-group="group.key"><th scope="rowgroup" colspan="5">{{ group.title }} <span>{{ group.items.length }}</span></th></tr>
+        <template v-for="group in opportunityGroups" :key="group.key">
+        <tbody v-if="group.title" class="jobs-card-group-heading"><tr class="jobs-group-row" :data-opportunity-group="group.key"><th scope="rowgroup" colspan="5">{{ group.title }} <span>{{ group.items.length }}</span></th></tr></tbody>
+        <tbody class="jobs-card-track">
           <template v-for="item in group.items" :key="item.id">
           <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'jobs-opportunity--new': recencyById.get(item.id) === 'new', 'jobs-opportunity--updated': recencyById.get(item.id) === 'updated', 'jobs-opportunity--unseen-new': unseenById.get(item.id) === 'new', 'jobs-opportunity--unseen-updated': unseenById.get(item.id) === 'updated' }" @click="openOpportunity(item.id)">
             <td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :aria-label="`${text('Open opportunity:', 'Stelle öffnen:')} ${item.title}`" @click.stop="openOpportunity(item.id)"><strong>{{ item.title }}</strong></button><span class="jobs-subline">{{ item.university || '—' }}</span><div v-if="recencyById.get(item.id) || (item.particularly_suitable && fitScoreById.get(item.id) !== undefined)" class="jobs-opportunity-badges"><span v-if="recencyById.get(item.id)" class="jobs-badge" :class="`jobs-badge--${recencyById.get(item.id)}`" :title="recencyById.get(item.id) === 'new' ? text('Added within the last 24 hours', 'In den letzten 24 Stunden hinzugefügt') : text('Updated within the last 24 hours', 'In den letzten 24 Stunden aktualisiert')">{{ recencyById.get(item.id) === 'new' ? text('New · 24h', 'Neu · 24 Std.') : text('Updated · 24h', 'Aktualisiert · 24 Std.') }}</span><span v-if="item.particularly_suitable && fitScoreById.get(item.id) !== undefined" class="jobs-badge jobs-fit-score" :class="fitTone(fitScoreById.get(item.id)) && `jobs-fit-score--${fitTone(fitScoreById.get(item.id))}`" :aria-label="`${text('Personal fit', 'Persönliche Passung')}: ${fitLabel(fitScoreById.get(item.id))}`" :title="text('Personal fit score', 'Bewertung der persönlichen Passung')">{{ fitLabel(fitScoreById.get(item.id)) }}</span></div></td>
@@ -452,12 +457,12 @@ useToastWatch(() => notice.value, () => {
             <td :data-label="text('Country', 'Land')">{{ item.country || '—' }}</td><td :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.details, now) }">{{ formatOpportunityDeadline(item.details, lang) }}</span></td>
             <td class="jobs-cell-state" :data-label="text('Your review', 'Deine Bewertung')" @click.stop><select class="jobs-review-select" :aria-label="`${text('Review state for', 'Bewertung für')} ${item.title}`" :value="reviewState(item.id)" :disabled="saving" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></td>
           </tr>
-        </template></tbody><tbody v-if="!filteredOpportunities.length"><tr><td colspan="5" class="jobs-empty"><p :class="{ 'app-hint': !loading }">{{ loading ? text('Loading opportunities…', 'Stellenangebote werden geladen…') : text('No matching opportunities. Adjust the deadline, application, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewerbungs-, Bewertungs- oder Suchfilter.') }}</p></td></tr></tbody>
+        </template></tbody></template><tbody v-if="!filteredOpportunities.length"><tr><td colspan="5" class="jobs-empty"><p :class="{ 'app-hint': !loading }">{{ loading ? text('Loading opportunities…', 'Stellenangebote werden geladen…') : text('No matching opportunities. Adjust the deadline, application, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewerbungs-, Bewertungs- oder Suchfilter.') }}</p></td></tr></tbody>
       </table>
       <table v-else class="jobs-applications-table">
         <colgroup><col style="width: 48%" /><col style="width: 18%" /><col style="width: 22%" /><col style="width: 12%" /></colgroup>
         <thead><tr><th scope="col">{{ text('Application', 'Bewerbung') }}</th><th scope="col">{{ text('Deadline', 'Frist') }}</th><th scope="col">{{ text('Contact person', 'Kontaktperson') }}</th><th scope="col">{{ text('Status', 'Status') }}</th></tr></thead>
-        <tbody><template v-for="item in filteredApplications" :key="item.id">
+        <tbody :class="{ 'jobs-card-track': filteredApplications.length }"><template v-for="item in filteredApplications" :key="item.id">
           <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'is-expanded': editingId === item.id }" :aria-disabled="saving" @click="toggleApplication(item)"><td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :disabled="saving" :aria-label="`${text('Open application:', 'Bewerbung öffnen:')} ${contextTitle(item)}`" @click.stop="toggleApplication(item)"><strong>{{ contextTitle(item) }}</strong></button><span class="jobs-subline">{{ contextInstitution(item) }}</span><ApplicationIdentifier :application="item" :lang="lang" /></td><td class="jobs-cell-wide" :data-label="text('Deadline', 'Frist')"><div class="jobs-application-deadline"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.context_json, now) }">{{ formatOpportunityDeadline(item.context_json, lang) }}</span><ApplicationDeadlineCalendar :application="item" :lang="lang" /></div></td>
             <td class="jobs-cell-wide jobs-cell-contacts" :data-label="text('Contact person', 'Kontaktperson')"><template v-for="(person, index) in contacts(item)" :key="index"><span class="jobs-subline">{{ person.name }}</span><a v-if="safeEmailUrl(person.email)" :href="safeEmailUrl(person.email)!" @click.stop>{{ person.email }}</a><span v-else>{{ person.email }}</span></template><span v-if="!contacts(item).length">{{ text('Not recorded', 'Nicht erfasst') }}</span></td>
             <td class="jobs-cell-state jobs-application-state" :data-label="text('Status', 'Status')" @click.stop><span class="jobs-badge">{{ statusLabel(item.status) }}</span></td>
@@ -679,6 +684,29 @@ tr.is-expanded { background: var(--ui-active); }
   .jobs-workspace :is(input, select, textarea) { font-size: 16px; }
   .jobs-workspace label { font-size: 14px; }
   .jobs-workspace > .jobs-table-scroll { padding: 2px 2px 12px; scrollbar-gutter: auto; }
+  .jobs-workspace .jobs-card-track {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 0;
+    padding: 2px 2px 10px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 2px;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .jobs-card-track::-webkit-scrollbar { display: none; }
+  .jobs-workspace .jobs-card-track > .jobs-result-row {
+    flex: 0 0 calc(100% - 24px);
+    box-sizing: border-box;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+  }
+  .jobs-workspace .jobs-card-track > .jobs-result-row:only-child { flex-basis: 100%; }
+  .jobs-workspace .jobs-card-group-heading { margin-top: 0; margin-bottom: 6px; }
   table { font-size: 14px; }
   .jobs-row-toggle { min-height: 44px; align-items: center; font-size: 16px; line-height: 1.35; }
   .jobs-workspace .jobs-row-toggle:focus-visible { outline-offset: -2px; }

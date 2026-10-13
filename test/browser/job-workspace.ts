@@ -348,6 +348,60 @@ const Fixture = defineComponent({
         button.click();
         await until(() => tab.value === value && listVisible(), `Clicking ${value} must open its list.`);
       };
+      const assertReturnedCard = async (id: string) => {
+        await until(() => {
+          const row = rows().find(item => item.dataset.itemId === id);
+          const track = row?.closest<HTMLElement>('.jobs-card-track');
+          if (!row || !track || document.activeElement !== row.querySelector('.jobs-row-toggle')) return false;
+          const cardBounds = row.getBoundingClientRect();
+          const trackBounds = track.getBoundingClientRect();
+          return cardBounds.left >= trackBounds.left - 1 && cardBounds.right <= trackBounds.right + 1;
+        }, 'Returning to a mobile list must reveal and focus the selected card.');
+      };
+      const verifyCardTracks = async () => {
+        const tracks = [...document.querySelectorAll<HTMLElement>('.jobs-card-track')];
+        assert(tracks.length, 'Job results must expose their card tracks.');
+        if (desktop.value) {
+          for (const track of tracks) {
+            assert(getComputedStyle(track).scrollSnapType === 'none', 'Desktop job lists must not enable mobile snapping.');
+            if (window.matchMedia('(min-width: 1001px)').matches) {
+              assert(getComputedStyle(track).display === 'table-row-group', 'Desktop results must preserve table row groups.');
+              assert(getComputedStyle(track.querySelector('.jobs-result-row')!).display === 'table-row', 'Desktop entries must remain table rows.');
+            }
+          }
+          return;
+        }
+        const outer = document.querySelector<HTMLElement>('.jobs-table-scroll')!;
+        assert(outer.scrollWidth <= outer.clientWidth + 1, 'Horizontal card scrolling must stay inside each track.');
+        for (const track of tracks) {
+          const style = getComputedStyle(track);
+          assert(['auto', 'scroll'].includes(style.overflowX) && style.scrollSnapType.startsWith('x'), 'Mobile card tracks must scroll and snap horizontally.');
+          assert(!track.querySelector('.jobs-group-row'), 'Opportunity group labels must stay outside the swiping cards.');
+          for (const row of track.querySelectorAll<HTMLElement>('.jobs-result-row')) {
+            assert(getComputedStyle(row).display !== 'table-row' && getComputedStyle(row).scrollSnapAlign.includes('start'), 'Mobile entries must be cards with start snap points.');
+          }
+        }
+        const track = tracks.find(item => item.querySelectorAll('.jobs-result-row').length > 1);
+        assert(track, 'The fixture must include multiple cards in a track.');
+        assert(track.scrollWidth > track.clientWidth, 'Adjacent cards must overflow their horizontal track.');
+        const cards = [...track.querySelectorAll<HTMLElement>('.jobs-result-row')];
+        const card = cards[1];
+        const heading = track.previousElementSibling?.querySelector('.jobs-group-row');
+        const headingLeft = heading?.getBoundingClientRect().left;
+        const padding = parseFloat(getComputedStyle(track).scrollPaddingLeft) || 0;
+        const target = card.getBoundingClientRect().left - track.getBoundingClientRect().left + track.scrollLeft - padding;
+        track.scrollLeft = target;
+        await until(() => track.scrollLeft > 0 && card.getBoundingClientRect().left >= track.getBoundingClientRect().left - 1
+          && card.getBoundingClientRect().right <= track.getBoundingClientRect().right + 1, 'Horizontal scrolling must reveal the next card.');
+        assert(listVisible(), 'Scrolling list cards must keep the list open.');
+        if (heading) assert(heading.getBoundingClientRect().left === headingLeft, 'Group labels must remain stationary while their cards scroll.');
+        track.scrollLeft = 0;
+        await settle();
+        const selectedId = card.dataset.itemId!;
+        await openRow(rows().indexOf(card));
+        await navigate(tab.value);
+        await assertReturnedCard(selectedId);
+      };
       const swipe = async (target: HTMLElement, dx: number, dy = 0) => {
         const startX = dx < 0 ? 250 : 90, startY = 260;
         const touch = (x: number, y: number) => new Touch({ identifier: 1, target, clientX: x, clientY: y });
@@ -365,21 +419,19 @@ const Fixture = defineComponent({
         }
         workspaceKey.value++;
         await until(() => rows().length >= 3 && listVisible(), 'Synthetic opportunities must load.');
-        if (!desktop.value) {
-          const scroll = document.querySelector<HTMLElement>('.jobs-table-scroll')!;
-          assert(scroll.scrollWidth <= scroll.clientWidth + 1, 'Mobile job cards must fit without horizontal list scrolling.');
-          assert(getComputedStyle(rows()[0]).display !== 'table-row', 'Mobile opportunities must use cards.');
-        }
+        await verifyCardTracks();
         await openRow(0);
         await navigate('opportunities');
         await openRow(0);
         await navigate('applications');
         assert(rows().length === 2, 'The application list must contain both seeded applications.');
+        await verifyCardTracks();
         await openRow(0);
         await navigate('applications');
         await openRow(0);
         await navigate('opportunities');
         const opportunityTitles = rows().map(row => row.querySelector('strong')?.textContent);
+        const opportunityIds = rows().map(row => row.dataset.itemId!);
         const firstOpportunityId = rows()[0].dataset.itemId;
         await openRow(0);
         if (!desktop.value) {
@@ -394,6 +446,9 @@ const Fixture = defineComponent({
           await swipe(document.querySelector<HTMLElement>('.opportunity-detail__body')!, -160);
           await until(() => detailTitle() === opportunityTitles[1], 'A left swipe must open the next opportunity in list order.');
           assert(database.opportunity_reviews.find(row => row.opportunity_id === firstOpportunityId)?.comment === evaluation, 'Swiping must save the outgoing evaluation.');
+          await navigate('opportunities');
+          await assertReturnedCard(opportunityIds[1]);
+          await openRow(1);
           await swipe(document.querySelector<HTMLElement>('.opportunity-detail__body')!, 160);
           await until(() => detailTitle() === opportunityTitles[0], 'A right swipe must open the previous opportunity.');
           await swipe(document.querySelector<HTMLElement>('.opportunity-detail__body')!, 160);
@@ -404,10 +459,14 @@ const Fixture = defineComponent({
         await navigate('applications');
         assert(rows().length === 3, 'The created application must join the list.');
         const applicationTitles = rows().map(row => row.querySelector('strong')?.textContent);
+        const applicationIds = rows().map(row => row.dataset.itemId!);
         await openRow(0);
         if (!desktop.value) {
           await swipe(document.querySelector<HTMLElement>('.application-scroll-content')!, -160);
           await until(() => detailTitle() === applicationTitles[1], 'A left swipe must open the next application.');
+          await navigate('applications');
+          await assertReturnedCard(applicationIds[1]);
+          await openRow(1);
           await swipe(document.querySelector<HTMLElement>('.application-scroll-content')!, 160);
           await until(() => detailTitle() === applicationTitles[0], 'A right swipe must open the previous application.');
         }
