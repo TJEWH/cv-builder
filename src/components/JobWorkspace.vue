@@ -456,6 +456,7 @@ useToastWatch(() => notice.value, () => {
             <td class="jobs-topics jobs-cell-wide" :data-label="text('Topics', 'Themen')">{{ item.topics.join(' · ') || '—' }}</td>
             <td :data-label="text('Country', 'Land')">{{ item.country || '—' }}</td><td :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.details, now) }">{{ formatOpportunityDeadline(item.details, lang) }}</span></td>
             <td class="jobs-cell-state" :data-label="text('Your review', 'Deine Bewertung')" @click.stop><select class="jobs-review-select" :aria-label="`${text('Review state for', 'Bewertung für')} ${item.title}`" :value="reviewState(item.id)" :disabled="saving" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></td>
+            <td v-if="reviewById.get(item.id)?.comment?.trim()" class="jobs-cell-wide jobs-card-evaluation" :data-label="text('Personal Evaluation', 'Persönliche Einschätzung')"><p>{{ reviewById.get(item.id)?.comment }}</p></td>
           </tr>
         </template></tbody></template><tbody v-if="!filteredOpportunities.length"><tr><td colspan="5" class="jobs-empty"><p :class="{ 'app-hint': !loading }">{{ loading ? text('Loading opportunities…', 'Stellenangebote werden geladen…') : text('No matching opportunities. Adjust the deadline, application, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewerbungs-, Bewertungs- oder Suchfilter.') }}</p></td></tr></tbody>
       </table>
@@ -466,6 +467,7 @@ useToastWatch(() => notice.value, () => {
           <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'is-expanded': editingId === item.id }" :aria-disabled="saving" @click="toggleApplication(item)"><td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :disabled="saving" :aria-label="`${text('Open application:', 'Bewerbung öffnen:')} ${contextTitle(item)}`" @click.stop="toggleApplication(item)"><strong>{{ contextTitle(item) }}</strong></button><span class="jobs-subline">{{ contextInstitution(item) }}</span><ApplicationIdentifier :application="item" :lang="lang" /></td><td class="jobs-cell-wide" :data-label="text('Deadline', 'Frist')"><div class="jobs-application-deadline"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.context_json, now) }">{{ formatOpportunityDeadline(item.context_json, lang) }}</span><ApplicationDeadlineCalendar :application="item" :lang="lang" /></div></td>
             <td class="jobs-cell-wide jobs-cell-contacts" :data-label="text('Contact person', 'Kontaktperson')"><template v-for="(person, index) in contacts(item)" :key="index"><span class="jobs-subline">{{ person.name }}</span><a v-if="safeEmailUrl(person.email)" :href="safeEmailUrl(person.email)!" @click.stop>{{ person.email }}</a><span v-else>{{ person.email }}</span></template><span v-if="!contacts(item).length">{{ text('Not recorded', 'Nicht erfasst') }}</span></td>
             <td class="jobs-cell-state jobs-application-state" :data-label="text('Status', 'Status')" @click.stop><span class="jobs-badge">{{ statusLabel(item.status) }}</span></td>
+            <td v-if="reviewById.get(item.opportunity_id)?.comment?.trim()" class="jobs-cell-wide jobs-card-evaluation" :data-label="text('Personal Evaluation', 'Persönliche Einschätzung')"><p>{{ reviewById.get(item.opportunity_id)?.comment }}</p></td>
           </tr>
 
         </template><tr v-if="!filteredApplications.length"><td colspan="4" class="jobs-empty"><p :class="{ 'app-hint': !loading }">{{ loading ? text('Loading applications…', 'Bewerbungen werden geladen…') : text('No matching applications. Create one from an opportunity.', 'Keine passenden Bewerbungen. Lege eine aus einem Stellenangebot an.') }}</p><button class="btn" type="button" @click="emit('navigate', 'opportunities')">{{ text('Browse opportunities', 'Stellenangebote ansehen') }}</button></td></tr></tbody>
@@ -586,6 +588,7 @@ td a { color: var(--ui-accent); overflow-wrap: anywhere; }
 .jobs-application-deadline :deep(.application-deadline-calendar) { max-width: 100%; }
 .jobs-subline { display: block; margin-top: 5px; color: var(--ui-muted); font-size: 11px; }
 .jobs-topics { min-width: 130px; max-width: 220px; color: var(--ui-muted); }
+.jobs-workspace .jobs-card-evaluation { display: none; }
 .jobs-workspace .jobs-review-select, .jobs-workspace .jobs-row-select { width: 100%; min-width: 0; padding: 7px 5px; font-size: 11px; cursor: pointer; }
 .jobs-removal-confirm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; color: #fecaca; }
 .jobs-removal-confirm p { flex: 1; min-width: 240px; margin: 0; }
@@ -728,6 +731,8 @@ tr.is-expanded { background: var(--ui-active); }
   .jobs-opportunity--unseen-new > td:first-child, .jobs-opportunity--unseen-updated > td:first-child { box-shadow: none; }
   .jobs-result-row:active { background: var(--ui-active); }
   .jobs-workspace .jobs-cell-contacts .jobs-subline:first-child { margin-top: 0; }
+  .jobs-workspace .jobs-card-evaluation { display: block; border-top: 1px solid var(--ui-divider); }
+  .jobs-card-evaluation p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; }
   .jobs-opportunities-table { font-size: 14px; }
   .jobs-opportunities-table .jobs-row-toggle { font-size: 16px; }
   .jobs-opportunities-table .jobs-subline { font-size: 13px; }
