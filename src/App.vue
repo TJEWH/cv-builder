@@ -2,11 +2,13 @@
 import { designNumber, resolveDesign } from './defaults';
 import type { CvState, CvDesign, SavedConfiguration, SaveStatus } from './types';
 import type { PreviewPage, RenderOptions } from './pdfTypes';
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue';
 import { debounce, loadLocal, saveLocal } from './composables/useStorage';
 import { useCvDesign } from './composables/useCvDesign';
 import { usePdfExport } from './composables/usePdfExport';
 import { usePreviewInputCommit } from './composables/usePreviewInputCommit';
+import { commitPendingTextareas } from './composables/textareaCommit';
+import { CV_TEXTAREA_COMMIT } from './composables/cvTextareaCommit';
 import { createPreviewRenderSlot } from './composables/pdfRenderTask.ts';
 import FormBuilder from './components/FormBuilder.vue';
 import CvPreview from './components/CvPreview.vue';
@@ -102,16 +104,20 @@ const workspaceGroups = computed(() => [
 ]);
 const jobWorkspace = ref<InstanceType<typeof JobWorkspace> | null>(null);
 let workspaceNavigationRequest = 0;
-function selectWorkspace(workspace: Workspace) {
-  workspaceNavigationRequest++;
+async function selectWorkspace(workspace: Workspace) {
+  const request = ++workspaceNavigationRequest;
+  const editor = jobWorkspace.value;
   if (!prepareConfigurationChange()) return;
+  if (editor && !await editor.flushTextareas()) return;
+  if (request !== workspaceNavigationRequest || editor !== jobWorkspace.value) return;
   activeWorkspace.value = workspace; previewMode.value = false;
 }
 async function selectWorkspaceList(workspace: Workspace) {
   const request = ++workspaceNavigationRequest;
+  const editor = jobWorkspace.value;
   if (!prepareConfigurationChange()) return;
-  if (workspace !== 'cv-studio' && jobWorkspace.value && !await jobWorkspace.value.openList(workspace)) return;
-  if (request !== workspaceNavigationRequest) return;
+  if (editor && !(workspace === 'cv-studio' ? await editor.flushTextareas() : await editor.openList(workspace))) return;
+  if (request !== workspaceNavigationRequest || editor !== jobWorkspace.value) return;
   activeWorkspace.value = workspace; previewMode.value = false;
 }
 function saveCareerVariant(name: string, data: CvState) {
@@ -137,6 +143,7 @@ const saveStatus = ref<SaveStatus>('saved');
 const lastSavedAt = ref<number | null>(null);
 const backupManager = ref<InstanceType<typeof BackupManager> | null>(null);
 const formBuilder = ref<InstanceType<typeof FormBuilder> | null>(null);
+provide(CV_TEXTAREA_COMMIT, flushStateSave);
 const sectionSaveStatus = ref<SaveStatus>('saved');
 const combinedSaveStatus = computed(() => {
   const statuses = [saveStatus.value, sectionSaveStatus.value];
@@ -201,6 +208,7 @@ function persistState(): boolean {
   }
 }
 function retryStateSave(): boolean {
+  commitPendingTextareas();
   const sectionsSaved = formBuilder.value?.flushSectionSaves() !== false;
   const stateSaved = persistState();
   return sectionsSaved && stateSaved && combinedSaveStatus.value === 'saved';
@@ -536,6 +544,9 @@ function commitDeferredSliderPreview() {
 }
 
 function flushStateSave() {
+  // Release local textarea drafts before taking a snapshot, including when a
+  // programmatic tab change or pagehide happens without a native blur event.
+  commitPendingTextareas();
   if (isSliderPreviewUpdateDeferred && sliderSaveUpdatePending) {
     isSliderPreviewUpdateDeferred = false;
     sliderSaveUpdatePending = false;
@@ -692,6 +703,8 @@ function openFullPreview() {
 
 function selectBuilderGroup(group: string) {
   if (group === 'opportunities' || group === 'applications') { selectWorkspace(group); return; }
+  flushStateSave();
+  if (formBuilder.value?.flushSectionSaves() === false || saveStatus.value === 'error') return;
   activeBuilderGroup.value = group;
   previewMode.value = false;
 }

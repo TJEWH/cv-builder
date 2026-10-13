@@ -3,7 +3,7 @@ import { DEFAULT_SECTION_HEADER_SIZE, SAMPLE_CONTACT, designValue } from '../def
 import type { PropType } from 'vue';
 import type { ContactField, CvState, SavedConfiguration, SaveStatus, CvItem, CustomSection, SidebarSection, ContentArea, CustomBodyField, ItemField, ItemState, SelectOption } from '../types';
 import { CONTACT_FIELDS } from '../types';
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue';
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, useId, watch } from 'vue';
 import Draggable from 'vuedraggable';
 import SectionList from './SectionList.vue';
 import SectionHeading from './SectionHeading.vue';
@@ -17,6 +17,8 @@ import ConfirmDeletionDialog from './ConfirmDeletionDialog.vue';
 import SectionVersionSelect from './SectionVersionSelect.vue';
 import CopyCvSection from './CopyCvSection.vue';
 import { useSectionVersions } from '../composables/useSectionVersions.ts';
+import { commitPendingTextareas } from '../composables/textareaCommit';
+import { CV_TEXTAREA_COMMIT } from '../composables/cvTextareaCommit';
 import { makeT } from '../i18n/dict.ts';
 import { createContentId, moveSectionInOrder, normalizeContentState } from '../composables/contentLayout.ts';
 
@@ -62,6 +64,19 @@ const sectionVersions = useSectionVersions({
   saveVersion: (id, data) => props.saveVersion(id, data),
   onStatus: (status) => emit('section-save-status', status),
 });
+const commitParentTextarea = inject(CV_TEXTAREA_COMMIT, () => {});
+provide(CV_TEXTAREA_COMMIT, () => {
+  sectionVersions.flush();
+  commitParentTextarea();
+});
+function flushSectionSaves() {
+  commitPendingTextareas();
+  return sectionVersions.flush();
+}
+function resetSectionVersions() {
+  commitPendingTextareas();
+  return sectionVersions.reset();
+}
 const versionMode = sectionVersions.enabled;
 const showConfig = computed(() => configMode.value && !versionMode.value && !reorderMode.value);
 const sectionState = sectionVersions.sectionState;
@@ -94,10 +109,11 @@ const versionSelectProps = (key: string) => ({
   draftLabel: t('currentDraft'),
 });
 const selectSectionVersion = (key: string, id: string) => {
+  if (!flushSectionSaves()) return;
   pendingDeletion.value = null;
   sectionVersions.select(key, id);
 };
-defineExpose({ flushSectionSaves: sectionVersions.flush, resetSectionVersions: sectionVersions.reset });
+defineExpose({ flushSectionSaves, resetSectionVersions });
 const collapsed = reactive<Record<string, boolean>>({
   about: true,
   education: true,
@@ -227,6 +243,7 @@ const cancelEditSectionName = (restoreFocus = false) => {
   if (restoreFocus && key) focusSectionTitle(key);
 };
 const toggleConfigMode = () => {
+  if (!flushSectionSaves()) return;
   if (editingSection.id) finishEditSectionName(editingSection.id);
   closeFieldConfig();
   pendingDeletion.value = null;
@@ -235,6 +252,7 @@ const toggleConfigMode = () => {
   configMode.value = !configMode.value;
 };
 const toggleReorderMode = () => {
+  if (!flushSectionSaves()) return;
   versionMode.value = false;
   if (editingSection.id) finishEditSectionName(editingSection.id);
   closeFieldConfig();
@@ -243,6 +261,7 @@ const toggleReorderMode = () => {
   reorderMode.value = !reorderMode.value;
 };
 const selectContentTab = (tab: string) => {
+  if (!flushSectionSaves()) return;
   activeContentTab.value = tab;
   // Header/contact fields are not part of either sortable section column.
   if (tab === 'header') reorderMode.value = false;
@@ -363,11 +382,11 @@ const setCustomBodyFieldEnabled = (section: CustomSection, key: CustomBodyField,
   section.fields = customBodyFieldOptions.value.map((field) => field.key).filter((field) => selected.has(field));
 };
 onMounted(() => {
-  window.addEventListener('pagehide', sectionVersions.flush);
+  window.addEventListener('pagehide', flushSectionSaves);
   touchReorderMedia?.addEventListener('change', syncTouchReorder);
 });
 onBeforeUnmount(() => {
-  window.removeEventListener('pagehide', sectionVersions.flush);
+  window.removeEventListener('pagehide', flushSectionSaves);
   touchReorderMedia?.removeEventListener('change', syncTouchReorder);
 });
 

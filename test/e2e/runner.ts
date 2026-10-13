@@ -61,10 +61,11 @@ async function field(name: string, value: string) {
   const label = [...root.querySelectorAll('label')].find(node => node.firstChild?.textContent?.trim() === name);
   const noteTabs = root.querySelector('.iteration-note-tabs');
   const noteTab = [...noteTabs?.querySelectorAll<HTMLButtonElement>('[role="tab"]') || []].find(tab => tab.textContent?.trim() === name);
-  if (noteTab) { noteTab.click(); await nextTick(); }
+  if (noteTab) { noteTab.click(); await settle(); }
   const control = (noteTab ? root.querySelector('.iteration-note-panel textarea') : label?.control ?? label?.querySelector('select,textarea,input')) as HTMLSelectElement | HTMLTextAreaElement | HTMLInputElement | null;
   assert(control, `Missing field: ${name}`); assert(!control.disabled, `Disabled field: ${name}`);
   control.value = value; control.dispatchEvent(new Event(control.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
+  if (control instanceof HTMLTextAreaElement) control.dispatchEvent(new FocusEvent('blur'));
   if (control instanceof HTMLInputElement && control.type === 'number') control.dispatchEvent(new Event('change', { bubbles: true }));
   await settle();
 }
@@ -205,6 +206,14 @@ async function proposalReviewFlow() {
   const notePanel = root.querySelector<HTMLElement>('.iteration-note-panel')!;
   const noteEditor = notePanel.querySelector('textarea')!;
   assert(root.querySelectorAll('.refinement-task textarea').length === 1, 'All three note tabs must share one textarea');
+  const refinementStorageKey = `CV_REFINEMENT:1:${encodeURIComponent(fixture.props.userId)}:${fixture.props.application.id}`;
+  const beforeTyping = fixture.storage.getItem(refinementStorageKey);
+  noteEditor.value = 'Keep the current wording until I leave this field.';
+  noteEditor.dispatchEvent(new Event('input', { bubbles: true }));
+  await nextTick();
+  assert(fixture.storage.getItem(refinementStorageKey) === beforeTyping, 'Typing refinement notes must not save per character');
+  noteEditor.dispatchEvent(new FocusEvent('blur')); await settle();
+  assert(JSON.parse(fixture.storage.getItem(refinementStorageKey)!).iterationNotes.letter.tone === noteEditor.value, 'Leaving refinement notes must save their current draft');
   const noteBounds = () => JSON.stringify(noteEditor.getBoundingClientRect().toJSON());
   await field('Tone', 'Use a measured, direct tone.');
   const firstBounds = noteBounds();
@@ -213,7 +222,7 @@ async function proposalReviewFlow() {
   await field('Content', 'Explain the experimental method.');
   assert(notePanel.querySelector('textarea') === noteEditor && noteBounds() === firstBounds, 'Switching tabs must reuse the same textarea and dimensions');
   const toneTab = button('Tone', root.querySelector('.iteration-note-tabs')!);
-  toneTab.focus(); toneTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await nextTick();
+  toneTab.focus(); toneTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await settle();
   assert(document.activeElement === button('Structure') && button('Structure').getAttribute('aria-selected') === 'true', 'Arrow keys must select and focus the next tab');
   assert(noteEditor.value === 'Start with the research question.', 'Changing tabs must restore their independent values');
   assert(noteEditor.getAttribute('aria-labelledby') === button('Structure').id && notePanel.getAttribute('aria-labelledby') === button('Structure').id, 'The active tab must label the panel and textarea');

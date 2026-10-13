@@ -32,6 +32,7 @@ const renderer = createRenderer<object, object>({ createElement: () => ({}), cre
 type Entry = AttachmentMetadata & { local?: LocalDocumentMetadata };
 interface LibraryState {
   loading: boolean; loadFailed: boolean; busy: boolean; error: string; name: string; description: string; file: File | null;
+  commitDescription(): void; cancelEdit(): void;
   entries: Entry[]; localDocuments: LocalDocumentMetadata[]; sharedDocuments: AttachmentMetadata[]; editingId: string;
   previewDocument: LocalDocument | null; previewUrl: string; previewPage: number;
   edit(entry?: Entry): void; chooseFile(event: Event): void; save(): Promise<void>; load(): Promise<void>;
@@ -52,6 +53,13 @@ async function idle(setup: { loading: boolean; busy: boolean; previewBusy?: bool
 }
 function mount<T extends LibraryState | ApplicationState>(t: TestContext, view: Component, fixture = createAttachmentFixture(), storage: LocalDocumentStorage = fixture.storage, overrides: Record<string, unknown> = {}) {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const draftData = new Map<string, string>();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key: string) => draftData.get(key) ?? null,
+    setItem: (key: string, value: string) => { draftData.set(key, value); },
+    removeItem: (key: string) => { draftData.delete(key); },
+  } });
   const target = new EventTarget(); Object.assign(target, { confirm: () => true, setTimeout: () => 1 });
   Object.defineProperty(globalThis, 'window', { configurable: true, value: target });
   const owner = ref(attachmentAccount); let mounted: unknown;
@@ -66,9 +74,12 @@ function mount<T extends LibraryState | ApplicationState>(t: TestContext, view: 
   const unmount = () => { if (isMounted) { app.unmount(); isMounted = false; } };
   app.mount({}); t.after(() => {
     try { unmount(); }
-    finally { if (previous) Object.defineProperty(globalThis, 'window', previous); else Reflect.deleteProperty(globalThis, 'window'); }
+    finally {
+      if (previous) Object.defineProperty(globalThis, 'window', previous); else Reflect.deleteProperty(globalThis, 'window');
+      if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage); else Reflect.deleteProperty(globalThis, 'localStorage');
+    }
   });
-  return { fixture, unmount, setup: (mounted as { $: { setupState: T } }).$.setupState, setProps(value: Record<string, unknown>) { props.value = { ...props.value, ...value }; }, switchAccount(value: string) { fixture.setOwner(value); owner.value = value; } };
+  return { fixture, unmount, draftData, setup: (mounted as { $: { setupState: T } }).$.setupState, setProps(value: Record<string, unknown>) { props.value = { ...props.value, ...value }; }, switchAccount(value: string) { fixture.setOwner(value); owner.value = value; } };
 }
 
 test('attachment creation requires manual metadata, never derives it from the filename, and uploads only those fields', async t => {
@@ -304,4 +315,53 @@ test('a failed automatic preview stops retrying and can recover with a single ex
   await idle(setup); assert.equal(calls, 1, 'A failed PDF must not cause an automatic retry loop');
   fail = false; await setup.buildPreview(); await idle(setup);
   assert.equal(calls, 2); assert.equal(setup.previewFailed, false); assert.equal(setup.error, ''); assert.ok(setup.composition);
+});
+
+
+test('attachment description commits retain a private draft until the explicit attachment save', async t => {
+  const fixture = createAttachmentFixture();
+  const repo = new LocalDocumentRepository(attachmentAccount, fixture.storage);
+  const saved = await repo.addDocument(pdf(), 'Transcript', 'Previously approved description.');
+  const { setup, draftData, switchAccount } = mount<LibraryState>(t, Library, fixture);
+  await idle(setup);
+  setup.edit(setup.entries[0]);
+  setup.description = 'A new description waiting for approval.';
+  assert.equal(draftData.size, 0, 'typing does not persist the textarea');
+  setup.commitDescription();
+  assert.equal(draftData.size, 1, 'blur or Enter saves a local draft');
+  assert.equal((await repo.getDocument(saved.id))?.description, 'Previously approved description.');
+  assert.equal(fixture.calls.filter(call => call.name === 'save_local_attachment_metadata').length, 0, 'a textarea commit cannot approve metadata for sharing');
+
+  setup.edit(); assert.equal(setup.description, '');
+  setup.edit(setup.entries[0]); assert.equal(setup.description, 'A new description waiting for approval.');
+  switchAccount('90000000-0000-4000-8000-000000000092'); await idle(setup);
+  setup.edit(); assert.equal(setup.description, '', 'account changes cannot expose another account’s private draft');
+  switchAccount(attachmentAccount); await idle(setup);
+  setup.edit(setup.entries[0]); assert.equal(setup.description, 'A new description waiting for approval.');
+  await setup.save();
+  assert.equal(draftData.size, 0, 'successful explicit save clears the matching draft');
+  assert.equal(fixture.rows[0]?.description, 'A new description waiting for approval.');
+});
+
+test('cancelling attachment edits clears the private description draft', async t => {
+  const { setup, draftData } = mount<LibraryState>(t, Library); await idle(setup);
+  setup.edit(); setup.description = 'Unapproved local description.'; setup.commitDescription();
+  assert.equal(draftData.size, 1);
+  setup.cancelEdit(); assert.equal(draftData.size, 0);
+  setup.edit(); assert.equal(setup.description, '');
+});
+
+test('a failed attachment draft commit keeps the current editor until a retry succeeds', async t => {
+  const fixture = createAttachmentFixture();
+  await new LocalDocumentRepository(attachmentAccount, fixture.storage).addDocument(pdf(), 'Transcript', 'Approved description.');
+  const { setup } = mount<LibraryState>(t, Library, fixture); await idle(setup);
+  const selected = setup.entries[0]; setup.edit(selected);
+  setup.description = 'Unsaved description that must remain available.';
+  const writes = t.mock.method(localStorage, 'setItem', () => { throw new Error('Storage full'); });
+  setup.commitDescription(); setup.edit();
+  assert.equal(setup.editingId, selected.id);
+  assert.equal(setup.description, 'Unsaved description that must remain available.');
+  assert.equal(setup.error, 'Storage full');
+  writes.mock.restore(); setup.edit(); assert.equal(setup.editingId, '');
+  setup.edit(selected); assert.equal(setup.description, 'Unsaved description that must remain available.');
 });

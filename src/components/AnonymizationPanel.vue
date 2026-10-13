@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue';
+import { computed, inject, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue';
 import { FIELD_PRIVACY_TYPES, type CvState, type FieldPrivacyType } from '../types';
 import { makeT } from '../i18n/dict';
 import FormBuilder from './FormBuilder.vue';
@@ -7,6 +7,7 @@ import { applyPrivacyEditorChanges, createPrivacyEditorState, privacyFieldEntrie
 import { automaticMaskForField } from '../composables/privacyEditorMasking';
 import { PRIVACY_EDITOR } from '../composables/privacyEditorContext';
 import { usePreviewInputCommit } from '../composables/usePreviewInputCommit';
+import { CV_TEXTAREA_COMMIT } from '../composables/cvTextareaCommit';
 
 const props = defineProps<{ state: CvState; lang: string }>();
 const emit = defineEmits<{ commit: [] }>();
@@ -16,6 +17,11 @@ let refreshing = false;
 let saving = false;
 let dirty = false;
 const inputCommit = usePreviewInputCommit(commitDraft);
+const commitParentTextarea = inject(CV_TEXTAREA_COMMIT, () => {});
+provide(CV_TEXTAREA_COMMIT, () => {
+  flushDraft();
+  commitParentTextarea();
+});
 function commitDraft() {
   if (refreshing) return;
   inputCommit.reset();

@@ -7,6 +7,8 @@ import type { LetterFormatting, LetterTemplate } from '../letterTypes';
 import { createLetterRepository, DEFAULT_LETTER_TEMPLATES, DEFAULT_QUESTION_GUIDANCE, DEFAULT_REFINEMENT_SYSTEM_PROMPT, LETTER_TEMPLATE_CONTEXT_MAX_LENGTH } from '../composables/motivationLetters';
 import { useToasts, useToastWatch } from '../composables/useToasts';
 import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
+import AutosaveTextarea from './AutosaveTextarea.vue';
+import { commitPendingTextareas } from '../composables/textareaCommit';
 import LetterFormattingControls from './LetterFormattingControls.vue';
 import { useDesktopSidebar } from '../composables/desktopSidebar';
 
@@ -25,7 +27,7 @@ const error = ref('');
 const validationError = ref('');
 const importInput = ref<HTMLInputElement | null>(null);
 const isImporting = ref(false);
-const saveStatus = ref<'saved' | 'saving' | 'error'>('saved');
+const saveStatus = ref<'saved' | 'unsaved' | 'saving' | 'error'>('saved');
 let editingOwner = props.userId;
 let importGeneration = 0;
 let disposed = false;
@@ -47,6 +49,7 @@ function select(id: string) {
   replaceForm(selected ? JSON.parse(JSON.stringify(selected)) : null);
   if (form.value && form.value.questionGuidance === undefined) form.value.questionGuidance = DEFAULT_QUESTION_GUIDANCE;
   if (form.value && form.value.refinementSystemPrompt === undefined) form.value.refinementSystemPrompt = DEFAULT_REFINEMENT_SYSTEM_PROMPT;
+  save();
 }
 function selectFromInput(event: Event) {
   const input = event.target as HTMLSelectElement;
@@ -68,6 +71,7 @@ function updateFormatting(value: LetterFormatting | undefined) {
   if (!form.value) return;
   if (value) form.value.formatting = value;
   else delete form.value.formatting;
+  flushSave();
 }
 function revealInvalidSection(event: Event) {
   const section = (event.target as HTMLElement).closest('details');
@@ -118,12 +122,11 @@ function save(): boolean {
   }
 }
 const saveLater = debounce(save, 250);
-function flushSave() { saveLater.cancel(); return save(); }
+function flushSave() { commitPendingTextareas(); saveLater.cancel(); return save(); }
 watch(form, () => {
   if (replacingForm) return;
   announceSaved.cancel();
-  dirty = true; saveStatus.value = 'saving'; message.value = '';
-  saveLater();
+  dirty = true; saveStatus.value = 'unsaved'; message.value = '';
 }, { deep: true, flush: 'sync' });
 watch(() => props.userId, (id) => {
   importGeneration++; isImporting.value = false;
@@ -203,35 +206,35 @@ async function importLibrary(event: Event) {
       </DesktopSidebarPortal>
       <form v-if="form" class="template-form" @submit.prevent="flushSave" @focusout="flushSave" @invalid.capture="revealInvalidSection">
         <p v-if="validationError" class="app-hint" role="alert">{{ validationError }}</p>
-        <label>{{ text('Template name', 'Vorlagenname') }}<input v-model="form.name" required maxlength="120" /></label>
+        <label>{{ text('Template name', 'Vorlagenname') }}<input v-model="form.name" @input="saveLater" required maxlength="120" /></label>
         <details class="template-section" open>
           <summary><FontAwesomeIcon :icon="faAlignLeft" aria-hidden="true" /><span>{{ text('Main text', 'Haupttext') }}</span><FontAwesomeIcon class="template-chevron" :icon="faChevronDown" aria-hidden="true" /></summary>
           <div class="template-section-fields">
-            <label>{{ text('Structure and sections', 'Struktur und Abschnitte') }}<textarea v-model="form.structure" rows="8" required maxlength="16000" /></label>
-            <div class="template-field"><label :for="`${controlsId}-research-interests`">{{ text('Main research interests (optional)', 'Zentrale Forschungsinteressen (optional)') }}</label><textarea :id="`${controlsId}-research-interests`" v-model="form.researchInterests" :aria-describedby="`${controlsId}-research-interests-help`" rows="5" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span :id="`${controlsId}-research-interests-help`" class="field-description app-hint">{{ text('Describe the research topics and questions that genuinely interest you, including interests not yet reflected in your CV. They enrich the motivation alongside your experience and the opportunity. Use the relevant interests selectively; the letter need not cover them all. Interests do not establish prior experience or qualifications.', 'Beschreiben Sie Forschungsthemen und Fragestellungen, die Sie wirklich interessieren, auch wenn sie noch nicht im Lebenslauf erscheinen. Sie ergänzen Ihre Erfahrungen und die Ausschreibung als Grundlage der Motivation. Relevante Interessen werden gezielt ausgewählt; der Brief muss nicht alle abdecken. Interessen sind kein Nachweis für Vorerfahrung oder Qualifikationen.') }}</span></div>
+            <label>{{ text('Structure and sections', 'Struktur und Abschnitte') }}<AutosaveTextarea @commit="flushSave" v-model.lazy="form.structure" rows="8" required maxlength="16000" /></label>
+            <div class="template-field"><label :for="`${controlsId}-research-interests`">{{ text('Main research interests (optional)', 'Zentrale Forschungsinteressen (optional)') }}</label><AutosaveTextarea @commit="flushSave" :id="`${controlsId}-research-interests`" v-model.lazy="form.researchInterests" :aria-describedby="`${controlsId}-research-interests-help`" rows="5" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span :id="`${controlsId}-research-interests-help`" class="field-description app-hint">{{ text('Describe the research topics and questions that genuinely interest you, including interests not yet reflected in your CV. They enrich the motivation alongside your experience and the opportunity. Use the relevant interests selectively; the letter need not cover them all. Interests do not establish prior experience or qualifications.', 'Beschreiben Sie Forschungsthemen und Fragestellungen, die Sie wirklich interessieren, auch wenn sie noch nicht im Lebenslauf erscheinen. Sie ergänzen Ihre Erfahrungen und die Ausschreibung als Grundlage der Motivation. Relevante Interessen werden gezielt ausgewählt; der Brief muss nicht alle abdecken. Interessen sind kein Nachweis für Vorerfahrung oder Qualifikationen.') }}</span></div>
           </div>
         </details>
         <details class="template-section">
           <summary><FontAwesomeIcon :icon="faFeatherPointed" aria-hidden="true" /><span>{{ text('Tone', 'Tonalität') }}</span><FontAwesomeIcon class="template-chevron" :icon="faChevronDown" aria-hidden="true" /></summary>
           <div class="template-section-fields">
-            <label>{{ text('Tone and writing guidance', 'Tonalität und Schreibhinweise') }}<textarea v-model="form.tone" rows="4" maxlength="1000" required /></label>
-            <div class="template-field"><label :for="`${controlsId}-example`">{{ text('Example letter (optional)', 'Beispielbrief (optional)') }}</label><textarea :id="`${controlsId}-example`" v-model="form.exampleText" :aria-describedby="`${controlsId}-example-help`" rows="8" maxlength="20000" /><span :id="`${controlsId}-example-help`" class="field-description app-hint">{{ text('Use an earlier letter to guide wording, style and structure. Its claims are not evidence about the applicant. Remove or generalize confidential details before sharing.', 'Ein früherer Brief kann Wortwahl, Stil und Struktur vorgeben. Seine Aussagen sind keine Nachweise über die bewerbende Person. Entfernen oder verallgemeinern Sie vertrauliche Details vor dem Teilen.') }}</span></div>
+            <label>{{ text('Tone and writing guidance', 'Tonalität und Schreibhinweise') }}<AutosaveTextarea @commit="flushSave" v-model.lazy="form.tone" rows="4" maxlength="1000" required /></label>
+            <div class="template-field"><label :for="`${controlsId}-example`">{{ text('Example letter (optional)', 'Beispielbrief (optional)') }}</label><AutosaveTextarea @commit="flushSave" :id="`${controlsId}-example`" v-model.lazy="form.exampleText" :aria-describedby="`${controlsId}-example-help`" rows="8" maxlength="20000" /><span :id="`${controlsId}-example-help`" class="field-description app-hint">{{ text('Use an earlier letter to guide wording, style and structure. Its claims are not evidence about the applicant. Remove or generalize confidential details before sharing.', 'Ein früherer Brief kann Wortwahl, Stil und Struktur vorgeben. Seine Aussagen sind keine Nachweise über die bewerbende Person. Entfernen oder verallgemeinern Sie vertrauliche Details vor dem Teilen.') }}</span></div>
           </div>
         </details>
         <details class="template-section">
           <summary><FontAwesomeIcon :icon="faComments" aria-hidden="true" /><span>{{ text('Feedback loop', 'Feedback-Schleife') }}</span><FontAwesomeIcon class="template-chevron" :icon="faChevronDown" aria-hidden="true" /></summary>
           <div class="template-section-fields">
-            <div class="template-field"><label :for="`${controlsId}-question-guidance`">{{ text('Questions and context to ask for (optional)', 'Rückfragen und gewünschter Kontext (optional)') }}</label><textarea :id="`${controlsId}-question-guidance`" v-model="form.questionGuidance" :aria-describedby="`${controlsId}-question-guidance-help`" rows="6" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span :id="`${controlsId}-question-guidance-help`" class="field-description app-hint">{{ text('Explain when a question would improve a draft or refinement and what context to ask for. For example, ask about required or beneficial qualifications without CV evidence, then request a relevant example or an honest learning interest. Questions should add value, avoid repeating answered questions and never assume missing experience.', 'Beschreiben Sie, wann eine Rückfrage einen Entwurf oder eine Überarbeitung verbessert und welcher Kontext erfragt werden soll. Zum Beispiel: nach geforderten oder vorteilhaften Qualifikationen ohne Lebenslaufnachweis fragen und um ein relevantes Beispiel oder ehrliches Lerninteresse bitten. Fragen sollen einen Mehrwert bieten, beantwortete Fragen nicht wiederholen und fehlende Erfahrung nicht unterstellen.') }}</span></div>
-            <div class="template-field"><label :for="`${controlsId}-refinement-system-prompt`">{{ text('Refinement system prompt (optional)', 'System-Prompt für Überarbeitungen (optional)') }}</label><textarea :id="`${controlsId}-refinement-system-prompt`" v-model="form.refinementSystemPrompt" :aria-describedby="`${controlsId}-refinement-system-prompt-help`" rows="8" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span :id="`${controlsId}-refinement-system-prompt-help`" class="field-description app-hint">{{ text('Guide each refinement iteration: decide which resolved answers strengthen the letter’s central narrative and add value, which to leave out, and when to ask for more detail.', 'Legen Sie fest, wie jede Überarbeitungsrunde mit Antworten umgeht: Welche stärken den roten Faden und bieten Mehrwert, welche bleiben außen vor und wann sind genauere Rückfragen nötig?') }}</span></div>
+            <div class="template-field"><label :for="`${controlsId}-question-guidance`">{{ text('Questions and context to ask for (optional)', 'Rückfragen und gewünschter Kontext (optional)') }}</label><AutosaveTextarea @commit="flushSave" :id="`${controlsId}-question-guidance`" v-model.lazy="form.questionGuidance" :aria-describedby="`${controlsId}-question-guidance-help`" rows="6" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span :id="`${controlsId}-question-guidance-help`" class="field-description app-hint">{{ text('Explain when a question would improve a draft or refinement and what context to ask for. For example, ask about required or beneficial qualifications without CV evidence, then request a relevant example or an honest learning interest. Questions should add value, avoid repeating answered questions and never assume missing experience.', 'Beschreiben Sie, wann eine Rückfrage einen Entwurf oder eine Überarbeitung verbessert und welcher Kontext erfragt werden soll. Zum Beispiel: nach geforderten oder vorteilhaften Qualifikationen ohne Lebenslaufnachweis fragen und um ein relevantes Beispiel oder ehrliches Lerninteresse bitten. Fragen sollen einen Mehrwert bieten, beantwortete Fragen nicht wiederholen und fehlende Erfahrung nicht unterstellen.') }}</span></div>
+            <div class="template-field"><label :for="`${controlsId}-refinement-system-prompt`">{{ text('Refinement system prompt (optional)', 'System-Prompt für Überarbeitungen (optional)') }}</label><AutosaveTextarea @commit="flushSave" :id="`${controlsId}-refinement-system-prompt`" v-model.lazy="form.refinementSystemPrompt" :aria-describedby="`${controlsId}-refinement-system-prompt-help`" rows="8" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /><span :id="`${controlsId}-refinement-system-prompt-help`" class="field-description app-hint">{{ text('Guide each refinement iteration: decide which resolved answers strengthen the letter’s central narrative and add value, which to leave out, and when to ask for more detail.', 'Legen Sie fest, wie jede Überarbeitungsrunde mit Antworten umgeht: Welche stärken den roten Faden und bieten Mehrwert, welche bleiben außen vor und wann sind genauere Rückfragen nötig?') }}</span></div>
           </div>
         </details>
         <details class="template-section">
           <summary><FontAwesomeIcon :icon="faEnvelopeOpenText" aria-hidden="true" /><span>{{ text('Formalities', 'Formalitäten') }}</span><FontAwesomeIcon class="template-chevron" :icon="faChevronDown" aria-hidden="true" /></summary>
           <div class="template-section-fields">
             <div class="template-form-row"><label>{{ text('Default language', 'Standardsprache') }}<select v-model="form.language"><option value="en">English</option><option value="de">Deutsch</option></select></label><label>{{ text('Target words', 'Zielwortzahl') }}<input v-model.number="form.maxWords" type="number" min="50" max="2000" required /></label></div>
-            <div class="template-field"><label :for="`${controlsId}-subject`">{{ text('Subject instructions', 'Hinweise zum Betreff') }}</label><textarea :id="`${controlsId}-subject`" v-model="form.subjectInstructions" :aria-describedby="`${controlsId}-subject-help`" rows="3" maxlength="1000" /><span :id="`${controlsId}-subject-help`" class="field-description app-hint">{{ text('Describe how to name the position and include a tender reference when available.', 'Beschreiben Sie, wie die Stelle benannt und eine vorhandene Ausschreibungsreferenz aufgenommen werden soll.') }}</span></div>
-            <div class="template-field"><label :for="`${controlsId}-salutation`">{{ text('Salutation instructions', 'Hinweise zur Anrede') }}</label><textarea :id="`${controlsId}-salutation`" v-model="form.salutationInstructions" :aria-describedby="`${controlsId}-salutation-help`" rows="3" maxlength="1000" /><span :id="`${controlsId}-salutation-help`" class="field-description app-hint">{{ text('Describe how to choose the recipient from the tender and how to greet them if no contact is named.', 'Beschreiben Sie, wie der Empfänger aus der Ausschreibung gewählt und ohne genannten Kontakt angesprochen werden soll.') }}</span></div>
-            <div class="template-field"><label :for="`${controlsId}-closing`">{{ text('Closing instructions', 'Hinweise zum Abschluss') }}</label><textarea :id="`${controlsId}-closing`" v-model="form.closingInstructions" :aria-describedby="`${controlsId}-closing-help`" rows="3" maxlength="1000" /><span :id="`${controlsId}-closing-help`" class="field-description app-hint">{{ text(`Describe the closing invitation, sign-off and signature. Use ${applicantNamePlaceholder} for the private name.`, `Beschreiben Sie die abschließende Einladung, Grußformel und Unterschrift. Verwenden Sie ${applicantNamePlaceholder} für den privaten Namen.`) }}</span></div>
+            <div class="template-field"><label :for="`${controlsId}-subject`">{{ text('Subject instructions', 'Hinweise zum Betreff') }}</label><AutosaveTextarea @commit="flushSave" :id="`${controlsId}-subject`" v-model.lazy="form.subjectInstructions" :aria-describedby="`${controlsId}-subject-help`" rows="3" maxlength="1000" /><span :id="`${controlsId}-subject-help`" class="field-description app-hint">{{ text('Describe how to name the position and include a tender reference when available.', 'Beschreiben Sie, wie die Stelle benannt und eine vorhandene Ausschreibungsreferenz aufgenommen werden soll.') }}</span></div>
+            <div class="template-field"><label :for="`${controlsId}-salutation`">{{ text('Salutation instructions', 'Hinweise zur Anrede') }}</label><AutosaveTextarea @commit="flushSave" :id="`${controlsId}-salutation`" v-model.lazy="form.salutationInstructions" :aria-describedby="`${controlsId}-salutation-help`" rows="3" maxlength="1000" /><span :id="`${controlsId}-salutation-help`" class="field-description app-hint">{{ text('Describe how to choose the recipient from the tender and how to greet them if no contact is named.', 'Beschreiben Sie, wie der Empfänger aus der Ausschreibung gewählt und ohne genannten Kontakt angesprochen werden soll.') }}</span></div>
+            <div class="template-field"><label :for="`${controlsId}-closing`">{{ text('Closing instructions', 'Hinweise zum Abschluss') }}</label><AutosaveTextarea @commit="flushSave" :id="`${controlsId}-closing`" v-model.lazy="form.closingInstructions" :aria-describedby="`${controlsId}-closing-help`" rows="3" maxlength="1000" /><span :id="`${controlsId}-closing-help`" class="field-description app-hint">{{ text(`Describe the closing invitation, sign-off and signature. Use ${applicantNamePlaceholder} for the private name.`, `Beschreiben Sie die abschließende Einladung, Grußformel und Unterschrift. Verwenden Sie ${applicantNamePlaceholder} für den privaten Namen.`) }}</span></div>
             <LetterFormattingControls :formatting="form.formatting" :lang="lang || 'en'" template-mode @change="updateFormatting" />
           </div>
         </details>

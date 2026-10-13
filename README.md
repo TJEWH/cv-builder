@@ -68,6 +68,8 @@ Use a publishable key or a legacy `anon` key in frontend configuration. Keep sec
 
 ## Development
 
+New autosaving textareas must follow the [shared textarea behavior](docs/textarea-behavior.md): save on blur or Enter, keep typing local, and flush before navigation.
+
 The app uses Vue 3, TypeScript, and Vite. It runs as a static frontend with local tab navigation. PDFKit and Fontkit handle CV and letter exports, pdf-lib assembles application packages, and PDF.js renders package previews.
 
 | Command | Purpose |

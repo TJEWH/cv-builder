@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, reactive, watch } from 'vue';
+import { nextTick, onBeforeUnmount, reactive, watch } from 'vue';
+import AutosaveTextarea from './AutosaveTextarea.vue';
 import type { AnnotationStatus } from '../refinementTypes';
 import type { AnnotationView } from '../composables/refinementAnnotations';
 import { useToasts } from '../composables/useToasts';
@@ -20,7 +21,7 @@ function reset(item: Item) {
 }
 watch(() => props.items, items => { for (const item of items) if (!drafts[key(item)] || !dirty(item) && !drafts[key(item)]!.saving && !drafts[key(item)]!.failed) reset(item); }, { immediate: true });
 const conflictToasts = new Map<string, number>();
-watch(() => props.items.filter(item => drafts[key(item)]?.reviewId !== item.reviewId).map(key), (conflicts, previous) => {
+watch(() => props.items.filter(item => !drafts[key(item)]?.saving && drafts[key(item)]?.reviewId !== item.reviewId).map(key), (conflicts, previous) => {
   for (const id of previous) if (!conflicts.includes(id)) {
     dismiss(conflictToasts.get(id) || 0);
     conflictToasts.delete(id);
@@ -35,47 +36,79 @@ watch(() => props.items.filter(item => drafts[key(item)]?.reviewId !== item.revi
     } },
   }));
 });
-const timers = new Map<string, ReturnType<typeof setTimeout>>();
-const pending = new Set<string>();
-function schedule(item: Item) {
-  clearTimeout(timers.get(key(item)));
-  if (drafts[key(item)]!.status === 'resolved') timers.set(key(item), setTimeout(() => { void save(item); }, 400));
-}
+type Commit = { key: string; item: Item; status: AnnotationStatus; response: string; promise: Promise<boolean>; resolve: (saved: boolean) => void };
+const queue: Commit[] = [];
+let activeCommit: Commit | null = null;
+let disposed = false;
 watch(() => props.disabled, disabled => {
-  if (!disabled) for (const id of [...pending]) {
-    const item = props.items.find(value => key(value) === id);
-    pending.delete(id); if (item) void save(item);
-  }
+  if (!disabled) void drain();
 });
 onBeforeUnmount(() => {
-  for (const timer of timers.values()) clearTimeout(timer);
+  disposed = true;
+  for (const commit of queue.splice(0)) commit.resolve(false);
   for (const id of conflictToasts.values()) dismiss(id);
 });
-async function save(item: Item) {
-  clearTimeout(timers.get(key(item)));
+function save(item: Item): Promise<boolean> {
+  if (disposed) return Promise.resolve(false);
   const d = drafts[key(item)]!;
-  if (props.disabled) { pending.add(key(item)); return; }
-  if (d.saving || d.reviewId !== item.reviewId) return;
-  d.saving = true; d.failed = false; d.failedStatus = null; d.partialFailure = false;
   const status = d.status, response = d.response;
+  const pending = [...queue].reverse().find(commit => commit.key === key(item)) || (activeCommit?.key === key(item) ? activeCommit : null);
+  if (pending?.status === status && pending.response === response) return pending.promise;
+  if (!pending && !dirty(item) && !d.failed) return Promise.resolve(true);
+  let resolve!: (saved: boolean) => void;
+  const promise = new Promise<boolean>(done => { resolve = done; });
+  queue.push({ key: key(item), item, status, response, promise, resolve });
+  void drain();
+  return promise;
+}
+async function drain() {
+  if (activeCommit || props.disabled || disposed) return;
+  const commit = queue.shift();
+  if (!commit) return;
+  activeCommit = commit;
+  const { item, status, response } = commit;
+  const d = drafts[commit.key]!;
+  let saved = false;
+  // Only a review written by this queue may advance the base for a later commit.
+  const current = props.items.find(value => key(value) === commit.key);
+  if (!current || d.reviewId !== current.reviewId) {
+    activeCommit = null; commit.resolve(false); void drain(); return;
+  }
+  d.saving = true; d.failed = false; d.failedStatus = null; d.partialFailure = false;
+  function acceptSaved(current: Item) {
+    const unchanged = d.status === status && d.response === response;
+    d.savedStatus = current.status; d.savedResponse = current.response || ''; d.reviewId = current.reviewId;
+    if (unchanged) { d.status = current.status; d.response = current.response || ''; }
+  }
   function failed() {
     const current = props.items.find(value => key(value) === key(item));
     const statusSaved = !!current && current.status === status && (current.response || '') === props.privacyPreview(response).trim();
-    if (current && statusSaved) reset(current);
-    const draft = drafts[key(item)]!;
-    draft.failed = true; draft.failedStatus = status; draft.partialFailure = statusSaved;
+    if (current && statusSaved) acceptSaved(current);
+    d.failed = true; d.failedStatus = status; d.partialFailure = statusSaved;
     // A failed ignore must not look persisted or leave a hidden response stranded.
-    if (status === 'ignored' && !statusSaved) draft.status = draft.savedStatus;
+    if (status === 'ignored' && !statusSaved && d.status === status) d.status = d.savedStatus;
   }
   try {
-    const saved = await props.save(item.annotation.id, status, response, d.reviewId);
+    saved = await props.save(item.annotation.id, status, response, d.reviewId);
     const current = props.items.find(value => key(value) === key(item));
-    if (saved) { if (current) reset(current); }
+    if (saved) { if (current) acceptSaved(current); }
     else failed();
   } catch {
     failed();
-  } finally { drafts[key(item)]!.saving = false; }
+  } finally {
+    d.saving = false;
+    commit.resolve(saved);
+    activeCommit = null;
+    // The parent's busy flag is propagated before starting the next snapshot.
+    await nextTick();
+    void drain();
+  }
 }
+async function flush(): Promise<boolean> {
+  const results = await Promise.all(props.items.map(item => save(item)));
+  return results.every(Boolean) && props.items.every(item => !dirty(item) && !drafts[key(item)]!.failed);
+}
+defineExpose({ flush });
 function failureMessage(item: Item) {
   const draft = drafts[key(item)]!;
   if (draft.failedStatus === 'ignored') return draft.partialFailure
@@ -96,7 +129,7 @@ const typeLabel = (type: string) => type === 'question' ? text('Question', 'Frag
         <p v-if="item.referenceChanged" class="app-hint">{{ text('Referenced text has changed', 'Referenzierter Text wurde geändert') }}</p>
         <details class="disclosure-row"><summary>{{ text('Original text reference', 'Ursprünglicher Textbezug') }}</summary><blockquote>{{ item.annotation.location.quote }}</blockquote></details>
       </template>
-      <label v-if="drafts[key(item)]!.status !== 'ignored'">{{ text('Your response (optional)', 'Deine Antwort (optional)') }}<textarea v-model="drafts[key(item)]!.response" @input="schedule(item)" rows="3" maxlength="12000" :disabled="disabled" /></label>
+      <label v-if="drafts[key(item)]!.status !== 'ignored'">{{ text('Your response (optional)', 'Deine Antwort (optional)') }}<AutosaveTextarea v-model="drafts[key(item)]!.response" @commit="save(item)" rows="3" maxlength="12000" :disabled="disabled" /></label>
       <label>{{ text('Annotation status', 'Status der Anmerkung') }}<select v-model="drafts[key(item)]!.status" :disabled="disabled" @change="save(item)"><option value="open">{{ text('Open', 'Offen') }}</option><option value="resolved">{{ text('Resolved', 'Erledigt') }}</option><option value="ignored">{{ text('Ignored', 'Ignoriert') }}</option></select></label>
       <p v-if="drafts[key(item)]!.reviewId !== item.reviewId" class="app-hint">{{ text('Load the saved annotation before continuing.', 'Vor dem Fortfahren die gespeicherte Anmerkung laden.') }} <button type="button" :disabled="disabled" @click="reset(item)">{{ text('Load saved annotation', 'Gespeicherte Anmerkung laden') }}</button></p>
       <p v-if="drafts[key(item)]!.failed" class="save-error" role="alert">{{ failureMessage(item) }}</p>

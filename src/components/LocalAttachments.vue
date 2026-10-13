@@ -10,6 +10,8 @@ import { createAttachmentMetadataRepository } from '../composables/attachmentMet
 import { usePdfBlobPreview } from '../composables/usePdfBlobPreview';
 import { useToastWatch } from '../composables/useToasts';
 import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
+import AutosaveTextarea from './AutosaveTextarea.vue';
+import { commitPendingTextareas } from '../composables/textareaCommit';
 import { useDesktopSidebar } from '../composables/desktopSidebar';
 
 const props = withDefaults(defineProps<{ userId: string; lang?: string; client?: SupabaseClient | null; active?: boolean; sidebarActive?: boolean; storage?: LocalDocumentStorage }>(), { active: true, sidebarActive: true, client: null });
@@ -61,6 +63,7 @@ useToastWatch(() => previewError.value, () => ({ tone: 'error', action: { label:
 let previewGeneration = 0;
 let generation = 0;
 let disposed = false;
+let draftOwner = props.userId;
 const repository = () => new LocalDocumentRepository(props.userId, props.storage);
 const cloudRepository = () => { const owner = props.userId; return props.client && owner ? createAttachmentMetadataRepository(props.client, () => owner) : null; };
 const current = (token: number) => token === generation && !disposed;
@@ -73,14 +76,40 @@ function clearPreview() {
   previewUrl.value = '';
 }
 function changed() { emit('changed'); window.dispatchEvent(new Event('cv-local-documents-updated')); }
+const draftKey = (id = editingId.value, owner = draftOwner) => `cv-attachment-draft:v1:${encodeURIComponent(owner)}:${encodeURIComponent(id || 'new')}`;
+function persistDraft() {
+  if (!formVisible.value || !dirty.value || typeof localStorage === 'undefined') return true;
+  try { localStorage.setItem(draftKey(), JSON.stringify({ name: name.value, description: description.value })); return true; }
+  catch (reason) { error.value = message(reason); return false; }
+}
+function commitDescription() { dirty.value = true; persistDraft(); }
+function restoreDraft() {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(draftKey());
+    if (!raw) return;
+    const saved: unknown = JSON.parse(raw);
+    if (!saved || typeof saved !== 'object' || !('name' in saved) || !('description' in saved)
+      || typeof saved.name !== 'string' || typeof saved.description !== 'string'
+      || saved.name.length > 200 || saved.description.length > 4000) return;
+    name.value = saved.name; description.value = saved.description; dirty.value = true;
+  } catch (reason) { error.value = message(reason); }
+}
+function clearDraft(key = draftKey()) {
+  if (typeof localStorage === 'undefined') return;
+  try { localStorage.removeItem(key); } catch (reason) { error.value = message(reason); }
+}
+function cancelEdit() { clearDraft(); resetForm(); }
 function resetForm() {
   editingId.value = ''; formVisible.value = false; name.value = ''; description.value = ''; file.value = null; dirty.value = false;
   if (fileInput.value) fileInput.value.value = '';
 }
 function edit(entry?: Entry) {
   if (busy.value) return;
+  commitPendingTextareas(); if (!persistDraft()) return;
   editingId.value = entry?.id || ''; name.value = entry?.description?.trim() ? entry.name : ''; description.value = entry?.description || '';
   file.value = null; dirty.value = false; formVisible.value = true; error.value = ''; notice.value = '';
+  restoreDraft();
   void nextTick(() => { attachmentForm.value?.scrollIntoView({ block: 'nearest' }); attachmentForm.value?.querySelector('input')?.focus({ preventScroll: true }); });
   if (fileInput.value) fileInput.value.value = '';
 }
@@ -111,16 +140,19 @@ async function load() {
   }
 }
 watch(() => [props.userId, props.client], () => {
+  commitPendingTextareas(); persistDraft(); draftOwner = props.userId;
   generation++; busy.value = false; localDocuments.value = []; sharedDocuments.value = []; resetForm(); clearPreview(); notice.value = '';
   void load();
 }, { immediate: true });
-watch(() => props.active, (active) => { if (active) void load(); else clearPreview(); });
+watch(() => props.active, (active) => { if (active) void load(); else { commitPendingTextareas(); persistDraft(); clearPreview(); } });
 function refreshIfActive() { if (props.active && !busy.value) void load(); }
 onMounted(() => { window.addEventListener('focus', refreshIfActive); window.addEventListener('cv-local-documents-updated', refreshIfActive); });
-onBeforeUnmount(() => { disposed = true; generation++; clearPreview(); window.removeEventListener('focus', refreshIfActive); window.removeEventListener('cv-local-documents-updated', refreshIfActive); });
+onBeforeUnmount(() => { commitPendingTextareas(); persistDraft(); disposed = true; generation++; clearPreview(); window.removeEventListener('focus', refreshIfActive); window.removeEventListener('cv-local-documents-updated', refreshIfActive); });
 async function save() {
+  commitPendingTextareas(); persistDraft();
   if (busy.value || loading.value || loadFailed.value) return;
   const token = generation; const repo = repository(); const cloud = cloudRepository();
+  const savedDraftKey = draftKey();
   const nextName = name.value.trim(); const nextDescription = description.value.trim(); const nextFile = file.value;
   if (!nextName || !nextDescription) { error.value = text('Enter a name and description yourself before saving.', 'Vor dem Speichern einen Namen und eine Beschreibung selbst eingeben.'); return; }
   if (!editingId.value && !nextFile) { error.value = text('Choose a local PDF or image for this attachment.', 'Ein lokales PDF oder Bild für diesen Anhang auswählen.'); return; }
@@ -149,7 +181,7 @@ async function save() {
       cloudSaved = true;
       sharedDocuments.value = [saved, ...sharedDocuments.value.filter((entry) => entry.id !== id)]; cloudFailed.value = false;
     } else if (!localSaved) throw new Error(text('The local file is unavailable. Attach it before saving offline.', 'Die lokale Datei fehlt. Zum Offline-Speichern zuerst hinzufügen.'));
-    dirty.value = false; resetForm();
+    clearDraft(savedDraftKey); clearDraft(); dirty.value = false; resetForm();
     notice.value = cloud ? text('Saved. Only your name and description were shared; the file stays on this device.', 'Gespeichert. Nur der eingegebene Name und die Beschreibung wurden geteilt; die Datei bleibt auf diesem Gerät.') : text('Attachment saved in this local profile. To use it in an account, sign in and add the file, name and description to that account’s library.', 'Anhang in diesem lokalen Profil gespeichert. Zur Verwendung in einem Konto anmelden und Datei, Name und Beschreibung zu dessen Bibliothek hinzufügen.');
   } catch (reason) {
     if (current(token)) error.value = (localSaved ? text('The file and your metadata are saved locally. Cloud sync failed; save again to retry. ', 'Datei und Metadaten sind lokal gespeichert. Cloud-Synchronisierung fehlgeschlagen; zum Wiederholen erneut speichern. ') : '') + message(reason);
@@ -193,6 +225,7 @@ async function remove(entry: Entry) {
     if (entry.local) await repo.removeDocument(entry.id);
     if (!current(token)) return;
     localDocuments.value = localDocuments.value.filter(({ id }) => id !== entry.id); sharedDocuments.value = sharedDocuments.value.filter(({ id }) => id !== entry.id);
+    clearDraft(draftKey(entry.id));
     if (editingId.value === entry.id) resetForm(); clearPreview(); changed();
     notice.value = text('Attachment deleted. Existing package references are kept so missing files remain visible.', 'Anhang gelöscht. Bestehende Zusammenstellungen zeigen die fehlende Datei weiterhin an.');
   } catch (reason) { if (current(token)) error.value = message(reason); }
@@ -255,10 +288,10 @@ async function importBackup(event: Event) {
       <form v-if="formVisible" ref="attachmentForm" class="attachment-form" @submit.prevent="save">
         <h3>{{ editingId ? text('Edit attachment', 'Anhang bearbeiten') : text('New attachment', 'Neuer Anhang') }}</h3>
         <label>{{ text('Attachment name', 'Name des Anhangs') }}<input v-model="name" maxlength="200" required :disabled="busy" @input="dirty = true" /></label>
-        <label>{{ text('Description', 'Beschreibung') }}<textarea v-model="description" maxlength="4000" rows="4" required :disabled="busy" @input="dirty = true" /><small class="app-hint">{{ text('Write the context you want to share, without copying private details you want to keep local.', 'Den gewünschten Kontext eingeben und private Angaben weglassen, die lokal bleiben sollen.') }}</small></label>
+        <label>{{ text('Description', 'Beschreibung') }}<AutosaveTextarea v-model="description" @commit="commitDescription" maxlength="4000" rows="4" required :disabled="busy" @input="dirty = true" /><small class="app-hint">{{ text('Write the context you want to share, without copying private details you want to keep local.', 'Den gewünschten Kontext eingeben und private Angaben weglassen, die lokal bleiben sollen.') }}</small></label>
         <label>{{ editingEntry?.local ? text('Replace local file (optional)', 'Lokale Datei ersetzen (optional)') : text('Local PDF or image', 'Lokales PDF oder Bild') }}<input ref="fileInput" type="file" accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg" :required="!editingId" :disabled="busy" @change="chooseFile" /><small class="app-hint">{{ text('PDF, PNG or JPEG, up to 50 MB. Choosing a file never fills the name or description.', 'PDF, PNG oder JPEG, bis 50 MB. Die Dateiauswahl füllt Name und Beschreibung nicht aus.') }}</small></label>
         <p v-if="editingEntry && !editingEntry.local && !file" class="missing app-hint">{{ text('This attachment has no file on this device. Add the original file to use it in a PDF package.', 'Für diesen Anhang fehlt die Datei auf diesem Gerät. Zum Verwenden in einer PDF-Zusammenstellung die Originaldatei hinzufügen.') }}</p>
-        <div class="actions"><button class="primary" type="submit" :disabled="busy || loading || loadFailed">{{ busy ? text('Saving…', 'Speichern…') : text('Save attachment', 'Anhang speichern') }}</button><button type="button" :disabled="busy" @click="resetForm">{{ text('Cancel', 'Abbrechen') }}</button></div>
+        <div class="actions"><button class="primary" type="submit" :disabled="busy || loading || loadFailed">{{ busy ? text('Saving…', 'Speichern…') : text('Save attachment', 'Anhang speichern') }}</button><button type="button" :disabled="busy" @click="cancelEdit">{{ text('Cancel', 'Abbrechen') }}</button></div>
       </form>
 
     </div>

@@ -183,18 +183,20 @@ test('templates autosave edits, flush before navigation, and preserve account ow
     const revision = editor.form.revision;
     editor.form.researchInterests = 'Early edit';
     editor.form.researchInterests = 'Latest research interests';
-    assert.equal(editor.saveStatus, 'saving');
-    t.mock.timers.tick(250);
+    assert.equal(editor.saveStatus, 'unsaved');
+    t.mock.timers.tick(60000);
+    assert.notEqual(owner.defaultTemplate()?.researchInterests, 'Latest research interests', 'typing must not persist after any debounce delay');
+    assert.equal(editor.flushSave(), true);
     assert.equal(editor.saveStatus, 'saved');
     assert.equal(owner.defaultTemplate()?.researchInterests, 'Latest research interests');
-    assert.equal(owner.defaultTemplate()?.revision, revision + 1, 'one revision per debounced batch');
-    assert.equal(notifications.toasts.value.length, 0, 'saving a keystroke batch must not immediately interrupt typing');
+    assert.equal(owner.defaultTemplate()?.revision, revision + 1, 'one revision per committed draft');
+    assert.equal(notifications.toasts.value.length, 0, 'the saved notification stays quiet until the existing announcement delay');
     t.mock.timers.tick(1000);
     assert.equal(owner.defaultTemplate()?.revision, revision + 1, 'saving metadata must not trigger another autosave');
     assert.equal(notifications.toasts.value.length, 0, 'the notification waits for idle time');
 
     editor.form.researchInterests = 'Another editing batch';
-    t.mock.timers.tick(250);
+    assert.equal(editor.flushSave(), true);
     t.mock.timers.tick(1250);
     assert.equal(notifications.toasts.value.length, 0, 'new input cancels the earlier pending save notification');
     t.mock.timers.tick(250);
@@ -214,7 +216,7 @@ test('templates autosave edits, flush before navigation, and preserve account ow
 
     failWrites = true;
     editor.form.name = 'Unsaved name';
-    t.mock.timers.tick(250);
+    assert.equal(editor.flushSave(), false);
     assert.equal(editor.saveStatus, 'error');
     assert.equal(notifications.toasts.value.at(-1)?.message, 'Storage full');
     assert.equal(notifications.toasts.value.at(-1)?.tone, 'error');

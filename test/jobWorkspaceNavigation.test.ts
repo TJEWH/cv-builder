@@ -104,6 +104,7 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
     query: string; statusFilter: string; reviewFilter: string; hideWithApplication: boolean; hideNotInterested: boolean; sortBy: string; applicationSortBy: string; deadlineFilter: 'current' | 'past'; now: Date;
     statusLabel(status: string): string;
     notes: string; notesStatus: string; notesError: string; flushNotes(): Promise<boolean>;
+    applicationWorkspace: { flushTextareas(): Promise<boolean> } | null; flushTextareas(): Promise<boolean>;
     opportunityComment: string; commentStatus: string; commentError: string; flushComment(): Promise<boolean>;
     recencyById: Map<string, 'new' | 'updated' | null>; unseenById: Map<string, 'new' | 'updated' | null>;
     fitScoreById: Map<string, number | undefined>; fitTone(score: number | undefined): string | undefined; fitLabel(score: number | undefined): string;
@@ -156,6 +157,30 @@ test('opportunity navigation follows captured group order, skips removed results
   assert.equal(setup.query, 'Research');
   assert.equal(setup.sortBy, 'title');
   assert.equal(setup.hideNotInterested, true);
+});
+
+test('application navigation waits for nested textarea saves and retains the item on failure', async t => {
+  const f = mount(t);
+  const second = { ...f.application, id: 'application-two', context_json: { title: 'Second application' } };
+  f.applications.value = [f.application, second];
+  f.props.tab = 'applications';
+  await nextTick();
+  f.setup.openApplication(f.application);
+  let release!: (saved: boolean) => void;
+  f.setup.applicationWorkspace = { flushTextareas: () => new Promise<boolean>(resolve => { release = resolve; }) };
+  const navigation = f.setup.navigateDetail(1);
+  assert.equal(f.setup.editingApplication?.id, f.application.id);
+  release(false);
+  await navigation;
+  assert.equal(f.setup.editingApplication?.id, f.application.id);
+  assert.equal(f.applicationUpdates.length, 0, 'failed nested saves must stop later writes');
+  f.setup.applicationWorkspace = { flushTextareas: async () => false };
+  await f.setup.closeApplication();
+  assert.equal(f.setup.editingApplication?.id, f.application.id);
+  assert.equal(await f.setup.openList('applications'), false);
+  f.setup.applicationWorkspace = { flushTextareas: async () => true };
+  await f.setup.navigateDetail(1);
+  assert.equal(f.setup.editingApplication?.id, second.id);
 });
 
 test('opportunity navigation saves evaluations and retains the current draft when saving fails', async (t) => {
@@ -345,18 +370,23 @@ test('switching accounts cancels pending opportunity comments and clears the edi
   assert.deepEqual(commentUpdates, []);
 });
 
-test('evaluation save feedback uses one toast and does not announce untouched fields', async (t) => {
-  const { setup, opportunity } = mount(t);
+test('evaluation save feedback starts on commit and stays quiet while typing', async (t) => {
+  const { setup, opportunity, commentUpdates } = mount(t);
   const { toasts } = useToasts();
   setup.openOpportunity(opportunity.id);
   await nextTick();
   assert.equal(toasts.value.length, 0);
   setup.opportunityComment = 'Strong match with my research.';
   await nextTick();
+  assert.equal(toasts.value.length, 0);
+  assert.deepEqual(commentUpdates, []);
+  assert.equal(setup.commentStatus, 'unsaved');
+  const commit = setup.flushComment();
+  await nextTick();
   assert.equal(toasts.value.length, 1);
   assert.equal(toasts.value[0].message, 'Saving evaluation…');
   const toastId = toasts.value[0].id;
-  await setup.flushComment();
+  await commit;
   await nextTick();
   assert.equal(toasts.value.length, 1);
   assert.equal(toasts.value[0].id, toastId);

@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, useId } from 'vue';
+import { computed, inject, useId } from 'vue';
 import { normalizeMarkdownText } from '../composables/markdownText.ts';
+import { CV_TEXTAREA_COMMIT } from '../composables/cvTextareaCommit';
+import AutosaveTextarea from './AutosaveTextarea.vue';
 
 defineOptions({ inheritAttrs: false });
 
@@ -13,6 +15,7 @@ const props = defineProps({
 });
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
 const helpId = `markdown-help-${useId()}`;
+const commit = inject(CV_TEXTAREA_COMMIT, () => {});
 
 const value = computed({
   get: () => normalizeMarkdownText(props.modelValue),
@@ -23,7 +26,7 @@ const emptyPlaceholder = computed(() => [props.placeholder, props.help].filter(B
 </script>
 
 <template>
-  <Textarea v-bind="$attrs" v-model="value" :placeholder="emptyPlaceholder" :aria-label="ariaLabel || undefined" :aria-describedby="help ? helpId : undefined" auto-resize fluid :rows="rows" />
+  <AutosaveTextarea v-bind="$attrs" v-model.lazy="value" class="p-textarea p-component p-textarea-fluid" :placeholder="emptyPlaceholder" :aria-label="ariaLabel || undefined" :aria-describedby="help ? helpId : undefined" auto-resize :rows="rows" @commit="commit" />
   <span v-if="help" :id="helpId" class="markdown-help">{{ help }}</span>
 </template>
 

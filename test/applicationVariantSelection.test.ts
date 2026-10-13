@@ -47,6 +47,10 @@ interface WorkspaceSetup {
   includeAnnotationFeedback(id: string): Promise<void>;
   copyShortInstruction(): Promise<void>;
   updateLetter(text: string): void; updateLetterFormatting(formatting?: LetterFormatting): void; approve(kind: 'cv' | 'letter', reopen?: boolean): Promise<void>;
+  iterationNoteEditor: { key: string; value: string; update(value: string): void };
+  iterationNotes: Record<'cv' | 'letter', Record<'tone' | 'structure' | 'content', string>>;
+  selectStage(stage: WorkspaceSetup['tab']): Promise<void>;
+  flushTextareas(): Promise<boolean>;
 }
 async function idle(setup: WorkspaceSetup) {
   for (let count = 0; count < 30; count++) {
@@ -62,6 +66,7 @@ const compiled = compileScript(descriptor, { id: 'application-variant-selection'
 const code = ts.transpileModule(compiled.content, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const exports: { default?: Component } = {};
 const requireFromComponent = createRequire(filename);
+const { registerTextareaCommit } = requireFromComponent('../composables/textareaCommit') as typeof import('../src/composables/textareaCommit');
 new Function('require', 'exports', code)((path: string) => path.endsWith('.vue') ? { default: {} }
   : path === '../lib/supabase' ? { supabaseConfiguration: { status: 'ready', url: 'https://fixture.supabase.co', publishableKey: 'sb_publishable_fixture_only' } }
     : requireFromComponent(path), exports);
@@ -130,6 +135,42 @@ function mount(t: TestContext, legacy?: 'unchanged' | 'tailored', missingLetterT
   const reopen = () => { unmount(); return mountComponent(); };
   return { setup, reopen, props, states, base, database, cloud, storage, clipboard, clipboardWrites };
 }
+
+test('application navigation commits pending textarea drafts before persisting and changing stage', async t => {
+  const { setup, storage } = mount(t);
+  await idle(setup);
+  const unregister = registerTextareaCommit(() => { setup.iterationNotes.cv.structure = 'Move methods before education.'; });
+  t.after(unregister);
+  await setup.selectStage('review');
+  assert.equal(setup.tab, 'review');
+  assert.equal(JSON.parse(storage.getItem('CV_REFINEMENT:1:' + account + ':' + applicationId)!).iterationNotes.cv.structure, 'Move methods before education.');
+});
+
+test('a failed local textarea commit retains the application stage and pending value', async t => {
+  const { setup, storage } = mount(t);
+  await idle(setup);
+  const originalStage = setup.tab;
+  const unregister = registerTextareaCommit(() => { setup.iterationNotes.cv.structure = 'Keep this draft if storage is unavailable.'; });
+  t.after(unregister);
+  storage.setItem = () => { throw new Error('Synthetic storage failure'); };
+  await setup.selectStage('review');
+  assert.equal(setup.tab, originalStage);
+  assert.equal(setup.iterationNotes.cv.structure, 'Keep this draft if storage is unavailable.');
+  assert.match(setup.saveError, /Local save failed/);
+});
+
+test('an old iteration editor retains its document and field when its draft commits during a scope switch', async t => {
+  const { setup } = mount(t);
+  await idle(setup);
+  const previousEditor = setup.iterationNoteEditor;
+  assert.equal(previousEditor.key, 'cv:structure');
+  setup.feedbackScope = 'letter';
+  await nextTick();
+  previousEditor.update('Only the CV structure should change.');
+  assert.equal(setup.iterationNotes.cv.structure, 'Only the CV structure should change.');
+  assert.equal(setup.iterationNotes.letter.tone, '');
+  assert.equal(setup.iterationNotes.letter.structure, '');
+});
 
 test('applications freeze selected CVs and keep manual edits independent from the template library', async (t) => {
   const { setup, props, states, base, database } = mount(t);

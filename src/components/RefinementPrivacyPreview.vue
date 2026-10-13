@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { computed, reactive } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import type { LocalCvAdjustmentRequest } from '../cvAdjustmentTypes';
 import type { PrivacyContextType, RefinementRequest } from '../refinementTypes';
 import { privacyContextTargets, PRIVACY_CONTEXT_TYPES, PRIVACY_DESCRIPTION_LIMIT } from '../composables/refinementPrivacy';
 import { refinementSignature } from '../composables/applicationRefinement';
 import PrivacyTextPreview from './PrivacyTextPreview.vue';
+import AutosaveTextarea from './AutosaveTextarea.vue';
+import { commitPendingTextareas } from '../composables/textareaCommit';
+import { useToastWatch } from '../composables/useToasts';
 
-const props = defineProps<{ request: RefinementRequest; localCv?: LocalCvAdjustmentRequest; lang: string }>();
+const props = defineProps<{ userId: string; request: RefinementRequest; localCv?: LocalCvAdjustmentRequest; lang: string }>();
 const emit = defineEmits<{ approve: [sourceKey: string, type: PrivacyContextType, description: string]; remove: [sourceKey: string] }>();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const targets = computed(() => props.localCv ? privacyContextTargets(props.localCv, refinementSignature) : []);
@@ -14,14 +17,61 @@ const templateStyle = computed(() => {
   const { researchInterests: _interests, questionGuidance: _questions, refinementSystemPrompt: _refinement, ...style } = props.request.letter.template;
   return style;
 });
-const drafts = reactive<Record<string, { type: PrivacyContextType; description: string }>>({});
+type ContextDraft = { type: PrivacyContextType; description: string };
+const drafts = reactive<Record<string, ContextDraft>>({});
+const savedDrafts = new Map<string, string>();
+const error = ref('');
+useToastWatch(() => error.value, { tone: 'error' });
+const ownerScope = () => [props.userId, props.request.applicationId, props.request.requestId].map(encodeURIComponent).join(':');
+let editingScope = ownerScope();
+const draftKey = (sourceKey: string) => `cv-privacy-context-draft:v1:${editingScope}:${encodeURIComponent(sourceKey)}`;
 function draft(target: typeof targets.value[number]) {
   if (!drafts[target.sourceKey]) {
     const approved = props.request.privacyLegend?.find(entry => entry.token === target.token && entry.fieldId === target.fieldId);
-    drafts[target.sourceKey] = { type: approved?.type || 'other', description: approved?.description || '' };
+    let value: ContextDraft = { type: approved?.type || 'other', description: approved?.description || '' };
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(draftKey(target.sourceKey));
+        const stored: unknown = raw ? JSON.parse(raw) : null;
+        if (stored && typeof stored === 'object' && 'type' in stored && 'description' in stored
+          && PRIVACY_CONTEXT_TYPES.includes(stored.type as PrivacyContextType)
+          && typeof stored.description === 'string' && stored.description.length <= PRIVACY_DESCRIPTION_LIMIT) {
+          value = { type: stored.type as PrivacyContextType, description: stored.description };
+        }
+      } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); }
+    }
+    drafts[target.sourceKey] = value;
+    savedDrafts.set(target.sourceKey, JSON.stringify(value));
   }
   return drafts[target.sourceKey]!;
 }
+function persistDraft(sourceKey: string) {
+  const value = drafts[sourceKey];
+  if (!value || typeof localStorage === 'undefined') return true;
+  const snapshot = JSON.stringify(value);
+  if (snapshot === savedDrafts.get(sourceKey)) return true;
+  try {
+    localStorage.setItem(draftKey(sourceKey), snapshot);
+    savedDrafts.set(sourceKey, snapshot); error.value = ''; return true;
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); return false; }
+}
+function flushDrafts() {
+  commitPendingTextareas();
+  let saved = true;
+  for (const key of Object.keys(drafts)) if (!persistDraft(key)) saved = false;
+  return saved;
+}
+function approveDraft(target: typeof targets.value[number]) {
+  if (!flushDrafts()) return;
+  const value = draft(target);
+  emit('approve', target.sourceKey, value.type, value.description);
+}
+watch(() => [props.userId, props.request.applicationId, props.request.requestId], () => {
+  flushDrafts();
+  for (const key of Object.keys(drafts)) delete drafts[key];
+  savedDrafts.clear(); editingScope = ownerScope();
+}, { flush: 'sync' });
+onBeforeUnmount(flushDrafts);
 function approved(token: string) { return props.request.privacyLegend?.find(entry => entry.token === token); }
 const typeLabel = (type: PrivacyContextType) => ({ person: text('Person', 'Person'), organization: text('Organization', 'Organisation'), location: text('Location', 'Ort'), link: text('Link', 'Link'), contact: text('Contact', 'Kontakt'), confidential: text('Confidential text', 'Vertraulicher Text'), other: text('Other', 'Sonstiges') })[type];
 </script>
@@ -49,10 +99,10 @@ const typeLabel = (type: PrivacyContextType) => ({ person: text('Person', 'Perso
       <p class="app-hint">{{ text('Enter general context yourself, then approve it for sharing. No description is generated from private data. Tokens remain the reference; descriptions never replace originals or mappings.', 'Allgemeinen Kontext selbst eingeben und zum Teilen freigeben. Beschreibungen werden nicht aus privaten Daten erzeugt. Tokens bleiben die Referenz; Beschreibungen ersetzen weder Originale noch Zuordnungen.') }}</p>
       <article v-for="target in targets" :key="target.sourceKey" class="privacy-context">
         <strong>{{ target.label }}</strong> · <code>{{ target.token }}</code>
-        <label>{{ text('Type', 'Typ') }}<select v-model="draft(target).type"><option v-for="type in PRIVACY_CONTEXT_TYPES" :key="type" :value="type">{{ typeLabel(type) }}</option></select></label>
-        <label>{{ text('Approved context description', 'Freigegebene Kontextbeschreibung') }}<textarea v-model="draft(target).description" rows="2" :maxlength="PRIVACY_DESCRIPTION_LIMIT" :placeholder="text('e.g. Engineering company specializing in sensor technology', 'z. B. Ingenieurunternehmen mit Schwerpunkt Sensortechnik')" /></label>
+        <label>{{ text('Type', 'Typ') }}<select v-model="draft(target).type" @change="persistDraft(target.sourceKey)"><option v-for="type in PRIVACY_CONTEXT_TYPES" :key="type" :value="type">{{ typeLabel(type) }}</option></select></label>
+        <label>{{ text('Approved context description', 'Freigegebene Kontextbeschreibung') }}<AutosaveTextarea v-model="draft(target).description" @commit="persistDraft(target.sourceKey)" rows="2" :maxlength="PRIVACY_DESCRIPTION_LIMIT" :placeholder="text('e.g. Engineering company specializing in sensor technology', 'z. B. Ingenieurunternehmen mit Schwerpunkt Sensortechnik')" /></label>
         <p class="app-hint">{{ approved(target.token) ? text('Included after approval:', 'Nach Freigabe enthalten:') : text('No description shared.', 'Keine Beschreibung geteilt.') }} {{ approved(target.token)?.description }}</p>
-        <button type="button" :disabled="!draft(target).description.trim()" @click="emit('approve', target.sourceKey, draft(target).type, draft(target).description)">{{ text('Approve & include', 'Freigeben & aufnehmen') }}</button>
+        <button type="button" :disabled="!draft(target).description.trim()" @click="approveDraft(target)">{{ text('Approve & include', 'Freigeben & aufnehmen') }}</button>
         <button v-if="approved(target.token)" type="button" @click="emit('remove', target.sourceKey)">{{ text('Remove description', 'Beschreibung entfernen') }}</button>
       </article>
       <article v-for="entry in localCv ? [] : request.privacyLegend" :key="entry.token"><strong>{{ entry.fieldId }}</strong> · <code>{{ entry.token }}</code><p>{{ typeLabel(entry.type) }} · {{ entry.description }}</p></article>

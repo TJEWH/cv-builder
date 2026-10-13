@@ -66,7 +66,7 @@ watch(() => props.scope, cancelClear);
         </dl>
         <button type="button" @click="emit('exportRequest', run.row.id)">{{ text('Export public request', 'Öffentliche Anfrage exportieren') }}</button>
         <div v-for="proposal in run.proposals" :key="proposal.id" class="history-proposal"><p><code>{{ proposal.id }}</code> · {{ date(proposal.created_at) }}</p><p>{{ proposal.proposal_json.summary }}</p><button type="button" :disabled="busy" @click="emit('select', proposal.id)">{{ text('Review this proposal', 'Diesen Vorschlag prüfen') }}</button><button type="button" @click="emit('exportProposal', proposal.id)">{{ text('Export proposal', 'Vorschlag exportieren') }}</button></div>
-        <details class="disclosure-row"><summary>{{ text('Captured public sources', 'Gespeicherte öffentliche Quellen') }}</summary><RefinementPrivacyPreview :request="run.row.request_json" :lang="lang" /></details>
+        <details class="disclosure-row"><summary>{{ text('Captured public sources', 'Gespeicherte öffentliche Quellen') }}</summary><RefinementPrivacyPreview :user-id="run.row.user_id" :request="run.row.request_json" :lang="lang" /></details>
       </details>
     </details>
   </section>

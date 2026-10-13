@@ -11,6 +11,7 @@ import { hasReviewedOpportunity, opportunityRecency } from '../composables/oppor
 import { personalFitScore, fitScoreTone as fitTone } from '../composables/opportunityContext';
 import { applicationStatusHistory, applicationStatusLabel, applicationTrackingStarted } from '../composables/applicationTracking';
 import { useApplicationNotesAutosave } from '../composables/useApplicationNotesAutosave';
+import AutosaveTextarea from './AutosaveTextarea.vue';
 import OpportunityContext from './OpportunityContext.vue';
 import ApplicationWorkspace from './ApplicationWorkspace.vue';
 import ApplicationIdentifier from './ApplicationIdentifier.vue';
@@ -21,6 +22,7 @@ import { useToasts, useToastWatch } from '../composables/useToasts';
 import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
 import { useDesktopSidebar } from '../composables/desktopSidebar';
 import { createJobSwipe } from '../composables/jobSwipe';
+import { commitPendingTextareas } from '../composables/textareaCommit';
 
 const props = withDefaults(defineProps<{
   client: SupabaseClient | null; userId: string; tab: 'opportunities' | 'applications'; lang: string;
@@ -61,6 +63,7 @@ const formError = ref('');
 const tableScroll = ref<HTMLElement | null>(null);
 const workspaceElement = ref<HTMLElement | null>(null);
 const opportunityDetail = ref<HTMLElement | null>(null);
+const applicationWorkspace = ref<InstanceType<typeof ApplicationWorkspace> | null>(null);
 const opportunityNavigationIds = ref<string[]>([]);
 const applicationNavigationIds = ref<string[]>([]);
 let detailNavigationPending = false;
@@ -143,6 +146,11 @@ watch([() => props.userId, selectedOpportunityId, () => props.tab, () => props.a
     const changedItem = owner !== previous?.[0] || id !== previous?.[1];
     if (changedItem || tab !== 'opportunities' || active === false) clearCommentToast();
     if (!id || tab !== 'opportunities' || active === false) return;
+    if (status === 'unsaved') {
+      if (commentToastId) commentToasts.dismiss(commentToastId);
+      commentToastId = 0;
+      return;
+    }
     if (status === 'saved' && (changedItem || previous?.[4] !== 'saving')) return;
     commentToastStatus = status;
     commentToastId = commentToasts.notify({
@@ -247,7 +255,7 @@ watch(editingApplication, (application, previous) => { if (application && !previ
 async function closeApplication() {
   formError.value = '';
   const id = editingId.value;
-  if (!await flushNotes() || editingId.value !== id) return;
+  if (!await flushApplicationTextareas() || editingId.value !== id) return;
   editingId.value = null;
   if (id) focusResult('applications', id);
 }
@@ -258,7 +266,7 @@ async function openList(kind: 'opportunities' | 'applications'): Promise<boolean
   const owner = props.userId;
   const opportunityId = selectedOpportunityId.value;
   const applicationId = editingId.value;
-  if (!await flushComment() || !await flushNotes()) return false;
+  if (!await flushTextareas()) return false;
   if (request !== listNavigationRequest || props.userId !== owner || selectedOpportunityId.value !== opportunityId || editingId.value !== applicationId) return false;
   filtersOpen.value = false;
   cancelRemoval();
@@ -269,7 +277,16 @@ async function openList(kind: 'opportunities' | 'applications'): Promise<boolean
   if (id) focusResult(kind, id);
   return true;
 }
-defineExpose({ openList });
+async function flushApplicationTextareas() {
+  commitPendingTextareas();
+  if (applicationWorkspace.value && !await applicationWorkspace.value.flushTextareas()) return false;
+  return flushNotes();
+}
+async function flushTextareas() {
+  commitPendingTextareas();
+  return await flushComment() && await flushApplicationTextareas();
+}
+defineExpose({ openList, flushTextareas });
 
 let swipeAnimations: Animation[] = [];
 function cancelSwipeTransition() {
@@ -309,7 +326,7 @@ async function navigateDetail(direction: -1 | 1) {
   if (!nextId) return;
   detailNavigationPending = true;
   try {
-    const saved = await (kind === 'opportunities' ? flushComment() : flushNotes());
+    const saved = await (kind === 'opportunities' ? flushComment() : flushApplicationTextareas());
     if (!saved || props.userId !== owner || props.tab !== kind || props.active === false
       || currentId !== (kind === 'opportunities' ? selectedOpportunityId.value : editingId.value)) return;
     if (kind === 'opportunities') openOpportunity(nextId, true);
@@ -333,7 +350,7 @@ async function toggleApplication(application: Application) {
   if (saving.value) return;
   formError.value = '';
   const previous = editingId.value;
-  if (!await flushNotes() || editingId.value !== previous) return;
+  if (!await flushApplicationTextareas() || editingId.value !== previous) return;
   if (editingId.value !== application.id) {
     openApplication(application);
     return;
@@ -355,7 +372,7 @@ async function changeApplicationStatus(item: Application, event: Event) {
   notice.value = '';
   const target = event.target as HTMLSelectElement;
   const status = target.value as Application['status'];
-  if (!await flushNotes()) { target.value = applicationTrackingStarted(item) ? item.status : ''; return; }
+  if (!await flushApplicationTextareas()) { target.value = applicationTrackingStarted(item) ? item.status : ''; return; }
   const result = await updateApplication(item.id, { status });
   if (!result) target.value = applicationTrackingStarted(item) ? item.status : '';
   else { notice.value = text('Application status saved.', 'Bewerbungsstatus gespeichert.'); }
@@ -365,7 +382,7 @@ async function changeChecklist(item: Application, key: string, completed: boolea
 }
 async function confirmRemoval(item: Application) {
   notice.value = '';
-  if (!await flushNotes()) return;
+  if (!await flushApplicationTextareas()) return;
   if (!await removeApplication(item.id)) return;
   cancelRemoval();
   if (editingId.value === item.id) editingId.value = null;
@@ -467,12 +484,12 @@ useToastWatch(() => notice.value, () => {
       <div class="opportunity-detail__body">
         <div class="opportunity-comment">
           <label for="opportunity-comment">{{ text('Personal Evaluation', 'Persönliche Einschätzung') }}</label>
-          <textarea id="opportunity-comment" v-model="opportunityComment" rows="2" maxlength="5000" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @blur="flushComment" />
+          <AutosaveTextarea id="opportunity-comment" v-model="opportunityComment" rows="2" maxlength="5000" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @commit="flushComment" />
         </div>
         <OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity.details" :lang="lang" />
       </div>
     </section>
-    <ApplicationWorkspace tabindex="-1" :aria-label="editingApplication ? contextTitle(editingApplication) : undefined" v-if="editingApplication" v-show="tab === 'applications'" :active="props.active !== false && tab === 'applications'" :checklist-saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-variant="createVariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @change-stage="stage => setApplicationStage(editingApplication!.id, stage)" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
+    <ApplicationWorkspace ref="applicationWorkspace" tabindex="-1" :aria-label="editingApplication ? contextTitle(editingApplication) : undefined" v-if="editingApplication" v-show="tab === 'applications'" :active="props.active !== false && tab === 'applications'" :checklist-saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-variant="createVariant" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @change-stage="stage => setApplicationStage(editingApplication!.id, stage)" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
       <template #preparation-actions>
         <button class="btn btn--danger jobs-remove-application" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(editingApplication)}`" @click="requestDetailRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button>
       </template>
@@ -490,9 +507,9 @@ useToastWatch(() => notice.value, () => {
         </section>
             <div class="application-inline-form">
               <div class="application-fields">
-                <label class="application-notes">{{ text('Notes', 'Notizen') }}<textarea v-model="notes" rows="3" maxlength="20000" @blur="flushNotes" /></label>
+                <label class="application-notes">{{ text('Notes', 'Notizen') }}<AutosaveTextarea v-model="notes" rows="3" maxlength="20000" @commit="flushNotes" /></label>
               </div>
-              <div class="jobs-form-footer jobs-autosave" aria-live="polite"><template v-if="notesError"><span class="jobs-autosave-error">{{ notesError }}</span><button class="btn" type="button" @click="flushNotes">{{ text('Retry', 'Erneut versuchen') }}</button></template><span v-else>{{ notesStatus === 'saving' ? text('Saving…', 'Speichert…') : text('All changes saved', 'Alle Änderungen gespeichert') }}</span></div>
+              <div class="jobs-form-footer jobs-autosave" aria-live="polite"><template v-if="notesError"><span class="jobs-autosave-error">{{ notesError }}</span><button class="btn" type="button" @click="flushNotes">{{ text('Retry', 'Erneut versuchen') }}</button></template><span v-else>{{ notesStatus === 'saving' ? text('Saving…', 'Speichert…') : notesStatus === 'unsaved' ? text('Unsaved changes', 'Ungespeicherte Änderungen') : text('All changes saved', 'Alle Änderungen gespeichert') }}</span></div>
             </div>
 
       </template>

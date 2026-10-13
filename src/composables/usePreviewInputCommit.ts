@@ -31,7 +31,7 @@ export function usePreviewInputCommit(onCommit: () => void) {
     if (field && event.target instanceof Node && !field.contains(event.target)) void commit();
   }
   function onKeyUp(event: KeyboardEvent) {
-    if (event.key === 'Enter' && !event.isComposing && isPreviewTextInput(event.target)) void commit();
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229 && isPreviewTextInput(event.target)) void commit();
   }
   function onVisibilityChange() { if (document.hidden) void commit(); }
   onMounted(() => {

@@ -38,6 +38,8 @@ import { useToastWatch } from '../composables/useToasts';
 import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
 import { refinementMatchesScope, visibleRefinementProposals } from '../composables/refinementHistory';
 import { useDesktopSidebar } from '../composables/desktopSidebar';
+import AutosaveTextarea from './AutosaveTextarea.vue';
+import { commitPendingTextareas } from '../composables/textareaCommit';
 
 const props = withDefaults(defineProps<{
   projectId?: string; active?: boolean; checklistSaving?: boolean;
@@ -51,6 +53,7 @@ const desktopSidebar = useDesktopSidebar();
 const mobileActions = ref<HTMLElement | null>(null);
 const mobileScrollContent = ref<HTMLElement | null>(null);
 const stageNavigation = ref<HTMLElement | null>(null);
+const annotations = ref<InstanceType<typeof RefinementAnnotations> | null>(null);
 provideWorkspaceMobileActions(mobileActions);
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -82,7 +85,7 @@ const selectedIterationNote = ref<IterationNoteField>('tone');
 const visibleIterationNoteFields = computed(() => iterationNoteFields.filter(field => pane.value === 'letter' || field !== 'tone'));
 const activeIterationNote = computed({
   get: () => visibleIterationNoteFields.value.includes(selectedIterationNote.value) ? selectedIterationNote.value : visibleIterationNoteFields.value[0]!,
-  set: (field: IterationNoteField) => { selectedIterationNote.value = field; },
+  set: (field: IterationNoteField) => { commitPendingTextareas(); selectedIterationNote.value = field; },
 });
 const iterationNoteIcons = { tone: faFeatherPointed, structure: faAlignLeft, content: faAlignLeft };
 const iterationNoteLabel = (field: IterationNoteField) => ({ tone: text('Tone', 'Tonalität'), structure: text('Structure', 'Struktur'), content: text('Content', 'Inhalt') })[field];
@@ -116,8 +119,10 @@ function onIterationNoteKeydown(event: KeyboardEvent, field: IterationNoteField)
     : event.key === 'Home' ? fields[0] : event.key === 'End' ? fields.at(-1) : undefined;
   if (!next) return;
   event.preventDefault();
-  activeIterationNote.value = next;
-  (event.currentTarget as HTMLElement).parentElement?.querySelector<HTMLButtonElement>(`[data-iteration-note="${next}"]`)?.focus();
+  const tabs = (event.currentTarget as HTMLElement).parentElement;
+  void selectIterationNote(next).then(changed => {
+    if (changed) tabs?.querySelector<HTMLButtonElement>(`[data-iteration-note="${next}"]`)?.focus();
+  });
 }
 const pendingResetFeedback = ref<Record<DocumentScope, { id: string; text: string; requestId: string | null } | null>>({ cv: null, letter: null });
 const parentProposalIds = ref<Record<DocumentScope, string | null>>({ cv: null, letter: null });
@@ -135,6 +140,13 @@ const reviewActive = ref(false);
 const reviewComparison = ref<'original' | 'proposed'>('proposed');
 const feedbackScope = ref<RefinementScope>('cv');
 const pane = computed(() => feedbackScope.value === 'letter' ? 'letter' : 'cv');
+const iterationNoteEditor = computed(() => {
+  const scope = pane.value, field = activeIterationNote.value;
+  return {
+    key: `${scope}:${field}`, value: iterationNotes.value[scope][field],
+    update: (value: string) => { iterationNotes.value[scope][field] = value; },
+  };
+});
 const parentProposalId = computed({
   get: () => parentProposalIds.value[pane.value],
   set: (id: string | null) => {
@@ -448,7 +460,26 @@ watch([tab, stageNavigation, desktopSidebar, () => props.active, () => props.lan
     stageNavigation.value?.querySelector<HTMLElement>('[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 }, { flush: 'post' });
-function selectStage(stage: Stage) {
+async function flushTextareas(): Promise<boolean> {
+  commitPendingTextareas();
+  if (annotations.value && !await annotations.value.flush()) return false;
+  persist();
+  return !saveError.value;
+}
+defineExpose({ flushTextareas });
+async function selectIterationNote(field: IterationNoteField): Promise<boolean> {
+  if (!await flushTextareas()) return false;
+  activeIterationNote.value = field;
+  return true;
+}
+async function selectScope(event: Event) {
+  const target = event.target as HTMLSelectElement;
+  const scope = target.value as RefinementScope;
+  if (await flushTextareas()) feedbackScope.value = scope;
+  else target.value = feedbackScope.value;
+}
+async function selectStage(stage: Stage) {
+  if (!await flushTextareas()) return;
   if (stage === tab.value) emit('change-stage', stage);
   else tab.value = stage;
 }
@@ -484,7 +515,7 @@ function selectScopeProposal(closePreview = true) {
   }
   if (closePreview) reviewActive.value = false;
 }
-watch(feedbackScope, () => { scopeWasChosen = true; if (!committingSelection) selectScopeProposal(); persist(); }, { flush: 'sync' });
+watch(feedbackScope, () => { commitPendingTextareas(); scopeWasChosen = true; if (!committingSelection) selectScopeProposal(); persist(); }, { flush: 'sync' });
 watch(cvRevision, () => { if (approvals.value.cv && approvals.value.cv !== cvRevision.value) approvals.value.cv = null; });
 watch(letterRevision, () => { if (approvals.value.letter && approvals.value.letter !== letterRevision.value) approvals.value.letter = null; });
 function refreshLetterHeader() {
@@ -789,6 +820,7 @@ async function applyCurrentProposal(id?: string) {
   if (!error.value) notice.value = text('Proposal loaded and applied to the working document.', 'Vorschlag geladen und in die Arbeitsfassung übernommen.');
 }
 async function selectActiveProposal(id: string) {
+  if (!await flushTextareas()) return;
   if (busy.value) return;
   selectedProposalId.value = id;
   await applyCurrentProposal(id);
@@ -820,6 +852,7 @@ async function syncRefinement() {
   } finally { syncing.value = false; }
 }
 async function copyIterationTask() {
+  if (!await flushTextareas()) return;
   if (busy.value || refreshing.value || scopeLocked.value) return;
   // The comparison is temporary; every iteration starts from the saved working document.
   reviewActive.value = false;
@@ -1159,7 +1192,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
         <DesktopSidebarPortal area="major" :active="active && tab === 'refinement'">
         <div class="refinement-toolbar" :class="{ 'refinement-toolbar--sidebar': desktopSidebar }">
           <WorkspaceMobileActions :active="active && tab === 'refinement'">
-          <label class="refinement-scope"><span>{{ text('Refinement scope', 'Umfang der Überarbeitung') }}</span><select v-model="feedbackScope" :disabled="busy"><option value="cv">CV</option><option value="letter">{{ text('Letter', 'Brief') }}</option></select></label>
+          <label class="refinement-scope"><span>{{ text('Refinement scope', 'Umfang der Überarbeitung') }}</span><select :value="feedbackScope" :disabled="busy" @change="selectScope"><option value="cv">CV</option><option value="letter">{{ text('Letter', 'Brief') }}</option></select></label>
           <div class="action-row refinement-approval">
             <button v-if="pane === 'cv' && record" class="primary refinement-icon-action" type="button" :disabled="busy || reviewActive || !letter || !!saveError" @click="approve('cv', cvApproved)"><FontAwesomeIcon :icon="cvApproved ? faRotateLeft : faCheck" aria-hidden="true" />{{ cvApproved ? text('Reopen CV', 'CV wieder öffnen') : text('Approve CV', 'CV freigeben') }}</button>
             <button v-if="pane === 'letter' && letter" class="primary refinement-icon-action" type="button" :disabled="busy || reviewActive || !record || !letterText.trim() || !!saveError || (unresolved.length > 0 && !letter.finalRevisionId)" @click="approve('letter', letterApproved || !!letter.finalRevisionId)"><FontAwesomeIcon :icon="letterApproved || letter.finalRevisionId ? faRotateLeft : faCheck" aria-hidden="true" />{{ letterApproved || letter.finalRevisionId ? text('Reopen letter', 'Brief wieder öffnen') : text('Approve letter', 'Brief freigeben') }}</button>
@@ -1187,7 +1220,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
               <h3>{{ text('Current Review', 'Aktuelle Prüfung') }}</h3>
               <label v-if="availableProposals.length">{{ text('Available proposals', 'Verfügbare Vorschläge') }}<select :value="selectedProposalId" :disabled="busy" @change="selectActiveProposal(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ text('Select a proposal', 'Vorschlag auswählen') }}</option><option v-for="proposal in availableProposals" :key="proposal.id" :value="proposal.id">{{ new Date(proposal.created_at).toLocaleString() }} · {{ proposal.id }}</option></select></label>
               <div v-if="selectedProposal && hasActiveProposal" class="proposal-content">
-                <RefinementAnnotations :items="currentQuestions" questions-only :lang="lang" :disabled="busy || !record" :save="saveAnnotation" :privacy-preview="previewOutgoingText" />
+                <RefinementAnnotations ref="annotations" :items="currentQuestions" questions-only :lang="lang" :disabled="busy || !record" :save="saveAnnotation" :privacy-preview="previewOutgoingText" />
                 <p v-if="!currentQuestions.length" class="app-hint">{{ text('No questions for this document.', 'Keine Fragen zu diesem Dokument.') }}</p>
               </div>
               <p v-if="!hasActiveProposal">{{ text('Waiting for a proposal.', 'Vorschlag ausstehend.') }}</p>
@@ -1197,18 +1230,18 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
               <p v-if="iterationPending" role="status">{{ text('Waiting for the next draft. Sync to load it.', 'Der nächste Entwurf steht aus. Zum Laden synchronisieren.') }}</p>
               <p class="app-hint">{{ text('Optional requests for this document. Included with your answered questions when you copy the task.', 'Optionale Wünsche für dieses Dokument. Sie werden beim Kopieren der Aufgabe zusammen mit Ihren beantworteten Fragen übermittelt.') }}</p>
               <div class="iteration-note-tabs" role="tablist" :aria-label="text('Refinement requests', 'Überarbeitungswünsche')">
-                <button v-for="field in visibleIterationNoteFields" :id="iterationNoteTabId(field)" :key="field" type="button" role="tab" :data-iteration-note="field" :aria-controls="iterationNotePanelId" :aria-selected="activeIterationNote === field" :tabindex="activeIterationNote === field ? 0 : -1" @click="activeIterationNote = field" @keydown="onIterationNoteKeydown($event, field)"><FontAwesomeIcon :icon="iterationNoteIcons[field]" aria-hidden="true" />{{ iterationNoteLabel(field) }}</button>
+                <button v-for="field in visibleIterationNoteFields" :id="iterationNoteTabId(field)" :key="field" type="button" role="tab" :data-iteration-note="field" :aria-controls="iterationNotePanelId" :aria-selected="activeIterationNote === field" :tabindex="activeIterationNote === field ? 0 : -1" @click="selectIterationNote(field)" @keydown="onIterationNoteKeydown($event, field)"><FontAwesomeIcon :icon="iterationNoteIcons[field]" aria-hidden="true" />{{ iterationNoteLabel(field) }}</button>
               </div>
               <div :id="iterationNotePanelId" class="iteration-note-panel" role="tabpanel" :aria-labelledby="iterationNoteTabId(activeIterationNote)">
-                <textarea v-model="iterationNotes[pane][activeIterationNote]" rows="4" maxlength="4000" :placeholder="iterationNotePlaceholder" :aria-labelledby="iterationNoteTabId(activeIterationNote)" :disabled="busy || scopeLocked" />
+                <AutosaveTextarea :model-value="iterationNoteEditor.value" :model-modifiers="{ lazy: true }" @update:model-value="iterationNoteEditor.update" rows="4" maxlength="4000" :placeholder="iterationNotePlaceholder" :aria-labelledby="iterationNoteTabId(activeIterationNote)" :disabled="busy || scopeLocked" />
               </div>
               <button class="refinement-copy-action" type="button" :disabled="busy || refreshing || !preparedSource || scopeLocked" @click="copyIterationTask"><FontAwesomeIcon :icon="faCopy" aria-hidden="true" />{{ showInitialRefinement ? text('Copy task', 'Aufgabe kopieren') : text('Copy feedback', 'Feedback kopieren') }}</button>
             </section>
-            <textarea v-if="shortInstructionError" :value="shortInstruction" readonly rows="5" :aria-label="text('Short ChatGPT instruction', 'Kurze ChatGPT-Anweisung')" @focus="($event.target as HTMLTextAreaElement).select()" />
+            <AutosaveTextarea v-if="shortInstructionError" :model-value="shortInstruction" readonly rows="5" :aria-label="text('Short ChatGPT instruction', 'Kurze ChatGPT-Anweisung')" />
           <details class="disclosure-row"><summary>{{ text('Edit manually', 'Manuell bearbeiten') }}</summary>
 
           <section v-if="record" v-show="pane === 'cv'" class="working-document"><div class="action-row"><span class="app-hint">{{ text('Application copy — template stays unchanged', 'Bewerbungskopie — Vorlage bleibt unverändert') }}</span></div><fieldset :disabled="cvApproved || busy || reviewActive"><FormBuilder :state="record.state" :read-version="() => null" :save-version="() => false" /></fieldset></section>
-          <section v-if="letter" v-show="pane === 'letter'" class="working-document"><label>{{ text('Complete letter text', 'Vollständiger Brieftext') }}<textarea :value="letterText" rows="18" :disabled="letterApproved || busy || reviewActive" @input="updateLetter(($event.target as HTMLTextAreaElement).value)" /></label><p :class="{ warning: words > setup.maxWords }">{{ words }} / {{ setup.maxWords }} {{ text('target words (complete letter)', 'Zielwörter (vollständiger Brief)') }}</p><p v-if="words > setup.maxWords" class="app-hint warning">{{ text('Over the target. Review the tender limit; approval and export remain available.', 'Über der Zielwortzahl. Vorgabe prüfen; Freigabe und Export bleiben möglich.') }}</p><p v-if="unresolved.length" class="app-hint warning">{{ text('Resolve placeholders:', 'Platzhalter auflösen:') }} {{ unresolved.join(', ') }}</p><LetterFormattingControls :formatting="letter.formatting" :base-formatting="selectedTemplate.formatting" :lang="lang" :disabled="letterApproved || busy || reviewActive" @change="updateLetterFormatting" /></section>
+          <section v-if="letter" v-show="pane === 'letter'" class="working-document"><label>{{ text('Complete letter text', 'Vollständiger Brieftext') }}<AutosaveTextarea :model-value="letterText" :model-modifiers="{ lazy: true }" rows="18" :disabled="letterApproved || busy || reviewActive" @update:model-value="updateLetter" /></label><p :class="{ warning: words > setup.maxWords }">{{ words }} / {{ setup.maxWords }} {{ text('target words (complete letter)', 'Zielwörter (vollständiger Brief)') }}</p><p v-if="words > setup.maxWords" class="app-hint warning">{{ text('Over the target. Review the tender limit; approval and export remain available.', 'Über der Zielwortzahl. Vorgabe prüfen; Freigabe und Export bleiben möglich.') }}</p><p v-if="unresolved.length" class="app-hint warning">{{ text('Resolve placeholders:', 'Platzhalter auflösen:') }} {{ unresolved.join(', ') }}</p><LetterFormattingControls :formatting="letter.formatting" :base-formatting="selectedTemplate.formatting" :lang="lang" :disabled="letterApproved || busy || reviewActive" @change="updateLetterFormatting" /></section>
           </details>
           <RefinementHistory :scope="pane" :requests="requests" :proposals="proposals" :local-requests="localRequests" :current-request-id="cloudState?.current_request_id || null" :active-id="selectedProposalId" :review-active="reviewActive" :accepted="proposalAlreadyApplied" :publication-status="publicationStatus" :open="historyOpen" :lang="lang" :busy="busy || refreshing || syncing" :can-clear="canClearHistory" @clear="clearRefinementHistory" @select="selectReviewProposal" @details="historyOpen = $event" @export-request="exportRequest" @export-proposal="exportProposal" />
         </div>

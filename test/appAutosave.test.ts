@@ -15,6 +15,7 @@ const code = ts.transpileModule(compiled.content, { compilerOptions: { module: t
 const exports: { default?: Component } = {};
 const requireFromApp = createRequire(filename);
 const { useToasts } = requireFromApp('./composables/useToasts') as typeof import('../src/composables/useToasts');
+const { registerTextareaCommit } = requireFromApp('./composables/textareaCommit') as typeof import('../src/composables/textareaCommit');
 new Function('require', 'exports', code)((path: string) => {
   if (path.endsWith('.vue')) return { default: {} };
   if (path.endsWith('/useSupabaseAuth')) return { useSupabaseAuth: () => ({ user: ref(null), client: null }) };
@@ -60,6 +61,7 @@ test('CV Studio reports pending edits immediately, updates the saved time, and f
   const instance = app.mount({}) as unknown as { $: { setupState: {
     state: CvState; saveStatus: SaveStatus; saveStatusLabel: string; sectionSaveStatus: SaveStatus; combinedSaveStatus: SaveStatus;
     backupManager: unknown; formBuilder: unknown; pdfRenderSource: unknown; onPreviewSliderPointerDown(event: PointerEvent): void;
+    activeBuilderGroup: string; selectBuilderGroup(group: string): void;
   } } };
   const setup = instance.$.setupState;
   setup.pdfRenderSource = { querySelector: () => ({}) };
@@ -134,6 +136,35 @@ test('CV Studio reports pending edits immediately, updates the saved time, and f
     setup.state.contact.name = 'Recovered';
     t.mock.timers.tick(250);
     assert.equal(setup.saveStatus, 'saved');
+
+    let textareaDraft = '';
+    const unregister = registerTextareaCommit(() => {
+      if (!textareaDraft) return;
+      setup.state.about.text = textareaDraft;
+      textareaDraft = '';
+    });
+    t.after(unregister);
+    const beforeTyping = snapshots.length;
+    const savedAbout = setup.state.about.text;
+    textareaDraft = 'The last textarea edit before a programmatic tab change';
+    t.mock.timers.tick(5000);
+    assert.equal(snapshots.length, beforeTyping, 'local textarea drafts must not trigger the CV save debounce');
+    assert.equal(setup.state.about.text, savedAbout);
+    setup.selectBuilderGroup('design');
+    assert.equal(snapshots.at(-1)?.about.text, 'The last textarea edit before a programmatic tab change');
+    assert.equal(setup.activeBuilderGroup, 'design');
+    assert.equal(setup.saveStatus, 'saved');
+
+    textareaDraft = 'The final textarea edit before pagehide';
+    listeners.get('pagehide')!();
+    assert.equal(snapshots.at(-1)?.about.text, 'The final textarea edit before pagehide');
+
+    saved = false;
+    textareaDraft = 'Retain this draft after a failed tab-change save';
+    setup.selectBuilderGroup('content');
+    assert.equal(setup.activeBuilderGroup, 'design', 'a failed local save must keep the current studio tab');
+    assert.equal(setup.state.about.text, 'Retain this draft after a failed tab-change save');
+    saved = true;
   } finally {
     app.unmount();
   }

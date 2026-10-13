@@ -27,27 +27,31 @@ function fixture(t: TestContext, save: (id: string, notes: string) => Promise<bo
   return { application, busy, owner, autosave, scope };
 }
 
-test('notes autosave debounces typing and never writes merely from opening an application', async t => {
+test('typing preserves an unsaved draft until an explicit flush and opening an application never writes', async t => {
   const calls: string[] = [];
-  const { autosave } = fixture(t, async (_id, notes) => { calls.push(notes); return true; });
+  const storage = memoryStorage();
+  const { autosave } = fixture(t, async (_id, notes) => { calls.push(notes); return true; }, storage);
   t.mock.timers.tick(500);
   await settle();
   assert.deepEqual(calls, []);
+  assert.equal(autosave.status.value, 'saved');
   autosave.notes.value = 'First edit';
   t.mock.timers.tick(200);
   autosave.notes.value = 'Latest edit';
-  t.mock.timers.tick(249);
+  t.mock.timers.tick(60_000);
   await settle();
   assert.deepEqual(calls, []);
-  assert.equal(autosave.status.value, 'saving');
-  t.mock.timers.tick(1);
-  await settle();
+  assert.equal(autosave.status.value, 'unsaved');
+  assert.equal(autosave.dirty.value, true);
+  assert.deepEqual(JSON.parse([...storage.values.values()][0]!), { value: 'Latest edit' });
+  assert.equal(await autosave.flush(), true);
   assert.deepEqual(calls, ['Latest edit']);
   assert.equal(autosave.status.value, 'saved');
   assert.equal(autosave.dirty.value, false);
+  assert.equal(storage.values.size, 0);
 });
 
-test('in-flight saves preserve newer typing and coalesce it into one subsequent save', async t => {
+test('typing during an in-flight save remains unsaved until another explicit flush', async t => {
   const first = deferred<boolean>();
   const calls: string[] = [];
   const { autosave, application } = fixture(t, async (_id, notes) => {
@@ -63,10 +67,72 @@ test('in-flight saves preserve newer typing and coalesce it into one subsequent 
   application.value = { id: 'first', notes: 'Submitted snapshot' };
   assert.equal(autosave.notes.value, 'Latest typing');
   first.resolve(true);
-  assert.equal(await flushed, true);
-  assert.deepEqual(calls, ['Submitted snapshot', 'Latest typing']);
+  assert.equal(await flushed, false, 'the caller cannot navigate away while a newer draft remains');
+  t.mock.timers.tick(60_000);
+  await settle();
+  assert.deepEqual(calls, ['Submitted snapshot']);
   assert.equal(autosave.notes.value, 'Latest typing');
+  assert.equal(autosave.status.value, 'unsaved');
+  assert.equal(autosave.dirty.value, true);
+  assert.equal(await autosave.flush(), true);
+  assert.deepEqual(calls, ['Submitted snapshot', 'Latest typing']);
   assert.equal(autosave.dirty.value, false);
+  assert.equal(autosave.status.value, 'saved');
+});
+
+test('explicit flushes capture their values immediately, serialize distinct snapshots, and coalesce duplicates', async t => {
+  const first = deferred<boolean>();
+  const second = deferred<boolean>();
+  const calls: string[] = [];
+  const { autosave, busy } = fixture(t, async (_id, notes) => {
+    calls.push(notes);
+    return calls.length === 1 ? first.promise : second.promise;
+  });
+  busy.value = true;
+  autosave.notes.value = 'First committed snapshot';
+  const firstFlush = autosave.flush();
+  autosave.notes.value = 'Second committed snapshot';
+  const secondFlush = autosave.flush();
+  const duplicateFlush = autosave.flush();
+  await settle();
+  assert.deepEqual(calls, [], 'workspace mutations delay sending, not snapshot capture');
+  busy.value = false;
+  await settle();
+  assert.deepEqual(calls, ['First committed snapshot']);
+  assert.equal(autosave.status.value, 'saving');
+  first.resolve(true);
+  assert.equal(await firstFlush, false, 'the first snapshot does not include the later committed edit');
+  await settle();
+  assert.deepEqual(calls, ['First committed snapshot', 'Second committed snapshot']);
+  second.resolve(true);
+  assert.deepEqual(await Promise.all([secondFlush, duplicateFlush]), [true, true]);
+  assert.deepEqual(calls, ['First committed snapshot', 'Second committed snapshot'], 'duplicate commits must not issue duplicate writes');
+  assert.equal(autosave.notes.value, 'Second committed snapshot');
+  assert.equal(autosave.dirty.value, false);
+  assert.equal(autosave.status.value, 'saved');
+});
+
+test('reverting to the saved value still commits the revert after an earlier edit is in flight', async t => {
+  const first = deferred<boolean>();
+  const calls: string[] = [];
+  const storage = memoryStorage();
+  const { autosave } = fixture(t, async (_id, notes) => {
+    calls.push(notes);
+    return calls.length === 1 ? first.promise : true;
+  }, storage);
+  autosave.notes.value = 'Edit already sent';
+  const firstFlush = autosave.flush();
+  await settle();
+  autosave.notes.value = 'Saved notes';
+  const revertFlush = autosave.flush();
+  assert.equal(storage.values.size, 1, 'the revert is still needed if the earlier request succeeds');
+  first.resolve(true);
+  assert.equal(await firstFlush, false);
+  assert.equal(await revertFlush, true);
+  assert.deepEqual(calls, ['Edit already sent', 'Saved notes']);
+  assert.equal(autosave.notes.value, 'Saved notes');
+  assert.equal(autosave.dirty.value, false);
+  assert.equal(storage.values.size, 0);
 });
 
 test('blur or navigation flush waits for another workspace mutation instead of dropping the save', async t => {
@@ -84,7 +150,7 @@ test('blur or navigation flush waits for another workspace mutation instead of d
   assert.deepEqual(calls, ['Pending notes']);
 });
 
-test('failed autosaves retain the draft and can be retried without another input event', async t => {
+test('failed commits retain the draft and can be retried without another input event', async t => {
   let succeeds = false;
   const { autosave, application } = fixture(t, async () => succeeds);
   autosave.notes.value = 'Unsaved draft';
@@ -125,17 +191,20 @@ test('queued drafts are cancelled across accounts and stale failures do not affe
   autosave.notes.value = 'Old account notes';
   const flushed = autosave.flush();
   await settle();
+  autosave.notes.value = 'Old account queued notes';
+  const queued = autosave.flush();
   owner.value = 'other';
   application.value = { id: 'second', notes: 'Other account notes' };
   first.resolve(false);
   assert.equal(await flushed, false);
+  assert.equal(await queued, false);
   assert.equal(autosave.notes.value, 'Other account notes');
   assert.equal(autosave.status.value, 'saved');
   assert.equal(autosave.error.value, '');
   assert.deepEqual(calls, [['first', 'Old account notes']]);
 });
 
-test('scope disposal flushes a pending debounced edit', async t => {
+test('scope disposal flushes an uncommitted edit', async t => {
   const calls: string[] = [];
   const { autosave, scope } = fixture(t, async (_id, notes) => { calls.push(notes); return true; });
   autosave.notes.value = 'Closing edit';
@@ -198,8 +267,12 @@ test('an aborted in-flight save on disposal recovers the latest typing when the 
   t.after(() => reopened.stop());
   assert.equal(recovered.notes.value, 'Latest typing before closing');
   assert.equal(recovered.dirty.value, true);
-  t.mock.timers.tick(250);
+  assert.equal(recovered.status.value, 'unsaved');
+  t.mock.timers.tick(60_000);
   await settle();
+  assert.deepEqual(writes, [], 'recovered drafts wait for an explicit commit');
+  assert.equal(storage.values.size, 1);
+  assert.equal(await recovered.flush(), true);
   assert.deepEqual(writes, ['Latest typing before closing']);
   assert.equal(storage.values.size, 0);
   assert.equal(recovered.status.value, 'saved');
