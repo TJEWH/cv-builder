@@ -116,7 +116,8 @@ async function loadProposal(row: RefinementProposalRow) {
   fixture.database.application_refinement_proposals.unshift(JSON.parse(JSON.stringify(row)));
   await click('Sync');
   assert(!setup.error, setup.error);
-  assert(setup.selectedProposalId === row.id && !setup.reviewActive, 'Sync must apply the returned proposal as the working document');
+  assert(setup.selectedProposalId === row.id, 'Sync must select the matching returned proposal');
+  assert(setup.reviewActive === (setup.feedbackScope === 'cv'), 'CV proposals remain pending in preview; letter drafts remain editable');
   assert(!root.querySelector('.initial-refinement') && root.querySelector('.next-refinement'), 'The first proposal must replace initial refinement with next refinement');
   assert(!root.querySelector('.current-review')?.closest('details'), 'Current review must remain outside disclosures');
 }
@@ -128,26 +129,49 @@ async function rendered(kind: 'cv' | 'letter', contains: string) {
     return [...surface(kind).querySelectorAll('.document-inline-preview .pdf-preview__page svg text')].map(node => node.textContent).join('').includes(contains);
   }, `real ${kind} PDF preview contains ${contains}`);
 }
+async function reviewCategory(value: 'changes' | 'question') {
+  if (setup.feedbackScope === 'letter') {
+    assert(value === 'question' && !root.querySelector('.review-tabs'), 'Letter review must show Questions without tabs');
+    assert(root.querySelector('.current-review h4')?.textContent?.includes('Questions'), 'Letter questions need a heading and count');
+    return;
+  }
+  const control = root.querySelector<HTMLButtonElement>(`[data-review-tab="${value}"]`)!;
+  assert(control, `Missing review tab: ${value}`);
+  control.click(); await settle();
+  assert(control.getAttribute('aria-selected') === 'true', `Review tab did not activate: ${value}`);
+  assert(root.querySelector('.review-panel')?.getAttribute('aria-labelledby') === control.id, 'Active tab must label the review panel');
+}
 async function cvFlow() {
   await prepare('cv');
   const request = setup.requests[0], local = setup.localRequests[request.id], originals = refinementSignature(local.cv);
   const row = fixture.cloud.seedProposal(request.id, { persist: false });
   await loadProposal(row); await rendered('cv', 'E2E South Lab');
-  const job = setup.record!.state.experience.jobs.find(job => job.id === 'local-private-job-a')!;
-  assert(job.bullets === '- Evaluated robots with E2E South Lab.\n- Built sensors with E2E North Lab.', 'Automatic application reconstructed tokens incorrectly');
-  assert(setup.letter!.working.body === 'Original working letter.', 'CV application changed the letter');
-  assert(fixture.creations.length === 0, 'Automatic CV application must keep changes within this application');
-  assert(originals === refinementSignature(local.cv), 'Automatic application changed the original private mappings');
-  assert(fixture.base.experience.jobs[0].bullets!.includes('private.example.invalid'), 'Omission destroyed the original source link');
-  assert(!root.querySelector('.current-review .proposal-changes'), 'Current Review must contain questions only');
-  assert(!root.querySelector('input[aria-label^="Include "]:not(:disabled)'), 'Automatically applied changes must not allow manual selection');
-  const applied = refinementSignature(setup.record!.state);
-  await click('Preview proposal');
-  await click('Original', root.querySelector('.refinement-preview')!); assert(same(setup.previewCvState, local.cv.baselineState), 'Comparison did not show the frozen original CV');
-  await click('Proposed', root.querySelector('.refinement-preview')!); assert(refinementSignature(setup.previewCvState) === applied, 'Comparison differs from the applied CV');
-  await click('Close preview'); await click('Sync'); await mount(true); await click('Sync');
-  assert(fixture.creations.length === 0 && refinementSignature(setup.record!.state) === applied, 'Repeated sync or reload duplicated the applied CV');
-  assert(setup.requests.length === 1, 'Sync started a new iteration without copying the next task');
+  const original = refinementSignature(setup.record!.state);
+  const job = setup.previewCvState!.experience.jobs.find(job => job.id === 'local-private-job-a')!;
+  assert(job.bullets === '- Evaluated robots with E2E South Lab.\n- Built sensors with E2E North Lab.', 'Preview reconstructed tokens incorrectly');
+  assert(setup.letter!.working.body === 'Original working letter.', 'CV preview changed the letter');
+  assert(originals === refinementSignature(local.cv), 'Preview changed the original private mappings');
+  const changes = root.querySelector('.current-review .change-review');
+  assert(changes?.querySelectorAll('.comparison').length === row.proposal_json.cvOperations.length, 'Every CV change must show its comparison');
+  const omission = row.proposal_json.cvOperations.find(change => change.type === 'omit_bullet')!;
+  const checkbox = changes!.querySelector<HTMLInputElement>(`[data-change-id="${omission.id}"] input`)!;
+  checkbox.click(); await settle();
+  assert(!setup.error && !checkbox.checked, 'Unchecking must deactivate the change');
+  assert(changes!.querySelector(`[data-change-id="${omission.id}"] .badge`)?.textContent === 'Inactive', 'The change must show Inactive');
+  assert(refinementSignature(setup.record!.state) === original, 'Activation must not accept changes');
+  await click('Sync'); assert(!checkbox.checked, 'Sync must retain the exclusion');
+  checkbox.click(); await settle();
+  const applied = refinementSignature(setup.previewCvState);
+  await click('Original', root.querySelector('.refinement-preview')!); assert(same(setup.previewCvState, local.cv.baselineState), 'Original preview must use the frozen CV');
+  await click('Proposed', root.querySelector('.refinement-preview')!);
+  await click('Copy feedback');
+  assert(!setup.error && refinementSignature(setup.record!.state) === original, 'Copying must leave changes pending');
+  const next = fixture.cloud.seedProposal(setup.requests[0].id, { persist: false });
+  next.proposal_json.cvOperations = [];
+  await loadProposal(next);
+  assert(refinementSignature(setup.record!.state) === applied, 'The next response must apply the preceding selection');
+  await mount(true); await click('Sync');
+  assert(fixture.creations.length === 0 && refinementSignature(setup.record!.state) === applied, 'Reload must preserve the committed selection');
   assert(!root.querySelector('.approved-variant-save'), 'An unapproved CV must not offer saving to the variant library');
   if (setup.reviewActive) await click('Close preview');
   await click('Approve CV');
@@ -170,10 +194,12 @@ async function letterFlow(initial: boolean) {
   row.proposal_json.summary = 'The draft connects the applicant’s research interest to the programme. It emphasizes documented experience and motivation. This extra legacy sentence must not be shown.';
   await loadProposal(row); await rendered('letter', text);
   assert(setup.letter!.working.body === text, 'Loaded letter was not applied automatically');
+  assert(root.querySelectorAll('.iteration-note-tabs [role="tab"]').length === 3, 'Letter Next Refinement keeps Tone, Structure and Content');
   assert(refinementSignature(setup.record!.state) === cv && fixture.creations.length === 0, 'Letter application created or altered a CV');
   assert(!root.querySelector('.proposal-content')?.textContent?.includes(row.proposal_json.summary), 'Current Review must not duplicate the proposal summary');
   assert(!root.querySelector('.current-review .proposed-letter'), 'Current Review must not duplicate the letter');
-  assert([...root.querySelectorAll('.current-review .annotation-row header strong')].every(node => node.textContent === 'Question'), 'Current Review must show only questions');
+  await reviewCategory('question');
+  assert(root.querySelectorAll('.current-review .annotation-row').length === row.proposal_json.annotations!.filter(item => item.document === 'letter').length, 'Questions must retain legacy letter ToDos');
   assert(!root.querySelector('.proposal-content')?.textContent?.includes('Include proposed letter'), 'Letter selection toggle must be removed');
   assert(!surface('letter').querySelector('.document-inline-preview__actions'), 'Refinement must not show standalone preview/download actions');
   await click('Original', root.querySelector('.proposal-preview-action')!); assert(setup.previewLetterContent!.body === original, 'Comparison did not show the exact original letter');
@@ -195,10 +221,10 @@ async function proposalReviewFlow() {
   assert(minor?.contains(button('Sync')), 'Sync belongs in the minor action area');
   const applied = snapshot(), input = preview(), beforeSvg = surface('letter').querySelector('.pdf-preview__page')!.innerHTML;
   await field('Your response (optional)', 'Confirmed synthetic evidence.');
-  await field('Annotation status', 'resolved'); assert(!setup.error, setup.error);
+  await field('Status', 'resolved'); assert(!setup.error, setup.error);
   assert(preview() === input && snapshot() === applied, 'Resolving a question changed document content');
   assert(surface('letter').querySelector('.pdf-preview__page')!.innerHTML === beforeSvg, 'Resolving a question changed the rendered PDF');
-  await field('Annotation status', 'ignored');
+  await field('Status', 'ignored');
   assert(setup.feedbackHistory().at(-1)?.text.includes('Ignore this annotation'), 'Ignoring must cancel earlier answer feedback');
   const annotation = root.querySelector('.annotations article')!;
   assert(!annotation.querySelector('textarea'), 'Ignoring an annotation must hide its response input');
@@ -290,7 +316,7 @@ async function templateQuestionFlow() {
     text: 'Robot calibration is beneficial, but the CV does not document it. Have you calibrated a robot in coursework or a project? A concrete example could strengthen the letter; no experience is assumed.' }];
   await loadProposal(first); await rendered('letter', 'reliable robot sensing');
   const working = snapshot(), pdfBefore = surface('letter').querySelector('.pdf-preview__page')!.innerHTML;
-  await field('Your response (optional)', 'I calibrated a robot in a coursework project and measured repeatability.'); await field('Annotation status', 'resolved');
+  await field('Your response (optional)', 'I calibrated a robot in a coursework project and measured repeatability.'); await field('Status', 'resolved');
   assert(!setup.error && setup.proposalAnnotations[0].included, 'Resolving must save and include the response');
   assert(snapshot() === working && surface('letter').querySelector('.pdf-preview__page')!.innerHTML === pdfBefore, 'Answering changed the applied letter');
   await mount(true); await click('2Refinement');
@@ -421,15 +447,16 @@ async function scopedHistoryFlow() {
     { ...cvQuestion, id: 'annotation-3', type: 'comment', text: 'Hidden CV comment for this proposal.' },
     { ...cvQuestion, id: 'annotation-4', type: 'todo', text: 'Hidden CV ToDo for this proposal.' },
   );
-  function checkQuestions(row: RefinementProposalRow, questionId: string) {
+  async function checkQuestions(row: RefinementProposalRow, questionId: string) {
     const review = root.querySelector<HTMLElement>('.current-review');
     assert(review, 'A loaded proposal must show Current Review');
-    const questions = [...review.querySelectorAll<HTMLElement>('.annotation-row')];
-    assert(questions.length === 1 && questions[0].dataset.annotationId === questionId, 'Current Review must contain only the selected document’s question');
-    assert(questions[0].querySelector('header strong')?.textContent === 'Question', 'The current row must be presented as a question');
-    assert(!review.querySelector('.proposed-letter,.proposal-changes'), 'Current Review must omit proposed document content');
-    assert(!review.textContent?.includes(row.proposal_json.summary), 'Current Review must omit the proposal summary');
-    assert(!review.textContent?.includes('Hidden CV') && !review.textContent?.includes('Hidden letter'), 'Current Review must omit comment and ToDo annotations');
+    await reviewCategory('question');
+    const annotations = [...review.querySelectorAll<HTMLElement>('.annotation-row')];
+    const expected = row.proposal_json.annotations!.filter(annotation => annotation.document === setup.pane);
+    assert(same(annotations.map(item => item.dataset.annotationId).sort(), expected.map(item => item.id).sort()), 'Questions must include every annotation type for the selected document');
+    assert(annotations.some(item => item.dataset.annotationId === questionId), 'Questions must remain available');
+    assert(!review.querySelector('.annotation-row header') && !review.querySelector('select:not(.annotation-row select)'), 'Review must omit article headers and the proposal selector');
+    assert(!review.textContent?.includes(row.proposal_json.summary), 'Current Review must omit duplicate summaries');
   }
   function checkHistory(expectedIds: string[]) {
     const ids = [...root.querySelectorAll('.history-run')].map(run => run.querySelector('dl code')?.textContent || '');
@@ -437,11 +464,12 @@ async function scopedHistoryFlow() {
     for (const summary of root.querySelectorAll('.history-run > summary')) assert(!/CV|Motivation letter/.test(summary.textContent || ''), 'History summaries must omit the redundant document scope');
     assert(!root.querySelector('.refinement-history')?.textContent?.includes('Connection & prompt details'), 'History must omit the prompt details entry');
     const noteTabs = [...root.querySelectorAll('.iteration-note-tabs [role="tab"]')];
-    const expectedTabs = setup.pane === 'cv' ? ['Structure', 'Content'] : ['Tone', 'Structure', 'Content'];
+    const expectedTabs = setup.pane === 'cv' ? [] : ['Tone', 'Structure', 'Content'];
     assert(same(noteTabs.map(tab => tab.textContent?.trim()), expectedTabs), 'Tone must be available only for letter refinement');
     assert(noteTabs.every(tab => tab.querySelector('svg[aria-hidden="true"]')), 'Every refinement note tab must have an icon');
     const selectedTab = noteTabs.find(tab => tab.getAttribute('aria-selected') === 'true');
-    assert(selectedTab && root.querySelector('.iteration-note-panel textarea')?.getAttribute('aria-labelledby') === selectedTab.id, 'The textarea must belong to a visible selected tab');
+    if (setup.pane === 'letter') assert(selectedTab && root.querySelector('.iteration-note-panel textarea')?.getAttribute('aria-labelledby') === selectedTab.id, 'The letter textarea must belong to a visible selected tab');
+    else assert(root.querySelector('.cv-refinement-request textarea'), 'CV refinement must have one ungrouped request field');
   }
   function checkManualEditor() {
     const manual = [...root.querySelectorAll('summary')].find(summary => summary.textContent?.trim() === 'Edit manually')?.parentElement;
@@ -450,8 +478,8 @@ async function scopedHistoryFlow() {
   await loadProposal(cvProposal);
   checkPreparation(true, false);
   const appliedCv = refinementSignature(setup.record!.state);
-  assert(appliedCv !== originalCv, 'The CV fixture must apply an actual refinement');
-  checkQuestions(cvProposal, cvQuestion.id);
+  assert(appliedCv === originalCv && refinementSignature(setup.previewCvState) !== originalCv, 'New CV changes must remain pending in preview');
+  await checkQuestions(cvProposal, cvQuestion.id);
   await disclose('Edit manually'); checkManualEditor();
   await disclose('History'); checkHistory([cvRequestId]);
 
@@ -471,13 +499,13 @@ async function scopedHistoryFlow() {
   );
   await loadProposal(letterProposal);
   checkPreparation(true, true);
-  checkQuestions(letterProposal, letterQuestion.id);
+  await checkQuestions(letterProposal, letterQuestion.id);
   assert(!root.querySelector('.current-review')?.textContent?.includes(refinedLetter), 'The proposed letter must appear only in its preview and manual editor');
   checkManualEditor();
   checkHistory([letterRequestId]);
   assert(refinementSignature(setup.record!.state) === appliedCv, 'Letter refinement must preserve the already refined CV');
   await field('Refinement scope', 'cv');
-  checkHistory([cvRequestId]); checkQuestions(cvProposal, cvQuestion.id);
+  checkHistory([cvRequestId]); await checkQuestions(cvProposal, cvQuestion.id);
   await field('Refinement scope', 'letter');
   checkHistory([letterRequestId]);
 
@@ -555,6 +583,64 @@ async function previewRevisitFlow() {
   await rendered('letter', 'Updated while the application workspace was hidden.');
 }
 
+async function cvSelectionFlow() {
+  await prepare('cv');
+  const row = fixture.cloud.seedProposal(setup.requests[0].id, { persist: false });
+  const question = row.proposal_json.annotations!.find(annotation => annotation.document === 'cv')!;
+  row.proposal_json.annotations!.push(
+    { ...question, id: 'annotation-3', type: 'todo', text: '[experience] Which methods did you use in the robotics experiments?' },
+    { ...question, id: 'annotation-4', type: 'comment', text: '[follow_up] Which recorded results support your previous answer?' },
+  );
+  question.text = '[application_requirements] Which application requirements still need evidence?';
+  await loadProposal(row);
+  const change = row.proposal_json.cvOperations.find(operation => operation.type === 'shorten_text')!;
+  const checkbox = root.querySelector<HTMLInputElement>(`[data-change-id="${change.id}"] input`)!;
+  checkbox.click(); await settle();
+  assert(!setup.error && !checkbox.checked, 'The unchecked change must be dropped');
+  const selectedCv = refinementSignature(setup.previewCvState);
+  await click('Copy feedback');
+  assert(!setup.error, setup.error);
+  const next = setup.requests[0];
+  assert(next.id !== row.request_id && next.request_json.parentProposalId === row.id, 'The next prompt must reference the reviewed proposal');
+  assert(refinementSignature(setup.localRequests[next.id].cv.baselineState) === selectedCv, 'Only checked changes must carry into the next prompt');
+  const nextProposal = fixture.cloud.seedProposal(next.id, { persist: false });
+  nextProposal.proposal_json.annotations = row.proposal_json.annotations;
+  await loadProposal(nextProposal);
+  assert(refinementSignature(setup.record!.state) === selectedCv, 'Arrival must apply the previously selected CV');
+  const omission = nextProposal.proposal_json.cvOperations.find(operation => operation.type === 'omit_bullet')!;
+  root.querySelector<HTMLInputElement>(`[data-change-id="${omission.id}"] input`)!.click(); await settle();
+  assert(!setup.error, setup.error);
+  await mount(true);
+  assert(!setup.selectedChangeIds.includes(omission.id), 'Reload must preserve the unchecked change');
+  await reviewCategory('question');
+  assert(root.querySelectorAll('.current-review .annotation-row').length === 3, 'Questions must merge legacy questions, comments and ToDos');
+  assert(root.querySelector('[data-review-tab="question"] .review-tab-count')?.textContent?.trim() === String(setup.reviewCounts.question), 'Question count must include legacy comments');
+  assert([...root.querySelectorAll('.review-tabs [role="tab"]')].map(tab => tab.getAttribute('data-review-tab')).join(',') === 'changes,question', 'Review order must be Changes then Questions');
+  assert(!root.querySelector('.annotation-row header'), 'Repeated article headers must be removed');
+  assert([...root.querySelectorAll('.question-group')].map(group => group.getAttribute('data-question-group')).join(',') === 'application_requirements,experience,follow_up,other', 'Questions must be grouped by purpose with legacy comments in Other');
+  assert(!root.querySelector('.annotations')?.textContent?.includes('[experience]'), 'Category tags must not appear in question text');
+  const response = root.querySelector<HTMLTextAreaElement>('.current-review textarea')!;
+  const reviewCount = setup.reviews.length, beforeAnswer = refinementSignature(setup.record!.state);
+  response.value = 'Draft answer retained when changing review tabs.';
+  response.dispatchEvent(new Event('input', { bubbles: true }));
+  await settle();
+  assert(setup.reviews.length === reviewCount, 'Typing a response must not persist or submit it');
+  await reviewCategory('changes');
+  assert(setup.proposalAnnotations.some(item => item.response === response.value && item.status === 'open'), 'Changing tabs must await the annotation draft save without resolving it');
+  assert(!setup.reviews.slice(reviewCount).some(item => item.kind === 'feedback'), 'Saving an open response must not submit feedback');
+  await reviewCategory('question');
+  assert(root.querySelector<HTMLTextAreaElement>('.current-review textarea')?.value === response.value, 'Returning to Questions must retain its saved draft');
+  for (const [key, expected] of [['End', 'question'], ['ArrowRight', 'changes'], ['ArrowLeft', 'question'], ['Home', 'changes']] as const) {
+    root.querySelector<HTMLElement>('.review-tabs [aria-selected="true"]')!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    await settle();
+    const active = root.querySelector<HTMLElement>(`[data-review-tab="${expected}"]`)!;
+    assert(active.getAttribute('aria-selected') === 'true' && document.activeElement === active, 'Keyboard navigation must select and focus its review tab');
+  }
+  assert(refinementSignature(setup.record!.state) === beforeAnswer, 'Review tabs and responses must preserve the working CV');
+  assert(root.querySelector('.change-review .before') && root.querySelector('.change-review .after'), 'Before and proposed text must remain visible after reload');
+  await rendered('cv', 'E2E North Lab');
+}
+
 const flows = [
   ['preview-revisit', 'Unchanged document previews return without rerendering', previewRevisitFlow],
   ['scope-layout', 'Scope dropdown → task controls → scoped preview and editor → preparation settings', scopeLayoutFlow],
@@ -564,6 +650,7 @@ const flows = [
   ['existing-letter', 'Existing letter → automatic refinement → compare → reload', () => letterFlow(false)],
   ['proposal-review', 'Automatic application → ignored answer → next iteration → reset → approved PDFs', proposalReviewFlow],
   ['template-questions', 'Template interests → contextual question → explicit answer feedback → refinement', templateQuestionFlow],
+  ['cv-selection', 'Individual CV decisions → next prompt → new proposal → reload with all annotations', cvSelectionFlow],
 ] as const;
 const flowId = new URLSearchParams(location.search).get('flow');
 const selectedFlows = flows.filter(([id]) => !flowId || id === flowId);

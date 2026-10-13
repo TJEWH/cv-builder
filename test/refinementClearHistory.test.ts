@@ -23,7 +23,7 @@ function assertEmptyHistory(setup: Workspace) {
 function assertFreshInitialRequest(setup: Workspace) {
   assert.equal(scopedRequests(setup).length, 1);
   const request = scopedRequests(setup)[0];
-  assert.equal(setup.cloudState!.current_request_id, request.id);
+  assert.equal(setup.cloudState!.current_letter_request_id, request.id);
   assert.ok(setup.localRequests[request.id]);
   assert.equal(setup.localRequests[request.id].publishedAt, request.created_at);
   assert.equal(request.request_json.parentProposalId, null); assert.deepEqual(request.request_json.feedback, []);
@@ -63,7 +63,7 @@ test('clear history resets the letter to its template before deleting iterations
   const restored = documentFingerprint(setup);
   assert.equal(setup.reviews.every(row => row.kind === 'cv_decisions'), true, 'historical CV decision sources remain available');
   assert.equal(setup.cloudState!.revision, state.revision + 1);
-  assert.equal(setup.cloudState!.current_request_id, null);
+  assert.equal(setup.cloudState!.current_letter_request_id, null);
   assert.deepEqual(setup.cloudState!.setup_json, state.setup_json);
   assert.deepEqual(setup.cloudState!.approvals_json, state.approvals_json);
   const stored = JSON.parse(fixture.storage.getItem(refinementKey)!);
@@ -184,7 +184,7 @@ test('observed cloud publication recovers a missing receipt and remote clearing 
   assert.equal(setup.localRequests[publishedId].publishedAt, setup.requests[0].created_at);
   assert.equal(refinementSignature(setup.localRequests[pendingId]), pending);
   const before = documentFingerprint(setup);
-  await createRefinementRepository(fixture.cloud.client, () => account).clearHistory(applicationId, setup.cloudState!.revision);
+  await createRefinementRepository(fixture.cloud.client, () => account).clearHistory(applicationId, setup.cloudState!.revision, 'letter');
   await setup.checkProposals();
   assert.equal(setup.error, ''); assert.deepEqual(setup.requests, []);
   assert.deepEqual(Object.keys(setup.localRequests), [pendingId]);
@@ -203,7 +203,7 @@ test('clearing CV history restores its original state before deletion and keeps 
   const fixture = mount(t); let setup = await prepare(fixture, 'base', { scope: 'cv' });
   const originalCv = refinementSignature(setup.record!.state);
   fixture.cloud.seedProposal(setup.requests[0].id);
-  await setup.syncRefinement(); await setup.approve('cv');
+  await setup.syncRefinement(); await setup.acceptSelectedChanges(); await setup.approve('cv');
   setup.feedbackScope = 'cv'; await idle(setup);
   assert.notEqual(refinementSignature(setup.record!.state), originalCv);
   const letterBefore = refinementSignature(setup.letter);
@@ -285,19 +285,20 @@ test('repository clear targets only the owned application and rejects stale revi
   const database: Record<string, Record<string, unknown>[]> = {
     applications: [{ id: applicationId, user_id: account }, { id: owned, user_id: account }, { id: foreign, user_id: 'other' }, { id: empty, user_id: account }],
     application_refinement_state: [applicationId, owned, foreign].map(id => ({ ...state, application_id: id, user_id: id === foreign ? 'other' : account })),
-    application_refinement_requests: [applicationId, owned, foreign].map(id => ({ id: crypto.randomUUID(), application_id: id, user_id: id === foreign ? 'other' : account })),
-    application_refinement_proposals: [applicationId, owned, foreign].map(id => ({ id: crypto.randomUUID(), application_id: id, user_id: id === foreign ? 'other' : account })),
-    application_refinement_reviews: [applicationId, owned, foreign].map(id => ({ id: crypto.randomUUID(), application_id: id, user_id: id === foreign ? 'other' : account })),
+    application_refinement_requests: [applicationId, owned, foreign].map(id => ({ id: crypto.randomUUID(), request_json: { scope: 'letter' }, kind: 'feedback', payload: { scope: 'letter' }, application_id: id, user_id: id === foreign ? 'other' : account })),
+    application_refinement_proposals: [applicationId, owned, foreign].map(id => ({ id: crypto.randomUUID(), request_json: { scope: 'letter' }, kind: 'feedback', payload: { scope: 'letter' }, application_id: id, user_id: id === foreign ? 'other' : account })),
+    application_refinement_reviews: [applicationId, owned, foreign].map(id => ({ id: crypto.randomUUID(), request_json: { scope: 'letter' }, kind: 'feedback', payload: { scope: 'letter' }, application_id: id, user_id: id === foreign ? 'other' : account })),
   };
+  for (const row of database.application_refinement_proposals) row.request_id = database.application_refinement_requests.find(request => request.application_id === row.application_id)!.id;
   const fixture = createRefinementFixture(database, account), repository = createRefinementRepository(fixture.client, () => account);
   const before = refinementSignature(database);
-  await assert.rejects(repository.clearHistory(applicationId, state.revision - 1), /changed|revision/i);
-  await assert.rejects(repository.clearHistory(foreign, 0), /application/i);
+  await assert.rejects(repository.clearHistory(applicationId, state.revision - 1, 'letter'), /changed|revision/i);
+  await assert.rejects(repository.clearHistory(foreign, 0, 'letter'), /application/i);
   assert.equal(refinementSignature(database), before);
-  assert.equal(await repository.clearHistory(empty, 0), null);
+  assert.equal(await repository.clearHistory(empty, 0, 'letter'), null);
   assert.equal(refinementSignature(database), before);
-  const cleared = await repository.clearHistory(applicationId, state.revision);
-  assert.equal(cleared!.revision, state.revision + 1); assert.equal(cleared!.current_request_id, null);
+  const cleared = await repository.clearHistory(applicationId, state.revision, 'letter');
+  assert.equal(cleared!.revision, state.revision + 1); assert.equal(cleared!.current_letter_request_id, null);
   assert.deepEqual(database.application_refinement_state.slice(1), [owned, foreign].map(id => ({ ...state, application_id: id, user_id: id === foreign ? 'other' : account })));
   for (const table of ['application_refinement_requests', 'application_refinement_proposals', 'application_refinement_reviews']) {
     assert.deepEqual(database[table].map(row => row.application_id), [owned, foreign]);
@@ -307,15 +308,15 @@ test('repository clear targets only the owned application and rejects stale revi
 test('repository clear validates its returned revision, empty current request, owner, and session', async t => {
   const fixture = mount(t), setup = await prepare(fixture, 'base', { scope: 'letter' });
   const state = JSON.parse(JSON.stringify(setup.cloudState!));
-  const receipt = { ...state, revision: state.revision + 1, current_request_id: null };
+  const receipt = { ...state, revision: state.revision + 1, current_letter_request_id: null };
   for (const invalid of [{ ...receipt, application_id: crypto.randomUUID() }, { ...receipt, user_id: 'other' },
-    { ...receipt, revision: state.revision }, { ...receipt, current_request_id: setup.requests[0].id }, null]) {
+    { ...receipt, revision: state.revision }, { ...receipt, current_letter_request_id: setup.requests[0].id }, null]) {
     const client = stub<SupabaseClient>({ rpc: async () => ({ data: invalid, error: null }) });
-    await assert.rejects(createRefinementRepository(client, () => account).clearHistory(applicationId, state.revision), /verif|confirm/i);
+    await assert.rejects(createRefinementRepository(client, () => account).clearHistory(applicationId, state.revision, 'letter'), /verif|confirm/i);
   }
   let current = account;
   const client = stub<SupabaseClient>({ rpc: async () => { current = 'other'; return { data: receipt, error: null }; } });
-  await assert.rejects(createRefinementRepository(client, () => current).clearHistory(applicationId, state.revision), /Session changed/i);
+  await assert.rejects(createRefinementRepository(client, () => current).clearHistory(applicationId, state.revision, 'letter'), /Session changed/i);
 });
 
 test('scoped repository clearing retains the other document and clears legacy shared rounds one facet at a time', async t => {
@@ -333,15 +334,16 @@ test('scoped repository clearing retains the other document and clears legacy sh
   for (const id of [letterId, cvId, sharedId]) fixture.cloud.seedProposal(id);
   const cvFeedback = await repository.saveReview(applicationId, null, 'feedback', { text: 'CV evidence.', scope: 'cv' });
   const letterFeedback = await repository.saveReview(applicationId, null, 'feedback', { text: 'Letter fit.', scope: 'letter' });
-  const sharedFeedback = await repository.saveReview(applicationId, null, 'feedback', { text: 'Shared research.', scope: 'both' });
+  const sharedFeedback = { ...letterFeedback, id: crypto.randomUUID(), payload: { text: 'Shared research.', scope: 'both' } };
+  fixture.database.application_refinement_reviews.push(sharedFeedback);
   const cloudState = fixture.database.application_refinement_state[0];
-  cloudState.current_request_id = sharedId;
+  cloudState.current_cv_request_id = cvId;
   const originalState = structuredClone(cloudState);
   const originalLetter = refinementSignature(fixture.database.application_refinement_requests.find(row => row.id === letterId));
 
   const clearedCv = await repository.clearHistory(applicationId, Number(cloudState.revision), 'cv');
 
-  assert.equal(clearedCv!.current_request_id, sharedId);
+  assert.equal(clearedCv!.current_letter_request_id, letterId);
   assert.deepEqual(clearedCv!.setup_json, originalState.setup_json);
   assert.deepEqual(clearedCv!.approvals_json, originalState.approvals_json);
   const requests = await repository.listRequests(applicationId), reviews = await repository.listReviews(applicationId);
@@ -355,7 +357,7 @@ test('scoped repository clearing retains the other document and clears legacy sh
 
   await assert.rejects(repository.clearHistory(applicationId, Number(originalState.revision), 'letter'), /changed|revision/i);
   const clearedLetter = await repository.clearHistory(applicationId, clearedCv!.revision, 'letter');
-  assert.equal(clearedLetter!.current_request_id, null);
+  assert.equal(clearedLetter!.current_letter_request_id, null);
   assert.deepEqual(await repository.listRequests(applicationId), []);
   assert.deepEqual(await repository.listProposals(applicationId), []);
   assert.deepEqual(await repository.listReviews(applicationId), []);
@@ -366,7 +368,7 @@ test('scoped repository clearing preserves a current request belonging only to t
   const repository = createRefinementRepository(fixture.cloud.client, () => account);
   const requestId = setup.requests[0].id;
   const state = await repository.clearHistory(applicationId, setup.cloudState!.revision, 'cv');
-  assert.equal(state!.current_request_id, requestId);
+  assert.equal(state!.current_letter_request_id, requestId);
   assert.equal((await repository.listRequests(applicationId))[0].id, requestId);
 });
 
@@ -375,19 +377,20 @@ test('scoped clearing keeps historical opposite-document reviews and their origi
   const repository = createRefinementRepository(fixture.cloud.client, () => account);
   const requestId = setup.requests[0].id;
   const proposal = fixture.cloud.seedProposal(requestId);
-  const feedback = await repository.saveReview(applicationId, requestId, 'feedback', { text: 'Letter motivation.', scope: 'letter' });
-  const annotation = await repository.saveReview(applicationId, requestId, 'annotation', {
-    proposalId: proposal.id, annotationId: 'annotation-2', status: 'resolved', response: 'Confirmed motivation.', previousReviewId: null,
-  });
+  const feedback = { id: crypto.randomUUID(), application_id: applicationId, user_id: account, request_id: requestId, kind: 'feedback', payload: { text: 'Letter motivation.', scope: 'letter' }, created_at: new Date().toISOString() };
+  const annotation = { ...feedback, id: crypto.randomUUID(), kind: 'annotation', payload: { proposalId: proposal.id, annotationId: 'annotation-2', status: 'resolved', response: 'Confirmed motivation.', previousReviewId: null } };
+  proposal.proposal_json.annotations!.push({ id: 'annotation-2', type: 'question', document: 'letter', location: null, text: 'Historical motivation question.' });
+  fixture.database.application_refinement_proposals[0].proposal_json = proposal.proposal_json;
+  fixture.database.application_refinement_reviews.push(feedback, annotation);
   const beforeProposal = refinementSignature(await repository.listProposals(applicationId));
 
   const state = await repository.clearHistory(applicationId, setup.cloudState!.revision, 'cv');
 
-  assert.equal(state!.current_request_id, null, 'cleared CV request must not remain active despite retained letter source');
+  assert.equal(state!.current_cv_request_id, null, 'cleared CV request must not remain active despite retained letter source');
   const requests = await repository.listRequests(applicationId);
   assert.equal(requests.length, 1); assert.deepEqual(requests[0].cleared_scopes, ['cv']);
   assert.equal(refinementMatchesScope(requests[0].request_json.scope, 'cv', requests[0].cleared_scopes), false);
-  assert.deepEqual(await repository.listReviews(applicationId), [feedback, annotation]);
+  assert.deepEqual(await repository.listReviews(applicationId), [feedback, annotation].sort((a,b) => a.id.localeCompare(b.id)));
   assert.equal(refinementSignature(await repository.listProposals(applicationId)), beforeProposal);
 
   await repository.clearHistory(applicationId, state!.revision, 'letter');
@@ -399,7 +402,7 @@ test('scoped clearing keeps historical opposite-document reviews and their origi
 test('repository readers reject malformed cleared history scopes', async t => {
   const fixture = mount(t); await prepare(fixture, 'base', { scope: 'letter' });
   const repository = createRefinementRepository(fixture.cloud.client, () => account);
-  await repository.saveReview(applicationId, null, 'feedback', { text: 'Research evidence.', scope: 'both' });
+  await repository.saveReview(applicationId, null, 'feedback', { text: 'Research evidence.', scope: 'letter' });
   for (const invalid of [null, 'cv', ['both'], ['cv', 'cv'], ['cv', 'letter', 'cv']]) {
     fixture.database.application_refinement_requests[0].cleared_scopes = invalid;
     await assert.rejects(repository.listRequests(applicationId), /scopes.*verified/i);

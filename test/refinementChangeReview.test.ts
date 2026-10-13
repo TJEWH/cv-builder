@@ -69,16 +69,16 @@ function mount(t: TestContext) {
 test('each rendered operation has its target, type, explanation, labelled checkbox and changelog status', (t) => {
   const { root, change } = mount(t);
   assert.equal(required(root, item => item.tag === 'section').props['aria-label'], 'CV change review');
-  const expectedStatuses = ['Proposed', 'Accepted', 'Rejected'];
+  const expectedStatuses = ['Active', 'Active', 'Inactive'];
   changes.forEach((value, index) => {
     const row = change(value.id);
     const label = required(row, item => item.tag === 'label');
     const checkbox = required(label, item => item.tag === 'input');
     assert.equal(checkbox.props.type, 'checkbox');
-    assert.ok(content(label).includes(`Include ${value.id} · ${value.target}`), 'the wrapping label gives the checkbox a descriptive accessible name');
+    assert.ok(content(label).includes(`Activate ${value.id} · ${value.target}`), 'the wrapping label gives the checkbox a descriptive accessible name');
     assert.equal(content(required(row, item => item.tag === 'code')), value.type);
     assert.ok(content(row).includes(value.explanation));
-    assert.equal(content(required(row, item => hasClass(item, `badge--${value.status}`))), expectedStatuses[index]);
+    assert.equal(content(required(row, item => hasClass(item, 'badge'))), expectedStatuses[index]);
   });
 });
 
@@ -102,7 +102,7 @@ test('checkbox toggles emit preview selection only and never accept or mutate a 
   assert.deepEqual(JSON.parse(JSON.stringify(props.changes)), before.changes);
   assert.deepEqual([...props.selected], before.selected, 'selection state is controlled by the parent');
   assert.doesNotMatch(content(root), /Accept selection/, 'change details must not describe a removed acceptance action');
-  assert.equal(content(required(change('change-1'), item => hasClass(item, 'badge'))), 'Proposed');
+  assert.equal(content(required(change('change-1'), item => hasClass(item, 'badge'))), 'Active');
   props.selected = ['change-2'];
   await nextTick();
   assert.equal(required(change('change-1'), item => item.tag === 'input').props.checked, false);
@@ -137,6 +137,6 @@ test('German review labels remain accessible', async (t) => {
   const { props, root, change } = mount(t);
   props.lang = 'de'; await nextTick();
   assert.equal(required(root, item => item.tag === 'section').props['aria-label'], 'Prüfung der CV-Änderungen');
-  assert.ok(content(required(change('change-1'), item => item.tag === 'label')).includes('Einbeziehen change-1'));
-  assert.equal(content(required(change('change-1'), item => hasClass(item, 'badge'))), 'Vorgeschlagen');
+  assert.ok(content(required(change('change-1'), item => item.tag === 'label')).includes('Aktivieren change-1'));
+  assert.equal(content(required(change('change-1'), item => hasClass(item, 'badge'))), 'Aktiv');
 });

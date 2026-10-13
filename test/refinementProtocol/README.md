@@ -8,7 +8,7 @@ These checks exercise the **Copy task** and connected protocol builders. Live ch
 npm run test:refinement-protocol
 ```
 
-`npm test` and the deployment build include these checks. They compare committed Markdown with production, parse resolver/protocol/source/save SQL, check the complete proposal shape against the app validator, and test the trace checker with passing and failing runs. Database exploration must fail even when followed by a valid save. Wrong projects/IDs, malformed payloads, missing receipts, shell access, changed retries and incomplete runs also fail.
+`npm test` and the deployment build include these checks. They compare committed Markdown with production, require the explicit CV or letter resolver scope and exact current request ID, parse resolver/protocol/source/save SQL, check the complete proposal shape against the app validator, and test the trace checker with passing and failing runs. Database exploration must fail even when followed by a valid save. Wrong projects/IDs, malformed payloads, missing receipts, shell access, changed retries and incomplete runs also fail.
 
 After changing the prompt builders or contract, regenerate the fixtures:
 
@@ -30,7 +30,7 @@ Prefer a development database with the application's current schema. Each run re
 npm run refinement:live -- --project YOUR_PROJECT_REF --allow-synthetic-writes
 ```
 
-This runs CV, initial letter, existing letter, feedback iteration, combined, missing-protocol and stale-request cases three times each. To run a smaller check:
+This runs CV, initial letter, existing letter, feedback iteration, missing-protocol and stale-request cases three times each. To run a smaller check:
 
 ```sh
 npm run refinement:live -- --project YOUR_PROJECT_REF --allow-synthetic-writes --case cv,initial-letter --repeats 1

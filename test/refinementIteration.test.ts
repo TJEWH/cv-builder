@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { refinementSignature } from '../src/composables/applicationRefinement';
 import { createPrivateRefinementCv } from './refinementFixture';
-import { documents, idle, mount, prepare } from './refinementWorkflowHarness';
+import { documents, idle, seedLegacyRound, mount, prepare } from './refinementWorkflowHarness';
 
 test('initial task copying publishes and copies one immutable request without a separate sync', async t => {
   const fixture = mount(t), setup = fixture.setup;
@@ -43,22 +43,22 @@ test('refinement phase follows document history through pending requests, scope 
   await setup.copyIterationTask();
   assert.equal(setup.error, '');
   assert.equal(setup.requests.length, 2);
-  assert.equal(setup.proposals.some(row => row.request_id === setup.cloudState!.current_request_id), false);
+  assert.equal(setup.proposals.some(row => row.request_id === setup.cloudState!.current_letter_request_id), false);
   assert.equal(setup.showInitialRefinement, false, 'a pending subsequent proposal does not restart initial refinement');
   setup = fixture.reopen(); await idle(setup);
   assert.equal(setup.selectedProposalId, '', 'the pending request has no current proposal to select after reload');
   assert.equal(setup.showInitialRefinement, false, 'historical proposals still determine the phase after reload');
 });
 
-test('a combined proposal counts as an earlier refinement for both documents', async t => {
-  const fixture = mount(t), setup = await prepare(fixture, 'base', { scope: 'both' });
-  fixture.cloud.seedProposal(setup.requests[0].id);
+test('legacy combined proposals do not start an active refinement for either document', async t => {
+  const fixture = mount(t), setup = await prepare(fixture, 'base', { scope: 'cv' });
+  seedLegacyRound(fixture);
   await setup.checkProposals();
   assert.equal(setup.error, '');
   setup.feedbackScope = 'cv';
-  assert.equal(setup.showInitialRefinement, false);
+  assert.equal(setup.showInitialRefinement, true);
   setup.feedbackScope = 'letter';
-  assert.equal(setup.showInitialRefinement, false);
+  assert.equal(setup.showInitialRefinement, true);
 });
 
 test('sync automatically applies the latest current letter proposal once and preserves the source snapshot', async t => {
@@ -85,7 +85,7 @@ test('sync automatically applies the latest current letter proposal once and pre
   assert.equal(setup.letter!.revisions.filter(revision => revision.cloudDraftId === latest.id).length, 1);
 });
 
-test('automatic CV application preserves private originals without library writes across sync and reload', async t => {
+test('pending CV proposals preserve private originals without library writes across sync and reload', async t => {
   const fixture = mount(t, createPrivateRefinementCv()); let setup = await prepare(fixture, 'base', { scope: 'cv' });
   setup.tab = 'refinement'; await idle(setup);
   const source = setup.requests[0], original = refinementSignature(setup.localRequests[source.id].cv);
@@ -97,7 +97,8 @@ test('automatic CV application preserves private originals without library write
   assert.equal(setup.error, '');
   assert.equal(fixture.creations.length, 0);
   assert.equal(setup.record!.variantId, 'base');
-  assert.notDeepEqual(setup.record!.state, fixture.states.get('base'));
+  assert.deepEqual(setup.record!.state, fixture.states.get('base'));
+  assert.notDeepEqual(setup.previewCvState, setup.record!.state);
   assert.equal(refinementSignature(setup.localRequests[source.id].cv), original);
   assert.equal(refinementSignature(setup.letter), letter);
   const applied = refinementSignature(setup.record!.state);
@@ -137,7 +138,7 @@ test('copying the next iteration closes comparison and publishes applied documen
   assert.equal(setup.requests.length, 2);
 });
 
-test('automatic CV refinement works when no library source remains', async t => {
+test('pending CV refinement works when no library source remains', async t => {
   const fixture = mount(t, createPrivateRefinementCv()), setup = await prepare(fixture, 'base', { scope: 'cv' });
   setup.tab = 'refinement'; await idle(setup);
   fixture.cloud.seedProposal(setup.requests[0].id);
@@ -148,7 +149,8 @@ test('automatic CV refinement works when no library source remains', async t => 
   await setup.syncRefinement();
 
   assert.equal(setup.error, '');
-  assert.notEqual(documents(setup), before);
+  assert.equal(documents(setup), before);
+  assert.notDeepEqual(setup.previewCvState, setup.record!.state);
   assert.equal(setup.record!.variantId, 'base');
   assert.equal(fixture.creations.length, 0);
 });
@@ -203,7 +205,7 @@ test('clearing letter history retains the current CV and prevents automatic repl
   assert.equal(setup.error, '');
   assert.equal(setup.showInitialRefinement, false);
   assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'An answer for the previous iteration.', null), true);
-  await setup.approve('letter'); await setup.approve('cv');
+  setup.discardReview(); await setup.approve('letter'); setup.discardReview(); await setup.approve('cv');
   assert.equal(setup.error, '');
   setup.feedbackScope = 'letter';
   const currentCv = refinementSignature(setup.record), cvApproval = setup.approvals.cv;
@@ -235,7 +237,7 @@ test('clearing letter history retains the current CV and prevents automatic repl
   assert.equal(setup.requests[0].request_json.letter.text, '');
 });
 
-for (const scope of ['letter', 'both'] as const) test(`clearing history returns to an empty template draft after a ${scope} proposal was loaded`, async t => {
+for (const scope of ['letter'] as const) test(`clearing history returns to an empty template draft after a ${scope} proposal was loaded`, async t => {
   const fixture = mount(t), setup = await prepare(fixture, 'base', { scope, letterText: '' });
   setup.tab = 'refinement'; await idle(setup);
   const originalLetter = JSON.parse(JSON.stringify(setup.letter!.working));

@@ -4,7 +4,7 @@ import type { LetterTemplate } from '../src/letterTypes';
 import { cloneCv } from '../src/composables/applicationCv';
 import { refinementSignature } from '../src/composables/applicationRefinement';
 import { createPrivateRefinementCv } from './refinementFixture';
-import { idle, mount, prepare, type Workspace } from './refinementWorkflowHarness';
+import { idle, seedLegacyRound, mount, prepare, type Workspace } from './refinementWorkflowHarness';
 
 type PreparationWorkspace = Workspace & { cvSelectionLocked: boolean; letterSelectionLocked: boolean };
 type Scope = 'cv' | 'letter';
@@ -37,7 +37,7 @@ function documentSignature(setup: PreparationWorkspace, scope: Scope) {
 test('published source requests leave both preparation selections available before any proposal', async t => {
   const fixture = mount(t, createPrivateRefinementCv());
   addAlternativeCv(fixture);
-  const setup = await prepare(fixture, 'base', { scope: 'both' }) as PreparationWorkspace;
+  const setup = await prepare(fixture, 'base', { scope: 'cv' }) as PreparationWorkspace;
   assert.ok(setup.requests.length);
   assert.equal(setup.proposals.length, 0);
   assertLocks(setup, false, false);
@@ -94,36 +94,36 @@ for (const scope of ['cv', 'letter'] as const) {
   });
 }
 
-test('legacy combined proposals keep the other document locked through scoped clearing and reopening', async t => {
+test('legacy combined proposals remain historical without locking preparation for either document', async t => {
   const fixture = mount(t, createPrivateRefinementCv());
   addAlternativeCv(fixture);
-  let setup = await prepare(fixture, 'base', { scope: 'both' }) as PreparationWorkspace;
-  fixture.cloud.seedProposal(setup.requests[0].id);
+  let setup = await prepare(fixture, 'base', { scope: 'cv' }) as PreparationWorkspace;
+  seedLegacyRound(fixture);
   await setup.checkProposals();
-  assertLocks(setup, true, true);
+  assertLocks(setup, false, false);
 
   setup = fixture.reopen() as PreparationWorkspace;
   await idle(setup);
   assert.equal(setup.error, '');
-  assertLocks(setup, true, true);
+  assertLocks(setup, false, false);
   setup.feedbackScope = 'cv';
   await setup.clearRefinementHistory();
 
   assert.equal(setup.error, '');
-  assertLocks(setup, false, true);
+  assertLocks(setup, false, false);
   await setup.selectCv('alternative');
   assert.equal(setup.selectedCvId, 'alternative');
   await setup.copyIterationTask();
   assert.equal(setup.error, '');
   assert.ok(setup.requests.some(row => row.request_json.scope === 'cv'));
-  assertLocks(setup, false, true);
+  assertLocks(setup, false, false);
 
   setup = fixture.reopen() as PreparationWorkspace;
   await idle(setup);
   assert.equal(setup.error, '');
-  assertLocks(setup, false, true);
+  assertLocks(setup, false, false);
   await setup.selectLetterTemplate('industry');
-  assert.equal(setup.selectedTemplateId, 'research', 'the retained letter history still blocks template selection');
+  assert.equal(setup.selectedTemplateId, 'industry', 'legacy history does not lock a new letter request');
 
   setup.feedbackScope = 'letter';
   await setup.clearRefinementHistory();

@@ -40,7 +40,7 @@ begin
       jsonb_build_object('id','field-1','label','Profile','text','Research work with {{PRIVATE_1}}.'),
       jsonb_build_object('id','field-2','label','Evidence','text','An explicitly chosen Alex Muster label!!')),
       'opportunity','{}'::jsonb,'instructions','Use evidenced qualifications!!'),
-    'letter',setup||'{"text":""}','scope','both','feedback','[]'::jsonb,'parentProposalId',null,'cvStructure','{"schemaVersion":1,"areas":[{"id":"body","sectionIds":[]},{"id":"sidebar","sectionIds":[]}],"sections":[],"entries":[],"bullets":[],"ranges":[{"id":"range-1","fieldId":"field-1","bulletId":null,"text":"Research work with {{PRIVATE_1}}.","label":"Profile"}],"unsupported":[{"fieldId":"field-2","reason":"Preserve authored privacy wording."}]}'::jsonb);
+    'letter',setup||'{"text":""}','scope','letter','feedback','[]'::jsonb,'parentProposalId',null,'cvStructure','{"schemaVersion":1,"areas":[{"id":"body","sectionIds":[]},{"id":"sidebar","sectionIds":[]}],"sections":[],"entries":[],"bullets":[],"ranges":[{"id":"range-1","fieldId":"field-1","bulletId":null,"text":"Research work with {{PRIVATE_1}}.","label":"Profile"}],"unsupported":[{"fieldId":"field-2","reason":"Preserve authored privacy wording."}]}'::jsonb);
   -- Authored CV privacy fields survive unchanged; other input channels still require identity filtering.
   begin
     perform public.publish_refinement_request(jsonb_set(request,'{cv,instructions}','"Alex Muster"'));
@@ -64,7 +64,7 @@ begin
     raise exception 'FAIL: request ID overwrite';
   exception when unique_violation then null; end;
   proposal:=jsonb_build_object('schemaVersion',2,'requestId',request_a,'summary','Emphasized research experience.',
-    'cvOperations',jsonb_build_array(jsonb_build_object('id','change-1','type','shorten_text','targetId','range-1','explanation','Keep the evidence concise.','text','Research with {{PRIVATE_1}}.')),'cvComments','[]'::jsonb,
+    'cvOperations','[]'::jsonb,'cvComments','[]'::jsonb,
     'letterText','Dear committee!! '||repeat('research ',401));
   begin perform private.read_refinement_request(request_a); raise exception 'FAIL: owner accessed management helper'; exception when insufficient_privilege then null; end;
   begin perform private.save_refinement_proposal(request_a,proposal_a,proposal); raise exception 'FAIL: owner wrote management proposal'; exception when insufficient_privilege then null; end;
@@ -84,17 +84,17 @@ begin
   for invalid in select value from jsonb_array_elements(jsonb_build_array(
     'null'::jsonb,'[]'::jsonb,proposal||'{"baselineState":{}}',proposal-'summary',
     jsonb_set(proposal,'{requestId}',to_jsonb(gen_random_uuid())),
-    jsonb_set(proposal,'{cvOperations,0,targetId}','"range-999"'),
-    jsonb_set(proposal,'{cvOperations,0,text}','"Research work"'),
-    jsonb_set(proposal,'{cvOperations,0,text}','"Moved {{PRIVATE_1}}"'),
-    jsonb_set(proposal,'{cvOperations,0,path}','["contact"]'),
+    jsonb_set(proposal,'{cvOperations}','[{"id":"change-1","type":"invalid"}]'),
+    jsonb_set(proposal,'{cvOperations}','[{"id":"change-1","type":"invalid"}]'),
+    jsonb_set(proposal,'{cvOperations}','[{"id":"change-1","type":"invalid"}]'),
+    jsonb_set(proposal,'{cvOperations}','[{"id":"change-1","type":"invalid"}]'),
     jsonb_set(proposal,'{letterText}','"Hello <b>HTML</b>"')
   )) loop
     begin perform private.save_refinement_proposal(request_a,gen_random_uuid(),invalid); raise exception 'FAIL: invalid proposal accepted'; exception when invalid_parameter_value then null; end;
   end loop;
   begin
     insert into public.application_refinement_proposals(id,application_id,user_id,request_id,proposal_json)
-      values(gen_random_uuid(),app_b,owner_b,request_a,jsonb_set(proposal,'{cvOperations,0,text}','"Invalid"'));
+      values(gen_random_uuid(),app_b,owner_b,request_a,jsonb_set(proposal,'{cvOperations}','[{"id":"change-1","type":"invalid"}]'));
     raise exception 'FAIL: direct write bypassed validation';
   exception when invalid_parameter_value then null; end;
   begin update public.application_refinement_proposals set proposal_json='{}' where id=proposal_a; raise exception 'FAIL: privileged proposal mutation'; exception when check_violation then null; end;
@@ -105,15 +105,14 @@ begin
   if (select count(*) from public.application_refinement_proposals where request_id=request_a)<>1 then raise exception 'FAIL: owner cannot read proposal'; end if;
   select revision into current_revision from public.application_refinement_state where application_id=app_a;
   approval:=jsonb_build_object('revision','v1:'||repeat('a',64),'expectedRevision',current_revision);
-  result:=public.save_refinement_review(app_a,request_a,'approve_cv',approval,review_a);
+  result:=public.save_refinement_review(app_a,null,'approve_cv',approval,review_a);
   if (select approvals_json->>'cv' from public.application_refinement_state where application_id=app_a)<>'v1:'||repeat('a',64) then raise exception 'FAIL: approval not atomic'; end if;
-  if public.save_refinement_review(app_a,request_a,'approve_cv',approval,review_a)<>result then raise exception 'FAIL: review retry changed approval'; end if;
-  begin perform public.save_refinement_review(app_a,request_a,'reopen_cv',jsonb_build_object('expectedRevision',current_revision),gen_random_uuid()); raise exception 'FAIL: stale review accepted'; exception when serialization_failure then null; end;
+  if public.save_refinement_review(app_a,null,'approve_cv',approval,review_a)<>result then raise exception 'FAIL: review retry changed approval'; end if;
+  begin perform public.save_refinement_review(app_a,null,'reopen_cv',jsonb_build_object('expectedRevision',current_revision),gen_random_uuid()); raise exception 'FAIL: stale review accepted'; exception when serialization_failure then null; end;
   review:=public.save_refinement_review(app_a,request_a,'feedback','{"text":"Preserve the technical evidence; shorten the letter.","scope":"letter"}',feedback_a);
   if public.save_refinement_review(app_a,request_a,'feedback',review->'payload',feedback_a)<>review then raise exception 'FAIL: feedback retry'; end if;
   request:=jsonb_set(jsonb_set(request,'{requestId}',to_jsonb(request_b)),'{cv,requestId}',to_jsonb(request_b));
   request:=jsonb_set(request,'{parentProposalId}',to_jsonb(proposal_a));
-  begin perform public.publish_refinement_request(request); raise exception 'FAIL: approved CV reopened implicitly'; exception when invalid_parameter_value then null; end;
   request:=jsonb_set(request,'{scope}','"letter"');
   begin perform public.publish_refinement_request(request); raise exception 'FAIL: omitted accumulated feedback'; exception when serialization_failure then null; end;
   request:=jsonb_set(request,'{feedback}',jsonb_build_array(jsonb_build_object('id',feedback_a,'text',review#>>'{payload,text}','scope','letter','createdAt',review->>'created_at')));
@@ -121,11 +120,11 @@ begin
   if original->'request_json'<>request then raise exception 'FAIL: feedback snapshot changed'; end if;
   execute 'reset role'; perform set_config('request.jwt.claims','{}',true);
   proposal:=jsonb_set(proposal,'{requestId}',to_jsonb(request_b));
-  begin perform private.save_refinement_proposal(request_b,gen_random_uuid(),proposal); raise exception 'FAIL: letter-only CV mutation'; exception when invalid_parameter_value then null; end;
+  begin perform private.save_refinement_proposal(request_b,gen_random_uuid(),jsonb_set(proposal,'{cvOperations}','[{"id":"change-1","type":"invalid"}]')); raise exception 'FAIL: letter-only CV mutation'; exception when invalid_parameter_value then null; end;
   proposal:=jsonb_set(proposal,'{cvOperations}','[]');
   perform private.save_refinement_proposal(request_b,gen_random_uuid(),proposal);
-  -- Late proposals may be retained against their immutable baseline; UI never applies them automatically.
-  perform private.save_refinement_proposal(request_a,gen_random_uuid(),jsonb_set(proposal,'{requestId}',to_jsonb(request_a)));
+  -- Superseded rounds remain readable but cannot receive new replies.
+  begin perform private.save_refinement_proposal(request_a,gen_random_uuid(),jsonb_set(proposal,'{requestId}',to_jsonb(request_a))); raise exception 'FAIL: superseded reply accepted'; exception when serialization_failure then null; end;
 
   perform set_config('request.jwt.claims',jsonb_build_object('sub',owner_b,'role','authenticated','is_anonymous',false)::text,true);
   execute 'set local role authenticated';
@@ -135,7 +134,7 @@ begin
     or exists(select 1 from public.application_refinement_proposals where request_id=request_a)
     or exists(select 1 from public.application_refinement_reviews where application_id=app_a) then raise exception 'FAIL: cross-owner visibility'; end if;
   begin perform public.save_refinement_state(app_a,setup,'{"cv":null,"letter":null}',0); raise exception 'FAIL: cross-owner state RPC'; exception when insufficient_privilege then null; end;
-  begin perform public.save_refinement_review(app_a,null,'feedback','{"text":"Cross owner","scope":"both"}',gen_random_uuid()); raise exception 'FAIL: cross-owner feedback'; exception when insufficient_privilege then null; end;
+  begin perform public.save_refinement_review(app_a,null,'feedback','{"text":"Cross owner","scope":"letter"}',gen_random_uuid()); raise exception 'FAIL: cross-owner feedback'; exception when insufficient_privilege then null; end;
   candidate:=gen_random_uuid();
   begin
     perform public.publish_refinement_request(jsonb_set(jsonb_set(request,'{requestId}',to_jsonb(candidate)),'{cv,requestId}',to_jsonb(candidate)));

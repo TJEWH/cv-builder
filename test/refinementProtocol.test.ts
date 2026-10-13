@@ -11,11 +11,11 @@ import { refinementSql, REFINEMENT_COMMANDS } from '../src/composables/refinemen
 import { parseRefinementProposal, refinementSignature } from '../src/composables/applicationRefinement';
 
 function proposal(fixture: ProtocolCase) {
-  return { schemaVersion: 2, requestId: fixture.request.requestId, summary: '0 automatic changes · 0 ToDos · 0 questions',
+  return { schemaVersion: 2, requestId: fixture.request.requestId, summary: '0 automatic changes · 0 questions',
     cvOperations: [], cvComments: [], annotations: [], letterText: fixture.request.letter.text || 'Dear committee,\nI built measurement tools using Python and documented reproducible experiments.\n{{APPLICANT_NAME}}' };
 }
 function call(fixture: ProtocolCase, command: keyof typeof REFINEMENT_COMMANDS, row: unknown, args?: string[]): ToolCall {
-  const values = args ?? (command === 'resolve' ? [fixture.application.application_code] : command === 'protocol'
+  const values = args ?? (command === 'resolve' ? [fixture.application.application_code, fixture.request.scope] : command === 'protocol'
     ? [fixture.request.requestId, fixture.protocol.id] : command === 'request' ? [fixture.request.requestId]
       : [fixture.request.requestId, stableId('proposal'), JSON.stringify(proposal(fixture))]);
   return { id: command, server: 'codex_apps', tool: 'supabase.execute_sql', arguments: { project_id: fixture.projectId, query: refinementSql(command, values) },
@@ -23,7 +23,7 @@ function call(fixture: ProtocolCase, command: keyof typeof REFINEMENT_COMMANDS, 
 }
 function goodTrace(fixture = createCase('cv')): Trace {
   const calls = [
-    call(fixture, 'resolve', { application_id: fixture.application.id, current_request_id: fixture.expected === 'stop-resolve' ? null : fixture.request.requestId }),
+    call(fixture, 'resolve', { application_id: fixture.application.id, scope: fixture.request.scope, current_request_id: fixture.expected === 'stop-resolve' ? null : fixture.request.requestId }),
     call(fixture, 'protocol', { application_id: fixture.application.id, request_id: fixture.request.requestId, protocol_id: fixture.protocol.id, protocol_text: fixture.protocol.text }),
     call(fixture, 'request', { id: fixture.request.requestId, application_id: fixture.application.id, request_json: fixture.request }),
     call(fixture, 'save', { id: stableId('proposal'), request_id: fixture.request.requestId, application_id: fixture.application.id, proposal_json: proposal(fixture) }),
@@ -38,7 +38,7 @@ for (const name of CASE_NAMES) test(`${name}: task resolves to complete literal 
   const fixture = createCase(name);
   const queries = fixture.task.split('\n').filter(line => line.startsWith('SELECT '));
   assert.deepEqual(queries.map(parseProtocolSql), [
-    { command: 'resolve', values: [fixture.application.application_code] },
+    { command: 'resolve', values: [fixture.application.application_code, fixture.request.scope] },
     { command: 'protocol', values: [fixture.request.requestId, fixture.protocol.id] },
   ]);
   const source = /1\. Read the immutable request through SQL: ([^\n]+)/.exec(fixture.protocol.text)![1];
@@ -73,7 +73,7 @@ test('literal SQL parsing supports quotes, backslashes, Unicode and SQL-looking 
     `select private.save_refinement_proposal('${fixture.request.requestId}'::uuid, '${stableId('proposal')}'::uuid, $payload$${payload}$payload$::jsonb) as result;`]) {
     assert.equal(parseProtocolSql(sql).values[2], payload);
   }
-  assert.equal(parseProtocolSql(refinementSql('resolve', ["  APP-Obrien'\\x  "])).values[0], "  APP-Obrien'\\x  ");
+  assert.equal(parseProtocolSql(refinementSql('resolve', ["  APP-Obrien'\\x  ", 'cv'])).values[0], "  APP-Obrien'\\x  ");
 });
 
 for (const sql of [

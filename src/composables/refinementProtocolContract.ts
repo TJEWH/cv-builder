@@ -2,7 +2,7 @@ import type { RefinementRequest } from '../refinementTypes';
 
 /** Stable database contract shared by copied tasks, protocol documents and regression checks. */
 export const REFINEMENT_COMMANDS = {
-  resolve: { name: 'private.resolve_application_reference', types: ['text'] },
+  resolve: { name: 'private.resolve_application_reference', types: ['text', 'text'] },
   protocol: { name: 'private.read_refinement_protocol', types: ['uuid', 'text'] },
   request: { name: 'private.read_refinement_request', types: ['uuid'] },
   save: { name: 'private.save_refinement_proposal', types: ['uuid', 'uuid', 'jsonb'] },

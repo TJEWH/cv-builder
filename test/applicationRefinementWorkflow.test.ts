@@ -4,7 +4,7 @@ import { cloneCv, loadApplicationCv } from '../src/composables/applicationCv';
 import { finalizeLetter } from '../src/composables/motivationLetters';
 import type { ApplicationLetter } from '../src/letterTypes';
 import type { ApplicationStage } from '../src/cloudTypes';
-import { account, applicationId, refinementKey, mount, prepare, idle, documents } from './refinementWorkflowHarness';
+import { account, applicationId, refinementKey, seedLegacyRound, mount, prepare, idle, documents } from './refinementWorkflowHarness';
 
 test('loading connected proposal history activates the complete temporary candidate without a cloud write or document save', async t => {
   const fixture = mount(t); const setup = await prepare(fixture);
@@ -15,7 +15,7 @@ test('loading connected proposal history activates the complete temporary candid
   assert.equal(setup.reviewActive, true);
   assert.ok(setup.selectedProposalId);
   assert.notDeepEqual(setup.previewCvState?.bodyOrder, setup.record?.state.bodyOrder);
-  assert.equal(setup.previewLetterContent?.body, 'Connected proposed letter.');
+  assert.equal(setup.previewLetterContent?.body, 'Original private working letter.');
   assert.equal(documents(setup), savedDocuments);
   assert.equal(JSON.stringify(setup.localRequests), savedPrivate);
   assert.equal(JSON.stringify(fixture.database), savedCloud);
@@ -87,11 +87,11 @@ test('historical letter comparisons show their own proposal and never lock or ov
   const second = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Second accepted letter.' });
   await setup.syncRefinement();
   setup.updateLetter('Second letter with manual corrections.');
-  setup.selectReviewProposal(first.id);
+  await setup.selectReviewProposal(first.id);
   assert.equal(setup.reviewActive, false);
   assert.equal(setup.previewLetterContent?.body, 'First accepted letter.');
   assert.equal(setup.letter!.working.body, 'Second letter with manual corrections.');
-  setup.selectReviewProposal(second.id);
+  await setup.selectReviewProposal(second.id);
   assert.equal(setup.previewLetterContent?.body, 'Second letter with manual corrections.');
   setup.reviewComparison = 'original';
   assert.equal(setup.previewLetterContent?.body, 'First accepted letter.');
@@ -126,7 +126,7 @@ test('refreshing proposal history preserves the active proposal and its selectio
   assert.equal(setup.selectedProposalId, first.id);
   assert.deepEqual(setup.selectedChangeIds, selection);
   assert.equal(JSON.stringify(setup.previewCvState), candidate);
-  assert.equal(setup.previewLetterContent?.body, 'First proposal under review.');
+  assert.equal(setup.previewLetterContent?.body, 'Original private working letter.');
 });
 
 test('accepting a proposal saves only the application copy with exactly the reviewed content, including after reload', async t => {
@@ -143,7 +143,7 @@ test('accepting a proposal saves only the application copy with exactly the revi
   assert.equal(fixture.creations.length, 0);
   assert.deepEqual(setup.record?.state, candidate);
   assert.equal(setup.record?.variantId, 'source-child', 'refinement retains the original source identity');
-  assert.equal(setup.letterText, 'Accepted reviewed letter.');
+  assert.equal(setup.letterText, 'Original private working letter.');
   assert.deepEqual(fixture.states.get('source-child'), source);
   assert.equal(JSON.stringify(setup.localRequests[proposal.proposal_json.requestId].cv), privateBefore);
   assert.deepEqual(loadApplicationCv(account, applicationId)?.state, candidate);
@@ -167,7 +167,7 @@ test('a deleted library source does not block acceptance or the next refinement 
   assert.equal(setup.error, '');
   assert.deepEqual(setup.record?.state, candidate);
   assert.equal(setup.record?.variantId, 'base');
-  assert.equal(setup.letterText, 'Refined independently from the library.');
+  assert.equal(setup.letterText, 'Original private working letter.');
   await setup.publishSources();
   assert.equal(setup.error, '');
   assert.equal(setup.requests.length, 2);
@@ -175,7 +175,7 @@ test('a deleted library source does not block acceptance or the next refinement 
   fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Another independent refinement.' });
   await setup.syncRefinement();
   assert.equal(setup.error, '');
-  assert.equal(setup.letterText, 'Another independent refinement.');
+  assert.equal(setup.letterText, 'Original private working letter.');
   assert.equal(fixture.creations.length, 0);
 });
 
@@ -314,7 +314,7 @@ test('a working edit during decision recording prevents either candidate documen
 });
 
 test('a finalized letter is not replaced merely because its cloud approval flag is absent', async t => {
-  const fixture = mount(t); const setup = await prepare(fixture);
+  const fixture = mount(t); const setup = await prepare(fixture, 'base', { scope: 'letter' });
   setup.letter = finalizeLetter(setup.letter!, setup.letter!.workingContext, setup.record!.state.contact);
   const finalBefore = JSON.stringify(setup.letter);
   fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Replacement for a finalized letter.' });
@@ -337,7 +337,7 @@ test('a finalized letter is not replaced merely because its cloud approval flag 
 });
 
 test('a failed local commit restores both documents and retries without any library writes', async t => {
-  const fixture = mount(t); const setup = await prepare(fixture);
+  const fixture = mount(t); const setup = await prepare(fixture, 'base', { scope: 'letter' });
   fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Proposed document pair.' });
   await setup.checkProposals();
   const before = documents(setup), savedBefore = new Map(fixture.data);
@@ -346,7 +346,7 @@ test('a failed local commit restores both documents and retries without any libr
   assert.match(setup.error, /Local storage quota reached/);
   assert.equal(documents(setup), before);
   for (const [key, value] of savedBefore) assert.equal(fixture.storage.getItem(key), value, `${key} must be rolled back`);
-  assert.equal(setup.reviewActive, true);
+  assert.equal(setup.reviewActive, false);
   assert.equal(fixture.creations.length, 0);
   setup.persist();
   assert.equal(setup.saveError, '');
@@ -372,7 +372,7 @@ test('retired local refinement history is dropped while current snapshots, docum
   delete retired.structureBindings;
   saved.requests[retiredRequestId] = retired;
   saved.importedProposals = [{ id: retiredProposalId, request_id: retiredRequestId, proposal_json: { schemaVersion: 1 } }];
-  saved.importedReviews = [{ id: crypto.randomUUID(), request_id: retiredRequestId, kind: 'feedback', payload: { text: 'Retired imported advice.', scope: 'both' } }];
+  saved.importedReviews = [{ id: crypto.randomUUID(), request_id: retiredRequestId, kind: 'feedback', payload: { text: 'Retired imported advice.', scope: 'cv' } }];
   saved.parentProposalId = retiredProposalId;
   fixture.storage.setItem(refinementKey, JSON.stringify(saved));
 
@@ -392,7 +392,7 @@ test('retired local refinement history is dropped while current snapshots, docum
 test('refinement scope changes preserve working documents and independent application status', async t => {
   const fixture = mount(t), setup = await prepare(fixture);
   const before = documents(setup), status = fixture.props.application.status;
-  for (const scope of ['cv', 'letter', 'both'] as const) {
+  for (const scope of ['cv', 'letter'] as const) {
     setup.tab = 'refinement'; setup.feedbackScope = scope; await idle(setup);
     assert.equal(setup.feedbackScope, scope); assert.equal(setup.tab, 'refinement');
     assert.equal(documents(setup), before); assert.equal(fixture.props.application.status, status);
@@ -403,22 +403,22 @@ test('refinement scope changes preserve working documents and independent applic
 });
 
 test('history selection activates exact older proposal previews, and refresh keeps that review active', async t => {
-  const fixture = mount(t), setup = await prepare(fixture);
+  const fixture = mount(t), setup = await prepare(fixture, 'base', { scope: 'letter' });
   const oldRequest = setup.requests[0];
   const old = fixture.cloud.seedProposal(oldRequest.id, { letterText: 'Earlier proposal.' });
   setup.updateLetter('New manual wording.'); await setup.publishSources();
   const current = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Current proposal.' });
   await setup.checkProposals();
-  assert.equal(setup.selectedProposalId, old.id, 'publishing and refreshing preserve an already active review');
-  setup.selectReviewProposal(current.id);
+  assert.equal(setup.selectedProposalId, current.id, 'the new current proposal is selected unless history was explicitly opened');
+  await setup.selectReviewProposal(current.id);
   assert.equal(setup.previewLetterContent?.body, 'Current proposal.');
   const before = documents(setup), status = fixture.props.application.status;
-  setup.selectReviewProposal(old.id);
+  await setup.selectReviewProposal(old.id);
   assert.equal(setup.previewLetterContent?.body, 'Earlier proposal.');
   assert.match(setup.reviewAcceptanceError, /superseded/);
   await setup.checkProposals(); assert.equal(setup.selectedProposalId, old.id);
-  setup.discardReview(); setup.selectReviewProposal(old.id);
-  assert.equal(setup.reviewActive, true, 'selecting the same ignored proposal reopens its temporary preview');
+  setup.discardReview(); await setup.selectReviewProposal(old.id);
+  assert.equal(setup.previewLetterContent?.body, 'Earlier proposal.', 'selecting the same proposal restores its letter comparison');
   assert.equal(documents(setup), before); assert.equal(fixture.props.application.status, status);
 });
 
@@ -431,7 +431,7 @@ test('an older run is never automatically loaded when the current request has no
   assert.equal(reopened.proposals.length, 1, 'the old proposal remains accessible in history');
 });
 
-for (const scope of ['cv', 'letter', 'both'] as const) test(`short ${scope} task copies the application reference only after publishing the matching current sources`, async t => {
+for (const scope of ['cv', 'letter'] as const) test(`short ${scope} task copies the application reference only after publishing the matching current sources`, async t => {
   const fixture = mount(t), setup = await prepare(fixture);
   fixture.props.application.application_code = 'APP-SYNTHETIC';
   const copied: string[] = [];
@@ -441,9 +441,9 @@ for (const scope of ['cv', 'letter', 'both'] as const) test(`short ${scope} task
   assert.equal(copied.length, 0, 'publishing must not copy anything');
   await setup.copyTask();
   assert.equal(setup.error, '');
-  const document = scope === 'cv' ? 'CV' : scope === 'letter' ? 'motivation letter' : 'both';
+  const document = scope === 'cv' ? 'CV' : 'motivation letter';
   assert.ok(copied.at(-1)!.startsWith(`phd-workflow: APP-SYNTHETIC — refine ${document}.\n`));
-  const current = fixture.database.application_refinement_state[0].current_request_id;
+  const current = fixture.database.application_refinement_state[0][`current_${setup.pane}_request_id`];
   assert.equal(typeof current, 'string');
   assert.equal(setup.requests.find(row => row.id === current)?.request_json.scope, scope);
   assert.ok(copied.at(-1)!.includes(`published request ${current}`));
@@ -459,15 +459,17 @@ for (const scope of ['cv', 'letter', 'both'] as const) test(`short ${scope} task
   const count = setup.requests.length;
   await setup.copyTask(); assert.equal(setup.requests.length, count, 'unchanged sources reuse the published request');
   assert.equal(fixture.database.application_refinement_protocols.length, 1, 'copy retries reuse the identical protocol');
-  setup.updateLetter('Manual correction for the next round.');
+  if (scope === 'letter') setup.updateLetter('Manual correction for the next round.');
+  else setup.record!.state.about.text = 'Manual correction for the next round.';
   await setup.copyTask(); assert.match(setup.error, /Publish the current sources/);
   assert.equal(copied.length, 2, 'copying changed sources must not publish or copy an old request');
   assert.equal(setup.requests.length, count);
   await setup.publishSources(); assert.equal(copied.length, 2);
   await setup.copyTask(); assert.equal(setup.requests.length, count + 1);
-  assert.ok(copied.at(-1)!.includes(`published request ${fixture.database.application_refinement_state[0].current_request_id}`));
+  assert.ok(copied.at(-1)!.includes(`published request ${fixture.database.application_refinement_state[0][`current_${setup.pane}_request_id`]}`));
   assert.ok(!copied.at(-1)!.includes(String(current)), 'the next task cannot retain a superseded request reference');
-  setup.updateLetter('Unpublished changed source.');
+  if (scope === 'letter') setup.updateLetter('Unpublished changed source.');
+  else setup.record!.state.about.text = 'Unpublished changed source.';
   fixture.cloud.client.rpc = (() => Promise.resolve({ data: null, error: new Error('Synthetic publication failure') })) as unknown as typeof fixture.cloud.client.rpc;
   await setup.publishSources(); assert.ok(setup.error); assert.equal(copied.length, 3);
   await setup.copyTask(); assert.ok(setup.error); assert.equal(copied.length, 3, 'failed publication must not copy an instruction for old sources');
@@ -625,11 +627,13 @@ test('stage navigation awaits personal evaluation persistence and stays in prepa
 test('new applications and saved combined scopes select a separate document scope', async t => {
   const fixture = mount(t); await idle(fixture.setup);
   assert.equal(fixture.setup.feedbackScope, 'cv');
-  const setup = await prepare(fixture, 'base', { scope: 'both' });
-  fixture.cloud.seedProposal(setup.requests[0].id);
+  await prepare(fixture, 'base', { scope: 'cv' });
+  const historical = seedLegacyRound(fixture);
+  const saved = JSON.parse(fixture.storage.getItem(refinementKey)!);
+  saved.scope = 'both'; fixture.storage.setItem(refinementKey, JSON.stringify(saved));
   const reopened = fixture.reopen(); await idle(reopened);
   assert.equal(reopened.feedbackScope, 'cv', 'an old combined scope must not return to the dropdown');
-  reopened.openProposal();
+  await reopened.selectReviewProposal(historical.id);
   assert.match(reopened.reviewAcceptanceError, /separate request/);
   reopened.discardReview(); reopened.feedbackScope = 'letter'; await reopened.publishSources();
   assert.equal(reopened.error, '');

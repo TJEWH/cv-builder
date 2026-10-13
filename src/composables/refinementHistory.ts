@@ -1,7 +1,7 @@
 import { refinementSignature } from './applicationRefinement';
-import type { LocalRefinementRequest, RefinementProposalRow, RefinementRequestRow, RefinementScope } from '../refinementTypes';
+import type { LocalRefinementRequest, RefinementProposalRow, RefinementRequestRow, HistoricalRefinementScope } from '../refinementTypes';
 
-export function refinementMatchesScope(requestScope: RefinementScope, scope: RefinementScope, clearedScopes: readonly Exclude<RefinementScope, 'both'>[] = []) {
+export function refinementMatchesScope(requestScope: HistoricalRefinementScope, scope: HistoricalRefinementScope, clearedScopes: readonly Exclude<HistoricalRefinementScope, 'both'>[] = []) {
   return (['cv', 'letter'] as const).some(document => (requestScope === 'both' || requestScope === document)
     && (scope === 'both' || scope === document) && !clearedScopes.includes(document));
 }

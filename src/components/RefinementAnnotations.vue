@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, reactive, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, reactive, watch } from 'vue';
 import AutosaveTextarea from './AutosaveTextarea.vue';
 import type { AnnotationStatus } from '../refinementTypes';
-import type { AnnotationView } from '../composables/refinementAnnotations';
+import { QUESTION_GROUPS, questionPresentation, type AnnotationView, type QuestionGroup } from '../composables/refinementAnnotations';
 import { useToasts } from '../composables/useToasts';
 
 type Item = AnnotationView & { target: string; referenceChanged: boolean; included: boolean };
 const props = defineProps<{
-  items: Item[]; lang: string; disabled: boolean; questionsOnly?: boolean;
+  items: Item[]; lang: string; disabled: boolean; hideHeading?: boolean;
+  comments?: { id: string; explanation: string }[];
   save: (id: string, status: AnnotationStatus, response: string, previousReviewId: string | null) => Promise<boolean>;
   privacyPreview: (value: string) => string;
 }>();
@@ -116,33 +117,49 @@ function failureMessage(item: Item) {
     : text('Ignoring failed. Your previous status and response are retained. Choose Ignored again to retry.', 'Ignorieren fehlgeschlagen. Der vorherige Status und deine Antwort bleiben erhalten. Zum Wiederholen erneut „Ignoriert“ auswählen.');
   return text('The comment could not be fully saved. Your response is retained.', 'Der Kommentar konnte nicht vollständig gespeichert werden. Deine Antwort bleibt erhalten.');
 }
-const typeLabel = (type: string) => type === 'question' ? text('Question', 'Frage') : type === 'todo' ? 'ToDo' : text('Comment', 'Kommentar');
+const questionGroupLabel = (group: QuestionGroup) => ({
+  application_requirements: text('Application requirements', 'Bewerbungsanforderungen'),
+  experience: text('Your experience', 'Eigene Erfahrung'),
+  follow_up: text('Follow-up questions', 'Rückfragen'),
+  other: text('Other', 'Sonstige'),
+})[group];
+const groups = computed(() => QUESTION_GROUPS.map(group => ({
+  id: group,
+  items: props.items.filter(item => questionPresentation(item.annotation.text).group === group),
+  comments: (props.comments || []).filter(comment => questionPresentation(comment.explanation).group === group),
+})).filter(group => group.items.length || group.comments.length));
 </script>
 
 <template>
-  <section v-if="items.length" class="annotations" :aria-label="questionsOnly ? text('Questions', 'Fragen') : text('CV and letter annotations', 'Anmerkungen zu CV und Brief')">
-    <h3>{{ questionsOnly ? text('Questions', 'Fragen') : text('Comments', 'Kommentare') }}</h3>
-    <article v-for="item in items" :key="key(item)" class="annotation-row" :data-annotation-id="item.annotation.id" :aria-busy="drafts[key(item)]!.saving">
-      <header><strong>{{ typeLabel(item.annotation.type) }}</strong><span class="target">{{ item.target }}</span></header>
-      <p class="annotation-text">{{ item.annotation.text }}</p>
-      <template v-if="item.annotation.document === 'letter' && item.annotation.location">
-        <p v-if="item.referenceChanged" class="app-hint">{{ text('Referenced text has changed', 'Referenzierter Text wurde geändert') }}</p>
-        <details class="disclosure-row"><summary>{{ text('Original text reference', 'Ursprünglicher Textbezug') }}</summary><blockquote>{{ item.annotation.location.quote }}</blockquote></details>
-      </template>
-      <label v-if="drafts[key(item)]!.status !== 'ignored'">{{ text('Your response (optional)', 'Deine Antwort (optional)') }}<AutosaveTextarea v-model="drafts[key(item)]!.response" @commit="save(item)" rows="3" maxlength="12000" :disabled="disabled" /></label>
-      <label>{{ text('Annotation status', 'Status der Anmerkung') }}<select v-model="drafts[key(item)]!.status" :disabled="disabled" @change="save(item)"><option value="open">{{ text('Open', 'Offen') }}</option><option value="resolved">{{ text('Resolved', 'Erledigt') }}</option><option value="ignored">{{ text('Ignored', 'Ignoriert') }}</option></select></label>
-      <p v-if="drafts[key(item)]!.reviewId !== item.reviewId" class="app-hint">{{ text('Load the saved annotation before continuing.', 'Vor dem Fortfahren die gespeicherte Anmerkung laden.') }} <button type="button" :disabled="disabled" @click="reset(item)">{{ text('Load saved annotation', 'Gespeicherte Anmerkung laden') }}</button></p>
-      <p v-if="drafts[key(item)]!.failed" class="save-error" role="alert">{{ failureMessage(item) }}</p>
-      <button v-if="drafts[key(item)]!.failed && drafts[key(item)]!.failedStatus !== 'ignored' && drafts[key(item)]!.status !== 'ignored'" type="button" :disabled="disabled || drafts[key(item)]!.saving || drafts[key(item)]!.reviewId !== item.reviewId" @click="save(item)">{{ text('Retry save', 'Erneut speichern') }}</button>
-    </article>
+  <section v-if="groups.length" class="annotations" :aria-label="text('Questions', 'Fragen')">
+    <h3 v-if="!hideHeading">{{ text('Questions', 'Fragen') }}</h3>
+    <section v-for="group in groups" :key="group.id" class="question-group" :data-question-group="group.id">
+      <h4>{{ questionGroupLabel(group.id) }}</h4>
+      <article v-for="item in group.items" :key="key(item)" class="annotation-row" :data-annotation-id="item.annotation.id" :aria-label="item.target" :aria-busy="drafts[key(item)]!.saving">
+        <p class="annotation-text">{{ questionPresentation(item.annotation.text).text }}</p>
+        <template v-if="item.annotation.document === 'letter' && item.annotation.location">
+          <p v-if="item.referenceChanged" class="app-hint">{{ text('Referenced text has changed', 'Referenzierter Text wurde geändert') }}</p>
+          <details class="disclosure-row"><summary>{{ text('Original text reference', 'Ursprünglicher Textbezug') }}</summary><blockquote>{{ item.annotation.location.quote }}</blockquote></details>
+        </template>
+        <label v-if="drafts[key(item)]!.status !== 'ignored'">{{ text('Your response (optional)', 'Deine Antwort (optional)') }}<AutosaveTextarea v-model="drafts[key(item)]!.response" @commit="save(item)" rows="3" maxlength="12000" :disabled="disabled" /></label>
+        <label>{{ text('Status', 'Status') }}<select v-model="drafts[key(item)]!.status" :disabled="disabled" @change="save(item)"><option value="open">{{ text('Open', 'Offen') }}</option><option value="resolved">{{ text('Resolved', 'Erledigt') }}</option><option value="ignored">{{ text('Ignored', 'Ignoriert') }}</option></select></label>
+        <p v-if="drafts[key(item)]!.reviewId !== item.reviewId" class="app-hint">{{ text('Load the saved annotation before continuing.', 'Vor dem Fortfahren die gespeicherte Anmerkung laden.') }} <button type="button" :disabled="disabled" @click="reset(item)">{{ text('Load saved annotation', 'Gespeicherte Anmerkung laden') }}</button></p>
+        <p v-if="drafts[key(item)]!.failed" class="save-error" role="alert">{{ failureMessage(item) }}</p>
+        <button v-if="drafts[key(item)]!.failed && drafts[key(item)]!.failedStatus !== 'ignored' && drafts[key(item)]!.status !== 'ignored'" type="button" :disabled="disabled || drafts[key(item)]!.saving || drafts[key(item)]!.reviewId !== item.reviewId" @click="save(item)">{{ text('Retry save', 'Erneut speichern') }}</button>
+      </article>
+      <p v-for="comment in group.comments" :key="comment.id" class="legacy-question">{{ questionPresentation(comment.explanation).text }}</p>
+    </section>
   </section>
 </template>
 
 <style scoped>
-.annotations { border-top: 1px solid #28534e; margin-top: 1.2rem; padding-top: .6rem; }
-.annotation-row { border-top: 1px solid #28534e; margin: 0; padding: 1rem 0; min-width: 0; }
-header { display: flex; justify-content: space-between; gap: .7rem; flex-wrap: wrap; align-items: baseline; }
-.target { font-size: .86rem; color: #a6c1b9; overflow-wrap: anywhere; }.annotation-text, blockquote { white-space: pre-wrap; overflow-wrap: anywhere; }
+.annotations { margin: 0; }
+.question-group + .question-group { margin-top: 28px; }
+.question-group h4 { font-size: 14px; margin: 0 0 12px; color: var(--ui-muted, #a6c1b9); }
+.annotation-row { margin: 0; padding: 0; min-width: 0; }
+.annotation-row + .annotation-row, .legacy-question { margin-top: 24px; }
+.annotation-text { margin: 0 0 12px; }
+.annotation-text, .legacy-question, blockquote { white-space: pre-wrap; overflow-wrap: anywhere; }
 .save-error { color: #fecaca; font-size: .85rem; }
 blockquote { margin: .6rem 0; border-left: 3px solid #28534e; padding-left: .7rem; }
 label { display: flex; flex-direction: column; gap: .3rem; margin: .65rem 0; font-size: .85rem; }

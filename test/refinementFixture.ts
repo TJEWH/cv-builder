@@ -53,7 +53,7 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
       if (name === 'publish_refinement_protocol') {
         const request = database.application_refinement_requests.find(row => row.id === args.p_request_id && row.user_id === account);
         if (!request) throw new Error('Published request not found for this account.');
-        if (stateFor(request.application_id)?.current_request_id !== request.id) throw new Error('The current refinement request changed.');
+        if (stateFor(request.application_id)?.[`current_${(request.request_json as RefinementRequest).scope}_request_id`] !== request.id) throw new Error('The current refinement request changed.');
         const existing = database.application_refinement_protocols.find(row => row.request_id === request.id && row.protocol_id === args.p_protocol_id);
         if (existing && existing.protocol_text !== args.p_protocol_text) throw new Error('Protocol identifier mismatch.');
         const row = existing || { request_id: request.id, protocol_id: args.p_protocol_id, protocol_text: args.p_protocol_text,
@@ -85,7 +85,8 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
           const proposal = database.application_refinement_proposals.find(proposal => proposal.id === payload.proposalId)?.proposal_json as RefinementProposal | undefined;
           const reviewScope = row.kind === 'feedback' ? payload.scope : row.kind === 'annotation'
             ? proposal?.annotations?.find(annotation => annotation.id === payload.annotationId)?.document
-            : row.kind === 'cv_decisions' || ['approve_cv', 'reopen_cv'].includes(String(row.kind)) ? 'cv' : 'letter';
+            : row.kind === 'cv_decisions' ? ((database.application_refinement_requests.find(source => source.id === row.request_id)?.request_json as RefinementRequest)?.scope === 'letter' ? 'letter' : 'cv')
+            : ['approve_cv', 'reopen_cv'].includes(String(row.kind)) ? 'cv' : 'letter';
           if (reviewScope === scope) return false;
           if (reviewScope === 'both') { mark(row); return cleared(row)!.length < 2; }
           return true;
@@ -107,12 +108,13 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
             }
           }
         }
-        const current = database.application_refinement_requests.find(row => row.id === state.current_request_id);
+
         for (const table of ['application_refinement_proposals', 'application_refinement_protocols']) {
           database[table] = database[table].filter(row => !belongs(row) || scope !== 'both' && !deletedRequests.has(String(row.request_id)));
         }
         database.application_refinement_requests = database.application_refinement_requests.filter(row => !belongs(row) || !deletedRequests.has(String(row.id)));
-        Object.assign(state, { current_request_id: scope === 'both' || !current || exhausted(current) ? null : state.current_request_id,
+        Object.assign(state, { current_cv_request_id: scope === 'both' || scope === 'cv' ? null : state.current_cv_request_id,
+          current_letter_request_id: scope === 'both' || scope === 'letter' ? null : state.current_letter_request_id,
           revision: Number(state.revision) + 1, updated_at: now() });
         return { data: clone(state), error: null };
       }
@@ -122,13 +124,14 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
         if (Number(args.p_expected_revision) !== Number(state?.revision || 0)) throw new Error('Refinement state changed. Reload and retry.');
         const incoming = args.p_approvals as Row;
         const setupChanged = state && !same(state.setup_json, args.p_setup);
-        if (!state) { state = { application_id: args.p_application_id, user_id: account, current_request_id: null }; database.application_refinement_state.push(state); }
+        if (!state) { state = { application_id: args.p_application_id, user_id: account, current_cv_request_id: null, current_letter_request_id: null }; database.application_refinement_state.push(state); }
         Object.assign(state, { setup_json: clone(args.p_setup), approvals_json: clone(incoming), revision: Number(args.p_expected_revision) + 1, updated_at: now() });
-        if (setupChanged) { state.current_request_id = null; (state.approvals_json as Row).letter = null; }
+        if (setupChanged) { state.current_letter_request_id = null; (state.approvals_json as Row).letter = null; }
         return { data: clone(state), error: null };
       }
       if (name === 'publish_refinement_request') {
         const request = args.p_request as RefinementRequest;
+        if (request.scope !== 'cv' && request.scope !== 'letter') throw new Error('Publish a separate document request.');
         const app = appFor(request.applicationId);
         const existing = database.application_refinement_requests.find(row => row.id === request.requestId);
         if (existing) { if (!same(existing.request_json, request)) throw new Error('Request ID already exists with different input.'); return { data: clone(existing), error: null }; }
@@ -136,18 +139,19 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
         const cv = database.cv_variants.find(row => row.id === app.cv_variant_id && row.user_id === account);
         if (!state || !cv) throw new Error('Save preparation before publishing a fixture request.');
         const { text: _text, ...setup } = request.letter;
-        if (!same(state.setup_json, setup)) throw new Error('Refinement settings changed.');
+        if (request.scope === 'letter' && !same(state.setup_json, setup)) throw new Error('Refinement settings changed.');
         const approvals = state.approvals_json as Row;
         if (approvals.cv && request.scope !== 'letter' || approvals.letter && request.scope !== 'cv') throw new Error('Reopen approved documents first.');
         const feedback = database.application_refinement_reviews.filter(row => row.application_id === app.id && row.kind === 'feedback'
-          && (request.scope === 'both' || !(row.cleared_scopes as string[] | undefined)?.includes(request.scope)))
+          && (row.payload as Row).scope === request.scope && !(row.cleared_scopes as string[] | undefined)?.includes(request.scope)
+          && (!row.request_id || database.application_refinement_requests.some(source => source.id === row.request_id && (source.request_json as RefinementRequest).scope === request.scope)))
           .map(row => ({ id: row.id, ...(row.payload as Row), createdAt: row.created_at }));
         if (!same(feedback, request.feedback)) throw new Error('Include all ordered feedback in the request.');
-        if (request.parentProposalId && !database.application_refinement_proposals.some(row => row.id === request.parentProposalId && row.application_id === app.id)) throw new Error('Unknown parent proposal.');
+        if (request.parentProposalId && !database.application_refinement_proposals.some(row => row.id === request.parentProposalId && row.application_id === app.id && database.application_refinement_requests.some(source => source.id === row.request_id && (source.request_json as RefinementRequest).scope === request.scope))) throw new Error('Unknown parent proposal.');
         const row = { id: request.requestId, application_id: app.id, user_id: account, request_json: clone(request), opportunity_snapshot: clone(app.context_json),
           cv_snapshot: { snapshotId: cv.id, revision: cv.revision, content: { ...clone(cv.content_json as Row), contact: { ...IDENTITY_PLACEHOLDERS } } }, created_at: now() };
         database.application_refinement_requests.push(row);
-        Object.assign(state, { current_request_id: row.id, revision: Number(state.revision) + 1, updated_at: now() });
+        Object.assign(state, { [`current_${request.scope}_request_id`]: row.id, revision: Number(state.revision) + 1, updated_at: now() });
         return { data: clone(row), error: null };
       }
       if (name === 'save_refinement_review') {
@@ -161,19 +165,22 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
         if (!state) throw new Error('Save refinement settings first.');
         if (args.p_request_id && !database.application_refinement_requests.some(row => row.id === args.p_request_id && row.application_id === app.id)) throw new Error('Review request unavailable.');
         const kind = String(args.p_kind); const payload = args.p_payload as Row;
+        const source = database.application_refinement_requests.find(row => row.id === args.p_request_id)?.request_json as RefinementRequest | undefined;
+        if (source?.scope === 'both') throw new Error('Combined rounds are read-only history.');
+        const currentId = source ? state[`current_${source.scope}_request_id`] : null;
         if (kind === 'annotation' || kind === 'feedback' && payload.annotation) {
           const reference = kind === 'annotation' ? { proposalId: payload.proposalId, annotationId: payload.annotationId, reviewId: payload.previousReviewId } : payload.annotation as Row;
           const proposal = database.application_refinement_proposals.find(row => row.id === reference.proposalId && row.application_id === app.id && row.request_id === args.p_request_id);
           const content = proposal?.proposal_json as RefinementProposal | undefined;
           const annotation = content?.annotations?.find(item => item.id === reference.annotationId);
-          if (!annotation) throw new Error('Annotation unavailable.');
+          if (!annotation || annotation.document !== source?.scope) throw new Error('Annotation unavailable.');
           const previous = [...database.application_refinement_reviews].reverse().find(row => row.kind === 'annotation' && (row.payload as Row).proposalId === reference.proposalId && (row.payload as Row).annotationId === reference.annotationId);
           if ((previous?.id || null) !== reference.reviewId) throw new Error('Annotation changed elsewhere; reload the saved annotation.');
           if (kind === 'feedback' && payload.scope !== annotation.document) throw new Error('Annotation feedback scope mismatch.');
         }
         if (kind === 'cv_decisions') {
           const proposal = database.application_refinement_proposals.find(row => row.id === payload.proposalId && row.application_id === app.id && row.request_id === args.p_request_id);
-          if (!proposal || args.p_request_id !== state.current_request_id) throw new Error('CV decisions must refer to the current proposal.');
+          if (!proposal || args.p_request_id !== currentId) throw new Error('CV decisions must refer to the current proposal.');
           const content = proposal.proposal_json as RefinementProposal;
           const available = content.cvOperations.map(operation => operation.id);
           const accepted = payload.accepted as string[]; const rejected = payload.rejected as string[];
@@ -185,11 +192,12 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
           if (!['open', 'resolved', 'ignored'].includes(String(payload.status))) throw new Error('Invalid annotation status.');
         } else if (kind !== 'feedback') {
           if (Number(payload.expectedRevision) !== state.revision) throw new Error('Refinement review is stale.');
-          if (args.p_request_id !== null && args.p_request_id !== state.current_request_id) throw new Error('This request is stale; review the current documents.');
+          if (args.p_request_id !== null && args.p_request_id !== currentId) throw new Error('This request is stale; review the current documents.');
           const target = kind.endsWith('_cv') ? 'cv' : 'letter';
+          if (source && source.scope !== target) throw new Error('Approval belongs to another document.');
           (state.approvals_json as Row)[target] = kind.startsWith('approve_') ? payload.revision : null;
           state.revision = Number(state.revision) + 1; state.updated_at = now();
-        } else if (!String(payload.text || '').trim() || !['both', 'cv', 'letter'].includes(String(payload.scope))) throw new Error('Invalid fixture feedback.');
+        } else if (!String(payload.text || '').trim() || !['cv', 'letter'].includes(String(payload.scope)) || source && source.scope !== payload.scope) throw new Error('Invalid fixture feedback.');
         const row = { id: args.p_id, application_id: app.id, user_id: account, request_id: args.p_request_id, kind, payload: clone(payload), created_at: now() };
         database.application_refinement_reviews.push(row);
         return { data: clone(row), error: null };
@@ -249,6 +257,8 @@ export function createRefinementFixture(database: Record<string, Row[]>, account
       { id: 'annotation-1', type: 'question', document: 'cv', location: field ? { fieldId: field.id } : null, text: 'Which research methods did you use? Add only details you can confirm.' },
       { id: 'annotation-2', type: 'todo', document: 'letter', location: proposal.letterText ? { start: 0, quote: [...proposal.letterText].slice(0, 30).join('') } : null, text: 'Confirm the project-specific research interest before the next round.' },
     ];
+    if (request.scope === 'letter') proposal.annotations[0] = { id: 'annotation-1', type: 'question', document: 'letter', location: null, text: 'Which research methods support your motivation? Add only details you can confirm.' };
+    proposal.annotations = proposal.annotations.filter(item => request.scope === 'both' || item.document === request.scope);
     const validated = parseRefinementProposal(proposal, request);
     const saved = { id: crypto.randomUUID(), application_id: request.applicationId, user_id: account, request_id: request.requestId, proposal_json: validated, created_at: now() };
     if (options.persist !== false) database.application_refinement_proposals.push(saved);

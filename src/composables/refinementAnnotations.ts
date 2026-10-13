@@ -3,6 +3,13 @@ import { letterFromEditableText, letterToEditableText } from './motivationLetter
 
 const UUID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/;
 const ID = /^annotation-[1-9][0-9]*$/;
+export const QUESTION_GROUPS = ['application_requirements', 'experience', 'follow_up', 'other'] as const;
+export type QuestionGroup = typeof QUESTION_GROUPS[number];
+/** Category tags use the existing text contract so older saved proposals stay readable. */
+export function questionPresentation(value: string): { group: QuestionGroup; text: string } {
+  const match = /^\[(application_requirements|experience|follow_up|other)\]\s+([\s\S]+)$/.exec(value);
+  return match ? { group: match[1] as QuestionGroup, text: match[2]! } : { group: 'other', text: value };
+}
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const exact = (value: unknown, keys: string[]): value is Record<string, unknown> => object(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 const validText = (value: unknown, max: number): value is string => typeof value === 'string' && value.length <= max && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value);

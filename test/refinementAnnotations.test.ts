@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { prepareRefinement, parseRefinementProposal, applyRefinementProposal, refinementSignature, buildRefinementPrompt } from '../src/composables/applicationRefinement';
-import { annotationReferenceChanged, annotationViews, validAnnotationReference, validateAnnotationReview } from '../src/composables/refinementAnnotations';
+import { QUESTION_GROUPS, questionPresentation, annotationReferenceChanged, annotationViews, validAnnotationReference, validateAnnotationReview } from '../src/composables/refinementAnnotations';
 import { DEFAULT_LETTER_TEMPLATES } from '../src/composables/motivationLetters';
 import { createTestState } from './helpers';
 import type { RefinementAnnotation, RefinementProposalRow, RefinementProposalV2, RefinementReviewRow } from '../src/refinementTypes';
 const appId = crypto.randomUUID(), proposalId = crypto.randomUUID();
 const state = createTestState({ about: { text: 'Research experience with reproducible experiments.' } });
 function fixture() {
-  const local = prepareRefinement({ applicationId: appId, state, variantId: 'base', setup: { template: DEFAULT_LETTER_TEMPLATES[0], language: 'en', maxWords: 400 }, letterText: 'Saved letter.', opportunity: {}, scope: 'both', feedback: [], parentProposalId: null, baselineSignature: refinementSignature(state) });
+  const local = prepareRefinement({ applicationId: appId, state, variantId: 'base', setup: { template: DEFAULT_LETTER_TEMPLATES[0], language: 'en', maxWords: 400 }, letterText: 'Saved letter.', opportunity: {}, scope: 'letter', feedback: [], parentProposalId: null, baselineSignature: refinementSignature(state) });
   const annotations: RefinementAnnotation[] = [
     { id: 'annotation-1', type: 'question', document: 'cv', location: { fieldId: local.request.cv.fields[0].id }, text: 'Which methods did you use?' },
     { id: 'annotation-2', type: 'todo', document: 'letter', location: { start: 2, quote: 'Proposed letter.' }, text: 'Confirm this research interest.' },
@@ -70,4 +70,22 @@ test('annotation references and review payloads are strict, with optional privat
   for (const invalid of [{ ...payload, status: 'accepted' }, { ...payload, status: ['open'] }, { ...payload, response: '' }, { ...payload, response: '😀'.repeat(6001) }, { ...payload, previousReviewId: 'not-uuid' }, { ...payload, text: 'extra' }]) assert.throws(() => validateAnnotationReview(invalid), /annotation/);
   assert.equal(validAnnotationReference({ proposalId, annotationId: 'annotation-1', reviewId: null }), true);
   assert.equal(validAnnotationReference({ proposalId, annotationId: 'annotation-1' }), false);
+});
+
+
+test('new prompts request only categorized questions while legacy annotations remain readable', () => {
+  const { local, proposal } = fixture();
+  const prompt = buildRefinementPrompt(local.request, 'fixture');
+  assert.match(prompt, /Create only question annotations/);
+  assert.match(prompt, /Return cvComments: \[\]/);
+  for (const group of QUESTION_GROUPS) {
+    assert.ok(prompt.includes(`[${group}]`));
+    const question = `[${group}] Which documented evidence supports this?`;
+    assert.deepEqual(questionPresentation(question), { group, text: 'Which documented evidence supports this?' });
+    const parsed = parseRefinementProposal({ ...proposal, annotations: [{ ...proposal.annotations![0], text: question }] }, local.request);
+    assert.equal(parsed.annotations![0].text, question, 'category tagging must preserve the existing wire contract');
+  }
+  assert.deepEqual(parseRefinementProposal(proposal, local.request).annotations, proposal.annotations);
+  assert.deepEqual(questionPresentation('Existing comment without a category.'), { group: 'other', text: 'Existing comment without a category.' });
+  assert.deepEqual(questionPresentation('[unrecognized] Preserve the wording.'), { group: 'other', text: '[unrecognized] Preserve the wording.' });
 });

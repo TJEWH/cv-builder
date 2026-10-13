@@ -33,13 +33,13 @@ begin
   perform public.save_refinement_state(app_a,setup,'{"cv":null,"letter":null}',0);
   request:=jsonb_build_object('schemaVersion',2,'requestId',request_a,'applicationId',app_a,
     'cv',jsonb_build_object('schemaVersion',1,'requestId',request_a,'fields',fields,'opportunity','{}'::jsonb,'instructions','Preserve evidence.'),
-    'letter',setup||'{"text":"Existing letter."}','scope','both','feedback','[]'::jsonb,'parentProposalId',null,'cvStructure',structure);
+    'letter',setup||'{"text":"Existing letter."}','scope','letter','feedback','[]'::jsonb,'parentProposalId',null,'cvStructure',structure);
   original:=public.publish_refinement_request(request);
   if original->'request_json'<>request or public.publish_refinement_request(request)<>original then raise exception 'FAIL: v2 immutable request receipt'; end if;
 
   proposal:=jsonb_build_object('schemaVersion',2,'requestId',request_a,'summary','Legacy summary remains plain text; TODO is not an annotation.',
     'cvOperations','[]'::jsonb,'cvComments','[]'::jsonb,'letterText','😀 Evidence is documented.',
-    'annotations','[{"id":"annotation-1","type":"question","document":"cv","location":{"fieldId":"field-1"},"text":"Which methods did you use?"},{"id":"annotation-2","type":"todo","document":"letter","location":{"start":2,"quote":"Evidence is documented."},"text":"Confirm the research interest."},{"id":"annotation-3","type":"comment","document":"letter","location":null,"text":"Consider a documented example!!"}]'::jsonb);
+    'annotations','[{"id":"annotation-1","type":"question","document":"letter","location":null,"text":"Which methods did you use?"},{"id":"annotation-2","type":"todo","document":"letter","location":{"start":2,"quote":"Evidence is documented."},"text":"Confirm the research interest."},{"id":"annotation-3","type":"comment","document":"letter","location":null,"text":"Consider a documented example!!"}]'::jsonb);
   execute 'reset role'; perform set_config('request.jwt.claims','{}',true);
   receipt:=private.save_refinement_proposal(request_a,proposal_a,proposal);
   if private.save_refinement_proposal(request_a,proposal_a,proposal)<>receipt then raise exception 'FAIL: annotation proposal retry'; end if;
@@ -47,7 +47,7 @@ begin
   for invalid in select value from jsonb_array_elements(jsonb_build_array(
     'null'::jsonb,'{}'::jsonb,proposal->'annotations'||jsonb_build_array(proposal#>'{annotations,0}'),
     jsonb_set(proposal->'annotations','{0,id}','"unknown"'),jsonb_set(proposal->'annotations','{0,type}','"replace"'),
-    jsonb_set(proposal->'annotations','{0,document}','"both"'),jsonb_set(proposal->'annotations','{0,location,fieldId}','"field-999"'),
+    jsonb_set(proposal->'annotations','{0,document}','"both"'),jsonb_set(proposal->'annotations','{0,location}','{"fieldId":"field-999"}'),
     jsonb_set(proposal->'annotations','{1,location,start}','3'),jsonb_set(proposal->'annotations','{1,location,start}','-1'),
     jsonb_set(proposal->'annotations','{1,location,quote}','"Invented quote"'),jsonb_set(proposal->'annotations','{0,text}','""'),
     jsonb_set(proposal->'annotations','{0,text}',to_jsonb(repeat('😀',2001))),jsonb_set(proposal->'annotations','{0,text}','"Alex Muster"'),
@@ -64,7 +64,7 @@ begin
   execute 'set local role authenticated';
   prior_state:=(select to_jsonb(s) from public.application_refinement_state s where application_id=app_a);
   -- Unanswered open annotations can be explicitly included as ordinary referenced feedback.
-  perform public.save_refinement_review(app_a,request_a,'feedback',jsonb_build_object('text','Open question: Which methods did you use?','scope','cv',
+  perform public.save_refinement_review(app_a,request_a,'feedback',jsonb_build_object('text','Open question: Which methods did you use?','scope','letter',
     'annotation',jsonb_build_object('proposalId',proposal_a,'annotationId','annotation-1','reviewId',null)),gen_random_uuid());
   review_payload:=jsonb_build_object('proposalId',proposal_a,'annotationId','annotation-1','status','resolved','response','Controlled experiments!!','previousReviewId',null);
   receipt:=public.save_refinement_review(app_a,request_a,'annotation',review_payload,first_review);
@@ -78,10 +78,10 @@ begin
   begin perform public.save_refinement_review(app_a,request_a,'annotation',review_payload||jsonb_build_object('annotationId','annotation-999'),gen_random_uuid()); raise exception 'FAIL: unknown annotation'; exception when invalid_parameter_value then null; end;
   begin perform public.save_refinement_review(app_a,request_a,'annotation',review_payload||jsonb_build_object('proposalId',gen_random_uuid()),gen_random_uuid()); raise exception 'FAIL: unknown proposal'; exception when insufficient_privilege then null; end;
   note:=jsonb_build_object('proposalId',proposal_a,'annotationId','annotation-1','reviewId',first_review);
-  saved_feedback:=jsonb_build_object('text','Question: Which methods did you use? User response: Controlled experiments!!','scope','cv','annotation',note);
+  saved_feedback:=jsonb_build_object('text','Question: Which methods did you use? User response: Controlled experiments!!','scope','letter','annotation',note);
   receipt:=public.save_refinement_review(app_a,request_a,'feedback',saved_feedback,feedback_review);
   if public.save_refinement_review(app_a,request_a,'feedback',saved_feedback,feedback_review)<>receipt then raise exception 'FAIL: feedback retry'; end if;
-  begin perform public.save_refinement_review(app_a,request_a,'feedback',saved_feedback||'{"scope":"letter"}',gen_random_uuid()); raise exception 'FAIL: annotation scope'; exception when invalid_parameter_value then null; end;
+  begin perform public.save_refinement_review(app_a,request_a,'feedback',saved_feedback||'{"scope":"cv"}',gen_random_uuid()); raise exception 'FAIL: annotation scope'; exception when invalid_parameter_value then null; end;
   begin perform public.save_refinement_review(app_a,request_a,'feedback',jsonb_set(saved_feedback,'{annotation,reviewId}','null'),gen_random_uuid()); raise exception 'FAIL: stale feedback reference'; exception when serialization_failure then null; end;
   -- Resolved/ignored annotations without answers cannot become follow-up feedback.
   candidate:=gen_random_uuid();

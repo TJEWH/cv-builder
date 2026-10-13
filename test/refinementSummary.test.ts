@@ -64,7 +64,7 @@ test('long legacy letter summaries are bounded at a word boundary without breaki
 
 test('prompts request concise scoped summaries without changing the proposal contract', () => {
   const state = createTestState();
-  for (const scope of ['cv', 'letter', 'both'] as const) {
+  for (const scope of ['cv', 'letter'] as const) {
     const local = prepareRefinement({ scope, applicationId: crypto.randomUUID(), state, variantId: 'base',
       setup: { template: DEFAULT_LETTER_TEMPLATES[0], language: 'en', maxWords: 400 }, letterText: 'Existing letter.', opportunity: {},
       feedback: [], parentProposalId: null, baselineSignature: refinementSignature(state) });
@@ -82,6 +82,6 @@ test('prompts request concise scoped summaries without changing the proposal con
     assert.match(prompt, /no additional properties/);
     assert.match(prompt, /latest feedback entry beginning "Workflow reset:" whose scope includes that document starts a fresh iteration/);
     assert.match(prompt, /inactive unless explicitly reconfirmed in later feedback/);
-    assert.match(prompt, /Earlier guidance for the other document remains active/);
+    assert.match(prompt, /Each request contains only feedback for its selected document/);
   }
 });

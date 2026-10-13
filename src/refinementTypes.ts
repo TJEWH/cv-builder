@@ -2,14 +2,16 @@ import type { CvAdjustmentRequest, LocalCvAdjustmentRequest } from './cvAdjustme
 import type { LetterContent, LetterTemplate } from './letterTypes';
 import type { CvStructure, CvOperation, CvComment, CvStructureBindings } from './cvStructuredTypes';
 
-export type RefinementScope = 'both' | 'cv' | 'letter';
+export type RefinementScope = 'cv' | 'letter';
+/** Read-only compatibility for immutable rounds published before document separation. */
+export type HistoricalRefinementScope = RefinementScope | 'both';
 export interface AnnotationReference { proposalId: string; annotationId: string; reviewId: string | null }
 export type AnnotationStatus = 'open' | 'resolved' | 'ignored';
 export type RefinementAnnotation = {
   id: string; type: 'comment' | 'todo' | 'question'; text: string;
 } & ({ document: 'cv'; location: { fieldId: string } | null }
   | { document: 'letter'; location: { start: number; quote: string } | null });
-export interface RefinementFeedback { id: string; text: string; scope: RefinementScope; createdAt: string; annotation?: AnnotationReference }
+export interface RefinementFeedback { id: string; text: string; scope: HistoricalRefinementScope; createdAt: string; annotation?: AnnotationReference }
 export interface RefinementSetup { template: LetterTemplate; language: string; maxWords: number }
 export interface RefinementApprovals { cv: string | null; letter: string | null }
 export type PrivacyContextType = 'person' | 'organization' | 'location' | 'link' | 'contact' | 'confidential' | 'other';
@@ -19,12 +21,12 @@ export interface PrivacyLegendEntry { fieldId: string; token: string; type: Priv
 export type ApprovedPrivacyContexts = Record<string, Pick<PrivacyLegendEntry, 'type' | 'description'>>;
 export interface RefinementState {
   application_id: string; user_id: string; setup_json: RefinementSetup;
-  approvals_json: RefinementApprovals; current_request_id: string | null; revision: number; updated_at: string;
+  approvals_json: RefinementApprovals; current_cv_request_id: string | null; current_letter_request_id: string | null; revision: number; updated_at: string;
 }
 interface RefinementRequestBase {
   requestId: string; applicationId: string;
   cv: CvAdjustmentRequest; letter: RefinementSetup & { text: string };
-  scope: RefinementScope; feedback: RefinementFeedback[]; parentProposalId: string | null;
+  scope: HistoricalRefinementScope; feedback: RefinementFeedback[]; parentProposalId: string | null;
   privacyLegend?: PrivacyLegendEntry[];
 }
 export interface RefinementRequestV2 extends RefinementRequestBase { schemaVersion: 2; cvStructure: CvStructure }
@@ -55,6 +57,8 @@ export interface RefinementReviewRow {
 /** Full baseline and reconstruction bindings never cross the upload boundary. */
 export interface LocalRefinementRequest {
   request: RefinementRequest; cv: LocalCvAdjustmentRequest; baselineSignature: string;
+  /** New snapshots hash only the target document. Older snapshots require their original full hash. */
+  baselineScope?: RefinementScope;
   structureBindings?: CvStructureBindings;
   /** Exact local letter source, including private wording; never upload or infer from request.letter. */
   letterBaseline?: { text: string; setup: RefinementSetup; content?: LetterContent };
@@ -62,6 +66,9 @@ export interface LocalRefinementRequest {
   sourceSignatures?: { cv: string; letter: string };
   /** Local idempotency receipts for explicit acceptance; never part of request_json. */
   acceptances?: { key: string; proposalId: string; variantId: string | null; acceptedAt: string; reviewId: string }[];
+  /** Private selection frozen for this round; applied only after a matching proposal arrives. */
+  pendingCvSelection?: { requestId: string; proposalId: string; selectedIds: string[]; workingRevision: string; applied?: boolean };
+  appliedCvSelection?: { proposalId: string; selectedIds: string[]; nextRequestId: string };
   /** Optional local provenance for the frozen source; never part of request_json. */
   source?: {
     cv: { name: string; variantId: string; baseRevision: number; hasApplicationEdits: boolean };

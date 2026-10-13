@@ -47,8 +47,9 @@ function mount(t: TestContext) {
   return { props, setup, cleared: () => cleared };
 }
 
-function request(scope: RefinementScope): RefinementRequestRow {
-  const local = prepareRefinement({ applicationId: crypto.randomUUID(), variantId: 'original', state: createTestState(), setup: { template: DEFAULT_LETTER_TEMPLATES[0], language: 'en', maxWords: 400 }, letterText: 'Frozen letter.', instructions: '', scope, feedback: [], parentProposalId: null, opportunity: {}, baselineSignature: refinementSignature('original') });
+function request(scope: RefinementScope | 'both'): RefinementRequestRow {
+  const local = prepareRefinement({ applicationId: crypto.randomUUID(), variantId: 'original', state: createTestState(), setup: { template: DEFAULT_LETTER_TEMPLATES[0], language: 'en', maxWords: 400 }, letterText: 'Frozen letter.', instructions: '', scope: scope === 'both' ? 'cv' : scope, feedback: [], parentProposalId: null, opportunity: {}, baselineSignature: refinementSignature('original') });
+  local.request.scope = scope;
   return { id: local.request.requestId, application_id: local.request.applicationId, user_id: crypto.randomUUID(), created_at: '2026-10-02T00:00:00Z', request_json: local.request };
 }
 

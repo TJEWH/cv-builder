@@ -33,6 +33,13 @@ export function serializeRefinementDraft(working?: LetterContent | null): { text
 
 /** Exclude generated request IDs when comparing inputs for immutable-request reuse. */
 export function refinementInputsSignature(local: LocalRefinementRequest): string {
+  // Captured context from the other document remains immutable while this round is pending.
+  if (local.baselineScope === local.request.scope) return refinementSignature({
+    applicationId: local.request.applicationId, scope: local.request.scope, baselineSignature: local.baselineSignature,
+    feedback: local.request.feedback, parentProposalId: local.request.parentProposalId,
+    privacyLegend: local.request.scope === 'cv' ? local.request.privacyLegend : undefined,
+    pendingCvSelection: local.pendingCvSelection ? { ...local.pendingCvSelection, applied: undefined } : undefined,
+  });
   const { requestId: _requestId, cv, ...request } = local.request;
   const { requestId: _cvRequestId, ...cvRequest } = cv;
   const { requestId: _localCvRequestId, ...localCvRequest } = local.cv.publicRequest;
@@ -46,6 +53,7 @@ export function refinementInputsSignature(local: LocalRefinementRequest): string
     structureBindings: local.structureBindings,
     letterBaseline: local.letterBaseline,
     sourceSignatures: local.sourceSignatures,
+    pendingCvSelection: local.pendingCvSelection ? { ...local.pendingCvSelection, applied: undefined } : undefined,
   });
 }
 

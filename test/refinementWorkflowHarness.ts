@@ -39,11 +39,19 @@ export interface Workspace {
   selectCv(id: string): Promise<void>; selectLetterTemplate(id: string): Promise<void>; publishSources(): Promise<void>; syncRefinement(): Promise<void>; copyTask(): Promise<void>; copyIterationTask(): Promise<void>; clearRefinementHistory(): Promise<void>; checkProposals(): Promise<void>;
   openProposal(): void; discardReview(): void; acceptSelectedChanges(): Promise<void>;
   persist(): void;
-  feedbackScope: 'cv' | 'letter' | 'both'; pane: 'cv' | 'letter'; tab: string; historyOpen: boolean;
+  feedbackScope: 'cv' | 'letter'; pane: 'cv' | 'letter'; tab: string; historyOpen: boolean;
   selectStage(stage: ApplicationStage): Promise<void>;
-  selectReviewProposal(id: string): void;
+  selectReviewProposal(id: string): Promise<void>;
   approve(kind: 'cv' | 'letter', reopen?: boolean): Promise<void>;
   updateLetter(value: string): void; toggleProposedChange(id: string, included: boolean): void;
+  setCvChangeActive(id: string, included: boolean): Promise<void>;
+  cvChangeReviewError: string;
+  iterationNotes: Record<'cv' | 'letter', { tone: string; structure: string; content: string }>;
+  cvIterationNote: string;
+  reviewTab: 'changes' | 'question';
+  reviewCounts: Record<'changes' | 'question', number>;
+  selectReviewTab(tab: 'changes' | 'question'): Promise<boolean>;
+  currentAnnotations: { annotation: { id: string; type: string; document: string } }[];
 }
 
 const filename = new URL('../src/components/ApplicationWorkspace.vue', import.meta.url);
@@ -88,15 +96,28 @@ export function mount(t: TestContext, source?: CvState) {
   return { ...fixture, setup, close() { unmount(); }, reopen() { unmount(); return open(); } };
 }
 
-export async function prepare(fixture: ReturnType<typeof mount>, sourceId = 'base', options: { letterText?: string; scope?: 'cv' | 'letter' | 'both' } = {}) {
+export async function prepare(fixture: ReturnType<typeof mount>, sourceId = 'base', options: { letterText?: string; scope?: 'cv' | 'letter' } = {}) {
   const { setup } = fixture;
   await idle(setup);
   await setup.selectCv(sourceId); await idle(setup); await setup.selectLetterTemplate('research');
   setup.updateLetter(options.letterText ?? 'Original private working letter.');
-  setup.feedbackScope = options.scope ?? 'both'; await setup.publishSources();
+  setup.feedbackScope = options.scope ?? 'cv'; await setup.publishSources();
   setup.tab = 'refinement'; await idle(setup);
   assert.equal(setup.error, '');
   assert.equal(setup.requests.length, 1);
   return setup;
 }
 export const documents = (setup: Workspace) => JSON.stringify({ record: setup.record, letter: setup.letter });
+
+/** Install a historical combined source as if it predated the document-pointer migration. */
+export function seedLegacyRound(fixture: ReturnType<typeof mount>) {
+  const setup = fixture.setup, id = setup.requests[0].id;
+  const row = fixture.database.application_refinement_requests.find(row => row.id === id)!;
+  (row.request_json as { scope: string }).scope = 'both';
+  setup.localRequests[id].request.scope = 'both';
+  delete setup.localRequests[id].baselineScope;
+  fixture.database.application_refinement_state[0].current_cv_request_id = null;
+  fixture.database.application_refinement_state[0].current_letter_request_id = null;
+  setup.persist();
+  return fixture.cloud.seedProposal(id);
+}

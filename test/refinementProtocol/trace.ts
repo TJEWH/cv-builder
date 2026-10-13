@@ -115,7 +115,7 @@ export function verifyTrace(fixture: ProtocolCase, trace: Trace, server: string)
       const { command, values } = parseProtocolSql(call.arguments.query);
       if (command !== expectedOrder[stage]) throw new Error(`Expected ${expectedOrder[stage]}, received ${command}.`);
       const req = fixture.request;
-      const expected = command === 'resolve' ? [fixture.application.application_code] : command === 'protocol' ? [req.requestId, fixture.protocol.id] : [req.requestId];
+      const expected = command === 'resolve' ? [fixture.application.application_code, req.scope] : command === 'protocol' ? [req.requestId, fixture.protocol.id] : [req.requestId];
       if (expected.some((value, i) => values[i] !== value)) throw new Error('Wrong application, request or protocol argument.');
       if (command === 'save') {
         if (!/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(values[1])) throw new Error('Invalid proposal UUID.');
@@ -147,6 +147,7 @@ export function verifyTrace(fixture: ProtocolCase, trace: Trace, server: string)
           if (row.current_request_id === req.requestId) throw new Error('Stale-request fixture was not stale.');
           stopped = true; continue;
         }
+        if (row.scope !== req.scope) throw new Error('Resolver returned another document scope.');
         if (row.current_request_id !== req.requestId) throw new Error('Resolver returned a stale request.');
       } else if (command === 'protocol') {
         if (fixture.expected === 'stop-protocol') throw new Error('Missing-protocol fixture unexpectedly returned a protocol.');

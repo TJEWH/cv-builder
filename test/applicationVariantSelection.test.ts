@@ -438,7 +438,7 @@ test('refinement preserves manual fixes and accumulates letter-only feedback whi
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.letter!.maxWords = 400;
-  setup.feedbackScope = 'both'; await setup.publishSources();
+  setup.feedbackScope = 'letter'; await setup.publishSources();
   assert.equal(setup.error, '');
   assert.equal(clipboardWrites.length, 0, 'publishing sources must not copy a task');
   assert.equal(database.application_refinement_protocols.length, 0, 'publishing sources must not publish a protocol');
@@ -688,7 +688,7 @@ test('reopening syncs corrected working sources while preserving documents and k
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.updateLetter('The local working letter that survives reopening.');
-  await setup.publishSources();
+  setup.feedbackScope = 'letter'; await setup.publishSources();
   assert.equal(setup.error, '');
   const previousRequest = JSON.parse(JSON.stringify(setup.requests[0]));
   fixture.cloud.seedProposal(previousRequest.id);
@@ -751,7 +751,7 @@ test('changes mark the published source outdated without changing its immutable 
   await setup.selectLetterTemplate('research');
   const originalText = 'Current letter with deliberate wording.';
   setup.updateLetter(originalText);
-  await setup.publishSources();
+  setup.feedbackScope = 'letter'; await setup.publishSources();
   assert.equal(setup.error, '');
   assert.equal(setup.publicationStatus, 'current');
   const receipt = JSON.stringify(setup.publishedSource);
@@ -767,10 +767,10 @@ test('changes mark the published source outdated without changing its immutable 
   setup.letter!.language = originalLanguage === 'de' ? 'en' : 'de';
   assert.equal(setup.publicationStatus, 'outdated');
   setup.letter!.language = originalLanguage;
-  setup.feedbackScope = 'letter';
-  assert.equal(setup.publicationStatus, 'outdated');
-  setup.feedbackScope = 'cv';
   assert.equal(setup.publicationStatus, 'current');
+  setup.feedbackScope = 'cv';
+  assert.equal(setup.publicationStatus, 'unpublished', 'CV has its own publication');
+  setup.feedbackScope = 'letter';
   setup.letter!.instructions = 'Add more emphasis on reproducible experiments.';
   assert.equal(setup.publicationStatus, 'outdated');
   assert.equal(JSON.stringify(setup.publishedSource), receipt);
@@ -783,7 +783,7 @@ test('proposal selection and explicit application keep the published source sepa
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.updateLetter('My published source letter.');
-  setup.feedbackScope = 'both'; await setup.publishSources();
+  setup.feedbackScope = 'letter'; await setup.publishSources();
   assert.equal(setup.error, '');
   const request = setup.requests[0];
   const first = cloud.seedProposal(request.id, { letterText: 'First returned draft.' });
@@ -815,7 +815,7 @@ test('reopening preserves a deliberately empty local working letter instead of r
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.updateLetter('An older source letter already published.');
-  await setup.publishSources();
+  setup.feedbackScope = 'letter'; await setup.publishSources();
   assert.equal(setup.error, '');
   setup.updateLetter('');
   const previousRequest = JSON.parse(JSON.stringify(setup.requests[0]));
@@ -836,7 +836,7 @@ test('a missing working letter stays absent while its proposal previews from the
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.updateLetter(`The source text remains available when this device has no letter.\n\nKind regards,\n${setup.record!.state.contact.name}`);
-  setup.feedbackScope = 'both'; await setup.publishSources();
+  setup.feedbackScope = 'letter'; await setup.publishSources();
   assert.equal(setup.error, '');
   const sourceText = setup.requests[0].request_json.letter.text;
   assert.notEqual(sourceText, setup.letterText, 'the saved source has identity placeholders');
@@ -886,17 +886,17 @@ test('reverting to an older published baseline creates a new current request ins
   await setup.selectCv('base'); await idle(setup);
   await setup.selectLetterTemplate('research');
   setup.updateLetter('Baseline A: retain this exact wording.');
-  await setup.publishSources();
+  setup.feedbackScope = 'letter'; await setup.publishSources();
   assert.equal(setup.error, '');
   const first = JSON.parse(JSON.stringify(setup.requests[0])) as RefinementRequestRow;
   setup.updateLetter('Baseline B: a later deliberate revision.');
-  await setup.publishSources();
+  setup.feedbackScope = 'letter'; await setup.publishSources();
   assert.equal(setup.error, '');
   const second = setup.requests[0];
   assert.notEqual(second.id, first.id);
   setup.updateLetter('Baseline A: retain this exact wording.');
   assert.equal(setup.publicationStatus, 'outdated');
-  await setup.publishSources();
+  setup.feedbackScope = 'letter'; await setup.publishSources();
   assert.equal(setup.error, '');
   const third = setup.requests[0];
   assert.notEqual(third.id, first.id, 'an old immutable round cannot become current again through idempotent replay');
@@ -905,7 +905,7 @@ test('reverting to an older published baseline creates a new current request ins
   assert.equal(setup.requests.length, 3);
   assert.equal(setup.publicationStatus, 'current');
   assert.equal(setup.currentPublishedRequest?.id, third.id);
-  assert.equal(database.application_refinement_state[0].current_request_id, third.id);
+  assert.equal(database.application_refinement_state[0].current_letter_request_id, third.id);
   assert.deepEqual(JSON.parse(JSON.stringify(setup.requests.find(item => item.id === first.id))), first);
 });
 
@@ -939,7 +939,7 @@ test('loaded structured changes immediately preview without accepting, and each 
   const { setup, cloud, database, base, storage } = mount(t);
   await idle(setup);
   await setup.selectCv('base'); await idle(setup);
-  await setup.selectLetterTemplate('research'); setup.updateLetter('Existing local letter.'); setup.feedbackScope = 'both'; await setup.publishSources();
+  await setup.selectLetterTemplate('research'); setup.updateLetter('Existing local letter.'); setup.feedbackScope = 'cv'; await setup.publishSources();
   const before = JSON.stringify({ record: setup.record, letter: setup.letter });
   const savedBefore = storage.getItem('CV_REFINEMENT:1:' + account + ':' + applicationId);
   const proposal = cloud.seedProposal(setup.requests[0].id, { letterText: 'Proposed letter immediately visible.' });
@@ -947,7 +947,7 @@ test('loaded structured changes immediately preview without accepting, and each 
   await setup.checkProposals();
   assert.equal(setup.reviewActive, true, 'loading immediately enables the proposal preview');
   assert.notDeepEqual(setup.previewCvState?.bodyOrder, base.bodyOrder);
-  assert.equal(setup.previewLetterContent?.body, 'Proposed letter immediately visible.');
+  assert.equal(setup.previewLetterContent?.body, 'Existing local letter.');
   assert.equal(JSON.stringify({ record: setup.record, letter: setup.letter }), before);
   assert.ok(setup.proposalChanges.every(change => change.status === 'proposed'));
   assert.equal(database.application_refinement_reviews.filter(row => row.kind === 'cv_decisions').length, 0);
@@ -956,14 +956,14 @@ test('loaded structured changes immediately preview without accepting, and each 
   setup.toggleProposedChange(reorder.id, false);
   assert.deepEqual(setup.previewCvState?.bodyOrder, base.bodyOrder, 'deselecting immediately restores the original section order in preview');
   assert.equal(JSON.stringify({ record: setup.record, letter: setup.letter }), before);
-  assert.equal(storage.getItem('CV_REFINEMENT:1:' + account + ':' + applicationId), savedBefore);
+  assert.deepEqual(JSON.parse(storage.getItem('CV_REFINEMENT:1:' + account + ':' + applicationId)!).requests, JSON.parse(savedBefore!).requests, 'proposal selection only updates review navigation');
   assert.ok(setup.proposalChanges.every(change => change.status === 'proposed'), 'exclusion from preview is not rejection');
   const accepted = [...setup.selectedChangeIds];
   const result = cloneCv(setup.previewCvState!);
   await setup.acceptSelectedChanges();
   assert.equal(setup.error, '');
   assert.deepEqual(setup.record?.state, result);
-  assert.equal(setup.letterText, 'Proposed letter immediately visible.');
+  assert.equal(setup.letterText, 'Existing local letter.');
   assert.equal(setup.reviewActive, false);
   assert.equal(setup.cvApproved, false);
   const decision = database.application_refinement_reviews.find(row => row.kind === 'cv_decisions')!;
@@ -990,17 +990,15 @@ test('closing or reopening a temporary review stays read-only and manual correct
   setup.discardReview(); setup.record!.state.about.text = 'New manual correction supersedes the request.'; await nextTick();
   const corrected = JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter }));
   setup = fixture.reopen(); await idle(setup);
-  corrected.record.publishedState = corrected.record.state;
-  corrected.record.publishedSnapshotId = fixture.props.application.cv_variant_id;
-  assert.deepEqual(JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter })), corrected, 'automatic sync republishes and preserves newer manual corrections');
-  assert.equal(setup.requests.length, 2);
-  assert.notEqual(setup.requests[0].id, proposal.request_id);
+  assert.deepEqual(JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter })), corrected, 'reloading preserves manual edits while the existing CV proposal stays pending');
+  assert.equal(setup.requests.length, 1);
+  assert.equal(setup.requests[0].id, proposal.request_id);
   assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'cv_decisions').length, 0);
-  setup.selectReviewProposal(proposal.id);
+  await setup.selectReviewProposal(proposal.id);
   assert.ok(setup.temporaryReview.result, 'an old proposal remains viewable against its frozen source');
-  assert.match(setup.reviewAcceptanceError, /superseded round/);
+  assert.match(setup.reviewAcceptanceError, /changed after this request/);
   await setup.acceptSelectedChanges();
-  assert.match(setup.error, /superseded round/);
+  assert.match(setup.error, /changed after this request/);
   assert.equal(setup.record!.state.about.text, 'New manual correction supersedes the request.');
   assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'cv_decisions').length, 0);
 });
@@ -1043,7 +1041,7 @@ test('invalid returned structural targets are rejected before preview rendering 
 test('answering and resolving annotations persists across reload without changing either document or its preview', async (t) => {
   const fixture = mount(t); let setup = fixture.setup;
   await idle(setup); await setup.selectCv('base'); await idle(setup);
-  await setup.selectLetterTemplate('research'); setup.updateLetter('Working letter.'); await setup.publishSources();
+  await setup.selectLetterTemplate('research'); setup.updateLetter('Working letter.'); setup.feedbackScope = 'letter'; await setup.publishSources();
   fixture.cloud.seedProposal(setup.requests[0].id); await setup.syncRefinement(); await idle(setup);
   assert.equal(setup.error, '');
   const reviewsBefore = fixture.database.application_refinement_reviews.length;
@@ -1084,7 +1082,7 @@ test('only resolved answers enter feedback automatically, retaining references i
 test('manual letter edits invalidate annotation references without moving notes or adding them to the PDF content', async (t) => {
   const { setup, cloud } = mount(t);
   await idle(setup); await setup.selectCv('base'); await idle(setup);
-  await setup.selectLetterTemplate('research'); setup.feedbackScope = 'both'; await setup.publishSources(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
+  await setup.selectLetterTemplate('research'); setup.feedbackScope = 'letter'; await setup.publishSources(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
   assert.equal(setup.proposalAnnotations[1].referenceChanged, false);
   await setup.acceptSelectedChanges(); assert.equal(setup.error, '');
   assert.equal(setup.proposalAnnotations[1].referenceChanged, false);
@@ -1097,7 +1095,7 @@ test('manual letter edits invalidate annotation references without moving notes 
 test('stale annotation updates and failed saves preserve documents and do not claim success', async (t) => {
   const { setup, cloud, database, props } = mount(t);
   await idle(setup); await setup.selectCv('base'); await idle(setup);
-  await setup.selectLetterTemplate('research'); await setup.publishSources(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
+  await setup.selectLetterTemplate('research'); setup.feedbackScope = 'letter'; await setup.publishSources(); cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
   await setup.saveAnnotation('annotation-1', 'resolved', 'First answer.', null);
   const before = JSON.stringify({ record: setup.record, letter: setup.letter });
   assert.equal(await setup.saveAnnotation('annotation-1', 'ignored', 'Stale answer.', null), false);
@@ -1116,8 +1114,8 @@ test('Original and Proposed use the exact published baseline after local edits a
   const { setup, cloud, storage } = mount(t);
   await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
   setup.letter!.working = { subject: 'Research interest', salutation: 'To the research committee:', body: 'The original private working letter.', closing: 'With sincere interest,\nPrivate applicant' };
-  setup.feedbackScope = 'both'; await setup.publishSources();
-  const baselineCv = cloneCv(setup.record!.state), baselineLetter = JSON.parse(JSON.stringify(setup.letter!.working));
+  setup.feedbackScope = 'cv'; await setup.publishSources();
+  const baselineCv = cloneCv(setup.record!.state);
   setup.record!.state.about.text = 'A new manual CV correction.';
   setup.record!.state.contact.role = 'A newer local role';
   setup.updateLetter('A newer manual letter correction.');
@@ -1128,19 +1126,19 @@ test('Original and Proposed use the exact published baseline after local edits a
   assert.equal(setup.selectedProposalId, proposal.id);
   assert.equal(setup.reviewComparison, 'proposed');
   assert.equal(setup.proposalSourceOutdated, true);
-  assert.equal(setup.previewLetterContent?.body, 'Proposed letter from the original source.');
+  assert.equal(setup.previewLetterContent?.body, 'A newer manual letter correction.');
   assert.equal(setup.previewLetterCvState?.contact.role, 'A newer local role', 'letter comparisons keep the current sender');
   assert.match(setup.reviewAcceptanceError, /changed after this request/);
   const candidate = cloneCv(setup.previewCvState!);
   setup.reviewComparison = 'original'; await nextTick();
   assert.deepEqual(setup.previewCvState, baselineCv);
-  assert.deepEqual(setup.previewLetterContent, baselineLetter);
+  assert.deepEqual(setup.previewLetterContent, setup.letter!.working);
   assert.equal(setup.reviewPreviewLabel('cv'), 'Original source snapshot');
   setup.reviewComparison = 'proposed'; await nextTick();
   assert.deepEqual(setup.previewCvState, candidate);
-  assert.equal(setup.reviewPreviewLabel('letter'), 'Proposed refinement — not yet accepted');
+  assert.deepEqual(setup.previewLetterContent, setup.letter!.working, 'the other document remains on its current saved content');
   assert.equal(JSON.stringify({ record: setup.record, letter: setup.letter }), working);
-  assert.equal(storage.getItem('CV_REFINEMENT:1:' + account + ':' + applicationId), stored);
+  assert.deepEqual(JSON.parse(storage.getItem('CV_REFINEMENT:1:' + account + ':' + applicationId)!).requests, JSON.parse(stored!).requests);
 });
 
 for (const scope of ['cv', 'letter'] as const) test(`${scope}-only proposals leave the other document preview on its working source`, async (t) => {
@@ -1173,7 +1171,7 @@ for (const scope of ['cv', 'letter'] as const) test(`${scope}-only proposals lea
 test('missing private mappings produce no misleading proposed fallback and dismissal stays closed across tabs', async (t) => {
   const { setup, cloud, database } = mount(t);
   await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
-  setup.updateLetter('Existing letter.'); setup.feedbackScope = 'both'; await setup.publishSources();
+  setup.updateLetter('Existing letter.'); setup.feedbackScope = 'cv'; await setup.publishSources();
   const request = setup.requests[0]; cloud.seedProposal(request.id);
   setup.localRequests[request.id].cv.bindings = [];
   const original = JSON.stringify({ record: setup.record, letter: setup.letter });
@@ -1181,7 +1179,7 @@ test('missing private mappings produce no misleading proposed fallback and dismi
   assert.equal(setup.reviewActive, true);
   assert.match(setup.temporaryReview.error, /mapping|binding/i);
   assert.equal(setup.previewCvState, null);
-  assert.equal(setup.previewLetterContent, undefined);
+  assert.deepEqual(setup.previewLetterContent, setup.letter!.working);
   assert.ok(setup.reviewAcceptanceError);
   setup.reviewComparison = 'original';
   assert.equal(setup.previewCvState, null, 'invalid reconstruction is not disguised as an original/proposed comparison');

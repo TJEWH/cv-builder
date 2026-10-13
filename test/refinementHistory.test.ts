@@ -7,7 +7,7 @@ import type { RefinementProposalRow, RefinementRequestRow } from '../src/refinem
 import { createTestState } from './helpers';
 
 function fixture() {
-  const local = prepareRefinement({ applicationId: crypto.randomUUID(), variantId: 'original', state: createTestState(), setup: { template: DEFAULT_LETTER_TEMPLATES[0], language: 'en', maxWords: 400 }, letterText: 'Frozen letter.', instructions: 'Approved original instructions.', scope: 'both', feedback: [], parentProposalId: null, opportunity: {}, baselineSignature: refinementSignature('original') });
+  const local = prepareRefinement({ applicationId: crypto.randomUUID(), variantId: 'original', state: createTestState(), setup: { template: DEFAULT_LETTER_TEMPLATES[0], language: 'en', maxWords: 400 }, letterText: 'Frozen letter.', instructions: 'Approved original instructions.', scope: 'cv', feedback: [], parentProposalId: null, opportunity: {}, baselineSignature: refinementSignature('original') });
   const row: RefinementRequestRow = { id: local.request.requestId, application_id: local.request.applicationId, user_id: crypto.randomUUID(), created_at: '2026-10-02T00:00:00Z', request_json: structuredClone(local.request), cv_snapshot: { snapshotId: 'snapshot', revision: 7 } };
   return { local, row };
 }

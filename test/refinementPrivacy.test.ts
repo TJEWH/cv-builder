@@ -15,9 +15,9 @@ const state = () => createTestState({
 });
 function prepare(overrides: Partial<Parameters<typeof prepareRefinement>[0]> = {}) {
   return prepareRefinement({ applicationId: APP, state: state(), variantId: 'local-variant', setup: { template: DEFAULT_LETTER_TEMPLATES[0], language: 'en', maxWords: 400 },
-    letterText: 'Existing letter.', opportunity: {}, scope: 'both', feedback: [], parentProposalId: null, baselineSignature: refinementSignature('baseline'), ...overrides });
+    letterText: 'Existing letter.', opportunity: {}, scope: 'cv', feedback: [], parentProposalId: null, baselineSignature: refinementSignature('baseline'), ...overrides });
 }
-const proposal = (local: ReturnType<typeof prepare>, changes: RefinementProposalV2['cvOperations'] = []): RefinementProposalV2 => ({ schemaVersion: 2, requestId: local.request.requestId, summary: 'Concise evidence.', cvOperations: changes, cvComments: [], letterText: 'Proposed letter.' });
+const proposal = (local: ReturnType<typeof prepare>, changes: RefinementProposalV2['cvOperations'] = []): RefinementProposalV2 => ({ schemaVersion: 2, requestId: local.request.requestId, summary: 'Concise evidence.', cvOperations: changes, cvComments: [], letterText: local.request.letter.text });
 
 test('descriptions require explicit local approval and publish only the exact public legend', () => {
   const local = prepare();
@@ -51,7 +51,7 @@ test('exclamation marks are ordinary text in feedback, instructions, templates a
   const text = 'Taylor Secret worked with !!John Doe!!. private@example.invalid';
   const local = prepare({ state: source, instructions: text, letterText: text, opportunity: { notes: text },
     setup: { template: { ...DEFAULT_LETTER_TEMPLATES[0], exampleText: text }, language: 'en', maxWords: 400 },
-    feedback: [{ id: crypto.randomUUID(), text, scope: 'both', createdAt: '2026-10-02T00:00:00Z' }] });
+    feedback: [{ id: crypto.randomUUID(), text, scope: 'cv', createdAt: '2026-10-02T00:00:00Z' }] });
   assert.ok(local.request.cv.instructions.includes('!!John Doe!!'));
   assert.ok(local.request.letter.text.includes('!!John Doe!!'));
   assert.ok(local.request.letter.template.exampleText!.includes('!!John Doe!!'));
@@ -72,7 +72,7 @@ test('field-type protection reaches refinement instructions, opportunities, lett
   source.about.text = text;
   const local = prepare({ state: source, instructions: text, letterText: text, opportunity: { notes: text },
     setup: { template: { ...DEFAULT_LETTER_TEMPLATES[0], exampleText: text, tone: text }, language: 'en', maxWords: 400 },
-    feedback: [{ id: crypto.randomUUID(), text, scope: 'both', createdAt: '2026-10-02T00:00:00Z' }] });
+    feedback: [{ id: crypto.randomUUID(), text, scope: 'cv', createdAt: '2026-10-02T00:00:00Z' }] });
   for (const original of ['Confidential Engineering', 'Confidential Town', 'Confidential Institute', '2011', '2015']) {
     assert.equal(JSON.stringify(local.request).includes(original), false, original);
     assert.equal(sanitizeRefinementText(original, source), '{{CONFIDENTIAL}}');
@@ -150,7 +150,7 @@ test('protected privacy fields remain comments-only and exclamation marks remain
   source.anonymization.fieldOverrides = { '["about","text"]': 'Worked with a qualified person.' };
   const local = prepare({ state: source });
   const profile = local.request.cv.fields.find(field => field.label.startsWith('Profile'))!;
-  const incoming = { ...proposal(local), summary: 'Literal !!punctuation!!', letterText: 'Literal !!punctuation!!',
+  const incoming = { ...proposal(local), summary: 'Literal !!punctuation!!', letterText: local.request.letter.text,
     cvComments: [{ id: 'comment-1', fieldId: profile.id, explanation: 'Review the public wording.' }] };
   assert.doesNotThrow(() => parseRefinementProposal(incoming, local.request));
   assert.equal(local.request.cvStructure.ranges.some(range => range.fieldId === profile.id), false);

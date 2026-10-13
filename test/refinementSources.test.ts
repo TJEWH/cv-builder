@@ -14,7 +14,7 @@ function prepare(overrides: Partial<Parameters<typeof prepareRefinement>[0]> = {
   const state = createTestState({ about: { text: 'Public research with {{private partner}}.' } });
   return prepareRefinement({ applicationId, state, variantId: 'local-cv-template', setup: resolveRefinementSettings(template).setup,
     letterText: 'Dear committee,\n\nCurrent draft.\n\nKind regards', opportunity: { title: 'PhD opportunity' },
-    scope: 'both', feedback: [], parentProposalId: null, baselineSignature: refinementSignature([state, 'working letter baseline']), ...overrides });
+    scope: 'letter', feedback: [], parentProposalId: null, baselineSignature: refinementSignature([state, 'working letter baseline']), ...overrides });
 }
 
 test('effective document settings come from application overrides or the frozen template with accurate provenance', () => {
@@ -90,7 +90,7 @@ test('changes to every source, effective setting, selected scope, feedback or li
     ['refinement system prompt', next => { next.request.letter.template.refinementSystemPrompt = 'Keep only details that support the central narrative.'; }],
     ['language', next => { next.request.letter.language = 'en'; }],
     ['word target', next => { next.request.letter.maxWords = 400; }],
-    ['scope', next => { next.request.scope = 'letter'; }],
+    ['scope', next => { next.request.scope = 'cv'; }],
     ['feedback', next => { next.request.feedback = [feedback]; }],
     ['parent proposal', next => { next.request.parentProposalId = crypto.randomUUID(); }],
     ['local document baseline', next => { next.baselineSignature = refinementSignature('new local letter'); }],
@@ -139,7 +139,7 @@ test('reconstruction fields distinguish incomplete pending caches while publicat
 
 test('ordered feedback remains part of freshness and no feedback entry is silently ignored', () => {
   const feedback: RefinementFeedback[] = [
-    { id: crypto.randomUUID(), scope: 'both', text: 'Use a formal opening.', createdAt: '2026-10-01T10:00:00Z' },
+    { id: crypto.randomUUID(), scope: 'letter', text: 'Use a formal opening.', createdAt: '2026-10-01T10:00:00Z' },
     { id: crypto.randomUUID(), scope: 'letter', text: 'Prefer a warmer opening instead.', createdAt: '2026-10-01T10:01:00Z' },
   ];
   const first = prepare({ feedback }); const second = prepare({ feedback: [...feedback].reverse() });

@@ -5,7 +5,7 @@ import { buildShortRefinementInstruction } from '../../src/composables/applicati
 import { DEFAULT_LETTER_TEMPLATES } from '../../src/composables/motivationLetters';
 import { createTestState } from '../helpers';
 
-export const CASE_NAMES = ['cv', 'initial-letter', 'letter', 'feedback', 'both', 'missing-protocol', 'stale-request'] as const;
+export const CASE_NAMES = ['cv', 'initial-letter', 'letter', 'feedback', 'missing-protocol', 'stale-request'] as const;
 export type CaseName = typeof CASE_NAMES[number];
 export type ProtocolCase = ReturnType<typeof createCase>;
 export const FIXTURE_PROJECT = 'refinement-test-project';
@@ -22,7 +22,7 @@ export function createCase(name: CaseName, projectId = FIXTURE_PROJECT, namespac
     about: { text: 'Research assistant studying reproducible measurement methods.' },
     experience: { jobs: [{ id: 'research', title: 'Research assistant', bullets: 'Built measurement tools using Python.\nDocumented reproducible experiments.\nHelped organize a laboratory event.' }] },
   });
-  const scope: RefinementScope = name === 'cv' || name === 'missing-protocol' || name === 'stale-request' ? 'cv' : name === 'both' ? 'both' : 'letter';
+  const scope: RefinementScope = name === 'cv' || name === 'missing-protocol' || name === 'stale-request' ? 'cv' : 'letter';
   const setup = { template: { ...DEFAULT_LETTER_TEMPLATES[0], updatedAt: CREATED }, language: 'en', maxWords: 200 };
   const feedback = name === 'feedback' ? [{ id: id('feedback'), scope, createdAt: CREATED,
     text: 'Keep the opening short. Emphasize my Python measurement tools and reproducible experiments. Do not claim leadership experience.' }] : [];

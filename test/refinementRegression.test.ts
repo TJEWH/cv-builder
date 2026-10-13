@@ -7,7 +7,7 @@ import { createPrivateRefinementCv } from './refinementFixture';
 import { applicationId, mount, prepare, idle, documents } from './refinementWorkflowHarness';
 
 test('publishing existing and empty letters preserves exactly the approved source text', async t => {
-  const fixture = mount(t), setup = await prepare(fixture, 'base', { letterText: '# Application\n\nDear committee,\n\nMy approved existing draft.\n\nKind regards' });
+  const fixture = mount(t), setup = await prepare(fixture, 'base', { scope: 'letter', letterText: '# Application\n\nDear committee,\n\nMy approved existing draft.\n\nKind regards' });
   const first = setup.requests[0].request_json;
   assert.equal(first.letter.text, letterToEditableText(setup.letter!.working));
   assert.match(first.letter.text, /My approved existing draft/);
@@ -17,7 +17,7 @@ test('publishing existing and empty letters preserves exactly the approved sourc
   assert.match(first.letter.text, /My approved existing draft/, 'an initial-draft request never clears the older frozen source');
 });
 
-for (const scope of ['cv', 'letter', 'both'] as const) test(`${scope} temporary proposal comparisons stay read-only before reloading the current proposal`, async t => {
+for (const scope of ['cv', 'letter'] as const) test(`${scope} temporary proposal comparisons stay read-only before reloading the current proposal`, async t => {
   const fixture = mount(t, createPrivateRefinementCv()), setup = await prepare(fixture, 'base', { scope });
   const cv = cloneCv(setup.record!.state), letter = JSON.parse(JSON.stringify(setup.letter!.working)), before = documents(setup);
   const first = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'First proposed letter.' });
@@ -39,7 +39,7 @@ for (const scope of ['cv', 'letter', 'both'] as const) test(`${scope} temporary 
   if (scope !== 'letter') (next.proposal_json as RefinementProposalV2).cvOperations = [];
   const row = fixture.database.application_refinement_proposals.find(row => row.id === next.id)!; row.proposal_json = next.proposal_json;
   await setup.checkProposals(); assert.equal(setup.selectedProposalId, first.id);
-  setup.selectReviewProposal(next.id); assert.deepEqual(setup.previewCvState, cv);
+  await setup.selectReviewProposal(next.id); assert.deepEqual(setup.previewCvState, cv);
   assert.equal(setup.previewLetterContent?.body, scope === 'cv' ? letter.body : 'Second proposed letter.');
   assert.equal(documents(setup), before);
   const reopened = fixture.reopen(); await idle(reopened);
@@ -104,7 +104,7 @@ for (const defect of ['unknown target', 'altered token', 'unsupported operation'
   if (defect === 'missing token mapping') { const binding = local.cv.bindings.find(binding => Object.keys(binding.tokens).length)!; binding.tokens = {}; }
   if (defect === 'missing element mapping') delete local.structureBindings;
   const before = documents(setup);
-  assert.ok(setup.temporaryReview.error); assert.equal(setup.previewCvState, null); assert.equal(setup.previewLetterContent, undefined);
+  assert.ok(setup.temporaryReview.error); assert.equal(setup.previewCvState, null); assert.equal(setup.previewLetterContent?.body, 'Original private working letter.');
   await setup.acceptSelectedChanges(); assert.ok(setup.error); assert.equal(documents(setup), before); assert.equal(fixture.creations.length, 0);
 });
 
@@ -133,11 +133,15 @@ test('normal export cannot serialize an unaccepted candidate and Attachments exp
   const fixture = mount(t), setup = await prepare(fixture);
   await setup.approve('cv'); await setup.approve('letter');
   const cv = cloneCv(setup.record!.state), letter = JSON.stringify(setup.letter!.working);
+  setup.feedbackScope = 'cv'; await idle(setup);
   fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Never export this unaccepted proposal.' }); await setup.checkProposals();
   const renderInputs: string[] = [];
   setup.preview = { getPdfBlob: async () => { renderInputs.push(JSON.stringify(setup.previewCvState)); return new Blob(['synthetic CV PDF']); } };
   setup.letterPreview = { getPdfBlob: async () => { renderInputs.push(JSON.stringify(setup.previewLetterContent)); return new Blob(['synthetic letter PDF']); } };
-  await assert.rejects(setup.getCvPdf(), /temporary review|Attachments/); await assert.rejects(setup.getLetterPdf(), /temporary review|Attachments/);
+  await assert.rejects(setup.getCvPdf(), /temporary review|Attachments/);
+  await setup.getLetterPdf();
+  assert.deepEqual(renderInputs, [letter], 'CV review leaves the approved letter export usable');
+  renderInputs.length = 0;
   assert.deepEqual(renderInputs, []);
   setup.tab = 'review'; await idle(setup); await setup.getCvPdf(); await setup.getLetterPdf();
   assert.deepEqual(renderInputs, [JSON.stringify(cv), letter]); assert.equal(setup.reviewActive, false);

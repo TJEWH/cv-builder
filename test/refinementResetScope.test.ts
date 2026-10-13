@@ -3,7 +3,7 @@ import test from 'node:test';
 import { EMPTY_LETTER } from '../src/composables/motivationLetters';
 import { refinementSignature } from '../src/composables/applicationRefinement';
 import { createPrivateRefinementCv } from './refinementFixture';
-import { idle, mount, prepare, refinementKey, type Workspace } from './refinementWorkflowHarness';
+import { idle, seedLegacyRound, mount, prepare, refinementKey, type Workspace } from './refinementWorkflowHarness';
 
 type ResetWorkspace = Workspace & {
   pendingResetFeedback: Record<'cv' | 'letter', { id: string; text: string; requestId: string } | null>;
@@ -64,7 +64,7 @@ test('clearing CV history preserves the finalized letter and its active refineme
   const cvRequest = setup.requests[0], originalCv = refinementSignature(setup.record!.state);
   fixture.cloud.seedProposal(cvRequest.id); await setup.syncRefinement();
   assert.equal(setup.error, '');
-  assert.notEqual(refinementSignature(setup.record!.state), originalCv);
+  assert.equal(refinementSignature(setup.record!.state), originalCv, 'new CV changes remain pending');
   const finalizedLetter = refinementSignature(setup.letter), letterApproval = setup.approvals.letter;
 
   await setup.clearRefinementHistory();
@@ -79,11 +79,10 @@ test('clearing CV history preserves the finalized letter and its active refineme
   assert.equal(setup.showInitialRefinement, false, 'letter refinement history remains active');
 });
 
-test('clearing letter history from a legacy combined round leaves the CV side active', async t => {
+test('clearing letter history from a legacy combined round retains the CV history without reactivating it', async t => {
   const fixture = mount(t, createPrivateRefinementCv());
-  let setup = await prepare(fixture, 'base', { scope: 'both', letterText: '' });
-  const request = setup.requests[0];
-  fixture.cloud.seedProposal(request.id, { letterText: 'A generated letter from a combined round.' });
+  let setup = await prepare(fixture, 'base', { scope: 'cv', letterText: '' });
+  seedLegacyRound(fixture);
   await setup.syncRefinement();
   assert.equal(setup.error, '');
   const cvAfterRefinement = refinementSignature(setup.record);
@@ -96,9 +95,9 @@ test('clearing letter history from a legacy combined round leaves the CV side ac
   assert.equal(refinementSignature(setup.record), cvAfterRefinement);
   assert.equal(setup.showInitialRefinement, true);
   setup.feedbackScope = 'cv';
-  assert.equal(setup.showInitialRefinement, false);
+  assert.equal(setup.showInitialRefinement, true);
   setup = fixture.reopen(); await idle(setup);
-  assert.equal(setup.showInitialRefinement, false);
+  assert.equal(setup.showInitialRefinement, true);
   setup.feedbackScope = 'letter';
   assert.equal(setup.parentProposalId, null, 'a cleared letter parent must not be restored from the active CV lineage');
   await setup.syncRefinement();
@@ -106,7 +105,7 @@ test('clearing letter history from a legacy combined round leaves the CV side ac
   assert.equal(setup.letterText, '');
   assert.equal(setup.showInitialRefinement, true);
   setup.feedbackScope = 'cv';
-  assert.equal(setup.showInitialRefinement, false);
+  assert.equal(setup.showInitialRefinement, true);
 });
 
 for (const saveBeforeFailure of [false, true]) test(`failed reset feedback ${saveBeforeFailure ? 'acknowledgement' : 'save'} retries after reload before publishing fresh notes`, async t => {

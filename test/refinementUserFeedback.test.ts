@@ -156,7 +156,7 @@ test('failed request publication preserves notes and retries the same pending re
   assert.equal(documentVersion(setup), before);
 });
 
-for (const originalScope of ['letter', 'both'] as const) test(`notes retry after remote clearing of a ${originalScope} request keeps the draft and renews its feedback receipt`, async t => {
+for (const originalScope of ['letter'] as const) test(`notes retry after remote clearing of a ${originalScope} request keeps the draft and renews its feedback receipt`, async t => {
   const fixture = mount(t), setup = withFeedback(await prepare(fixture, 'base', { scope: originalScope }));
   setup.feedbackScope = 'letter';
   const originalId = setup.requests[0].id;
@@ -173,7 +173,7 @@ for (const originalScope of ['letter', 'both'] as const) test(`notes retry after
   const oldSubmission = clone(setup.iterationFeedbackSubmission.letter);
   assert.equal(oldSubmission!.requestId, originalId);
   await createRefinementRepository(fixture.cloud.client, () => account).clearHistory(applicationId, setup.cloudState!.revision, 'letter');
-  assert.equal(fixture.database.application_refinement_requests.some(row => row.id === originalId), originalScope === 'both');
+  assert.equal(fixture.database.application_refinement_requests.some(row => row.id === originalId), false);
   assert.deepEqual(setup.iterationNotes.letter, draft);
   failPublication = false;
 

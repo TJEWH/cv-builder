@@ -6,8 +6,6 @@ const emit = defineEmits<{ 'update:modelValue': [value: 'original' | 'proposed']
 
 <template>
   <div class="refinement-preview-status">
-    <p class="app-hint" role="status">{{ label }}<br /><small>{{ reference }}</small></p>
-    <p v-if="outdated" class="app-hint refinement-preview-status__outdated">{{ lang === 'de' ? 'Veraltet — Übernahme gesperrt. Vorschau aus dem exakten gespeicherten Snapshot.' : 'Outdated — acceptance blocked. Preview uses the exact saved snapshot.' }}</p>
     <RefinementComparisonToggle v-if="!hideComparison" :model-value="modelValue" :lang="lang" @update:model-value="emit('update:modelValue', $event)" />
   </div>
 </template>

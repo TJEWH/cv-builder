@@ -45,43 +45,47 @@ const Preview = {
   useDocumentPdfPreview: () => ({ pages: ref([{ svg: 'current shared PDF' }]), page: ref(1), busy: ref(false), downloading: ref(false), error: ref(''), getPdfBlob: async () => new Blob(), download: async () => {} }),
 };
 
-for (const document of ['CV', 'letter'] as const) test(`${document} inline and expanded surfaces share reactive comparison labels and controls`, async t => {
+for (const document of ['CV', 'letter'] as const) test(`${document} inline and expanded surfaces synchronize Original/Proposed controls`, async t => {
   const Document = compile(document === 'CV' ? 'DocumentCvPreview.vue' : 'MotivationLetterPreview.vue', {
     './InlineDocumentPreview.vue': surface('inline'), './FullDocumentPreview.vue': surface('expanded'),
     '../composables/useDocumentPdfPreview': Preview,
     '../composables/useCvDesign': { applyCvDesign() {} },
   });
-  const comparison = ref<'original' | 'proposed'>('proposed'), outdated = ref(false), reference = ref('proposal-one · saved timestamp');
+  const comparison = ref<'original' | 'proposed'>('proposed');
   const state = createSampleDocument();
   const props = document === 'CV' ? { state, active: false } : { cvState: state, content: { subject: '', salutation: '', body: 'Proposed letter', closing: '' }, active: false };
   const root = node('root');
   const app = renderer.createApp({ render: () => h(Document, props, { default: () => h(Status, {
     modelValue: comparison.value, label: comparison.value === 'proposed' ? 'Proposed refinement — not yet accepted' : 'Original source snapshot',
-    reference: reference.value, outdated: outdated.value, lang: 'en',
+    reference: 'proposal-one · saved timestamp', outdated: false, lang: 'en',
     'onUpdate:modelValue': (value: 'original' | 'proposed') => { comparison.value = value; },
   }) }) });
   app.mount(root); t.after(() => app.unmount());
   const surfaces = find(root, child => !!child.props['data-surface']);
   assert.equal(surfaces.length, 2);
   assert.equal(surfaces[0].props.pages, surfaces[1].props.pages, 'inline and expanded receive the same rendered pages');
-  for (const element of surfaces) {
-    assert.match(content(element), /Proposed refinement — not yet accepted/);
-    assert.match(content(element), /proposal-one/);
-  }
+  const assertComparison = (selected: 'original' | 'proposed') => {
+    assert.equal(comparison.value, selected, 'the control updates the shared comparison model');
+    for (const element of surfaces) {
+      const groups = find(element, child => child.props.role === 'group' && child.props['aria-label'] === 'Compare proposal');
+      assert.equal(groups.length, 1, 'each preview exposes one labelled comparison group');
+      const buttons = find(groups[0], child => child.tag === 'button');
+      assert.deepEqual(buttons.map(content), ['Original', 'Proposed']);
+      assert.deepEqual(buttons.map(button => button.props['aria-pressed']), [selected === 'original', selected === 'proposed']);
+    }
+  };
+  assertComparison('proposed');
   const original = find(surfaces[1], child => child.tag === 'button' && content(child) === 'Original')[0];
   assert.ok(original, 'the expanded preview offers the Original toggle');
   (original.props.onClick as () => void)();
   await nextTick();
-  for (const element of surfaces) {
-    assert.match(content(element), /Original source snapshot/);
-    assert.equal(find(element, child => child.tag === 'button' && content(child) === 'Original')[0].props['aria-pressed'], true);
-  }
-  comparison.value = 'proposed'; reference.value = 'proposal-two · later timestamp'; outdated.value = true;
+  assertComparison('original');
+  const proposed = find(surfaces[0], child => child.tag === 'button' && content(child) === 'Proposed')[0];
+  assert.ok(proposed, 'the inline preview offers the Proposed toggle');
+  (proposed.props.onClick as () => void)();
   await nextTick();
-  for (const element of surfaces) {
-    assert.match(content(element), /proposal-two/);
-    assert.doesNotMatch(content(element), /proposal-one/);
-    assert.match(content(element), /Outdated — acceptance blocked/);
-    assert.match(content(element), /Proposed refinement — not yet accepted/);
-  }
+  assertComparison('proposed');
+  comparison.value = 'original';
+  await nextTick();
+  assertComparison('original');
 });

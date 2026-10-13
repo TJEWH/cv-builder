@@ -33,7 +33,7 @@ begin
   perform public.save_refinement_state(app_a,setup,'{"cv":null,"letter":null}',0);
   request:=jsonb_build_object('schemaVersion',2,'requestId',request_a,'applicationId',app_a,
     'cv',jsonb_build_object('schemaVersion',1,'requestId',request_a,'fields',fields,'opportunity','{}'::jsonb,'instructions','Preserve evidence.'),
-    'letter',setup||'{"text":"Existing letter."}','scope','both','feedback','[]'::jsonb,'parentProposalId',null,'cvStructure',structure);
+    'letter',setup||'{"text":"Existing letter."}','scope','cv','feedback','[]'::jsonb,'parentProposalId',null,'cvStructure',structure);
   legend:='[{"fieldId":"field-1","token":"{{PRIVATE_1}}","type":"organization","description":"Engineering company specializing in sensor technology!!"}]';
   request:=request||jsonb_build_object('privacyLegend',legend);
   original:=public.publish_refinement_request(request);

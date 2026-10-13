@@ -1,7 +1,7 @@
 import { createCloudCvSnapshot } from '../../src/composables/cloudCvPrivacy';
 import { sqlText } from '../../src/composables/refinementProtocolContract';
 import { buildShortRefinementInstruction } from '../../src/composables/applicationReference';
-import { refinementProtocolDocument } from '../../src/composables/applicationRefinement';
+import { assertActiveRefinementScope, refinementProtocolDocument } from '../../src/composables/applicationRefinement';
 import { CREATED, type ProtocolCase } from './cases';
 import { object } from './trace';
 const json = (value: unknown) => `${sqlText(JSON.stringify(value))}::jsonb`;
@@ -31,7 +31,7 @@ BEGIN
   request := jsonb_set(request,'{feedback}',feedback);
   PERFORM public.publish_refinement_request(request);
   ${fixture.expected === 'stop-protocol' ? '-- Missing protocol is intentional.' : `PERFORM public.publish_refinement_protocol(${uuid(fixture.request.requestId)},${sqlText(fixture.protocol.id)},${sqlText(fixture.protocol.text)});`}
-  ${fixture.expected === 'stop-resolve' ? `UPDATE public.application_refinement_state SET current_request_id=null,revision=revision+1 WHERE application_id=${uuid(fixture.application.id)};` : ''}
+  ${fixture.expected === 'stop-resolve' ? `UPDATE public.application_refinement_state SET current_${fixture.request.scope}_request_id=null,revision=revision+1 WHERE application_id=${uuid(fixture.application.id)};` : ''}
   RESET ROLE;
 END;
 $fixture$;
@@ -80,5 +80,6 @@ export function bindSeedReceipt(fixture: ProtocolCase, receipt: unknown): Protoc
   const application = { ...fixture.application, application_code: String(receipt.application_code) };
   const protocol = refinementProtocolDocument(request, fixture.projectId);
   if (protocol.id !== fixture.protocol.id) throw new Error('Seed timestamps unexpectedly changed protocol text.');
+  assertActiveRefinementScope(request.scope);
   return { ...fixture, request, application, task: buildShortRefinementInstruction(application, request.scope, { projectId: fixture.projectId, request }) };
 }

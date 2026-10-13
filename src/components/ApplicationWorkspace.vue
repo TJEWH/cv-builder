@@ -11,7 +11,7 @@ import type { ApprovedPrivacyContexts, AnnotationStatus, AnnotationReference, Lo
 import { cloneCv, createApplicationCv, cvDifferences, isApplicationCvPublished, loadApplicationCv, saveApplicationCv, type ApplicationCvRecord } from '../composables/applicationCv';
 import { isMainCvVariant } from '../composables/careerVariants';
 import { addIncomingDraft, createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, editLetter, finalizeLetter, formatLetter, letterContextVersion, letterFromEditableText, openLetterRevision, saveWorkingRevision, selectApplicationLetterTemplate, unresolvedLetterPlaceholders } from '../composables/motivationLetters';
-import { applyRefinementProposal, createRefinementRepository, describeCvOperation, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText, validateLocalRefinementSource } from '../composables/applicationRefinement';
+import { currentRefinementRequestId, applyRefinementProposal, createRefinementRepository, describeCvOperation, parseRefinementProposal, prepareRefinement, reconstructRefinementProposal, refinementSignature, sanitizeRefinementSetup, sanitizeRefinementText, validateLocalRefinementSource } from '../composables/applicationRefinement';
 import { applicationStage, applicationStatusLabel, applicationStatusTone, applicationTrackingStarted } from '../composables/applicationTracking';
 import { formatOpportunityDeadline } from '../composables/opportunityDeadline';
 import FormBuilder from './FormBuilder.vue';
@@ -31,6 +31,7 @@ import OpportunityContext from './OpportunityContext.vue';
 import { buildShortRefinementInstruction } from '../composables/applicationReference';
 import { resolveRefinementSettings, serializeRefinementDraft, sameRefinementInputs } from '../composables/refinementSources';
 import RefinementAnnotations from './RefinementAnnotations.vue';
+import RefinementChangeReview from './RefinementChangeReview.vue';
 import RefinementPreviewStatus from './RefinementPreviewStatus.vue';
 import RefinementComparisonToggle from './RefinementComparisonToggle.vue';
 import { annotationViews, annotationReferenceChanged, annotationFeedback, validateAnnotationReview } from '../composables/refinementAnnotations';
@@ -88,6 +89,10 @@ const activeIterationNote = computed({
   get: () => visibleIterationNoteFields.value.includes(selectedIterationNote.value) ? selectedIterationNote.value : visibleIterationNoteFields.value[0]!,
   set: (field: IterationNoteField) => { commitPendingTextareas(); selectedIterationNote.value = field; },
 });
+const cvIterationNote = computed({
+  get: () => iterationNoteFields.map(field => iterationNotes.value.cv[field]).filter(value => value.trim()).join('\n\n'),
+  set: (value: string) => { iterationNotes.value.cv = { tone: '', structure: '', content: value }; },
+});
 const iterationNoteIcons = { tone: faFeatherPointed, structure: faAlignLeft, content: faAlignLeft };
 const iterationNoteLabel = (field: IterationNoteField) => ({ tone: text('Tone', 'Tonalität'), structure: text('Structure', 'Struktur'), content: text('Content', 'Inhalt') })[field];
 const iterationNotePlaceholder = computed(() => ({
@@ -133,14 +138,24 @@ const cloudState = ref<RefinementState | null>(null);
 const requests = ref<RefinementRequestRow[]>([]);
 const proposals = ref<RefinementProposalRow[]>([]);
 const reviews = ref<RefinementReviewRow[]>([]);
-const selectedProposalId = ref('');
-// Review selections are transient: neither previewing nor toggling writes working documents.
+const selectedProposalIds = ref<Record<DocumentScope, string>>({ cv: '', letter: '' });
+const selectedProposalId = computed({ get: () => selectedProposalIds.value[pane.value], set: (id: string) => { selectedProposalIds.value[pane.value] = id; } });
+// Activation updates the pending preview; the next matching reply commits its frozen source.
 const selectedChangeIds = ref<string[]>([]);
+const cvSelections = ref<Record<string, string[]>>({});
+type ReviewTab = 'changes' | 'question';
+const reviewTabs: ReviewTab[] = ['changes', 'question'];
+const reviewTab = ref<ReviewTab>('changes');
+const reviewTabLabel = (value: ReviewTab) => ({ changes: text('Changes', 'Änderungen'), question: text('Questions', 'Fragen') })[value];
+const reviewTabId = (value: ReviewTab) => `${props.application.id}-${pane.value}-review-${value}`;
+const reviewPanelId = computed(() => `${props.application.id}-${pane.value}-review-panel`);
 const includeProposedLetter = ref(true);
 const reviewActive = ref(false);
-const reviewComparison = ref<'original' | 'proposed'>('proposed');
+const reviewComparisons = ref<Record<string, 'original' | 'proposed'>>({});
+const reviewComparison = computed({ get: () => reviewComparisons.value[selectedProposalId.value] || 'proposed', set: (value: 'original' | 'proposed') => { reviewComparisons.value[selectedProposalId.value] = value; } });
 const feedbackScope = ref<RefinementScope>('cv');
-const pane = computed(() => feedbackScope.value === 'letter' ? 'letter' : 'cv');
+const pane = computed(() => feedbackScope.value);
+const currentRequestId = computed(() => currentRefinementRequestId(cloudState.value, pane.value));
 const iterationNoteEditor = computed(() => {
   const scope = pane.value, field = activeIterationNote.value;
   return {
@@ -152,7 +167,6 @@ const parentProposalId = computed({
   get: () => parentProposalIds.value[pane.value],
   set: (id: string | null) => {
     parentProposalIds.value[pane.value] = id;
-    if (feedbackScope.value === 'both') parentProposalIds.value.letter = id;
   },
 });
 function isRequestReset(id: string, scope: DocumentScope = pane.value) {
@@ -163,7 +177,7 @@ function matchesScope(row: RefinementRequestRow, scope: DocumentScope = pane.val
 }
 let scopeWasChosen = false;
 const shortInstruction = computed(() => {
-  const request = requests.value.find(row => row.id === cloudState.value?.current_request_id)?.request_json;
+  const request = requests.value.find(row => row.id === currentRequestId.value)?.request_json;
   const projectId = refinementProjectId(false);
   return buildShortRefinementInstruction(props.application, feedbackScope.value, projectId && request?.scope === feedbackScope.value
     ? { projectId, request } : undefined);
@@ -188,6 +202,7 @@ let disposed = false;
 let loadingCloud: Promise<void> | null = null;
 let localReadError = '';
 let committingSelection = false;
+const explicitHistorySelections = new Set<string>();
 
 try {
   record.value = loadApplicationCv(props.userId, props.application.id);
@@ -212,6 +227,7 @@ try {
         return !!local && local.request?.schemaVersion === 2;
       }));
     privacyContexts.value = value.privacyContexts || {};
+    cvSelections.value = Object.fromEntries(Object.entries(value.cvSelections || {}).filter((entry): entry is [string, string[]] => Array.isArray(entry[1]) && entry[1].every(id => typeof id === 'string')));
     for (const scope of ['cv', 'letter'] as const) {
       const parent = value.parentProposalIds ? value.parentProposalIds[scope] : value.parentProposalId;
       parentProposalIds.value[scope] = typeof parent === 'string' ? parent : null;
@@ -232,6 +248,9 @@ try {
       if (reset && typeof reset.id === 'string' && typeof reset.text === 'string' && (reset.requestId === null || typeof reset.requestId === 'string')) pendingResetFeedback.value[scope] = reset;
     }
     resetRequestIds.value = Array.isArray(value.resetRequestIds) ? value.resetRequestIds : [];
+    if (value.selectedProposalIds && typeof value.selectedProposalIds === 'object') {
+      for (const scope of ['cv', 'letter'] as const) if (typeof value.selectedProposalIds[scope] === 'string') selectedProposalIds.value[scope] = value.selectedProposalIds[scope];
+    }
     if (['cv', 'letter'].includes(value.scope)) { feedbackScope.value = value.scope; scopeWasChosen = true; }
   }
   // Initialize only untouched applications; missing working copies with saved history need recovery.
@@ -268,6 +287,14 @@ const letterCvState = computed(() => {
   return resolveApplicationLetterState(cv.state, cv.baseState, source);
 });
 const context = computed(() => letterContextVersion(props.application, letterCvState.value, selectedTemplate.value, setup.value.language, letter.value?.instructions || '', setup.value.maxWords, letter.value?.formatting));
+function documentSignature(scope: DocumentScope, cvState = record.value?.state) {
+  return scope === 'cv'
+    ? refinementSignature([cvState, record.value?.variantId || record.value?.baseId, props.application.context_json])
+    : refinementSignature([letterText.value, setup.value, letter.value?.instructions || '', letter.value?.working, letter.value?.formatting, props.application.context_json]);
+}
+function currentSourceSignature(local: LocalRefinementRequest) {
+  return local.baselineScope ? documentSignature(local.baselineScope) : baselineSignature.value;
+}
 const baselineSignature = computed(() => refinementSignature([record.value?.state, letterText.value, setup.value, letter.value?.instructions || '', props.application.context_json, letter.value?.working]));
 const cvRevision = computed(() => refinementSignature([record.value?.state, props.application.context_json]));
 const letterRevision = computed(() => refinementSignature([letterText.value, setup.value, letter.value?.instructions || '', letterCvState.value?.design, letterCvState.value?.contact, letterCvState.value?.disabled.includes('header'), props.application.context_json, context.value.theme]));
@@ -296,13 +323,32 @@ const showReviewPreview = computed(() => reviewActive.value && tab.value === 're
 const showCvReview = computed(() => showReviewPreview.value && reviewScope.value !== 'letter');
 const showLetterComparison = computed(() => tab.value === 'refinement' && pane.value === 'letter' && hasActiveProposal.value && reviewScope.value !== 'cv');
 const showLetterReview = computed(() => (showReviewPreview.value || showLetterComparison.value) && reviewScope.value !== 'cv');
-const currentPublishedRequest = computed(() => requests.value.find(item => item.id === cloudState.value?.current_request_id) || null);
-const publishedSource = computed(() => currentPublishedRequest.value || requests.value[0] || null);
+const currentPublishedRequest = computed(() => requests.value.find(item => item.id === currentRequestId.value) || null);
+const publishedSource = computed(() => currentPublishedRequest.value || requests.value.find(row => row.request_json.scope === pane.value) || null);
+function nextCvSource(): { state: CvState; parentId: string | null; pending?: LocalRefinementRequest['pendingCvSelection'] } {
+  const parent = proposals.value.find(row => row.id === parentProposalId.value);
+  const fallback = { state: record.value!.state, parentId: parent && requests.value.some(row => row.id === parent.request_id && row.request_json.scope === pane.value) ? parent.id : null };
+  if (feedbackScope.value !== 'cv' || cvApproved.value) return fallback;
+  const pendingLocal = currentPublishedRequest.value && localRequests.value[currentPublishedRequest.value.id];
+  if (pendingLocal?.pendingCvSelection && !pendingLocal.pendingCvSelection.applied
+    && pendingLocal.pendingCvSelection.workingRevision === cvRevision.value) {
+    return { state: pendingLocal.cv.baselineState, parentId: pendingLocal.pendingCvSelection.proposalId, pending: pendingLocal.pendingCvSelection };
+  }
+  const row = selectedProposal.value;
+  if (!row || row.request_id !== currentRequestId.value || selectedRequest.value?.request_json.scope !== 'cv') return fallback;
+  try {
+    const result = checkedProposalResult(true);
+    return { state: result.state, parentId: row.id, pending: { requestId: row.request_id, proposalId: row.id, selectedIds: [...selectedChangeIds.value], workingRevision: cvRevision.value } };
+  } catch { return fallback; } // A manual edit starts a fresh source instead of replaying an older selection.
+}
 const sourcePreparation = computed(() => {
   if (!record.value || !letter.value || missingLetterTemplate.value) return { local: null, error: '' };
   try {
-    const local = prepareRefinement({ applicationId: props.application.id, state: record.value.state, variantId: record.value.variantId || record.value.baseId, setup: setup.value, letterText: letterText.value, letterContent: letter.value.working, instructions: letter.value.instructions, opportunity: props.application.context_json, scope: feedbackScope.value, feedback: feedbackHistory(), parentProposalId: parentProposalId.value, baselineSignature: baselineSignature.value, privacyContexts: privacyContexts.value });
-    local.source = { cv: { name: record.value.baseName, variantId: record.value.variantId || record.value.baseId, baseRevision: record.value.baseRevision, hasApplicationEdits: cvDifferences(record.value.baseState, record.value.state).length > 0 }, letter: { updatedAt: letter.value.updatedAt, version: refinementSignature(letterText.value) }, contextCapturedAt: props.application.context_captured_at };
+    const source = nextCvSource();
+    const sourceSignature = documentSignature(pane.value, source.state);
+    const local = prepareRefinement({ applicationId: props.application.id, state: source.state, variantId: record.value.variantId || record.value.baseId, setup: setup.value, letterText: letterText.value, letterContent: letter.value.working, instructions: letter.value.instructions, opportunity: props.application.context_json, scope: feedbackScope.value, feedback: feedbackHistory(), parentProposalId: source.parentId, baselineSignature: sourceSignature, baselineScope: pane.value, privacyContexts: privacyContexts.value });
+    if (source.pending) local.pendingCvSelection = clone(source.pending);
+    local.source = { cv: { name: record.value.baseName, variantId: record.value.variantId || record.value.baseId, baseRevision: record.value.baseRevision, hasApplicationEdits: cvDifferences(record.value.baseState, source.state).length > 0 }, letter: { updatedAt: letter.value.updatedAt, version: refinementSignature(letterText.value) }, contextCapturedAt: props.application.context_captured_at };
     return { local, error: '' };
   } catch (cause) { return { local: null, error: cause instanceof Error ? cause.message : String(cause) }; }
 });
@@ -322,39 +368,49 @@ const publicationStatus = computed<'unpublished' | 'current' | 'outdated' | 'unv
 const proposalChanges = computed(() => {
   const proposal = selectedProposal.value?.proposal_json, request = selectedRequest.value?.request_json;
   if (!proposal || !request) return [];
-  const decision = [...reviews.value].reverse().find(item => item.kind === 'cv_decisions' && item.payload.proposalId === selectedProposal.value?.id);
-  const status = (id: string): 'proposed' | 'accepted' | 'rejected' => (decision?.payload.accepted as string[] | undefined)?.includes(id) ? 'accepted' : (decision?.payload.rejected as string[] | undefined)?.includes(id) ? 'rejected' : 'proposed';
+  const receipt = selectedLocalRequest.value?.acceptances?.filter(item => item.proposalId === selectedProposal.value?.id).at(-1);
+  const decision = receipt ? reviews.value.find(item => item.id === receipt.reviewId)
+    : [...reviews.value].reverse().find(item => item.kind === 'cv_decisions' && item.payload.proposalId === selectedProposal.value?.id);
+  const applied = selectedLocalRequest.value?.appliedCvSelection;
+  const status = (id: string): 'proposed' | 'accepted' | 'rejected' => applied?.proposalId === selectedProposal.value?.id
+    ? applied!.selectedIds.includes(id) ? 'accepted' : 'rejected'
+    : (decision?.payload.accepted as string[] | undefined)?.includes(id) ? 'accepted' : (decision?.payload.rejected as string[] | undefined)?.includes(id) ? 'rejected' : 'proposed';
   return proposal.cvOperations.map(operation => ({
     ...describeCvOperation(operation, request.cvStructure), id: operation.id, type: operation.type, explanation: operation.explanation, status: status(operation.id),
   }));
 });
+const proposalComments = computed(() => (selectedProposal.value?.proposal_json.cvComments || []).map(comment => ({
+  ...comment, target: selectedRequest.value?.request_json.cv.fields.find(field => field.id === comment.fieldId)?.label || comment.fieldId,
+})));
 const scopedRequests = computed(() => requests.value.filter(row => matchesScope(row)));
 function hasDocumentProposal(scope: DocumentScope) {
   // A local reset starts before cloud deletion. Keep the source locked until
   // Clear history succeeds and removes this scope from the saved requests.
-  return requests.value.some(request => matchesScope(request, scope)
+  return requests.value.some(request => request.request_json.scope === scope && matchesScope(request, scope)
     && proposals.value.some(proposal => proposal.request_id === request.id));
 }
 const cvSelectionLocked = computed(() => hasDocumentProposal('cv'));
 const letterSelectionLocked = computed(() => hasDocumentProposal('letter'));
 const preparationBusy = computed(() => busy.value || refreshing.value || syncing.value || !!props.client && !cloudLoaded.value);
-const availableProposals = computed(() => visibleRefinementProposals(proposals.value.filter(row => !isRequestReset(row.request_id)), scopedRequests.value[0]?.id || null, selectedProposalId.value)
+const availableProposals = computed(() => visibleRefinementProposals(proposals.value.filter(row => !isRequestReset(row.request_id)), currentRequestId.value, selectedProposalId.value)
   .filter(row => scopedRequests.value.some(request => request.id === row.request_id)));
 const originalRequest = computed(() => [...scopedRequests.value].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))[0]);
 function reviewMatchesScope(row: RefinementReviewRow, scope: DocumentScope = pane.value) {
   if (row.cleared_scopes?.includes(scope)) return false;
   const ownScope = row.kind === 'feedback' ? row.payload.scope : row.kind === 'annotation'
     ? proposals.value.find(proposal => proposal.id === row.payload.proposalId)?.proposal_json.annotations?.find(annotation => annotation.id === row.payload.annotationId)?.document
+    : row.kind === 'cv_decisions' ? requests.value.find(request => request.id === row.request_id)?.request_json.scope
     : row.kind.includes('letter') ? 'letter' : 'cv';
   return ownScope === scope || ownScope === 'both';
 }
 const canClearHistory = computed(() => cloudLoaded.value && !!(scopedRequests.value.length || reviews.value.some(row => reviewMatchesScope(row))
   || Object.values(localRequests.value).some(local => !local.publishedAt && refinementMatchesScope(local.request.scope, pane.value))));
+const legacyReview = computed(() => selectedRequest.value?.request_json.scope === 'both');
 const scopeLocked = computed(() => pane.value === 'cv' ? cvApproved.value : letterApproved.value);
 const hasActiveProposal = computed(() => !!selectedProposal.value && availableProposals.value.some(row => row.id === selectedProposalId.value));
 // The refinement phase survives selection changes and waiting for a later proposal.
 const showInitialRefinement = computed(() => !proposals.value.some(row => {
-  return !isRequestReset(row.request_id) && scopedRequests.value.some(request => request.id === row.request_id);
+  return !isRequestReset(row.request_id) && scopedRequests.value.some(request => request.id === row.request_id && request.request_json.scope === pane.value) || row.id === selectedProposalId.value;
 }));
 const iterationPending = computed(() => currentPublishedRequest.value?.request_json.scope === feedbackScope.value
   && !!currentPublishedRequest.value.request_json.parentProposalId
@@ -364,12 +420,19 @@ function selectionKey(row: RefinementProposalRow, selected = selectedChangeIds.v
 }
 const proposalAlreadyApplied = computed(() => {
   const row = selectedProposal.value;
-  return !!row && !!localRequests.value[row.request_id]?.acceptances?.some(receipt => receipt.key === selectionKey(row));
+  const applied = selectedLocalRequest.value?.appliedCvSelection;
+  if (row && applied?.proposalId === row.id) return refinementSignature([...applied.selectedIds].sort()) === refinementSignature([...selectedChangeIds.value].sort());
+  return !!row && localRequests.value[row.request_id]?.acceptances?.at(-1)?.key === selectionKey(row);
+});
+const cvChangeReviewError = computed(() => {
+  if (!selectedProposal.value || pane.value !== 'cv') return '';
+  try { checkedProposalResult(true); return ''; }
+  catch (cause) { return cause instanceof Error ? cause.message : String(cause); }
 });
 const proposalSourceOutdated = computed(() => {
   const row = selectedProposal.value, local = selectedLocalRequest.value;
   if (!row || !local || proposalAlreadyApplied.value) return false;
-  return local.baselineSignature !== baselineSignature.value || local.cv.sourceVariantId !== (record.value?.variantId || record.value?.baseId) || cloudState.value?.current_request_id !== row.request_id;
+  return local.baselineSignature !== currentSourceSignature(local) || local.request.scope === 'cv' && local.cv.sourceVariantId !== (record.value?.variantId || record.value?.baseId) || currentRequestId.value !== row.request_id;
 });
 // The latest accepted letter remains editable while its source stays available
 // for comparison. CV-only acceptances and older letter proposals do not replace it.
@@ -380,10 +443,11 @@ const selectedWorkingLetter = computed(() => {
   return !!latest && latest.cloudDraftId === selectedProposal.value?.id;
 });
 const comparingWorkingLetter = computed(() => showLetterComparison.value && !reviewActive.value && reviewComparison.value === 'proposed' && selectedWorkingLetter.value);
-watch(selectedProposalId, () => {
-  selectedChangeIds.value = cvApproved.value ? [] : proposalChanges.value.filter(change => change.status !== 'rejected').map(change => change.id);
+watch(() => selectedProposal.value?.id, () => {
+  const saved = cvSelections.value[selectedProposalId.value];
+  selectedChangeIds.value = saved ? proposalChanges.value.filter(change => saved.includes(change.id)).map(change => change.id)
+    : proposalChanges.value.filter(change => change.status !== 'rejected').map(change => change.id);
   includeProposedLetter.value = !letterApproved.value && selectedRequest.value?.request_json.scope !== 'cv';
-  reviewComparison.value = 'proposed';
   reviewActive.value = !!selectedProposal.value && pane.value !== 'letter';
 }, { flush: 'sync' });
 const temporaryReview = computed(() => {
@@ -441,7 +505,26 @@ const proposalAnnotations = computed(() => annotationViews(selectedProposal.valu
     included: view.status === 'resolved' && reviews.value.some(row => row.kind === 'feedback' && (row.payload.annotation as AnnotationReference | undefined)?.proposalId === view.proposalId && (row.payload.annotation as AnnotationReference).annotationId === a.id && (row.payload.annotation as AnnotationReference).reviewId === view.reviewId),
   };
 }));
-const currentQuestions = computed(() => proposalAnnotations.value.filter(item => item.annotation.document === pane.value && item.annotation.type === 'question'));
+const currentAnnotations = computed(() => proposalAnnotations.value.filter(item => item.annotation.document === pane.value));
+const reviewCounts = computed(() => ({
+  changes: pane.value === 'cv' ? proposalChanges.value.length : 0,
+  question: currentAnnotations.value.length + (pane.value === 'cv' ? proposalComments.value.length : 0),
+}));
+async function selectReviewTab(value: ReviewTab) {
+  if (!await flushTextareas()) return false;
+  reviewTab.value = value;
+  return true;
+}
+function onReviewTabKeydown(event: KeyboardEvent, value: ReviewTab) {
+  const index = reviewTabs.indexOf(value);
+  const next = event.key === 'ArrowRight' ? reviewTabs[(index + 1) % reviewTabs.length]
+    : event.key === 'ArrowLeft' ? reviewTabs[(index + reviewTabs.length - 1) % reviewTabs.length]
+    : event.key === 'Home' ? reviewTabs[0] : event.key === 'End' ? reviewTabs.at(-1) : undefined;
+  if (!next) return;
+  event.preventDefault();
+  const tabs = (event.currentTarget as HTMLElement).parentElement;
+  void selectReviewTab(next).then(changed => { if (changed) tabs?.querySelector<HTMLButtonElement>(`[data-review-tab="${next}"]`)?.focus(); });
+}
 // Return to saved documents on leaving review; keep ignored proposals closed on return.
 watch(tab, value => { if (value !== 'refinement') reviewActive.value = false; });
 watch([cvApproved, letterApproved], ([cv, letter]) => {
@@ -495,7 +578,7 @@ function persist() {
     const stagedStore = { getItem: (key: string) => localStorage.getItem(key), setItem: (key: string, value: string) => { writes.set(key, value); }, removeItem() {} };
     if (record.value) saveApplicationCv(record.value, stagedStore);
     if (letter.value) createLetterRepository(stagedStore, props.userId).save(letter.value);
-    writes.set(storageKey, JSON.stringify({ version: 1, privacyContexts: privacyContexts.value, approvals: approvals.value, savedVariant: savedVariant.value, requests: localRequests.value, parentProposalId: parentProposalId.value, parentProposalIds: parentProposalIds.value, scope: feedbackScope.value, resetRequestIds: resetRequestIds.value, resetRequestIdsByScope: resetRequestIdsByScope.value, iterationNotes: iterationNotes.value, iterationFeedbackSubmission: iterationFeedbackSubmission.value, pendingResetFeedback: pendingResetFeedback.value }));
+    writes.set(storageKey, JSON.stringify({ version: 1, privacyContexts: privacyContexts.value, approvals: approvals.value, savedVariant: savedVariant.value, requests: localRequests.value, cvSelections: cvSelections.value, parentProposalId: parentProposalId.value, parentProposalIds: parentProposalIds.value, scope: feedbackScope.value, selectedProposalIds: selectedProposalIds.value, resetRequestIds: resetRequestIds.value, resetRequestIdsByScope: resetRequestIdsByScope.value, iterationNotes: iterationNotes.value, iterationFeedbackSubmission: iterationFeedbackSubmission.value, pendingResetFeedback: pendingResetFeedback.value }));
     for (const [key, value] of writes) {
       const saved = localStorage.getItem(key);
       if (saved === value) continue;
@@ -509,15 +592,16 @@ function persist() {
     saveError.value = text('Local save failed: ', 'Lokales Speichern fehlgeschlagen: ') + String(cause);
   }
 }
-watch([record, letter, approvals, localRequests, parentProposalIds, privacyContexts, iterationNotes, iterationFeedbackSubmission, pendingResetFeedback, resetRequestIdsByScope], persist, { deep: true, flush: 'sync' });
+watch([record, letter, approvals, localRequests, parentProposalIds, privacyContexts, iterationNotes, iterationFeedbackSubmission, pendingResetFeedback, resetRequestIdsByScope, selectedProposalIds], persist, { deep: true, flush: 'sync' });
 function selectScopeProposal(closePreview = true) {
-  const relevant = (row: RefinementProposalRow) => !isRequestReset(row.request_id) && scopedRequests.value.some(request => request.id === row.request_id);
+  const relevant = (row: RefinementProposalRow) => !isRequestReset(row.request_id) && scopedRequests.value.some(request => request.id === row.request_id)
+    && (row.request_id === currentRequestId.value || explicitHistorySelections.has(row.id));
   if (!proposals.value.some(row => row.id === selectedProposalId.value && relevant(row))) {
-    selectedProposalId.value = proposals.value.find(row => row.request_id === scopedRequests.value[0]?.id && relevant(row))?.id || '';
+    selectedProposalId.value = proposals.value.find(row => row.request_id === currentRequestId.value && relevant(row))?.id || '';
   }
   if (closePreview) reviewActive.value = false;
 }
-watch(feedbackScope, () => { commitPendingTextareas(); scopeWasChosen = true; if (!committingSelection) selectScopeProposal(); persist(); }, { flush: 'sync' });
+watch(feedbackScope, () => { commitPendingTextareas(); reviewTab.value = pane.value === 'cv' ? 'changes' : 'question'; scopeWasChosen = true; if (!committingSelection) selectScopeProposal(); persist(); }, { flush: 'sync' });
 watch(cvRevision, () => { if (approvals.value.cv && approvals.value.cv !== cvRevision.value) approvals.value.cv = null; });
 watch(letterRevision, () => { if (approvals.value.letter && approvals.value.letter !== letterRevision.value) approvals.value.letter = null; });
 function refreshLetterHeader() {
@@ -549,6 +633,7 @@ async function refreshCloud() {
   loadingCloud = (async () => {
     refreshing.value = true;
     const initialSignature = baselineSignature.value;
+    const initialDocumentSignatures = { cv: documentSignature('cv'), letter: documentSignature('letter') };
     const [state, nextRequests, nextProposals, nextReviews] = await Promise.all([
       repository.loadState(props.application.id), repository.listRequests(props.application.id), repository.listProposals(props.application.id), repository.listReviews(props.application.id),
     ]);
@@ -569,11 +654,16 @@ async function refreshCloud() {
     cloudState.value = state; requests.value = nextRequests; proposals.value = nextProposals;
     reviews.value = mergeReviews(nextReviews.filter(review => review.request_id === null || requestIds.has(review.request_id)));
     localRequests.value = remainingLocalRequests;
+    for (const local of Object.values(localRequests.value)) {
+      if (!local.baselineScope && local.request.scope !== 'both' && local.baselineSignature === initialSignature && initialSignature === baselineSignature.value) {
+        local.baselineScope = local.request.scope; local.baselineSignature = initialDocumentSignatures[local.request.scope];
+      }
+    }
     resetRequestIds.value = resetRequestIds.value.filter(id => requestIds.has(id));
     for (const scope of ['cv', 'letter'] as const) {
       resetRequestIdsByScope.value[scope] = resetRequestIdsByScope.value[scope].filter(id => requestIds.has(id));
       const parent = nextProposals.find(item => item.id === parentProposalIds.value[scope]);
-      if (!parent || isRequestReset(parent.request_id, scope) || !nextRequests.some(row => row.id === parent.request_id && matchesScope(row, scope))) parentProposalIds.value[scope] = null;
+      if (!parent || isRequestReset(parent.request_id, scope) || !nextRequests.some(row => row.id === parent.request_id && row.request_json.scope === scope && matchesScope(row, scope))) parentProposalIds.value[scope] = null;
       const submission = iterationFeedbackSubmission.value[scope];
       const submittedDraft = submission?.draft;
       // Only a new, validated response to these notes consumes them. Preserve any
@@ -599,18 +689,19 @@ async function refreshCloud() {
       if ((!cvApproved.value || scope === 'letter') && (!letterApproved.value || scope === 'cv')) feedbackScope.value = scope;
     }
     cloudLoaded.value = true;
-    if (!nextProposals.some(item => item.id === selectedProposalId.value && !isRequestReset(item.request_id) && scopedRequests.value.some(row => row.id === item.request_id))) selectScopeProposal(false);
+    selectScopeProposal(false);
     persist();
   })();
   try { await loadingCloud; }
   finally { loadingCloud = null; refreshing.value = false; }
 }
-function selectReviewProposal(id: string) {
-  if (busy.value || !proposals.value.some(row => row.id === id)) return;
+async function selectReviewProposal(id: string) {
+  if (busy.value || !proposals.value.some(row => row.id === id) || !await flushTextareas()) return;
+  explicitHistorySelections.add(id);
   tab.value = 'refinement'; selectedProposalId.value = id; openProposal();
 }
-async function checkProposals(navigate = true) { if (navigate) tab.value = 'refinement'; await run(async () => { await refreshCloud(); notice.value = proposals.value.length ? text('Proposals loaded. Review one before applying it.', 'Vorschläge geladen. Vor dem Übernehmen prüfen.') : text('No proposal yet. Run the copied prompt in ChatGPT, then check again.', 'Noch kein Vorschlag. Kopierten Prompt in ChatGPT ausführen und erneut prüfen.'); }); }
-function refreshOnFocus() { refreshLetterHeader(); if (!busy.value && !syncing.value && props.active !== false) void refreshCloud().then(async () => { if (tab.value === 'refinement') await applyCurrentProposal(); }).catch(report); }
+async function checkProposals(navigate = true) { if (!await flushTextareas()) return; if (navigate) tab.value = 'refinement'; await run(async () => { await refreshCloud(); notice.value = proposals.value.length ? text('Proposals loaded. Review one before applying it.', 'Vorschläge geladen. Vor dem Übernehmen prüfen.') : text('No proposal yet. Run the copied prompt in ChatGPT, then check again.', 'Noch kein Vorschlag. Kopierten Prompt in ChatGPT ausführen und erneut prüfen.'); }); }
+function refreshOnFocus() { refreshLetterHeader(); if (!busy.value && !syncing.value && props.active !== false) void flushTextareas().then(async saved => { if (!saved) return; await refreshCloud(); if (tab.value === 'refinement') await applyCurrentProposal(); }).catch(report); }
 watch(() => props.active, active => { if (active) void syncRefinement(); });
 watch(tab, stage => { if (stage === 'refinement') refreshOnFocus(); });
 function reloadTemplates() { try { templates.value = letterRepository.listTemplates(); } catch (cause) { report(cause); } }
@@ -685,7 +776,8 @@ function mergeReviews(...groups: RefinementReviewRow[][]): RefinementReviewRow[]
     .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
 }
 function feedbackHistory(): RefinementFeedback[] {
-  return mergeReviews(reviews.value).filter(item => item.kind === 'feedback' && (feedbackScope.value === 'both' || !item.cleared_scopes?.includes(pane.value))).map(item => {
+  return mergeReviews(reviews.value).filter(item => item.kind === 'feedback' && item.payload.scope === pane.value && !item.cleared_scopes?.includes(pane.value)
+    && (!item.request_id || requests.value.some(request => request.id === item.request_id && request.request_json.scope === pane.value))).map(item => {
     const annotation = item.payload.annotation as AnnotationReference | undefined;
     return { id: item.id, text: String(item.payload.text), scope: item.payload.scope as RefinementScope, createdAt: item.created_at,
       ...(annotation ? { annotation: clone(annotation) } : {}) };
@@ -695,6 +787,7 @@ async function saveAnnotation(id: string, status: AnnotationStatus, response: st
   let saved = false;
   await run(async () => {
     const view = proposalAnnotations.value.find(item => item.annotation.id === id);
+    if (legacyReview.value || view && requests.value.find(row => row.id === view.requestId)?.request_json.scope === 'both') throw new Error('Combined refinement is read-only history. Publish a separate request.');
     if (!view || !record.value) throw new Error('Restore the local CV before saving an anonymized response.');
     const safeResponse = response.trim() ? sanitizeRefinementText(response.trim(), record.value.state) : null;
     const payload = { proposalId: view.proposalId, annotationId: id, status, response: safeResponse, previousReviewId };
@@ -784,27 +877,75 @@ async function createRound(scope: RefinementScope) {
   cloudState.value = await repository.loadState(props.application.id);
   if (disposed) return;
   if (!preparedSource.value || !sameRefinementInputs(local, preparedSource.value)) throw new Error('Sources changed while publishing. Review them and publish a new round.');
-  if (cloudState.value?.current_request_id !== saved.id) throw new Error('A different request is current. Check for updates before publishing again.');
+  if (currentRequestId.value !== saved.id) throw new Error('A different request is current. Check for updates before publishing again.');
   notice.value = text('Sources published. Copy the task to continue in ChatGPT.', 'Quellen veröffentlicht. Die Aufgabe kopieren, um in ChatGPT fortzufahren.');
 }
 async function publishSources(loadProposals = false) {
+  if (!await flushTextareas()) return;
   await run(async () => {
     await createRound(feedbackScope.value);
     if (loadProposals) await refreshCloud();
   });
 }
+async function applyPendingCvSelection(local: LocalRefinementRequest) {
+  const pending = local.pendingCvSelection;
+  if (!pending || pending.applied) return;
+  const row = proposals.value.find(item => item.id === pending.proposalId && item.request_id === pending.requestId);
+  const parent = localRequests.value[pending.requestId];
+  const parentSource = requests.value.find(item => item.id === pending.requestId);
+  if (!row || !parent || !parentSource || refinementSignature(parentSource.request_json) !== refinementSignature(parent.request)
+    || local.request.parentProposalId !== row.id || local.request.scope !== 'cv') throw new Error('The previous CV selection is unavailable. Restore its original snapshot before continuing.');
+  validateLocalRefinementSource(local, props.application.id);
+  const result = reconstructRefinementProposal(parent, row.proposal_json, pending.selectedIds, props.application.id);
+  if (refinementSignature(result.state) !== refinementSignature(local.cv.baselineState)) throw new Error('The saved CV selection does not match the next refinement source.');
+  const checkCurrent = () => {
+    if (!record.value || cvApproved.value || pending.workingRevision !== cvRevision.value
+      || local.cv.sourceVariantId !== (record.value.variantId || record.value.baseId)
+      || currentRequestId.value !== local.request.requestId) throw new Error(text('The CV changed while waiting for this refinement. Your edits were kept; create a new round from the current CV.', 'Der CV wurde während dieser Überarbeitung geändert. Ihre Änderungen bleiben erhalten; starten Sie eine neue Runde mit dem aktuellen CV.'));
+  };
+  checkCurrent();
+  const previousRecord = record.value!, previousSelection = parent.appliedCvSelection, previousParent = parentProposalIds.value.cv;
+  const nextRecord = clone(previousRecord);
+  if (refinementSignature(nextRecord.state) !== refinementSignature(result.state)) {
+    nextRecord.state = cloneCv(result.state); nextRecord.revision++; nextRecord.updatedAt = new Date().toISOString();
+  }
+  committingSelection = true;
+  try {
+    record.value = nextRecord;
+    parent.appliedCvSelection = { proposalId: row.id, selectedIds: [...pending.selectedIds], nextRequestId: local.request.requestId };
+    parentProposalIds.value.cv = row.id;
+    pending.applied = true;
+  } finally { committingSelection = false; }
+  persist();
+  if (saveError.value) {
+    committingSelection = true;
+    try { record.value = previousRecord; parent.appliedCvSelection = previousSelection; parentProposalIds.value.cv = previousParent; delete pending.applied; }
+    finally { committingSelection = false; }
+    throw new Error(saveError.value);
+  }
+}
 async function applyCurrentProposal(id?: string) {
   if (busy.value || disposed || !record.value || !letter.value || scopeLocked.value) return;
-  const currentId = cloudState.value?.current_request_id;
+  const currentId = currentRequestId.value;
   if (!currentId || isRequestReset(currentId) || !currentPublishedRequest.value || !matchesScope(currentPublishedRequest.value)) return;
   const local = localRequests.value[currentId];
   if (!local) return;
   const candidate = id ? proposals.value.find(row => row.id === id && row.request_id === currentId)
     : proposals.value.find(row => row.request_id === currentId);
   if (!candidate || requests.value.find(row => row.id === currentId)?.request_json.scope !== feedbackScope.value) return;
+  if (selectedProposalId.value !== candidate.id && !await flushTextareas()) return;
+  if (local.request.scope === 'cv') {
+    try { reconstructRefinementProposal(local, candidate.proposal_json, undefined, props.application.id); }
+    catch (cause) { report(cause); return; }
+    await run(async () => { await applyPendingCvSelection(local); });
+    if (error.value || disposed) return;
+    selectedProposalId.value = candidate.id;
+    reviewActive.value = tab.value === 'refinement';
+    return;
+  }
   if (local.acceptances?.some(receipt => receipt.proposalId === candidate.id)) return;
   // A return for an older working version must never overwrite manual corrections.
-  if (local.baselineSignature !== baselineSignature.value || local.cv.sourceVariantId !== (record.value.variantId || record.value.baseId)) {
+  if (local.baselineSignature !== currentSourceSignature(local)) {
     if (!id) reviewActive.value = false;
     return;
   }
@@ -821,12 +962,6 @@ async function applyCurrentProposal(id?: string) {
   finally { if (pane.value === 'letter') reviewActive.value = false; }
   if (!error.value) notice.value = text('Proposal loaded and applied to the working document.', 'Vorschlag geladen und in die Arbeitsfassung übernommen.');
 }
-async function selectActiveProposal(id: string) {
-  if (!await flushTextareas()) return;
-  if (busy.value) return;
-  selectedProposalId.value = id;
-  await applyCurrentProposal(id);
-}
 async function syncRefinement() {
   const stopped = () => disposed || props.active === false;
   if (stopped() || !props.client || busy.value || syncing.value) return;
@@ -838,7 +973,9 @@ async function syncRefinement() {
     if (stopped() || error.value) return;
     await applyCurrentProposal();
     if (stopped() || error.value) return;
-    if (!reviewActive.value && preparedSource.value && !scopeLocked.value) {
+    const currentCvProposal = currentPublishedRequest.value?.request_json.scope === 'cv' && pane.value === 'cv'
+      && proposals.value.some(row => row.request_id === currentRequestId.value);
+    if (!reviewActive.value && !currentCvProposal && preparedSource.value && !scopeLocked.value) {
       const current = currentPublishedRequest.value;
       const appliedCurrent = !!parentProposalId.value && proposals.value.some(row => row.id === parentProposalId.value && row.request_id === current?.id);
       if (current && isRequestReset(current.id)) await run(saveSetup);
@@ -856,7 +993,7 @@ async function syncRefinement() {
 async function copyIterationTask() {
   if (!await flushTextareas()) return;
   if (busy.value || refreshing.value || scopeLocked.value) return;
-  // The comparison is temporary; every iteration starts from the saved working document.
+  // The CV selection becomes a frozen request source, not a working-document commit.
   reviewActive.value = false;
   const scope = pane.value, requestedScope = feedbackScope.value;
   await run(async () => {
@@ -873,7 +1010,7 @@ async function copyIterationTask() {
   await copyTask();
 }
 async function savePendingResetFeedback(scope: RefinementScope) {
-  for (const document of scope === 'both' ? ['cv', 'letter'] as const : [scope]) {
+  for (const document of [scope]) {
     const pending = pendingResetFeedback.value[document];
     if (!pending) continue;
     const saved = await repository.saveReview(props.application.id, pending.requestId, 'feedback', { text: pending.text, scope: document }, pending.id);
@@ -886,14 +1023,14 @@ async function savePendingResetFeedback(scope: RefinementScope) {
 }
 async function submitIterationFeedback(scope: DocumentScope, draft: IterationNotes) {
   const fields = ['tone', 'structure', 'content'] as const;
-  if (fields.some(field => draft[field].length > 4000)) throw new Error(text('Keep each refinement request within 4,000 characters.', 'Jeden Überarbeitungswunsch auf 4.000 Zeichen begrenzen.'));
-  const sections = fields.filter(field => draft[field].trim()).map(field => `${field[0]!.toUpperCase()}${field.slice(1)}:\n${draft[field].trim()}`);
+  if (scope === 'cv' ? fields.map(field => draft[field]).filter(value => value.trim()).join('\n\n').length > 12000 : fields.some(field => draft[field].length > 4000)) throw new Error(scope === 'cv' ? text('Keep the CV request within 12,000 characters.', 'Den CV-Überarbeitungswunsch auf 12.000 Zeichen begrenzen.') : text('Keep each refinement request within 4,000 characters.', 'Jeden Überarbeitungswunsch auf 4.000 Zeichen begrenzen.'));
+  const sections = fields.filter(field => draft[field].trim()).map(field => scope === 'cv' ? draft[field].trim() : `${field[0]!.toUpperCase()}${field.slice(1)}:\n${draft[field].trim()}`);
   if (!sections.length) return;
   if (!record.value) throw new Error('Restore the local CV before sharing refinement requests.');
   const safeText = sanitizeRefinementText(sections.join('\n\n'), record.value.state);
   let submission = iterationFeedbackSubmission.value[scope];
   if (!submission || submission.text !== safeText) {
-    submission = { id: crypto.randomUUID(), text: safeText, requestId: scopedRequests.value[0]?.id || null };
+    submission = { id: crypto.randomUUID(), text: safeText, requestId: scopedRequests.value.find(row => row.request_json.scope === scope)?.id || null };
   }
   submission.draft = { notes: clone(draft), knownProposalIds: submission.draft?.knownProposalIds ?? proposals.value.map(proposal => proposal.id) };
   iterationFeedbackSubmission.value[scope] = submission;
@@ -913,12 +1050,12 @@ async function copyTask() { await run(async () => {
   if (requestToCopy().id !== request.id) throw new Error('The current refinement request changed. Copy the task again.');
   await copyShortInstruction();
 }); }
-function checkedProposalResult() {
+function checkedProposalResult(cvSelectionOnly = false) {
   if (!record.value || !letter.value || !selectedProposal.value) throw new Error('Select a proposal and restore its local source documents first.');
   if (saveError.value) throw new Error(saveError.value);
   const row = selectedProposal.value;
   if (selectedRequest.value?.request_json.scope !== feedbackScope.value) throw new Error(text('Publish a separate request for the selected document before accepting changes.', 'Vor der Übernahme eine eigene Anfrage für das ausgewählte Dokument veröffentlichen.'));
-  if (cloudState.value?.current_request_id !== row.request_id) throw new Error(text('This proposal belongs to a superseded round. Review the proposal for the current round or create a new round.', 'Dieser Vorschlag gehört zu einer überholten Runde. Den Vorschlag der aktuellen Runde prüfen oder eine neue Runde erstellen.'));
+  if (currentRequestId.value !== row.request_id) throw new Error(text('This proposal belongs to a superseded round. Review the proposal for the current round or create a new round.', 'Dieser Vorschlag gehört zu einer überholten Runde. Den Vorschlag der aktuellen Runde prüfen oder eine neue Runde erstellen.'));
   const local = localRequests.value[row.request_id];
   if (!local) throw new Error(text('This device is missing the original private snapshot. Restore your documents if needed, then create a new round.', 'Der ursprüngliche private Snapshot fehlt auf diesem Gerät. Dokumente bei Bedarf wiederherstellen und eine neue Runde erstellen.'));
   const request = selectedRequest.value;
@@ -926,24 +1063,52 @@ function checkedProposalResult() {
     || row.request_id !== local.request.requestId || row.proposal_json.requestId !== row.request_id || !request
     || request.application_id !== props.application.id || request.user_id !== props.userId
     || refinementSignature(request.request_json) !== refinementSignature(local.request)) throw new Error('The proposal, request and local application references do not match. Restore the original local sources.');
-  if (local.cv.sourceVariantId !== (record.value.variantId || record.value.baseId)) throw new Error('The source CV variant changed after publication. This proposal is outdated; publish a new round.');
-  if (cvApproved.value && selectedChangeIds.value.length || letterApproved.value && includeProposedLetter.value && row.proposal_json.letterText !== local.request.letter.text) throw new Error('Reopen the approved document before applying changes.');
-  if (local.request.scope !== 'cv' && includeProposedLetter.value && letter.value.finalRevisionId) throw new Error('Reopen the finalized letter before accepting a proposed draft. The finalized letter has been preserved.');
-  return applyRefinementProposal(local, row.proposal_json, record.value.state, baselineSignature.value, selectedChangeIds.value);
+  if (local.request.scope === 'cv' && local.cv.sourceVariantId !== (record.value.variantId || record.value.baseId)) throw new Error('The source CV variant changed after publication. This proposal is outdated; publish a new round.');
+  if (cvApproved.value && (cvSelectionOnly || selectedChangeIds.value.length) || !cvSelectionOnly && letterApproved.value && includeProposedLetter.value && row.proposal_json.letterText !== local.request.letter.text) throw new Error('Reopen the approved document before applying changes.');
+  if (!cvSelectionOnly && local.request.scope !== 'cv' && includeProposedLetter.value && letter.value.finalRevisionId) throw new Error('Reopen the finalized letter before accepting a proposed draft. The finalized letter has been preserved.');
+  if (cvSelectionOnly && local.request.scope !== 'letter') {
+    const receipt = local.acceptances?.at(-1);
+    if (receipt) {
+      const decision = reviews.value.find(review => review.id === receipt.reviewId && review.kind === 'cv_decisions' && review.payload.proposalId === row.id);
+      if (receipt.proposalId !== row.id || parentProposalIds.value.cv !== row.id || !decision || !Array.isArray(decision.payload.accepted)) throw new Error(text('Review the latest applied CV proposal before changing its selection.', 'Prüfen Sie den zuletzt übernommenen CV-Vorschlag, bevor Sie seine Auswahl ändern.'));
+      const previous = reconstructRefinementProposal(local, row.proposal_json, decision.payload.accepted as string[], props.application.id);
+      if (refinementSignature(previous.state) !== refinementSignature(record.value.state) || decision.payload.revision !== cvRevision.value) throw new Error(text('The CV changed after this proposal was applied. Create a new refinement to preserve your edits.', 'Der CV wurde nach der Übernahme dieses Vorschlags geändert. Starten Sie eine neue Überarbeitung, um Ihre Änderungen zu bewahren.'));
+      return reconstructRefinementProposal(local, row.proposal_json, selectedChangeIds.value, props.application.id);
+    }
+  }
+  return applyRefinementProposal(local, row.proposal_json, record.value.state, currentSourceSignature(local), selectedChangeIds.value);
 }
 function openProposal() {
   try {
     error.value = ''; notice.value = '';
     reviewComparison.value = 'proposed'; reviewActive.value = pane.value !== 'letter';
     if (temporaryReview.value.error) throw new Error(temporaryReview.value.error);
-    notice.value = text('Temporary review only. Saved documents and approvals remain unchanged until you accept the selection.', 'Nur temporäre Prüfung. Gespeicherte Dokumente und Freigaben bleiben bis zur Übernahme unverändert.');
+    notice.value = pane.value === 'cv'
+      ? text('Previewing active changes. They will apply when the next requested refinement arrives.', 'Vorschau der aktiven Änderungen. Sie werden übernommen, sobald die nächste angeforderte Überarbeitung eintrifft.')
+      : text('Temporary review only. Saved documents and approvals remain unchanged until you accept the selection.', 'Nur temporäre Prüfung. Gespeicherte Dokumente und Freigaben bleiben bis zur Übernahme unverändert.');
   } catch (cause) { report(cause); }
 }
 function toggleProposedChange(id: string, included: boolean) {
-  if (busy.value || cvApproved.value || proposalAlreadyApplied.value) return;
+  if (busy.value || cvApproved.value) return;
   if (!proposalChanges.value.some(change => change.id === id)) return;
   selectedChangeIds.value = included ? [...new Set([...selectedChangeIds.value, id])] : selectedChangeIds.value.filter(value => value !== id);
   reviewComparison.value = 'proposed'; reviewActive.value = true;
+}
+async function setCvChangeActive(id: string, included: boolean) {
+  if (!await flushTextareas() || busy.value || refreshing.value || syncing.value || pane.value !== 'cv') return;
+  if (cvChangeReviewError.value) { error.value = cvChangeReviewError.value; return; }
+  if (!proposalChanges.value.some(change => change.id === id) || selectedChangeIds.value.includes(id) === included) return;
+  const previousSelection = [...selectedChangeIds.value], previousSaved = cvSelections.value[selectedProposalId.value], wasReviewing = reviewActive.value;
+  toggleProposedChange(id, included);
+  cvSelections.value[selectedProposalId.value] = [...selectedChangeIds.value];
+  error.value = ''; persist();
+  if (saveError.value) {
+    if (previousSaved) cvSelections.value[selectedProposalId.value] = previousSaved;
+    else delete cvSelections.value[selectedProposalId.value];
+    selectedChangeIds.value = previousSelection;
+    reviewActive.value = wasReviewing;
+    error.value = saveError.value;
+  }
 }
 function toggleProposedLetter(included: boolean) {
   if (busy.value || letterApproved.value || proposalAlreadyApplied.value) return;
@@ -951,23 +1116,24 @@ function toggleProposedLetter(included: boolean) {
 }
 function discardReview() { reviewActive.value = false; notice.value = text('Temporary preview closed. Working documents are unchanged.', 'Temporäre Vorschau geschlossen. Arbeitsfassungen sind unverändert.'); }
 async function acceptSelectedChanges() {
+  if (!await flushTextareas()) return;
   await run(async () => {
     if ((!reviewActive.value && !showLetterComparison.value) || proposalAlreadyApplied.value) throw new Error('Preview the selection before accepting it.');
     const result = checkedProposalResult();
     const row = selectedProposal.value!, local = localRequests.value[row.request_id]!;
-    const signature = baselineSignature.value;
+    const signature = currentSourceSignature(local);
     const selected = [...selectedChangeIds.value], includeLetter = includeProposedLetter.value;
     const key = selectionKey(row, selected, includeLetter);
     // Construct and validate both documents before any local document write.
     if (!temporaryReview.value.result || refinementSignature(temporaryReview.value.result) !== refinementSignature(result)) throw new Error('The proposal preview changed. Review the current selection before accepting.');
     const nextRecord = clone(record.value!);
-    const cvChanged = local.request.scope !== 'letter' && refinementSignature(result.state) !== refinementSignature(nextRecord.state);
+    const cvChanged = local.request.scope === 'cv' && refinementSignature(result.state) !== refinementSignature(nextRecord.state);
     if (cvChanged) {
       nextRecord.state = cloneCv(result.state);
       nextRecord.revision++; nextRecord.updatedAt = new Date().toISOString();
     }
     let nextLetter = clone(letter.value!);
-    if (local.request.scope !== 'cv' && includeLetter && !letterApproved.value) {
+    if (local.request.scope === 'letter' && includeLetter && !letterApproved.value) {
       const candidateContext = letterContextVersion(props.application, resolveApplicationLetterState(nextRecord.state, nextRecord.baseState, nextRecord.letterHeaderSource), selectedTemplate.value, setup.value.language, nextLetter.instructions, setup.value.maxWords, nextLetter.formatting);
       const incoming = addIncomingDraft(nextLetter, letterFromEditableText(result.letterText), candidateContext, { cloudDraftId: row.id, cloudContextId: row.request_id });
       const revision = incoming.revisions.find(item => item.cloudDraftId === row.id)!;
@@ -978,14 +1144,15 @@ async function acceptSelectedChanges() {
     const decision = await repository.saveReview(props.application.id, row.request_id, 'cv_decisions', payload);
     if (disposed) return;
     if (!reviews.value.some(item => item.id === decision.id)) reviews.value.push(decision);
-    if (signature !== baselineSignature.value || selectionKey(row) !== key || selectedProposal.value?.id !== row.id) throw new Error('The working documents or selection changed while saving your decision. They were preserved. Review the proposal again.');
+    if (signature !== currentSourceSignature(local) || selectionKey(row) !== key || selectedProposal.value?.id !== row.id) throw new Error('The working documents or selection changed while saving your decision. They were preserved. Review the proposal again.');
     checkedProposalResult();
     // The recorded decision does not grant document approval; review the saved result separately.
     const previousRecord = record.value, previousLetter = letter.value, previousParent = parentProposalId.value;
     const previousAcceptances = local.acceptances;
     committingSelection = true;
     try {
-      record.value = nextRecord; letter.value = nextLetter;
+      if (local.request.scope === 'cv') record.value = nextRecord;
+      if (local.request.scope === 'letter') letter.value = nextLetter;
       local.acceptances = [...(local.acceptances || []), { key, proposalId: row.id, variantId: null, reviewId: decision.id, acceptedAt: new Date().toISOString() }];
       parentProposalId.value = row.id;
       reviewActive.value = false;
@@ -994,7 +1161,9 @@ async function acceptSelectedChanges() {
     if (saveError.value) {
       committingSelection = true;
       try {
-        record.value = previousRecord; letter.value = previousLetter; parentProposalId.value = previousParent;
+        if (local.request.scope === 'cv') record.value = previousRecord;
+        if (local.request.scope === 'letter') letter.value = previousLetter;
+        parentProposalId.value = previousParent;
         local.acceptances = previousAcceptances; reviewActive.value = pane.value !== 'letter';
       } finally { committingSelection = false; }
       throw new Error(saveError.value);
@@ -1003,13 +1172,14 @@ async function acceptSelectedChanges() {
   });
 }
 async function approve(kind: 'cv' | 'letter', reopen = false) {
+  if (!await flushTextareas()) return;
   await run(async () => {
-    if (reviewActive.value) throw new Error('Accept or close the temporary review before approving working documents.');
+    if (reviewActive.value && pane.value === kind) throw new Error('Accept or close the temporary review before approving working documents.');
     if (!record.value || !letter.value) throw new Error('Select both templates first.');
     if (!reopen && kind === 'letter' && (!letterText.value.trim() || unresolved.value.length)) throw new Error(text('Write a letter and resolve its placeholders first.', 'Zuerst einen Brief schreiben und Platzhalter auflösen.'));
     await saveSetup();
     const revision = kind === 'cv' ? cvRevision.value : letterRevision.value;
-    await repository.saveReview(props.application.id, cloudState.value?.current_request_id || null, (reopen ? 'reopen_' : 'approve_') + kind as RefinementReviewRow['kind'], { ...(reopen ? {} : { revision }), expectedRevision: cloudState.value!.revision });
+    await repository.saveReview(props.application.id, currentRefinementRequestId(cloudState.value, kind), (reopen ? 'reopen_' : 'approve_') + kind as RefinementReviewRow['kind'], { ...(reopen ? {} : { revision }), expectedRevision: cloudState.value!.revision });
     cloudState.value = await repository.loadState(props.application.id);
     if (disposed) return;
     approvals.value = clone(cloudState.value!.approvals_json);
@@ -1077,7 +1247,7 @@ async function resetDocumentBeforeClearing(scope: DocumentScope) {
   }
   const previous = { record: record.value, letter: letter.value, approvals: approvals.value, parent: parentProposalIds.value[scope], selected: selectedProposalId.value, review: reviewActive.value, resetRequests: resetRequestIdsByScope.value[scope], pendingReset: pendingResetFeedback.value[scope], iterationSubmission: iterationFeedbackSubmission.value[scope] };
   const resetFeedback = pendingResetFeedback.value[scope] || (feedbackHistory().length ? {
-    id: crypto.randomUUID(), requestId: row?.id || null,
+    id: crypto.randomUUID(), requestId: row?.request_json.scope === scope ? row.id : null,
     text: `Workflow reset: for the ${scope === 'cv' ? 'CV' : 'motivation letter'} only, ignore earlier feedback and annotation answers. Start from ${scope === 'cv' ? 'the restored original CV' : 'an empty letter using the selected template'} and use only feedback explicitly provided after this reset. Keep the other document’s guidance active.`,
   } : null);
   committingSelection = true;
@@ -1133,14 +1303,12 @@ function exportRequest(id: string) { const row = requests.value.find(row => row.
 function exportProposal(id: string) { const row = proposals.value.find(row => row.id === id); if (row) exportHistory(row.proposal_json, 'refinement-proposal-' + id + '.json'); }
 async function getCvPdf() {
   if (showReviewPreview.value) throw new Error('Accept or close the temporary review before exporting.');
-  if (showLetterComparison.value) throw new Error('Open Attachments to export the approved working documents.');
   if (!cvApproved.value || !preview.value) throw new Error(text('Approve the CV before export.', 'Den CV vor dem Export freigeben.'));
   const revision = cvRevision.value; const blob = await preview.value.getPdfBlob();
   if (disposed || revision !== cvRevision.value || !cvApproved.value) throw new Error('The CV changed during export. Preview again.');
   return blob;
 }
 async function getLetterPdf() {
-  if (showReviewPreview.value) throw new Error('Accept or close the temporary review before exporting.');
   if (showLetterComparison.value) throw new Error('Open Attachments to export the approved working letter.');
   if (!letterApproved.value || !letterPreview.value) throw new Error(text('Approve the letter before export.', 'Den Brief vor dem Export freigeben.'));
   const revision = letterRevision.value; const blob = await letterPreview.value.getPdfBlob();
@@ -1221,21 +1389,36 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
           <p v-if="sourceError" class="app-hint error" role="alert">{{ sourceError }}</p>
             <section v-if="!showInitialRefinement" class="iteration-step current-review">
               <h3>{{ text('Current Review', 'Aktuelle Prüfung') }}</h3>
-              <label v-if="availableProposals.length">{{ text('Available proposals', 'Verfügbare Vorschläge') }}<select :value="selectedProposalId" :disabled="busy" @change="selectActiveProposal(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ text('Select a proposal', 'Vorschlag auswählen') }}</option><option v-for="proposal in availableProposals" :key="proposal.id" :value="proposal.id">{{ new Date(proposal.created_at).toLocaleString() }} · {{ proposal.id }}</option></select></label>
               <div v-if="selectedProposal && hasActiveProposal" class="proposal-content">
-                <RefinementAnnotations ref="annotations" :items="currentQuestions" questions-only :lang="lang" :disabled="busy || !record" :save="saveAnnotation" :privacy-preview="previewOutgoingText" />
-                <p v-if="!currentQuestions.length" class="app-hint">{{ text('No questions for this document.', 'Keine Fragen zu diesem Dokument.') }}</p>
+                <p v-if="legacyReview" class="review-guidance">{{ text('Combined round · read-only history. Create a separate request to continue.', 'Gemeinsame Runde · schreibgeschützter Verlauf. Zum Fortfahren eine eigene Anfrage erstellen.') }}</p>
+                <h4 v-if="pane === 'letter'" :id="reviewTabId('question')">{{ text('Questions', 'Fragen') }} <span class="review-tab-count">{{ reviewCounts.question }}</span></h4>
+                <div v-if="pane === 'cv'" class="review-tabs" role="tablist" :aria-label="text('Proposal review', 'Vorschlag prüfen')">
+                  <button v-for="item in reviewTabs" :id="reviewTabId(item)" :key="item" type="button" role="tab" :data-review-tab="item" :aria-controls="reviewPanelId" :aria-selected="reviewTab === item" :tabindex="reviewTab === item ? 0 : -1" @click="selectReviewTab(item)" @keydown="onReviewTabKeydown($event, item)">{{ reviewTabLabel(item) }} <span class="review-tab-count">{{ reviewCounts[item] }}</span></button>
+                </div>
+                <div :id="reviewPanelId" class="review-panel" :role="pane === 'cv' ? 'tabpanel' : 'region'" :aria-labelledby="reviewTabId(pane === 'cv' ? reviewTab : 'question')" :tabindex="pane === 'cv' ? 0 : undefined">
+                  <template v-if="pane === 'cv' && reviewTab === 'changes'">
+                    <template v-if="pane === 'cv' && reviewScope !== 'letter'">
+                      <p v-if="!legacyReview" class="review-guidance">{{ text('Activate the changes to keep for the next iteration. Your selection is saved with the next request and applied when its ChatGPT reply arrives.', 'Aktivieren Sie die Änderungen für die nächste Runde. Ihre Auswahl wird mit der nächsten Anfrage gespeichert und übernommen, sobald die ChatGPT-Antwort eintrifft.') }}</p>
+                      <p v-if="cvChangeReviewError" class="app-hint warning" role="status">{{ cvChangeReviewError }}</p>
+                      <RefinementChangeReview :changes="proposalChanges" :selected="selectedChangeIds" :comments="[]" :lang="lang" :disabled="busy || refreshing || syncing || !record" :locked="!!cvChangeReviewError" @toggle="setCvChangeActive" />
+                    </template>
+                    <p v-else class="review-guidance">{{ text('No individual CV changes for this document.', 'Keine einzelnen CV-Änderungen für dieses Dokument.') }}</p>
+                  </template>
+                  <RefinementAnnotations v-show="pane === 'letter' || reviewTab === 'question'" ref="annotations" :items="currentAnnotations" :comments="pane === 'cv' ? proposalComments : []" hide-heading :lang="lang" :disabled="busy || !record || legacyReview" :save="saveAnnotation" :privacy-preview="previewOutgoingText" />
+                  <p v-if="(pane === 'letter' || reviewTab === 'question') && !reviewCounts.question" class="review-guidance">{{ text('No questions.', 'Keine Fragen.') }}</p>
+                </div>
               </div>
               <p v-if="!hasActiveProposal">{{ text('Waiting for a proposal.', 'Vorschlag ausstehend.') }}</p>
             </section>
             <section class="iteration-step refinement-task" :class="showInitialRefinement ? 'initial-refinement' : 'next-refinement'">
               <h3>{{ showInitialRefinement ? text('Initial Refinement', 'Erste Überarbeitung') : text('Next Refinement', 'Nächste Überarbeitung') }}</h3>
               <p v-if="iterationPending" role="status">{{ text('Waiting for the next draft. Sync to load it.', 'Der nächste Entwurf steht aus. Zum Laden synchronisieren.') }}</p>
-              <p class="app-hint">{{ text('Optional requests for this document. Included with your answered questions when you copy the task.', 'Optionale Wünsche für dieses Dokument. Sie werden beim Kopieren der Aufgabe zusammen mit Ihren beantworteten Fragen übermittelt.') }}</p>
-              <div class="iteration-note-tabs" role="tablist" :aria-label="text('Refinement requests', 'Überarbeitungswünsche')">
+              <p class="review-guidance">{{ text('Optional requests for this document. Included with your answered questions when you copy the task.', 'Optionale Wünsche für dieses Dokument. Sie werden beim Kopieren der Aufgabe zusammen mit Ihren beantworteten Fragen übermittelt.') }}</p>
+              <label v-if="pane === 'cv'" class="cv-refinement-request"><span>{{ text('Refinement request', 'Überarbeitungswunsch') }}</span><AutosaveTextarea v-model.lazy="cvIterationNote" rows="4" maxlength="12000" :placeholder="text('What should the next CV refinement focus on?', 'Worauf soll sich die nächste CV-Überarbeitung konzentrieren?')" :disabled="busy || scopeLocked" /></label>
+              <div v-if="pane === 'letter'" class="iteration-note-tabs" role="tablist" :aria-label="text('Refinement requests', 'Überarbeitungswünsche')">
                 <button v-for="field in visibleIterationNoteFields" :id="iterationNoteTabId(field)" :key="field" type="button" role="tab" :data-iteration-note="field" :aria-controls="iterationNotePanelId" :aria-selected="activeIterationNote === field" :tabindex="activeIterationNote === field ? 0 : -1" @click="selectIterationNote(field)" @keydown="onIterationNoteKeydown($event, field)"><FontAwesomeIcon :icon="iterationNoteIcons[field]" aria-hidden="true" />{{ iterationNoteLabel(field) }}</button>
               </div>
-              <div :id="iterationNotePanelId" class="iteration-note-panel" role="tabpanel" :aria-labelledby="iterationNoteTabId(activeIterationNote)">
+              <div v-if="pane === 'letter'" :id="iterationNotePanelId" class="iteration-note-panel" role="tabpanel" :aria-labelledby="iterationNoteTabId(activeIterationNote)">
                 <AutosaveTextarea :model-value="iterationNoteEditor.value" :model-modifiers="{ lazy: true }" @update:model-value="iterationNoteEditor.update" rows="4" maxlength="4000" :placeholder="iterationNotePlaceholder" :aria-labelledby="iterationNoteTabId(activeIterationNote)" :disabled="busy || scopeLocked" />
               </div>
               <button class="refinement-copy-action" type="button" :disabled="busy || refreshing || !preparedSource || scopeLocked" @click="copyIterationTask"><FontAwesomeIcon :icon="faCopy" aria-hidden="true" />{{ showInitialRefinement ? text('Copy task', 'Aufgabe kopieren') : text('Copy feedback', 'Feedback kopieren') }}</button>
@@ -1246,7 +1429,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
           <section v-if="record" v-show="pane === 'cv'" class="working-document"><div class="action-row"><span class="app-hint">{{ text('Application copy — template stays unchanged', 'Bewerbungskopie — Vorlage bleibt unverändert') }}</span></div><fieldset :disabled="cvApproved || busy || reviewActive"><FormBuilder :state="record.state" :read-version="() => null" :save-version="() => false" /></fieldset></section>
           <section v-if="letter" v-show="pane === 'letter'" class="working-document"><label>{{ text('Complete letter text', 'Vollständiger Brieftext') }}<AutosaveTextarea :model-value="letterText" :model-modifiers="{ lazy: true }" rows="18" :disabled="letterApproved || busy || reviewActive" @update:model-value="updateLetter" /></label><p :class="{ warning: words > setup.maxWords }">{{ words }} / {{ setup.maxWords }} {{ text('target words (complete letter)', 'Zielwörter (vollständiger Brief)') }}</p><p v-if="words > setup.maxWords" class="app-hint warning">{{ text('Over the target. Review the tender limit; approval and export remain available.', 'Über der Zielwortzahl. Vorgabe prüfen; Freigabe und Export bleiben möglich.') }}</p><p v-if="unresolved.length" class="app-hint warning">{{ text('Resolve placeholders:', 'Platzhalter auflösen:') }} {{ unresolved.join(', ') }}</p><LetterFormattingControls :formatting="letter.formatting" :base-formatting="selectedTemplate.formatting" :lang="lang" :disabled="letterApproved || busy || reviewActive" @change="updateLetterFormatting" /></section>
           </details>
-          <RefinementHistory :scope="pane" :requests="requests" :proposals="proposals" :local-requests="localRequests" :current-request-id="cloudState?.current_request_id || null" :active-id="selectedProposalId" :review-active="reviewActive" :accepted="proposalAlreadyApplied" :publication-status="publicationStatus" :open="historyOpen" :lang="lang" :busy="busy || refreshing || syncing" :can-clear="canClearHistory" @clear="clearRefinementHistory" @select="selectReviewProposal" @details="historyOpen = $event" @export-request="exportRequest" @export-proposal="exportProposal" />
+          <RefinementHistory :scope="pane" :requests="requests" :proposals="proposals" :local-requests="localRequests" :current-request-id="currentRequestId" :active-id="selectedProposalId" :review-active="reviewActive" :accepted="proposalAlreadyApplied" :publication-status="publicationStatus" :open="historyOpen" :lang="lang" :busy="busy || refreshing || syncing" :can-clear="canClearHistory" @clear="clearRefinementHistory" @select="selectReviewProposal" @details="historyOpen = $event" @export-request="exportRequest" @export-proposal="exportProposal" />
         </div>
         <div class="refinement-preview">
           <RefinementPreviewStatus v-if="pane === 'cv' ? showCvReview : showLetterReview" v-model="reviewComparison" :hide-comparison="pane === 'letter'" :label="reviewPreviewLabel(pane)" :reference="proposalPreviewReference" :outdated="proposalSourceOutdated && !(showLetterComparison && selectedWorkingLetter)" :lang="lang" />
@@ -1281,6 +1464,13 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 .iteration-note-tabs button{display:inline-flex;align-items:center;justify-content:center;gap:8px;flex:1;min-width:0;min-height:44px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--ui-muted)}
 .iteration-note-tabs svg{width:1em;flex-shrink:0}
 .iteration-note-tabs button[aria-selected="true"]{border-bottom-color:var(--ui-accent);color:var(--ui-accent);font-weight:600}
+.review-tabs{display:flex;flex-wrap:wrap;margin:16px 0 12px;gap:0 4px}
+.review-tabs button{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:1 1 auto;min-height:44px;padding:8px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--ui-muted)}
+.review-tabs button[aria-selected="true"]{border-bottom-color:var(--ui-accent);color:var(--ui-accent);font-weight:600}
+.review-tab-count{font-variant-numeric:tabular-nums;font-size:.85em}
+@media(max-width:760px){.review-tabs{display:grid;grid-template-columns:1fr 1fr}}
+.review-panel{min-width:0}.review-panel:focus-visible,.review-tabs button:focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}
+.review-guidance{color:var(--ui-muted);margin:0 0 20px}.cv-refinement-request{margin:16px 0 12px}
 .iteration-note-panel{margin-bottom:12px}
 .iteration-note-panel textarea{display:block}
 .application-header__state{margin-left:auto;margin-top:0;align-self:flex-end;line-height:1.5}
