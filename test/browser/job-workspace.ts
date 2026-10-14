@@ -402,6 +402,19 @@ const Fixture = defineComponent({
           for (const row of track.querySelectorAll<HTMLElement>('.jobs-result-row')) {
             assert(getComputedStyle(row).display !== 'table-row' && getComputedStyle(row).scrollSnapAlign.includes('start'), 'Mobile entries must be cards with start snap points.');
           }
+          const cards = [...track.querySelectorAll<HTMLElement>('.jobs-result-row')];
+          const firstInset = cards[0].getBoundingClientRect().left - track.getBoundingClientRect().left;
+          // Land beyond each card's start, as momentum does after a swipe. The
+          // browser must settle all cards (including the last) at the first inset.
+          for (const direction of [1, -1]) {
+            const destinations = direction === 1 ? cards.slice(1) : cards.slice(0, -1).reverse();
+            for (const card of destinations) {
+              const left = track.scrollLeft + card.getBoundingClientRect().left - track.getBoundingClientRect().left - firstInset;
+              track.scrollTo({ left: left + direction * 48, behavior: 'smooth' });
+              await until(() => Math.abs(card.getBoundingClientRect().left - track.getBoundingClientRect().left - firstInset) < 1,
+                'Every card must snap to the same horizontal inset in both directions, including the last card.');
+            }
+          }
         }
         const longTrack = tracks.find(item => item.querySelectorAll('.jobs-result-row').length >= 4);
         if (longTrack) {
@@ -412,7 +425,8 @@ const Fixture = defineComponent({
           await until(() => longTrack.clientHeight < tallHeight - 100, 'A distant tall card must not inflate the current card row.');
           const compactScrollHeight = outer.scrollHeight;
           const adjacent = cards.at(-2)!;
-          longTrack.scrollTo({ left: longTrack.scrollLeft + adjacent.getBoundingClientRect().left - longTrack.getBoundingClientRect().left - 2, behavior: 'instant' });
+          const snapInset = parseFloat(getComputedStyle(longTrack).scrollPaddingLeft) || 0;
+          longTrack.scrollTo({ left: longTrack.scrollLeft + adjacent.getBoundingClientRect().left - longTrack.getBoundingClientRect().left - snapInset, behavior: 'instant' });
           const trackPadding = parseFloat(getComputedStyle(longTrack).paddingTop) + parseFloat(getComputedStyle(longTrack).paddingBottom);
           await until(() => Math.abs(longTrack.clientHeight - adjacent.getBoundingClientRect().height - trackPadding) <= 1,
             'The row must match the current card even with a tall card immediately beside it.');
@@ -425,7 +439,7 @@ const Fixture = defineComponent({
           await settle();
           assert(longTrack.getBoundingClientRect().top < outer.getBoundingClientRect().top - 80, 'The fixture must start reading partway down a card.');
           const nativeOffset = longTrack.scrollLeft;
-          const previousOffset = longTrack.scrollLeft + adjacent.getBoundingClientRect().left - longTrack.getBoundingClientRect().left - 2;
+          const previousOffset = longTrack.scrollLeft + adjacent.getBoundingClientRect().left - longTrack.getBoundingClientRect().left - snapInset;
           await swipe(tallCard, 160, 0, outer.getBoundingClientRect().top + 40, {
             afterMove(event) {
               assert(!event.defaultPrevented, 'Touches inside a card must retain native horizontal dragging.');

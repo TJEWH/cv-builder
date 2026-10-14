@@ -225,7 +225,10 @@ function focusResult(kind: 'opportunities' | 'applications', id: string) {
     const row = Array.from(tableScroll.value?.querySelectorAll<HTMLElement>('[data-item-id]') || []).find((item) => item.dataset.itemId === id);
     if (row && window.matchMedia('(max-width: 760px)').matches) {
       const track = row.closest<HTMLElement>('.jobs-card-track');
-      if (track) track.scrollTo({ left: track.scrollLeft + row.getBoundingClientRect().left - track.getBoundingClientRect().left - 2, behavior: 'instant' });
+      if (track) {
+        const inset = track.clientLeft + (parseFloat(getComputedStyle(track).scrollPaddingLeft) || 0);
+        track.scrollTo({ left: track.scrollLeft + row.getBoundingClientRect().left - track.getBoundingClientRect().left - inset, behavior: 'instant' });
+      }
     }
     row?.querySelector<HTMLButtonElement>('.jobs-row-toggle')?.focus({ preventScroll: true });
   });
@@ -764,9 +767,11 @@ tr.is-expanded { background: var(--ui-active); }
   .jobs-workspace > .jobs-table-scroll--opportunities { scrollbar-width: none; }
   .jobs-table-scroll--opportunities::-webkit-scrollbar { display: none; }
   .jobs-workspace .jobs-card-track {
+    --jobs-card-peek: 24px;
+    --jobs-card-gap: 12px;
     display: flex;
     align-items: flex-start;
-    gap: 12px;
+    gap: var(--jobs-card-gap);
     width: 100%;
     height: var(--jobs-card-track-height, auto);
     box-sizing: border-box;
@@ -774,13 +779,18 @@ tr.is-expanded { background: var(--ui-active); }
     overflow-x: auto;
     overflow-y: hidden;
     scroll-snap-type: x mandatory;
-    scroll-padding-inline: 2px;
+    scroll-padding-inline: 0;
     overscroll-behavior-x: contain;
     scrollbar-width: none;
   }
   .jobs-card-track::-webkit-scrollbar { display: none; }
+  /* Give the last card enough scroll range to reach the same start snap point. */
+  .jobs-workspace .jobs-card-track:has(> .jobs-result-row ~ .jobs-result-row)::after {
+    content: '';
+    flex: 0 0 calc(var(--jobs-card-peek) - var(--jobs-card-gap));
+  }
   .jobs-workspace .jobs-card-track > .jobs-result-row {
-    flex: 0 0 calc(100% - 24px);
+    flex: 0 0 calc(100% - var(--jobs-card-peek));
     box-sizing: border-box;
     scroll-snap-align: start;
     scroll-snap-stop: always;
