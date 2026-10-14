@@ -449,16 +449,14 @@ for (const scope of ['cv', 'letter'] as const) test(`short ${scope} task copies 
   assert.ok(copied.at(-1)!.includes(`published request ${current}`));
   assert.ok(copied.at(-1)!.includes(`scope ${scope}`));
   assert.ok(!copied.at(-1)!.includes('Original private working letter.'));
-  const storedProtocol = fixture.database.application_refinement_protocols.find(row => row.request_id === current)!;
-  assert.ok(storedProtocol, 'copy stores the protocol for an already-published request');
-  assert.ok(copied.at(-1)!.includes(`SELECT private.read_refinement_protocol('${current}'::uuid, E'${storedProtocol.protocol_id}')`));
-  assert.match(copied.at(-1)!, /public.application_refinement_protocols.*protocol_text/);
-  assert.match(String(storedProtocol.protocol_text), /private.save_refinement_proposal/);
-  assert.match(String(storedProtocol.protocol_text), /precisely this JSON contract/);
-  assert.doesNotMatch(String(storedProtocol.protocol_text), /Original private working letter|BEGIN_APPROVED_REQUEST_JSON/);
+  assert.equal(fixture.database.application_refinement_protocols.length, 0, 'copy needs no protocol publication');
+  assert.match(copied.at(-1)!, /private.read_current_refinement_request/);
+  assert.match(copied.at(-1)!, /private.save_refinement_proposal/);
+  assert.match(copied.at(-1)!, /precisely this JSON contract/);
+  assert.doesNotMatch(copied.at(-1)!, /read_refinement_protocol|resolve_application_reference|protocol_text|v1:[a-f0-9]{64}/);
   const count = setup.requests.length;
   await setup.copyTask(); assert.equal(setup.requests.length, count, 'unchanged sources reuse the published request');
-  assert.equal(fixture.database.application_refinement_protocols.length, 1, 'copy retries reuse the identical protocol');
+  assert.equal(fixture.database.application_refinement_protocols.length, 0, 'copy retries never publish a protocol');
   if (scope === 'letter') setup.updateLetter('Manual correction for the next round.');
   else setup.record!.state.about.text = 'Manual correction for the next round.';
   await setup.copyTask(); assert.match(setup.error, /Publish the current sources/);
@@ -475,22 +473,17 @@ for (const scope of ['cv', 'letter'] as const) test(`short ${scope} task copies 
   await setup.copyTask(); assert.ok(setup.error); assert.equal(copied.length, 3, 'failed publication must not copy an instruction for old sources');
 });
 
-test('copy task does not copy a protocol locator when publication fails or returns a mismatched receipt', async t => {
+test('copy task uses published sources without cloud writes and preserves historical protocols', async t => {
   const fixture = mount(t), setup = await prepare(fixture);
   const copied: string[] = [];
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copied.push(value); } } });
-  const rpc = fixture.cloud.client.rpc.bind(fixture.cloud.client);
-  for (const mode of ['missing', 'mismatch']) {
-    fixture.cloud.client.rpc = (async (name: string, args?: Record<string, unknown>) => {
-      if (name !== 'publish_refinement_protocol') return rpc(name, args);
-      if (mode === 'missing') return { data: null, error: { code: 'PGRST202', message: 'Missing protocol RPC' } };
-      const result = await rpc(name, args);
-      return { ...result, data: { ...result.data, protocol_text: 'Wrong protocol' } };
-    }) as unknown as typeof fixture.cloud.client.rpc;
-    await setup.copyTask();
-    assert.match(setup.error, mode === 'missing' ? /database setup is incomplete/ : /protocol could not be confirmed/);
-    assert.equal(copied.length, 0);
-  }
+  const before = JSON.stringify(fixture.database);
+  fixture.cloud.client.rpc = (() => { throw new Error('Copy must not perform a cloud write'); }) as unknown as typeof fixture.cloud.client.rpc;
+  await setup.copyTask();
+  assert.equal(setup.error, '');
+  assert.equal(copied.length, 1);
+  assert.match(copied[0], /read_current_refinement_request/);
+  assert.equal(JSON.stringify(fixture.database), before);
 });
 
 test('an empty letter publishes an explicit first-draft task and switches to refinement after a working draft exists', async t => {
@@ -501,7 +494,7 @@ test('an empty letter publishes an explicit first-draft task and switches to ref
   await setup.copyTask();
   assert.equal(setup.error, '');
   assert.match(copied.at(-1)!, /create an initial motivation-letter draft/);
-  assert.match(copied.at(-1)!, /no existing letter is required/);
+  assert.match(copied.at(-1)!, /do not require a prior letter/);
   assert.equal(setup.requests[0].request_json.letter.text, '');
   assert.equal(documents(setup), before, 'copying the task must not generate or replace local letter content');
   setup.updateLetter('A complete manually written letter.');

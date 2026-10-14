@@ -1,6 +1,7 @@
 import { parseRefinementProposal, refinementSignature } from '../../src/composables/applicationRefinement';
 import { parseProtocolSql } from './sql';
 import type { ProtocolCase } from './cases';
+import { REFINEMENT_SQL_DISCOVERY_QUERIES } from '../../src/composables/refinementProtocolContract';
 
 type ObjectValue = Record<string, unknown>;
 export const object = (value: unknown): value is ObjectValue => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -80,13 +81,15 @@ function rowResult(call: ToolCall): ObjectValue {
   return value;
 }
 export function isSqlTool(call: ToolCall): boolean { return /^(?:supabase[_./])?execute_sql$/.test(call.tool); }
-function isTargetedSqlDiscovery(call: ToolCall): boolean {
+function targetedSqlDiscovery(call: ToolCall): 'name' | 'description' | null {
   // Accept a query string or a one-element query array, with transport options
   // such as result limits. Require a search for the Supabase SQL tool.
   const { query, queries } = call.arguments;
   const target = typeof query === 'string' && queries === undefined ? query
     : query === undefined && Array.isArray(queries) && queries.length === 1 ? queries[0] : null;
-  return typeof target === 'string' && /^supabase(?:\s+|[_./])execute_sql$/i.test(target.trim());
+  if (typeof target !== 'string') return null;
+  if (/^supabase(?:\s+|[_./])execute_sql$/i.test(target.trim())) return 'name';
+  return target.trim().toLowerCase() === REFINEMENT_SQL_DISCOVERY_QUERIES[1].toLowerCase() ? 'description' : null;
 }
 export function verifyTrace(fixture: ProtocolCase, trace: Trace, server: string): { passed: boolean; issues: string[]; calls: number } {
   const issues = [...trace.errors];
@@ -95,16 +98,21 @@ export function verifyTrace(fixture: ProtocolCase, trace: Trace, server: string)
   if (!trace.final.trim()) fail('No final agent response.');
   let stage = 0; let stopped = false; let saved = false;
   let saveArgs: string[] | null = null; let retry = false;
-  const discoveryStages = new Set<number>();
-  const expectedOrder = ['resolve', 'protocol', 'request', 'save'];
+  const discoveryStages = new Map<number, Set<'name' | 'description'>>();
+  const expectedOrder = ['currentRequest', 'save'];
   for (const call of trace.calls) {
     if (stopped || saved) { fail('Tool call after the workflow should have stopped.'); continue; }
-    // Allow one SQL-tool lookup per stage without advancing or restarting the SQL sequence.
+    // Allow the named tool lookup and one distinct description fallback, never a SQL retry.
     if (call.server === 'codex_apps' && /^(?:search|search_tools)$/.test(call.tool)) {
-      if (!isTargetedSqlDiscovery(call)) { fail('Tool discovery must target only Supabase execute_sql.'); stopped = true; }
-      else if (discoveryStages.has(stage)) { fail('Repeated tool discovery before the next SQL operation.'); stopped = true; }
-      else if (call.error || call.status === 'failed' || (object(call.result) && call.result.isError)) { fail('Tool discovery failed.'); stopped = true; }
-      else discoveryStages.add(stage);
+      const kind = targetedSqlDiscovery(call);
+      const attempted = discoveryStages.get(stage) ?? new Set<'name' | 'description'>();
+      let discoveryError: unknown;
+      try { const result = decodeResult(call.result); if (object(result)) discoveryError = result.error; }
+      catch { /* Discovery may return plain-text tool definitions rather than a SQL envelope. */ }
+      if (!kind) { fail('Tool discovery must target only Supabase execute_sql.'); stopped = true; }
+      else if (attempted.has(kind) || (kind === 'description' && !attempted.has('name'))) { fail('Repeated tool discovery or out-of-order fallback before the next SQL operation.'); stopped = true; }
+      else if (call.error || discoveryError || call.status === 'failed' || (object(call.result) && call.result.isError)) { fail('Tool discovery failed.'); stopped = true; }
+      else { attempted.add(kind); discoveryStages.set(stage, attempted); }
       continue;
     }
     if (call.server !== server || !isSqlTool(call)) { fail(`Unexpected tool ${call.server}.${call.tool}.`); continue; }
@@ -115,8 +123,8 @@ export function verifyTrace(fixture: ProtocolCase, trace: Trace, server: string)
       const { command, values } = parseProtocolSql(call.arguments.query);
       if (command !== expectedOrder[stage]) throw new Error(`Expected ${expectedOrder[stage]}, received ${command}.`);
       const req = fixture.request;
-      const expected = command === 'resolve' ? [fixture.application.application_code, req.scope] : command === 'protocol' ? [req.requestId, fixture.protocol.id] : [req.requestId];
-      if (expected.some((value, i) => values[i] !== value)) throw new Error('Wrong application, request or protocol argument.');
+      const expected = command === 'currentRequest' ? [req.applicationId, req.requestId, req.scope] : [req.requestId];
+      if (expected.some((value, i) => values[i] !== value)) throw new Error('Wrong application, request or scope argument.');
       if (command === 'save') {
         if (!/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(values[1])) throw new Error('Invalid proposal UUID.');
         parseRefinementProposal(values[2], req);
@@ -131,7 +139,7 @@ export function verifyTrace(fixture: ProtocolCase, trace: Trace, server: string)
       const resultError = call.error || decodedError || call.status === 'failed' || (object(call.result) && call.result.isError);
       if (resultError) {
         const diagnostic = JSON.stringify(call.error ?? decodedError ?? call.result);
-        if (fixture.expected === 'stop-protocol' && command === 'protocol' && /protocol.*not found/i.test(diagnostic)) {
+        if (fixture.expected === 'stop-read' && command === 'currentRequest' && /40001/.test(diagnostic) && /published request is unavailable or no longer current/i.test(diagnostic) && !/blocked|security|permission|approval|denied|gesperrt/i.test(diagnostic)) {
           stopped = true; continue;
         }
         // Only a transport uncertainty at save can justify one identical retry. Security/SQL errors cannot.
@@ -141,19 +149,8 @@ export function verifyTrace(fixture: ProtocolCase, trace: Trace, server: string)
         throw new Error(`Tool failed at ${command}: ${diagnostic.slice(0, 300)}`);
       }
       const row = rowResult(call);
-      if (command === 'resolve') {
-        if (row.application_id !== req.applicationId) throw new Error('Resolver returned the wrong application.');
-        if (fixture.expected === 'stop-resolve') {
-          if (row.current_request_id === req.requestId) throw new Error('Stale-request fixture was not stale.');
-          stopped = true; continue;
-        }
-        if (row.scope !== req.scope) throw new Error('Resolver returned another document scope.');
-        if (row.current_request_id !== req.requestId) throw new Error('Resolver returned a stale request.');
-      } else if (command === 'protocol') {
-        if (fixture.expected === 'stop-protocol') throw new Error('Missing-protocol fixture unexpectedly returned a protocol.');
-        if (row.application_id !== req.applicationId || row.request_id !== req.requestId || row.protocol_id !== fixture.protocol.id
-          || row.protocol_text !== fixture.protocol.text) throw new Error('Wrong or incomplete protocol receipt.');
-      } else if (command === 'request') {
+      if (command === 'currentRequest') {
+        if (fixture.expected === 'stop-read') throw new Error('Unavailable request unexpectedly returned sources.');
         if (row.application_id !== req.applicationId || row.id !== req.requestId || refinementSignature(row.request_json) !== refinementSignature(req)) throw new Error('Wrong or incomplete source snapshot.');
       } else {
         if (row.application_id !== req.applicationId || row.request_id !== req.requestId || row.id !== values[1]

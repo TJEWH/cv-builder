@@ -7,6 +7,7 @@ import { account, applicationId, documents, idle, mount, prepare, type Workspace
 type Scope = 'cv' | 'letter';
 type Notes = { tone: string; structure: string; content: string };
 type FeedbackWorkspace = Workspace & {
+  shortInstructionError: string;
   iterationNotes: Record<Scope, Notes>;
   iterationFeedbackSubmission: Record<Scope, { id: string; text: string; requestId: string | null } | null>;
 };
@@ -193,27 +194,21 @@ for (const originalScope of ['letter'] as const) test(`notes retry after remote 
   assert.deepEqual(setup.iterationNotes.letter, draft);
 });
 
-test('protocol-copy retry after successful publication neither resubmits notes nor creates another request', async t => {
+test('clipboard retry after successful publication neither resubmits notes nor creates another request', async t => {
   const fixture = mount(t), setup = withFeedback(await prepare(fixture, 'base', { scope: 'letter' }));
   setup.iterationNotes.letter.tone = 'Use shorter, calmer sentences.';
   await idle(setup);
-  const rpc = fixture.cloud.client.rpc.bind(fixture.cloud.client);
-  let failProtocol = true;
+  let failCopy = true;
   const copied: string[] = [];
-  navigator.clipboard.writeText = async text => { copied.push(text); };
-  fixture.cloud.client.rpc = (async (name: string, args: Record<string, unknown>) => {
-    if (name === 'publish_refinement_protocol' && failProtocol) return { data: null, error: new Error('Protocol publication unavailable') };
-    return rpc(name, args);
-  }) as unknown as typeof fixture.cloud.client.rpc;
-
+  navigator.clipboard.writeText = async text => { if (failCopy) throw new Error('Clipboard unavailable'); copied.push(text); };
   await setup.copyIterationTask();
 
-  assert.match(setup.error, /Protocol publication unavailable/);
+  assert.match(setup.shortInstructionError, /Copy unavailable/);
   assert.equal(copied.length, 0);
   assert.equal(setup.iterationNotes.letter.tone, 'Use shorter, calmer sentences.', 'publishing and copying must keep the notes until a proposal arrives');
   assert.equal(noteReviews(fixture).length, 1);
   const requestId = setup.requests[0].id, requestCount = setup.requests.length;
-  failProtocol = false;
+  failCopy = false;
   await setup.copyIterationTask();
   await setup.copyIterationTask();
   assert.equal(setup.error, '');

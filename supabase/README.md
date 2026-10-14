@@ -35,6 +35,11 @@ local. There is no Storage bucket or cloud application-attachment table. To expo
    The document-scoped history UI requires [`refinement_scoped_history.sql`](refinement_scoped_history.sql)
    before frontend rollout. This additive upgrade adds clear metadata and the
    three-argument `clear_refinement_history` RPC while preserving the legacy endpoint.
+   Separate CV and letter rounds require [`refinement_document_rounds.sql`](refinement_document_rounds.sql)
+   before frontend rollout. It adds independent current-request pointers and scoped
+   protocol resolution. Without it, the client cannot verify loaded refinement state.
+   Self-contained refinement tasks require [`refinement_current_request.sql`](refinement_current_request.sql)
+   before frontend rollout. This adds a management-only verified read without changing saved data.
    The Tracking tab's Reset history button requires
    [`application_history_reset.sql`](application_history_reset.sql) before frontend rollout.
    Installing it leaves existing history intact; an owner's explicit reset retains
@@ -48,6 +53,19 @@ local. There is no Storage bucket or cloud application-attachment table. To expo
    frontend reads shared research and changes only the signed-in owner's records.
 
 ## Schema maintenance
+
+Migration `20261013231626` (`refinement_current_request`) was applied to
+**phd-workflow** on 2026-10-14 (Europe/Tirane). Live rollback tests verified exact
+application/request/scope matching, unchanged source context, management-only
+access, superseded requests, save-time freshness and independent document reads.
+Existing protocol records and document acceptance behavior remain unchanged.
+
+Migration `20261013212905` (`refinement_document_rounds`) was applied to
+**phd-workflow** on 2026-10-13. The live rollback suite passed independent CV/letter
+publication, scoped protocol resolution, stale approvals, feedback isolation,
+history clearing and ownership checks. Before/after checksums confirmed unchanged
+applications, CV snapshots, requests, proposals, reviews and refinement settings;
+only the intended request pointers changed, matching the expected backfill.
 
 [`schema.sql`](schema.sql) is the current fresh-install baseline. Find historical upgrade scripts in Git and deployed migration history
 in Supabase. Migration `20261013122212` (`application_history_reset`) was applied to
@@ -84,7 +102,7 @@ constraints, permissions, policies, triggers and indexes were checked against th
 | `opportunity_reviews` | Owner-only interest, optional private comment and viewed-source receipt. |
 | `cv_variants` | Owner-only immutable privacy-filtered CV/configuration snapshots. |
 | `applications` | Owner-only captured research, CV reference, notes, checklist, saved stage and status history. |
-| `application_refinement_state` | Owner-only settings, current request, approval hashes and optimistic revision. |
+| `application_refinement_state` | Owner-only settings, independent current CV/letter requests, approval hashes and optimistic revision. |
 | `application_refinement_requests` | Immutable public CV/letter source context, scope and accumulated feedback. |
 | `application_refinement_protocols` | Immutable connected instructions bound to an exact request and protocol hash. |
 | `application_refinement_proposals` | Owner-readable, management-appended v2 operations, comments, annotations and letter text. |

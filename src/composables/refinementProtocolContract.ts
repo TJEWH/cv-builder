@@ -2,6 +2,8 @@ import type { RefinementRequest } from '../refinementTypes';
 
 /** Stable database contract shared by copied tasks, protocol documents and regression checks. */
 export const REFINEMENT_COMMANDS = {
+  currentRequest: { name: 'private.read_current_refinement_request', types: ['uuid', 'uuid', 'text'] },
+  // Historical helpers remain available for already-copied tasks and stored protocols.
   resolve: { name: 'private.resolve_application_reference', types: ['text', 'text'] },
   protocol: { name: 'private.read_refinement_protocol', types: ['uuid', 'text'] },
   request: { name: 'private.read_refinement_request', types: ['uuid'] },
@@ -9,9 +11,14 @@ export const REFINEMENT_COMMANDS = {
 } as const;
 export type RefinementCommand = keyof typeof REFINEMENT_COMMANDS;
 
+export const REFINEMENT_SQL_DISCOVERY_QUERIES = [
+  'Supabase execute_sql',
+  'Supabase executes raw SQL in the Postgres database',
+] as const;
+
 /** Loading the known connector capability is distinct from exploring database contents. */
-export const REFINEMENT_SQL_CAPABILITY_GUIDANCE = `This connected task requires Supabase execute_sql; its exposed name may include a namespace prefix. If it is not currently loaded, use available app/tool discovery once, targeted only at "Supabase execute_sql" on this same connector, before declaring it unavailable. A partial tool listing is not proof of absence. This loads the tool definition; it does not authorize database/schema discovery or another access path. If the definition disappears after a successful call, allow one targeted rediscovery of that same capability and resume the next exact supplied SQL statement, preserving any pending proposal UUID and payload.
-Only declare a missing capability after this bounded discovery, or when no discovery facility is exposed. If execute_sql is unavailable, report a missing capability (not an execution or security error), explain that the connected SQL tool is required, and stop. query_logs only reads logs and cannot run this workflow. An actual permission, security or approval denial must stop the workflow immediately; do not rediscover or retry to bypass it. Report the last step verified by a returned tool result and the actual discovery result or tool error; never infer successful execution from earlier conversation summaries.`;
+export const REFINEMENT_SQL_CAPABILITY_GUIDANCE = `Use Supabase execute_sql on this connection; its exposed name may include a namespace prefix. Use its loaded definition when available. Otherwise use tool discovery, targeted only at "${REFINEMENT_SQL_DISCOVERY_QUERIES[0]}" on this same connector. A partial result or query_logs alone does not establish that execute_sql is unavailable. If that search succeeds but does not load execute_sql, make one additional targeted search on the SAME connector: "${REFINEMENT_SQL_DISCOVERY_QUERIES[1]}". This is execute_sql's purpose; query_logs runs ClickHouse queries on logs and cannot perform this workflow. Never call query_logs as a substitute. Use only an actually returned execute_sql definition; never invent a tool path. Stop searching as soon as it is loaded. Maximum two discovery calls before each SQL operation, in that order; do not repeat either search. If the definition disappears after the read, the same bounded lookup is allowed before saving, preserving the exact request, proposal UUID and payload. This only loads tool definitions; it does not authorize database exploration or another access path. If execute_sql is unavailable after both lookups, or no discovery facility exists, stop and report the searched phrases and returned tool names as a capability-loading failure, without claiming that SQL ran or access was denied.
+A permission, security or approval denial must stop the workflow immediately; do not rediscover or retry to bypass it. Report the exact tool error and blocked operation. Do not switch roles, widen permissions, retry through another access path or substitute conversation history.`;
 
 export function sqlText(value: string): string {
   if (value.includes('\0')) throw new Error('SQL text cannot contain a null character.');

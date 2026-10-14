@@ -1,7 +1,7 @@
 import { createCloudCvSnapshot } from '../../src/composables/cloudCvPrivacy';
 import { sqlText } from '../../src/composables/refinementProtocolContract';
 import { buildShortRefinementInstruction } from '../../src/composables/applicationReference';
-import { assertActiveRefinementScope, refinementProtocolDocument } from '../../src/composables/applicationRefinement';
+import { assertActiveRefinementScope } from '../../src/composables/applicationRefinement';
 import { CREATED, type ProtocolCase } from './cases';
 import { object } from './trace';
 const json = (value: unknown) => `${sqlText(JSON.stringify(value))}::jsonb`;
@@ -29,9 +29,8 @@ BEGIN
     feedback := feedback || jsonb_build_array(item || jsonb_build_object('createdAt',review->>'created_at'));
   END LOOP;
   request := jsonb_set(request,'{feedback}',feedback);
-  PERFORM public.publish_refinement_request(request);
-  ${fixture.expected === 'stop-protocol' ? '-- Missing protocol is intentional.' : `PERFORM public.publish_refinement_protocol(${uuid(fixture.request.requestId)},${sqlText(fixture.protocol.id)},${sqlText(fixture.protocol.text)});`}
-  ${fixture.expected === 'stop-resolve' ? `UPDATE public.application_refinement_state SET current_${fixture.request.scope}_request_id=null,revision=revision+1 WHERE application_id=${uuid(fixture.application.id)};` : ''}
+  ${fixture.name === 'missing-request' ? '-- The requested snapshot intentionally does not exist.' : 'PERFORM public.publish_refinement_request(request);'}
+  ${fixture.name === 'stale-request' ? `UPDATE public.application_refinement_state SET current_${fixture.request.scope}_request_id=null,revision=revision+1 WHERE application_id=${uuid(fixture.application.id)};` : ''}
   RESET ROLE;
 END;
 $fixture$;
@@ -66,9 +65,10 @@ SELECT jsonb_build_object('cleaned',
 COMMIT;`;
 }
 export function bindSeedReceipt(fixture: ProtocolCase, receipt: unknown): ProtocolCase {
-  if (!object(receipt) || !/^APP-[A-F\d]{10}$/.test(String(receipt.application_code)) || !object(receipt.request)
-    || receipt.request.requestId !== fixture.request.requestId || receipt.request.applicationId !== fixture.application.id) throw new Error('Invalid fixture seed receipt.');
-  const request = receipt.request as unknown as ProtocolCase['request'];
+  if (!object(receipt) || !/^APP-[A-F\d]{10}$/.test(String(receipt.application_code))) throw new Error('Invalid fixture seed receipt.');
+  const missing = fixture.name === 'missing-request';
+  if (missing ? receipt.request !== null : !object(receipt.request) || receipt.request.requestId !== fixture.request.requestId || receipt.request.applicationId !== fixture.application.id) throw new Error('Invalid fixture source receipt.');
+  const request = missing ? fixture.request : receipt.request as unknown as ProtocolCase['request'];
   // Only authoritative feedback timestamps may differ from the generated input.
   const normalized = { ...request, feedback: request.feedback.map((item, i) => ({ ...item, createdAt: fixture.request.feedback[i]?.createdAt })) };
   if (JSON.stringify(normalized) !== JSON.stringify(fixture.request)) {
@@ -78,8 +78,6 @@ export function bindSeedReceipt(fixture: ProtocolCase, receipt: unknown): Protoc
     if (JSON.stringify(normalize(normalized)) !== JSON.stringify(normalize(fixture.request))) throw new Error('Fixture request changed unexpectedly while seeding.');
   }
   const application = { ...fixture.application, application_code: String(receipt.application_code) };
-  const protocol = refinementProtocolDocument(request, fixture.projectId);
-  if (protocol.id !== fixture.protocol.id) throw new Error('Seed timestamps unexpectedly changed protocol text.');
   assertActiveRefinementScope(request.scope);
   return { ...fixture, request, application, task: buildShortRefinementInstruction(application, request.scope, { projectId: fixture.projectId, request }) };
 }

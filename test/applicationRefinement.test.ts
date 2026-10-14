@@ -208,25 +208,19 @@ test('public proposal validation rejects cross-request, unsupported and unsafe c
 test('versioned prompts use exact scope and identifiers, preserve history and require verified idempotent saving', () => {
   const request = local({ scope: 'letter', feedback: [{ id: crypto.randomUUID(), scope: 'letter', text: 'Keep the opening concise.', createdAt: CREATED }] });
   const prompt = buildRefinementPrompt(request.request, 'test-project-id');
-  for (const value of [APP, request.request.requestId, 'test-project-id', 'private.read_refinement_request', 'private.save_refinement_proposal', 'EVERY ordered feedback', 'SAME proposal UUID', 'persisted receipt', 'style only', 'scope is letter']) assert.ok(prompt.includes(value), value);
+  for (const value of [APP, request.request.requestId, 'test-project-id', 'private.read_current_refinement_request', 'private.save_refinement_proposal', 'EVERY ordered feedback', 'SAME proposal UUID', 'persisted receipt', 'style only', 'scope is letter']) assert.ok(prompt.includes(value), value);
   assert.equal(prompt.includes('Taylor Green'), false);
   assert.throws(() => buildRefinementPrompt(request.request, "bad'); select 1"), /identifier/);
 });
 
-test('short follow-up instructions resolve only the referenced application and require a current matching scope', () => {
+test('self-contained tasks verify exact application, request and scope without a protocol lookup', () => {
   const request = local({ scope: 'letter' });
   const prompt = buildRefinementPrompt(request.request, 'test-project');
-  assert.ok(prompt.includes(`1. Read the immutable request through SQL: select private.read_refinement_request('${request.request.requestId}'::uuid);`), 'the initial run remains bound to its explicit immutable request');
-  assert.match(prompt, /For a later explicit "phd-workflow: <code or complete UUID>/);
-  assert.match(prompt, /select private\.resolve_application_reference\('<safely SQL-escaped reference>', '<cv or letter>'\)/);
-  assert.match(prompt, /escape apostrophes correctly, never guess codes or derive them from titles/);
-  assert.match(prompt, /Read the returned current_request_id through private\.read_refinement_request/);
-  assert.match(prompt, /application_id equals the resolver's application_id/);
-  assert.match(prompt, /requestId equals current_request_id/);
-  assert.match(prompt, /CV = cv, motivation letter = letter, never combine documents in one round/);
-  assert.match(prompt, /no current request or the scope differs, stop and ask the user to publish a new matching round in the webapp/);
+  assert.ok(prompt.includes(`SELECT private.read_current_refinement_request('${APP}'::uuid, '${request.request.requestId}'::uuid, E'letter') AS refinement_request;`));
+  assert.match(prompt, /read-only helper checks that the exact request is still current/);
+  assert.match(prompt, /If missing, stale or mismatched, stop and ask for a fresh task/);
   assert.match(prompt, /Do not fabricate or mutate requests, reuse an older round, or read unrelated applications/);
-  assert.match(prompt, /freshly resolved application\/request identifiers and requested scope throughout, including the proposal payload/);
+  assert.doesNotMatch(prompt, /resolve_application_reference|read_refinement_protocol|protocol_text|For a later explicit|v1:[a-f0-9]{64}/);
 });
 
 test('published tasks bind exact references, distinguish first drafts and never embed source contents', () => {
@@ -241,11 +235,10 @@ test('published tasks bind exact references, distinguish first drafts and never 
       if (scope === 'cv') assert.match(task, /Keep the letter unchanged/);
       else if (letterText) assert.match(task, /Refine the complete existing letter/);
       for (const value of ['Complete working letter.', 'Taylor Green', 'private collaboration', 'private variant name', 'baselineState', 'bindings']) assert.ok(!task.includes(value), value);
-      assert.match(task, /If a tool call is blocked, stop and report the exact error/);
-      assert.ok(task.includes(`SELECT private.resolve_application_reference(E'APP-SYNTHETIC', E'${scope}') AS application_reference;`));
-      assert.match(task, /public\.resolve_application_reference is for signed-in web-app sessions and must not be used for this task/);
-      assert.match(task, /do not switch roles or change authentication/);
-      assert.ok(task.includes(`returned application_id equals ${APP} and scope equals ${scope} and current_request_id equals ${request.requestId}`));
+      assert.match(task, /permission, security or approval denial must stop the workflow immediately/);
+      assert.ok(task.includes(`SELECT private.read_current_refinement_request('${APP}'::uuid, '${request.requestId}'::uuid, E'${scope}') AS refinement_request;`));
+      assert.match(task, /Do not switch roles, widen permissions/);
+      assert.ok(task.includes(`application_id=${APP}, id and request_json.requestId=${request.requestId}, request_json.scope=${scope}`));
       assert.throws(() => buildShortRefinementInstruction({ ...app, id: crypto.randomUUID() }, scope, { projectId: 'test-project', request }), /match/);
       assert.throws(() => buildShortRefinementInstruction(app, scope === 'cv' ? 'letter' : 'cv', { projectId: 'test-project', request }), /match/);
       assert.throws(() => buildShortRefinementInstruction(app, scope, { projectId: '', request }), /identifier/);
@@ -253,13 +246,15 @@ test('published tasks bind exact references, distinguish first drafts and never 
   }
 });
 
-test('published resolver SQL escapes reference literals and preserves the UUID fallback', () => {
+test('display references never enter the verified source SQL and UUID fallback remains readable', () => {
   const request = local({ scope: 'cv' }).request;
   const context = { projectId: 'test-project', request };
-  const escaped = buildShortRefinementInstruction({ id: APP, application_code: "External\\Code'Odd" }, 'cv', context);
-  assert.ok(escaped.includes("SELECT private.resolve_application_reference(E'External\\\\Code''Odd', E'cv') AS application_reference;"));
+  const named = buildShortRefinementInstruction({ id: APP, application_code: "External Code'Odd" }, 'cv', context);
   const fallback = buildShortRefinementInstruction({ id: APP, application_code: null }, 'cv', context);
-  assert.ok(fallback.includes(`SELECT private.resolve_application_reference(E'${APP}', E'cv') AS application_reference;`));
+  const read = (task: string) => task.split('\n').find(line => line.startsWith('SELECT '));
+  assert.equal(read(named), read(fallback));
+  assert.ok(read(named)?.includes(`'${APP}'::uuid`));
+  assert.doesNotMatch(read(named)!, /External/);
 });
 
 test('full prompts explain empty versus existing source letters and stop at tool-access blocks', () => {
@@ -270,7 +265,7 @@ test('full prompts explain empty versus existing source letters and stop at tool
       if (scope === 'cv') assert.match(currentStep, /CV-only request: preserve request_json.letter.text exactly/);
       else if (letterText) assert.match(currentStep, /source contains an existing letter/);
       else assert.match(currentStep, /empty request_json.letter.text is valid, not a missing or inaccessible source/);
-      assert.match(prompt, /stop and report the exact tool error and blocked operation/);
+      assert.match(prompt, /Report the exact tool error and blocked operation/);
       assert.match(prompt, /Do not switch roles, widen permissions, retry through another access path/);
       assert.match(prompt, /require those to match exactly; do not silently switch to a different round/);
     }
@@ -326,9 +321,9 @@ test('connected prompts reference filtered sources without embedding documents o
     const before = structuredClone(prepared);
     const prompt = buildRefinementPrompt(prepared.request, 'test-project');
     assert.deepEqual(prepared, before, 'building a prompt cannot modify private reconstruction data');
-    assert.match(prompt, /read_refinement_request/);
+    assert.match(prompt, /read_current_refinement_request/);
     assert.match(prompt, /execute_sql/);
-    assert.match(prompt, /connected SQL tool is required, and stop/);
+    assert.match(prompt, /If execute_sql is unavailable after both lookups, or no discovery facility exists, stop/);
     assert.doesNotMatch(prompt, /Import a refinement proposal|Copy full prompt|BEGIN_APPROVED_REQUEST_JSON/);
     for (const secret of ['Taylor Green', 'taylor@example.com', 'private variant name', 'baselineState', 'bindings', 'structureBindings', 'Private rationale']) assert.ok(!prompt.includes(secret), secret);
     assert.equal(prepared.request.privacyLegend?.[0].description, 'Approved sensor research context');
@@ -454,6 +449,37 @@ test('missing schema and authentication produce actionable errors while leaving 
   await assert.rejects(createRefinementRepository(missing.client, () => 'owner').publishRequest(request.request), /database setup is incomplete.*local documents are preserved/);
   await assert.rejects(createRefinementRepository(null, () => null).listRequests(APP), /Sign in/);
   assert.deepEqual(request, before);
+});
+
+test('state reads and write receipts require the document-round database migration', async () => {
+  const settings = sanitizeRefinementSetup(setup(), state());
+  for (const missingColumns of [['current_cv_request_id'], ['current_letter_request_id'], ['current_cv_request_id', 'current_letter_request_id']]) {
+    const row: Record<string, unknown> = { ...stateRow(settings), current_request_id: crypto.randomUUID() };
+    for (const column of missingColumns) delete row[column];
+    const before = structuredClone(row);
+    const { client } = fakeClient(() => ({ data: row, error: null }));
+    const repo = createRefinementRepository(client, () => 'owner');
+    const upgradeMessage = /database needs the separate CV\/letter refinement update.*local documents are preserved/;
+    await assert.rejects(repo.loadState(APP), upgradeMessage);
+    await assert.rejects(repo.saveState(APP, settings, { cv: null, letter: null }, 0), upgradeMessage);
+    await assert.rejects(repo.clearHistory(APP, 0, 'cv'), upgradeMessage);
+    assert.deepEqual(row, before, 'never infer document pointers from the retired shared pointer');
+  }
+});
+
+test('document-round state still rejects malformed pointers and foreign owners', async () => {
+  const settings = sanitizeRefinementSetup(setup(), state());
+  for (const column of ['current_cv_request_id', 'current_letter_request_id']) {
+    for (const invalid of [undefined, '', 'invalid-request', 1, {}]) {
+      const { client } = fakeClient(() => ({ data: { ...stateRow(settings), [column]: invalid }, error: null }));
+      await assert.rejects(createRefinementRepository(client, () => 'owner').loadState(APP), /The refinement state could not be verified/);
+    }
+  }
+  const foreign = fakeClient(() => ({ data: { ...stateRow(settings), user_id: 'another-owner' }, error: null }));
+  await assert.rejects(createRefinementRepository(foreign.client, () => 'owner').loadState(APP), /could not be verified for this account and application/);
+  const row = { ...stateRow(settings), current_cv_request_id: crypto.randomUUID(), current_letter_request_id: crypto.randomUUID() };
+  const current = fakeClient(() => ({ data: row, error: null }));
+  assert.deepEqual(await createRefinementRepository(current.client, () => 'owner').loadState(APP), row);
 });
 
 function structuredProposal(request: LocalRefinementRequest): RefinementProposalV2 {
@@ -601,7 +627,7 @@ test('cloud history rejects unsupported formats and foreign records while readin
 test('v2 prompt limits operations to existing references and requires extractive shortening, explanations and verified saving', () => {
   const request = local({ schemaVersion: 2, scope: 'cv' });
   const prompt = buildRefinementPrompt(request.request, 'test-project');
-  for (const phrase of ['protocol v2', 'request_json.cvStructure', 'extractive', 'without adding or paraphrasing', 'unique change-N', 'cvComments', 'omit_bullet', 'existing fieldId', 'nonempty explanation', 'letter consistent', 'persisted receipt', 'SAME proposal UUID']) assert.ok(prompt.includes(phrase), phrase);
+  for (const phrase of ['protocol v2', 'request_json.cvStructure', 'extractive', 'without adding or paraphrasing', 'unique change-N', 'cvComments', 'omit_bullet', 'existing fieldId', 'nonempty explanation', 'persisted receipt', 'SAME proposal UUID']) assert.ok(prompt.includes(phrase), phrase);
   assert.ok(prompt.includes('"cvOperations":[]'));
   assert.equal(prompt.includes('"cvEdits":'), false);
 });

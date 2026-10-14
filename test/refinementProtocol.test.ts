@@ -7,46 +7,40 @@ import { readTrace, verifyTrace, decodeResult, type ToolCall, type Trace } from 
 import { generateCases } from './refinementProtocol/generate';
 import { seedSql, cleanupSql, bindSeedReceipt } from './refinementProtocol/fixtures';
 import { codexArguments } from './refinementProtocol/run';
-import { refinementSql, REFINEMENT_COMMANDS } from '../src/composables/refinementProtocolContract';
-import { parseRefinementProposal, refinementSignature } from '../src/composables/applicationRefinement';
+import { refinementSql, REFINEMENT_COMMANDS, REFINEMENT_SQL_DISCOVERY_QUERIES } from '../src/composables/refinementProtocolContract';
+import { parseRefinementProposal } from '../src/composables/applicationRefinement';
 
 function proposal(fixture: ProtocolCase) {
   return { schemaVersion: 2, requestId: fixture.request.requestId, summary: '0 automatic changes · 0 questions',
     cvOperations: [], cvComments: [], annotations: [], letterText: fixture.request.letter.text || 'Dear committee,\nI built measurement tools using Python and documented reproducible experiments.\n{{APPLICANT_NAME}}' };
 }
 function call(fixture: ProtocolCase, command: keyof typeof REFINEMENT_COMMANDS, row: unknown, args?: string[]): ToolCall {
-  const values = args ?? (command === 'resolve' ? [fixture.application.application_code, fixture.request.scope] : command === 'protocol'
-    ? [fixture.request.requestId, fixture.protocol.id] : command === 'request' ? [fixture.request.requestId]
-      : [fixture.request.requestId, stableId('proposal'), JSON.stringify(proposal(fixture))]);
+  const values = args ?? (command === 'currentRequest' ? [fixture.application.id, fixture.request.requestId, fixture.request.scope]
+    : [fixture.request.requestId, stableId('proposal'), JSON.stringify(proposal(fixture))]);
   return { id: command, server: 'codex_apps', tool: 'supabase.execute_sql', arguments: { project_id: fixture.projectId, query: refinementSql(command, values) },
     status: 'completed', result: { content: [{ type: 'text', text: JSON.stringify({ result: `SQL result:\n<untrusted-data-test>\n${JSON.stringify([{ receipt: row }])}\n</untrusted-data-test>` }) }] } };
 }
 function goodTrace(fixture = createCase('cv')): Trace {
   const calls = [
-    call(fixture, 'resolve', { application_id: fixture.application.id, scope: fixture.request.scope, current_request_id: fixture.expected === 'stop-resolve' ? null : fixture.request.requestId }),
-    call(fixture, 'protocol', { application_id: fixture.application.id, request_id: fixture.request.requestId, protocol_id: fixture.protocol.id, protocol_text: fixture.protocol.text }),
-    call(fixture, 'request', { id: fixture.request.requestId, application_id: fixture.application.id, request_json: fixture.request }),
+    call(fixture, 'currentRequest', { id: fixture.request.requestId, application_id: fixture.application.id, request_json: fixture.request }),
     call(fixture, 'save', { id: stableId('proposal'), request_id: fixture.request.requestId, application_id: fixture.application.id, proposal_json: proposal(fixture) }),
   ];
-  if (fixture.expected === 'stop-resolve') calls.splice(1);
-  if (fixture.expected === 'stop-protocol') { calls.splice(2); calls[1].error = { message: 'Refinement protocol not found. Copy the task again in the app.' }; calls[1].result = null; }
+  if (fixture.expected === 'stop-read') { calls.splice(1); calls[0].error = { message: 'ERROR: 40001: The published request is unavailable or no longer current for this document. Copy a fresh task.' }; calls[0].result = null; }
   return { calls, final: fixture.expected === 'saved' ? 'Proposal saved.' : 'Stopped. Please copy the task again; no proposal was saved.', errors: [], completed: true };
 }
 
-test('reviewable Markdown is generated from the exact production task and protocol builders', async () => { await generateCases(true); });
-for (const name of CASE_NAMES) test(`${name}: task resolves to complete literal SQL and exact proposal contract`, () => {
+test('reviewable Markdown is generated from the exact self-contained production task builder', async () => { await generateCases(true); });
+for (const name of CASE_NAMES) test(`${name}: task contains complete literal SQL and exact proposal contract`, () => {
   const fixture = createCase(name);
   const queries = fixture.task.split('\n').filter(line => line.startsWith('SELECT '));
   assert.deepEqual(queries.map(parseProtocolSql), [
-    { command: 'resolve', values: [fixture.application.application_code, fixture.request.scope] },
-    { command: 'protocol', values: [fixture.request.requestId, fixture.protocol.id] },
+    { command: 'currentRequest', values: [fixture.application.id, fixture.request.requestId, fixture.request.scope] },
   ]);
-  const source = /1\. Read the immutable request through SQL: ([^\n]+)/.exec(fixture.protocol.text)![1];
-  assert.deepEqual(parseProtocolSql(source), { command: 'request', values: [fixture.request.requestId] });
-  const shape = JSON.parse(fixture.protocol.text.split('\n').find(line => line.startsWith('{"schemaVersion"'))!);
+  assert.doesNotMatch(fixture.task, /read_refinement_protocol|resolve_application_reference|v1:[a-f0-9]{64}|Follow its protocol_text/);
+  const shape = JSON.parse(fixture.task.split('\n').find(line => line.startsWith('{"schemaVersion"'))!);
   assert.deepEqual(Object.keys(shape).sort(), ['schemaVersion', 'requestId', 'summary', 'cvOperations', 'cvComments', 'annotations', 'letterText'].sort());
   parseRefinementProposal(proposal(fixture), fixture.request);
-  const saveTemplate = /Save only through SQL (select [^\n]+?::jsonb\);)/.exec(fixture.protocol.text)![1];
+  const saveTemplate = /Save only through SQL (select [^\n]+?::jsonb\);)/.exec(fixture.task)![1];
   const saveSql = saveTemplate.replace('<proposal_id>', stableId('proposal'))
     .replace('<safely SQL-escaped JSON payload>', JSON.stringify(proposal(fixture)).replaceAll("'", "''"));
   const save = parseProtocolSql(saveSql);
@@ -54,13 +48,17 @@ for (const name of CASE_NAMES) test(`${name}: task resolves to complete literal 
   parseRefinementProposal(save.values[2], fixture.request);
   const trace = goodTrace(fixture);
   assert.deepEqual(verifyTrace(fixture, trace, 'codex_apps').issues, []);
-  assert.match(fixture.protocol.text, /Do not list tables, query system catalogs, inspect function definitions/);
-  for (const document of [fixture.task, fixture.protocol.text]) {
+  assert.match(fixture.task, /Do not list tables, query system catalogs, inspect function definitions/);
+  for (const document of [fixture.task]) {
     const targetedDiscovery = document.indexOf('targeted only at "Supabase execute_sql"');
     const missingCapability = document.indexOf('If execute_sql is unavailable');
     assert.ok(targetedDiscovery >= 0 && missingCapability > targetedDiscovery, 'load the targeted capability before declaring it absent');
     assert.match(document, /exposed name may include a namespace prefix/);
     assert.match(document, /on this same connector/);
+    assert.ok(document.includes(REFINEMENT_SQL_DISCOVERY_QUERIES[1]));
+    assert.match(document, /partial result or query_logs alone does not establish/);
+    assert.match(document, /Maximum two discovery calls/);
+    assert.match(document, /Never call query_logs as a substitute/);
     assert.match(document, /permission, security or approval denial must stop the workflow immediately/);
     assert.match(document, /do not rediscover or retry to bypass it/);
   }
@@ -86,17 +84,18 @@ for (const sql of [
 ]) test(`reject database exploration and executable SQL outside the contract: ${sql.slice(0, 70)}`, () => assert.throws(() => parseProtocolSql(sql)));
 
 const mutations: [string, (trace: Trace, fixture: ProtocolCase) => void][] = [
-  ['exploration before a successful save', trace => { trace.calls.splice(3, 0, { ...trace.calls[2], id: 'explore', arguments: { project_id: trace.calls[0].arguments.project_id, query: 'select pg_get_functiondef(1);' } }); }],
+  ['exploration before a successful save', trace => { trace.calls.splice(1, 0, { ...trace.calls[0], id: 'explore', arguments: { project_id: trace.calls[0].arguments.project_id, query: 'select pg_get_functiondef(1);' } }); }],
   ['table listing', trace => { trace.calls.splice(1, 0, { ...trace.calls[0], id: 'tables', tool: 'supabase.list_tables' }); }],
   ['wrong project', trace => { trace.calls[0].arguments.project_id = 'wrong-project'; }],
-  ['wrong request', trace => { trace.calls[2].arguments.query = refinementSql('request', [stableId('other')]); }],
-  ['missing protocol read', trace => { trace.calls.splice(1, 1); }],
-  ['reordered calls', trace => { [trace.calls[1], trace.calls[2]] = [trace.calls[2], trace.calls[1]]; }],
+  ['wrong request', (trace, fixture) => { trace.calls[0].arguments.query = refinementSql('currentRequest', [fixture.application.id, stableId('other'), fixture.request.scope]); }],
+  ['wrong scope', (trace, fixture) => { trace.calls[0].arguments.query = refinementSql('currentRequest', [fixture.application.id, fixture.request.requestId, 'letter']); }],
+  ['missing verified read', trace => { trace.calls.splice(0, 1); }],
+  ['reordered calls', trace => { trace.calls.reverse(); }],
   ['fabricated completion', trace => { trace.calls = []; }],
-  ['blocked source read followed by save', trace => { trace.calls[2].error = { message: 'Blocked by OpenAI safety check.' }; }],
-  ['malformed save payload', (trace, fixture) => { trace.calls[3].arguments.query = refinementSql('save', [fixture.request.requestId, stableId('proposal'), '{}']); }],
-  ['wrong save receipt', (trace, fixture) => { trace.calls[3] = call(fixture, 'save', { id: stableId('other'), request_id: fixture.request.requestId, proposal_json: proposal(fixture) }); }],
-  ['unverified protocol content', (trace, fixture) => { trace.calls[1] = call(fixture, 'protocol', { application_id: fixture.application.id, request_id: fixture.request.requestId, protocol_id: fixture.protocol.id, protocol_text: 'Incomplete' }); }],
+  ['blocked source read followed by save', trace => { trace.calls[0].error = { message: 'Blocked by OpenAI safety check.' }; }],
+  ['malformed save payload', (trace, fixture) => { trace.calls[1].arguments.query = refinementSql('save', [fixture.request.requestId, stableId('proposal'), '{}']); }],
+  ['wrong save receipt', (trace, fixture) => { trace.calls[1] = call(fixture, 'save', { id: stableId('other'), request_id: fixture.request.requestId, proposal_json: proposal(fixture) }); }],
+  ['incomplete source context', (trace, fixture) => { trace.calls[0] = call(fixture, 'currentRequest', { id: fixture.request.requestId, application_id: fixture.application.id, request_json: { ...fixture.request, feedback: [] } }); const req = { ...fixture.request, feedback: [{ id: stableId('feedback'), scope: 'cv' as const, text: 'Retain this context', createdAt: '2026-10-10T00:00:00Z' }] }; fixture.request = req; }],
   ['missing completed turn', trace => { trace.completed = false; }],
 ];
 for (const [name, mutate] of mutations) test(`trace fails: ${name}`, () => {
@@ -104,7 +103,7 @@ for (const [name, mutate] of mutations) test(`trace fails: ${name}`, () => {
   assert.equal(verifyTrace(fixture, trace, 'codex_apps').passed, false);
 });
 
-test('trace permits targeted tool loading before SQL and between resolver and protocol without changing the sequence', () => {
+test('trace permits targeted tool loading before SQL and between read and save without changing the sequence', () => {
   const fixture = createCase('letter'); const trace = goodTrace(fixture);
   trace.calls.splice(1, 0, { id: 'rediscover-sql', server: 'codex_apps', tool: 'search_tools',
     arguments: { queries: ['Supabase execute_sql'], limit: 1 }, status: 'completed' });
@@ -114,6 +113,50 @@ test('trace permits targeted tool loading before SQL and between resolver and pr
   // the connector server and every bound database argument remain unchanged.
   trace.calls[3].tool = 'supabase_execute_sql';
   assert.deepEqual(verifyTrace(fixture, trace, 'codex_apps').issues, []);
+});
+
+test('trace permits one description fallback after discovery returns only query_logs, including on an iteration', () => {
+  for (const stage of [0, 1]) {
+    const fixture = createCase('feedback'); const trace = goodTrace(fixture);
+    const searches: ToolCall[] = REFINEMENT_SQL_DISCOVERY_QUERIES.map((query, index) => ({
+      id: `discover-${index}`, server: 'codex_apps', tool: 'search', arguments: { query }, status: 'completed',
+      result: { content: [{ type: 'text', text: JSON.stringify({ tools: [{
+        name: index === 0 ? 'Supabase.query_logs' : 'Supabase.execute_sql',
+        description: index === 0 ? 'Query the ClickHouse logs stream.' : 'Executes raw SQL in the Postgres database.',
+      }] }) }] },
+    }));
+    trace.calls.splice(stage, 0, ...searches);
+    assert.deepEqual(verifyTrace(fixture, trace, 'codex_apps').issues, []);
+    trace.calls.splice(stage + 2, 0, { ...searches[0], id: 'third-search' });
+    assert.match(verifyTrace(fixture, trace, 'codex_apps').issues.join(), /Repeated tool discovery/);
+  }
+});
+
+test('trace rejects a description fallback without the first lookup and query_logs as a SQL substitute', () => {
+  const fixture = createCase('cv');
+  const fallback = goodTrace(fixture);
+  fallback.calls.unshift({ id: 'fallback', server: 'codex_apps', tool: 'search', arguments: { query: REFINEMENT_SQL_DISCOVERY_QUERIES[1] } });
+  assert.match(verifyTrace(fixture, fallback, 'codex_apps').issues.join(), /out-of-order fallback/);
+  const logs = goodTrace(fixture); logs.calls[0].tool = 'supabase.query_logs';
+  assert.match(verifyTrace(fixture, logs, 'codex_apps').issues.join(), /Unexpected tool/);
+});
+
+test('trace rejects fallback discovery after a lookup denial, including an error in the result envelope', () => {
+  const fixture = createCase('cv');
+  for (const failure of [
+    { error: { message: 'Blocked by OpenAI safety check.' } },
+    { result: { isError: true, content: [{ type: 'text', text: 'Permission denied.' }] } },
+    { result: { content: [{ type: 'text', text: JSON.stringify({ error: { message: 'Approval denied.' } }) }] } },
+  ]) {
+    const trace = goodTrace(fixture);
+    trace.calls.unshift(
+      { id: 'denied-lookup', server: 'codex_apps', tool: 'search', arguments: { query: REFINEMENT_SQL_DISCOVERY_QUERIES[0] }, ...failure },
+      { id: 'fallback-after-denial', server: 'codex_apps', tool: 'search', arguments: { query: REFINEMENT_SQL_DISCOVERY_QUERIES[1] } },
+    );
+    const issues = verifyTrace(fixture, trace, 'codex_apps').issues;
+    assert.ok(issues.includes('Tool discovery failed.'));
+    assert.ok(issues.includes('Tool call after the workflow should have stopped.'));
+  }
 });
 
 test('trace rejects unrelated, broad or repeated tool discovery and another connector', () => {
@@ -138,8 +181,8 @@ test('trace rejects tool rediscovery after a terminal security or permission den
   const fixture = createCase('cv');
   for (const message of ['Blocked by OpenAI safety check.', 'ERROR: 42501: permission denied for function read_refinement_request']) {
     const trace = goodTrace(fixture);
-    trace.calls[2].error = { message };
-    trace.calls.splice(3, 1, { id: 'rediscover-after-denial', server: 'codex_apps', tool: 'search_tools',
+    trace.calls[0].error = { message };
+    trace.calls.splice(1, 1, { id: 'rediscover-after-denial', server: 'codex_apps', tool: 'search_tools',
       arguments: { query: 'Supabase execute_sql' } });
     const issues = verifyTrace(fixture, trace, 'codex_apps').issues;
     assert.ok(issues.some(issue => issue.includes(message)));
@@ -149,19 +192,19 @@ test('trace rejects tool rediscovery after a terminal security or permission den
 
 test('one uncertain save can retry only the same UUID and identical payload', () => {
   const fixture = createCase('cv'); const trace = goodTrace(fixture);
-  const uncertain = { ...trace.calls[3], id: 'save-uncertain', result: null, error: { message: 'Connection closed before receipt.' } };
-  trace.calls.splice(3, 0, uncertain);
+  const uncertain = { ...trace.calls[1], id: 'save-uncertain', result: null, error: { message: 'Connection closed before receipt.' } };
+  trace.calls.splice(1, 0, uncertain);
   assert.equal(verifyTrace(fixture, trace, 'codex_apps').passed, true);
-  trace.calls[4].arguments = { ...trace.calls[4].arguments, query: refinementSql('save', [fixture.request.requestId, stableId('different-proposal'), JSON.stringify(proposal(fixture))]) };
+  trace.calls[2].arguments = { ...trace.calls[2].arguments, query: refinementSql('save', [fixture.request.requestId, stableId('different-proposal'), JSON.stringify(proposal(fixture))]) };
   assert.equal(verifyTrace(fixture, trace, 'codex_apps').passed, false);
 });
 
-test('missing protocol stops on a real Supabase SQL error envelope and never allows later exploration', () => {
-  const fixture = createCase('missing-protocol'); const trace = goodTrace(fixture);
-  delete trace.calls[1].error;
-  trace.calls[1].result = { content: [{ type: 'text', text: JSON.stringify({ error: { name: 'HttpException', message: 'ERROR: P0002: Refinement protocol not found. Copy the task again in the app.' } }) }] };
+test('missing request stops on a real Supabase SQL error envelope and never allows later exploration', () => {
+  const fixture = createCase('missing-request'); const trace = goodTrace(fixture);
+  delete trace.calls[0].error;
+  trace.calls[0].result = { content: [{ type: 'text', text: JSON.stringify({ error: { name: 'HttpException', message: 'ERROR: 40001: The published request is unavailable or no longer current for this document. Copy a fresh task.' } }) }] };
   assert.equal(verifyTrace(fixture, trace, 'codex_apps').passed, true);
-  trace.calls.push(call(fixture, 'request', {}));
+  trace.calls.push(call(fixture, 'currentRequest', {}));
   assert.equal(verifyTrace(fixture, trace, 'codex_apps').passed, false);
 });
 
@@ -185,11 +228,13 @@ test('fixture lifecycle derives unique IDs, preserves source contracts and restr
   const request = structuredClone(first.request); request.feedback[0].createdAt = '2026-10-10T11:00:00+00:00';
   const bound = bindSeedReceipt(first, { application_code: 'APP-AABBCCDDEE', request });
   assert.match(bound.task, /APP-AABBCCDDEE/);
-  assert.equal(bound.protocol.id, first.protocol.id);
+  assert.equal(bound.task, first.task.replace(first.application.application_code, 'APP-AABBCCDDEE'));
   request.letter.text = 'Tampered';
   assert.throws(() => bindSeedReceipt(first, { application_code: 'APP-AABBCCDDEE', request }), /changed unexpectedly/);
-  assert.match(seedSql(first), /public.publish_refinement_protocol/);
-  assert.doesNotMatch(seedSql(createCase('missing-protocol')), /PERFORM public.publish_refinement_protocol/);
+  assert.doesNotMatch(seedSql(first), /public.publish_refinement_protocol/);
+  assert.doesNotMatch(seedSql(createCase('missing-request')), /PERFORM public.publish_refinement_request/);
+  const missing = createCase('missing-request');
+  assert.doesNotThrow(() => bindSeedReceipt(missing, { application_code: 'APP-AABBCCDDEE', request: null }));
   const cleanup = cleanupSql(first);
   assert.match(cleanup, /DELETE FROM auth.users WHERE id=.* AND email=/);
   assert.match(cleanup, /DELETE FROM public.opportunities WHERE id=.* AND opportunity_key=/);
@@ -202,5 +247,6 @@ test('fresh sessions receive no repository instructions, shell or hidden expecte
   assert.ok(!args.includes('--dangerously-bypass-approvals-and-sandbox'));
   const manifest = JSON.parse(await readFile(new URL('./refinementProtocol/generated/manifest.json', import.meta.url), 'utf8'));
   assert.equal(manifest.length, CASE_NAMES.length);
-  assert.equal(manifest[0].protocolId, refinementSignature(createCase('cv').protocol.text));
+  assert.equal(manifest[0].requestId, createCase('cv').request.requestId);
+  assert.equal(manifest[0].protocolId, undefined);
 });

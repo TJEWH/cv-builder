@@ -1045,9 +1045,8 @@ function requestToCopy() {
   return currentPublishedRequest.value;
 }
 async function copyTask() { await run(async () => {
-  const request = requestToCopy();
-  await repository.publishProtocol(request.request_json, refinementProjectId());
-  if (requestToCopy().id !== request.id) throw new Error('The current refinement request changed. Copy the task again.');
+  refinementProjectId();
+  requestToCopy();
   await copyShortInstruction();
 }); }
 function checkedProposalResult(cvSelectionOnly = false) {
