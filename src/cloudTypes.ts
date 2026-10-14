@@ -5,7 +5,7 @@ export const APPLICATION_STATUSES = ['preparation', 'refinement', 'attachments',
 export type ApplicationStatus = typeof APPLICATION_STATUSES[number];
 export const APPLICATION_STAGES = ['preparation', 'refinement', 'review', 'tracking'] as const;
 export type ApplicationStage = typeof APPLICATION_STAGES[number];
-export const OPPORTUNITY_REVIEW_STATES = ['unreviewed', 'interested', 'strong_interest', 'not_interested'] as const;
+export const OPPORTUNITY_REVIEW_STATES = ['unreviewed', 'not_interested', 'interested', 'strong_interest'] as const;
 export type OpportunityReviewState = typeof OPPORTUNITY_REVIEW_STATES[number];
 
 export interface OpportunityReview {

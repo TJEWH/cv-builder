@@ -195,7 +195,7 @@ onBeforeUnmount(clearCommentToast);
 const showingDetail = computed(() => props.tab === 'opportunities' ? Boolean(selectedOpportunity.value) : Boolean(editingApplication.value));
 useJobCardTrackHeight(tableScroll, () => props.active !== false && !showingDetail.value);
 const statusNames: Record<string, [string, string]> = {
-  unreviewed: ['Not reviewed', 'Ungeprüft'], interested: ['Interested', 'Interessant'], strong_interest: ['Strong interest', 'Starkes Interesse'], not_interested: ['Not interesting', 'Nicht interessant'],
+  unreviewed: ['Not reviewed', 'Ungeprüft'], not_interested: ['Low', 'Gering'], interested: ['Medium', 'Mittel'], strong_interest: ['High', 'Hoch'],
 };
 function statusLabel(value: string) { const pair = statusNames[value]; return pair ? text(...pair) : applicationStatusLabel(value, props.lang); }
 function contextTitle(item: Application) { return String(item.context_json.title || opportunityById.value.get(item.opportunity_id)?.title || text('Application', 'Bewerbung')); }
@@ -278,7 +278,7 @@ async function changeReview(item: Opportunity, event: Event) {
   if (pendingReviewSelections.get(item.id) !== selection) return;
   pendingReviewSelections.delete(item.id);
   if (result) notice.value = result.state === 'not_interested' && hideNotInterested.value
-    ? text('Marked as not interesting. Uncheck “Hide not interesting” to show it again.', 'Als nicht interessant markiert. Deaktiviere „Nicht interessante ausblenden“, um sie wieder anzuzeigen.')
+    ? text('Marked as low interest. Uncheck “Hide low interest” to show it again.', 'Mit geringem Interesse markiert. Deaktiviere „Geringes Interesse ausblenden“, um die Stelle wieder anzuzeigen.')
     : text('Your review state was saved.', 'Deine Bewertung wurde gespeichert.');
 }
 function openApplication(application: Application, keepOrder = false) {
@@ -492,7 +492,7 @@ useToastWatch(() => notice.value, () => {
         <label>{{ text('Opportunities', 'Stellenangebote') }}<select v-model="deadlineFilter"><option value="current">{{ text('Current opportunities', 'Aktuelle Stellenangebote') }}</option><option value="past">{{ text('Past opportunities', 'Abgelaufene Stellenangebote') }}</option></select></label>
         <label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="sortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option><option value="personal_fit">{{ text('Personal fit: high to low', 'Persönliche Passung: absteigend') }}</option></select></label>
         <DesktopSidebarPortal area="minor" :active="props.active !== false && !showingDetail">
-          <div class="jobs-filter-checks jobs-sidebar-controls"><label class="jobs-check"><input v-model="hideWithApplication" type="checkbox" /> {{ text('Hide applications', 'Stellen mit Bewerbungen ausblenden') }}</label><label class="jobs-check"><input v-model="hideNotInterested" type="checkbox" /> {{ text('Hide not interesting', 'Nicht interessante ausblenden') }}</label></div>
+          <div class="jobs-filter-checks jobs-sidebar-controls"><label class="jobs-check"><input v-model="hideWithApplication" type="checkbox" /> {{ text('Hide applications', 'Stellen mit Bewerbungen ausblenden') }}</label><label class="jobs-check"><input v-model="hideNotInterested" type="checkbox" /> {{ text('Hide low interest', 'Geringes Interesse ausblenden') }}</label></div>
         </DesktopSidebarPortal>
         </template>
         <template v-else><label>{{ text('Status', 'Status') }}<select v-model="statusFilter"><option value="">{{ text('All statuses', 'Alle Status') }}</option><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label><label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="applicationSortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option></select></label>
