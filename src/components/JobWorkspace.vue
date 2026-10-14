@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, reactive, ref, shallowReactive, watch } from 'vue';
 import { faFilter } from '@fortawesome/free-solid-svg-icons';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CvState, SavedConfiguration } from '../types';
@@ -104,6 +104,12 @@ function opportunityLocation(item: Opportunity): string {
 }
 function fitLabel(score: number | undefined) { return score === undefined ? '' : props.lang === 'de' ? String(score).replace('.', ',') : String(score); }
 const reviewState = (id: string): OpportunityReviewState => reviewById.value.get(id)?.state || 'unreviewed';
+// Keep the control responsive while the persistence queue saves in user order.
+// Filters continue to use confirmed state, so a failed save cannot hide a card.
+const pendingReviewSelections = shallowReactive(new Map<string, { state: OpportunityReviewState }>());
+const reviewSelection = (id: string) => pendingReviewSelections.get(id)?.state ?? reviewState(id);
+watch(() => props.userId, () => pendingReviewSelections.clear(), { flush: 'sync' });
+onBeforeUnmount(() => pendingReviewSelections.clear());
 const applicationByOpportunity = computed(() => new Map(applications.value.map((item) => [item.opportunity_id, item])));
 const filteredOpportunities = computed(() => {
   const needle = query.value.toLocaleLowerCase().trim();
@@ -265,9 +271,13 @@ async function closeOpportunity() {
 async function changeReview(item: Opportunity, event: Event) {
   notice.value = '';
   const target = event.target as HTMLSelectElement;
-  const result = await setOpportunityReview(item.id, target.value as OpportunityReviewState);
-  if (!result) target.value = reviewState(item.id);
-  else notice.value = result.state === 'not_interested' && hideNotInterested.value
+  const selection = { state: target.value as OpportunityReviewState };
+  pendingReviewSelections.set(item.id, selection);
+  const result = await setOpportunityReview(item.id, selection.state);
+  // An older response must never replace a newer choice or another account's draft.
+  if (pendingReviewSelections.get(item.id) !== selection) return;
+  pendingReviewSelections.delete(item.id);
+  if (result) notice.value = result.state === 'not_interested' && hideNotInterested.value
     ? text('Marked as not interesting. Uncheck “Hide not interesting” to show it again.', 'Als nicht interessant markiert. Deaktiviere „Nicht interessante ausblenden“, um sie wieder anzuzeigen.')
     : text('Your review state was saved.', 'Deine Bewertung wurde gespeichert.');
 }
@@ -511,7 +521,7 @@ useToastWatch(() => notice.value, () => {
             <td v-if="researchSummary(item)" class="jobs-card-summary jobs-cell-wide"><p>{{ researchSummary(item) }}</p></td>
             <td class="jobs-topics jobs-cell-wide" :data-label="text('Topics', 'Themen')">{{ item.topics.join(' · ') || '—' }}</td>
             <td class="jobs-card-location" :data-label="text('Country', 'Land')" :data-mobile-label="text('Location', 'Ort')"><span class="jobs-card-country">{{ item.country || '—' }}</span><span class="jobs-card-location-text">{{ opportunityLocation(item) }}</span></td><td class="jobs-card-deadline" :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.details, now) }">{{ formatOpportunityDeadline(item.details, lang) }}</span></td>
-            <td class="jobs-cell-state" :data-label="text('Your review', 'Deine Bewertung')" @click.stop><select class="jobs-review-select" :aria-label="`${text('Review state for', 'Bewertung für')} ${item.title}`" :value="reviewState(item.id)" :disabled="saving" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></td>
+            <td class="jobs-cell-state" :data-label="text('Your review', 'Deine Bewertung')" @click.stop><select class="jobs-review-select" :aria-label="`${text('Review state for', 'Bewertung für')} ${item.title}`" :value="reviewSelection(item.id)" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></td>
             <td v-if="reviewById.get(item.id)?.comment?.trim()" class="jobs-cell-wide jobs-card-evaluation" :data-label="text('Personal Evaluation', 'Persönliche Einschätzung')"><p>{{ reviewById.get(item.id)?.comment }}</p></td>
           </tr>
         </template></template></tbody><tbody v-if="!filteredOpportunities.length"><tr><td colspan="5" class="jobs-empty"><p :class="{ 'app-hint': !loading }">{{ loading ? text('Loading opportunities…', 'Stellenangebote werden geladen…') : text('No matching opportunities. Adjust the deadline, application, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewerbungs-, Bewertungs- oder Suchfilter.') }}</p></td></tr></tbody>
@@ -540,7 +550,7 @@ useToastWatch(() => notice.value, () => {
           <ApplicationIdentifier :application="applicationByOpportunity.get(selectedOpportunity.id)!" :lang="lang" />
         </template>
         <template #actions>
-          <label class="jobs-detail-state jobs-sidebar-controls"><span class="jobs-action-label">{{ text('Your review', 'Deine Bewertung') }}</span><select :aria-label="text('Your review', 'Deine Bewertung')" :value="reviewState(selectedOpportunity.id)" :disabled="saving" @change="changeReview(selectedOpportunity, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
+          <label class="jobs-detail-state jobs-sidebar-controls"><span class="jobs-action-label">{{ text('Your review', 'Deine Bewertung') }}</span><select :aria-label="text('Your review', 'Deine Bewertung')" :value="reviewSelection(selectedOpportunity.id)" @change="changeReview(selectedOpportunity, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
           <button class="btn btn--success jobs-detail-action" type="button" :disabled="saving" @click="startApplication(selectedOpportunity)"><span class="jobs-action-desktop">{{ applicationByOpportunity.has(selectedOpportunity.id) ? text('Open application', 'Bewerbung öffnen') : text('Create application', 'Bewerbung anlegen') }}</span><span class="jobs-action-mobile">{{ applicationByOpportunity.has(selectedOpportunity.id) ? text('Open', 'Öffnen') : text('Apply', 'Bewerben') }}</span></button>
         </template>
       </WorkspaceDetailHeader>
@@ -664,6 +674,7 @@ td a { color: var(--ui-accent); overflow-wrap: anywhere; }
 .jobs-topics { min-width: 130px; max-width: 220px; color: var(--ui-muted); }
 .jobs-workspace .jobs-card-evaluation, .jobs-workspace .jobs-card-summary, .jobs-card-location-text { display: none; }
 .jobs-workspace .jobs-review-select, .jobs-workspace .jobs-row-select { width: 100%; min-width: 0; padding: 7px 5px; font-size: 11px; cursor: pointer; }
+.jobs-review-select, .jobs-detail-state select { touch-action: manipulation; }
 .jobs-removal-confirm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; color: #fecaca; }
 .jobs-removal-confirm p { flex: 1; min-width: 240px; margin: 0; }
 .jobs-removal-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 22px; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface); color: var(--ui-text); overflow: auto; box-sizing: border-box; }
@@ -872,7 +883,7 @@ tr.is-expanded { background: var(--ui-active); }
   .jobs-toolbar > .btn, .jobs-workspace :deep(.workspace-detail-header__controls .btn:not(.btn--danger)) { background: var(--ui-control); }
   .jobs-workspace :is(input, select, textarea):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
   .jobs-workspace .jobs-detail-state { flex: 1; }
-  .jobs-workspace .jobs-detail-state select { width: 100%; height: 40px; padding: 6px; }
+  .jobs-workspace .jobs-detail-state select { width: 100%; height: 44px; padding: 6px; }
   .jobs-detail-action { flex-shrink: 0; min-height: 40px; padding: 7px 10px; }
   .jobs-action-label, .jobs-action-desktop { display: none; }
   .jobs-action-mobile { display: inline; }

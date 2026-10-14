@@ -94,6 +94,9 @@ const database: Record<string, Row[]> = {
   ],
 };
 const refinement = createRefinementFixture(database, account);
+// Hold writes explicitly so the interaction check does not depend on network timing.
+let holdReviewWrites = false;
+const reviewWrites: Array<{ name: string; release: (fail?: boolean) => void }> = [];
 
 function from(table: string) {
   if (REFINEMENT_TABLES.includes(table as typeof REFINEMENT_TABLES[number])) return refinement.from(table);
@@ -232,6 +235,11 @@ const client = {
     const builder = {
       abortSignal(value: AbortSignal) { signal = value; return builder; },
       then(resolve: (value: ReturnType<typeof execute>) => unknown, reject?: (reason: unknown) => unknown) {
+        if (holdReviewWrites && (name === 'save_opportunity_comment' || (name === 'review_job_opportunity' && parameters.p_state))) {
+          return new Promise<ReturnType<typeof execute>>(done => reviewWrites.push({ name,
+            release: fail => done(fail ? { error: new Error('Synthetic review save failure') } : execute()),
+          })).then(resolve, reject);
+        }
         return Promise.resolve().then(execute).then(resolve, reject);
       },
     };
@@ -269,6 +277,79 @@ const Fixture = defineComponent({
     const cv = createSampleDocument();
     const fixtureVariants = ref<SavedConfiguration[]>([{ id: 'sample-cv', name: 'Sample research CV', mtime: 1 }]);
     const fixtureStates = new Map<string, CvState>([['sample-cv', cv]]);
+    // /test/browser/job-workspace.html?flow=review-interaction (phone and desktop).
+    onMounted(async () => {
+      if (new URLSearchParams(location.search).get('flow') !== 'review-interaction') return;
+      const assert = (condition: unknown, message: string) => {
+        if (!condition) throw new Error(message);
+      };
+      const settle = async () => { await nextTick(); await new Promise(requestAnimationFrame); };
+      const until = async (check: () => unknown, message: string) => {
+        const deadline = performance.now() + 5000;
+        do { await settle(); } while (!check() && performance.now() < deadline);
+        assert(check(), message);
+      };
+      document.body.dataset.reviewTest = 'running';
+      try {
+        await until(() => document.querySelector('.jobs-row-toggle'), 'Opportunity must load.');
+        document.querySelector<HTMLButtonElement>('.jobs-row-toggle')!.click();
+        await until(() => document.getElementById('opportunity-comment'), 'Opportunity detail must open.');
+        const select = document.querySelector<HTMLSelectElement>('select[aria-label="Your review"]')!;
+        const comment = document.querySelector<HTMLTextAreaElement>('#opportunity-comment')!;
+        holdReviewWrites = true;
+        comment.focus();
+        comment.value = `Responsiveness check ${Date.now()}`;
+        comment.dispatchEvent(new Event('input', { bubbles: true }));
+        await settle();
+        assert(reviewWrites.length === 0, 'Typing must stay local until committed.');
+        // AutosaveTextarea commits on outside pointerdown, before native focus/click.
+        select.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
+        await until(() => reviewWrites.length, 'The outside press must commit the evaluation.');
+        assert(!select.disabled, 'The first press is blocked: evaluation autosave disabled the interest dropdown.');
+        select.focus();
+        assert(document.activeElement === select, 'Interest must accept focus during evaluation autosave.');
+        const choose = async (state: string) => {
+          assert(!select.disabled, 'Interest must stay enabled while earlier writes are pending.');
+          const started = performance.now();
+          select.value = state;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          await settle();
+          assert(select.value === state, 'The selected interest must render immediately.');
+          document.body.dataset.reviewFeedbackMs = String(Math.max(Number(document.body.dataset.reviewFeedbackMs || 0), Math.round(performance.now() - started)));
+        };
+        await choose('interested');
+        await choose('strong_interest');
+        assert(reviewWrites[0].name === 'save_opportunity_comment' && reviewWrites.length === 1, 'Writes must queue behind the evaluation.');
+        reviewWrites.shift()!.release();
+        await until(() => reviewWrites.length, 'First interest save must start.');
+        assert(select.value === 'strong_interest', 'The evaluation response must not reset the latest interest.');
+        reviewWrites.shift()!.release();
+        await until(() => reviewWrites.length, 'Second interest save must start.');
+        assert(select.value === 'strong_interest', 'An older interest response must not reset a newer choice.');
+        reviewWrites.shift()!.release();
+        await settle();
+        assert(select.value === 'strong_interest' && !select.disabled, 'The final selection must persist and stay interactive.');
+        await choose('interested');
+        await until(() => reviewWrites.length, 'The failing write must start.');
+        reviewWrites.shift()!.release(true);
+        await until(() => select.value === 'strong_interest', 'A failed write must restore the last saved interest.');
+        assert(document.querySelector('.app-toast--error'), 'A failed save must be reported.');
+        await choose('interested');
+        await until(() => reviewWrites.length, 'Retry must start.');
+        reviewWrites.shift()!.release();
+        await settle();
+        assert(select.value === 'interested' && !select.disabled, 'Retry must save the selected interest.');
+        draftStatus.value = `PASS: ${desktop.value ? 'Desktop' : 'Mobile'} interest stays responsive during evaluation saves, rapid changes, failures and retries.`;
+        document.body.dataset.reviewTest = 'passed';
+      } catch (cause) {
+        draftStatus.value = `FAIL: ${cause instanceof Error ? cause.message : String(cause)}`;
+        document.body.dataset.reviewTest = 'failed';
+      } finally {
+        holdReviewWrites = false;
+        reviewWrites.splice(0).forEach(write => write.release());
+      }
+      document.body.dataset.reviewTestMessage = draftStatus.value;
+    });
     // Opt-in regression using the real phone layout and controls:
     // /test/browser/job-workspace.html?flow=phone-filters at a viewport <= 760px.
     onMounted(async () => {
