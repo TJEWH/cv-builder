@@ -780,7 +780,7 @@ tr.is-expanded { background: var(--ui-active); }
     overflow-y: hidden;
     scroll-snap-type: x mandatory;
     scroll-padding-inline: 0;
-    overscroll-behavior-x: contain;
+    overscroll-behavior-x: none;
     scrollbar-width: none;
   }
   .jobs-card-track::-webkit-scrollbar { display: none; }

@@ -403,6 +403,9 @@ const Fixture = defineComponent({
             assert(getComputedStyle(row).display !== 'table-row' && getComputedStyle(row).scrollSnapAlign.includes('start'), 'Mobile entries must be cards with start snap points.');
           }
           const cards = [...track.querySelectorAll<HTMLElement>('.jobs-result-row')];
+          const verticalPadding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+          await until(() => Math.abs(track.clientHeight - cards[0].getBoundingClientRect().height - verticalPadding) < 1,
+            'The initial card height must settle before exercising horizontal momentum.');
           const firstInset = cards[0].getBoundingClientRect().left - track.getBoundingClientRect().left;
           // Land beyond each card's start, as momentum does after a swipe. The
           // browser must settle all cards (including the last) at the first inset.
@@ -410,8 +413,15 @@ const Fixture = defineComponent({
             const destinations = direction === 1 ? cards.slice(1) : cards.slice(0, -1).reverse();
             for (const card of destinations) {
               const left = track.scrollLeft + card.getBoundingClientRect().left - track.getBoundingClientRect().left - firstInset;
+              const previousHeight = track.clientHeight;
+              const expectedHeight = card.getBoundingClientRect().height + verticalPadding;
               track.scrollTo({ left: left + direction * 48, behavior: 'smooth' });
-              await until(() => Math.abs(card.getBoundingClientRect().left - track.getBoundingClientRect().left - firstInset) < 1,
+              await until(() => {
+                const aligned = Math.abs(card.getBoundingClientRect().left - track.getBoundingClientRect().left - firstInset) < 1;
+                assert(aligned || track.clientHeight === previousHeight,
+                  `The horizontal scrollport must keep its height throughout momentum and snapping (card ${cards.indexOf(card)}, direction ${direction}, height ${previousHeight} → ${track.clientHeight}, offset ${track.scrollLeft - left}).`);
+                return aligned && Math.abs(track.clientHeight - expectedHeight) < 1;
+              },
                 'Every card must snap to the same horizontal inset in both directions, including the last card.');
             }
           }

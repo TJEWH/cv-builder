@@ -1,6 +1,7 @@
 import { onBeforeUnmount, ref, watchPostEffect, type Ref } from 'vue';
+import { observeJobCardScroll } from './jobCardScroll';
 
-/** Size a mobile list's vertical scroll area to its current card only. */
+/** Size a mobile list to its settled card, without resizing during native momentum. */
 export function useJobCardTrackHeight(root: Ref<HTMLElement | null>, active: () => boolean) {
   const viewport = window.matchMedia('(max-width: 760px)');
   const mobile = ref(viewport.matches);
@@ -14,17 +15,23 @@ export function useJobCardTrackHeight(root: Ref<HTMLElement | null>, active: () 
     let frame = 0;
     const observed = new Set<HTMLElement>();
     const sizedTracks = new Set<HTMLElement>();
+    const scrolling = new Map<HTMLElement, ReturnType<typeof observeJobCardScroll>>();
     const resize = new ResizeObserver(schedule);
 
     function update() {
       frame = 0;
       const cardsToObserve = new Set<HTMLElement>();
-      for (const track of container!.querySelectorAll<HTMLElement>('.jobs-card-track')) {
+      const tracks = new Set(container!.querySelectorAll<HTMLElement>('.jobs-card-track'));
+      for (const [track, observer] of scrolling) {
+        if (!tracks.has(track)) { observer.dispose(); scrolling.delete(track); }
+      }
+      for (const track of tracks) {
+        if (!scrolling.has(track)) scrolling.set(track, observeJobCardScroll(track, schedule));
         const cards = [...track.querySelectorAll<HTMLElement>('.jobs-result-row')];
         cards.forEach(card => cardsToObserve.add(card));
-        if (!cards.length || !track.getClientRects().length) continue;
+        if (!cards.length || !track.getClientRects().length || scrolling.get(track)!.isMoving()) continue;
         const style = getComputedStyle(track);
-        const start = track.getBoundingClientRect().left + (parseFloat(style.scrollPaddingLeft) || 0);
+        const start = track.getBoundingClientRect().left + track.clientLeft + (parseFloat(style.scrollPaddingLeft) || 0);
         const current = cards.reduce((nearest, card, index) =>
           Math.abs(card.getBoundingClientRect().left - start) < Math.abs(cards[nearest].getBoundingClientRect().left - start) ? index : nearest, 0);
         const height = cards[current].getBoundingClientRect().height
@@ -45,13 +52,12 @@ export function useJobCardTrackHeight(root: Ref<HTMLElement | null>, active: () 
     const mutations = new MutationObserver(schedule);
     mutations.observe(container, { childList: true, characterData: true, subtree: true });
     resize.observe(container);
-    container.addEventListener('scroll', schedule, { capture: true, passive: true });
     update();
     onCleanup(() => {
       cancelAnimationFrame(frame);
       resize.disconnect();
       mutations.disconnect();
-      container.removeEventListener('scroll', schedule, true);
+      scrolling.forEach(observer => observer.dispose());
       sizedTracks.forEach(track => track.style.removeProperty('--jobs-card-track-height'));
     });
   });
