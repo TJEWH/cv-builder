@@ -19,7 +19,7 @@ export const LETTER_TEMPLATE_CONTEXT_MAX_LENGTH = 4000;
 export const DEFAULT_REFINEMENT_SYSTEM_PROMPT = "For each motivation-letter refinement iteration, evaluate the latest saved answer to each resolved question against the letter's golden thread: the central narrative connecting my motivation, relevant experience and the opportunity. Include answer details only when they strengthen that narrative and add relevant, concrete value. Omit details that do not fit the golden thread, repeat existing points or add no value; resolving a question does not require including its answer in the letter. If an answer is too vague or unspecific to judge its relevance or value, ask a focused follow-up question that identifies the missing detail and explains why it matters. Keep that uncertain detail out of the letter until clarified. Preserve confirmed facts and my manual corrections, and keep questions in review annotations rather than in the motivation letter.";
 
 export const DEFAULT_LETTER_TEMPLATES: LetterTemplate[] = [{
-  id: 'research', name: 'Research application', revision: 3,
+  id: 'research', name: 'Research application', revision: 4,
   ...DEFAULT_TEMPLATE_GUIDANCE,
   structure: [
     'Build a coherent research narrative around a golden thread: the question or problem I want to understand, the preparation I bring, and the research I could pursue in this position. Each paragraph should develop the preceding idea and give the next paragraph a reason to follow. Adapt the order and emphasis to the available evidence and word limit; use connected prose without section headings or a fixed paragraph count unless the application requires them.',
@@ -28,7 +28,7 @@ export const DEFAULT_LETTER_TEMPLATES: LetterTemplate[] = [{
     'Weave research fit into this progression. Explain the deeper intellectual connection between my interests and the project: what remains unresolved, why I care about understanding it, and why it could sustain my motivation over several years of research. Ground that motivation in my stated interests and confirmed context. Show how the actual project, methods or research environment would help me pursue it; avoid keyword matching, name-dropping and generic praise. If the motivation or connection is unclear, ask a focused question in the review annotations and keep the unconfirmed claim out of the letter.',
     'Conclude by bringing my personal research interests and the position context together into possible research directions. Develop a plausible question or approach from the preceding discussion and explain what my preparation would let me contribute. Present these as directions to explore and refine with the research team, allowing room for learning and changes in focus. Keep them grounded in the supplied interests and opportunity; do not invent project details, promise findings or impose a fixed dissertation plan. Let a brief invitation to discuss those directions follow the substantive conclusion.',
   ].join('\n\n'),
-  tone: 'Thoughtful, precise and personal, with natural transitions and varied sentence lengths. Make motivation credible through concrete questions and reflection on evidence. Avoid stock enthusiasm, inflated claims and repetitive summaries. Use only supplied facts and confirmed answers; distinguish research interests and possible directions from established experience.',
+  tone: 'Write in a professional, thoughtful voice suited to a PhD application, with warmth, intellectual curiosity and quiet confidence. Convey intrinsic motivation through the questions I care about and why I want to keep investigating them. State my contributions and preparation plainly; show confidence through evidence and considered judgment. Be open about what I still need to learn, without self-deprecation, entitlement or claims of exceptional ability. Use direct language, concrete details, varied sentence lengths and natural transitions. Avoid generic AI phrasing, ceremonial enthusiasm, excessive flattery, buzzwords and formulaic contrasts. Do not rely on stock claims such as "I have always been passionate" or "I am the ideal candidate". Use only supplied facts and confirmed answers; do not invent experiences, feelings or motivations. Distinguish research interests and possible directions from established experience.',
   closingInstructions: 'End the substantive argument by connecting my stated research interests with the position in possible research directions, following the structure guidance. Add a brief invitation to discuss those directions if it fits, without repeating the conclusion. Use a professional sign-off in the letter language and sign with {{APPLICANT_NAME}}.',
   exampleText: '',
   researchInterests: '', questionGuidance: DEFAULT_QUESTION_GUIDANCE, refinementSystemPrompt: DEFAULT_REFINEMENT_SYSTEM_PROMPT,
@@ -47,15 +47,18 @@ export const DEFAULT_LETTER_TEMPLATES: LetterTemplate[] = [{
   language: 'en', maxWords: 350, updatedAt: '2026-10-15T00:00:00.000Z',
 }];
 
-// Match the old built-in structure exactly so edited and imported templates keep their guidance.
-const LEGACY_TEMPLATE_GUIDANCE: Record<string, { structure: string; tone: string }> = {
+// Upgrade only exact former defaults in built-in templates, preserving each customized field.
+const LEGACY_TEMPLATE_GUIDANCE: Record<string, { structure: string; tones: string[] }> = {
   research: {
     structure: 'Opening: identify the opportunity and research interest.\nEvidence: connect two relevant experiences from the CV to the requirements.\nResearch fit: explain a specific connection to the project.\nClosing: state the contribution and interest in a discussion.',
-    tone: 'Specific, thoughtful and professional. Use only facts present in the context; do not invent experience.',
+    tones: [
+      'Specific, thoughtful and professional. Use only facts present in the context; do not invent experience.',
+      'Thoughtful, precise and personal, with natural transitions and varied sentence lengths. Make motivation credible through concrete questions and reflection on evidence. Avoid stock enthusiasm, inflated claims and repetitive summaries. Use only supplied facts and confirmed answers; distinguish research interests and possible directions from established experience.',
+    ],
   },
   industry: {
     structure: 'Opening: role and motivation.\nRelevant evidence: two examples of skills and outcomes from the CV.\nContribution: connect experience to the organization and role.\nClosing: concise invitation to discuss.',
-    tone: 'Clear, concise and confident. Avoid generic claims and invented qualifications.',
+    tones: ['Clear, concise and confident. Avoid generic claims and invented qualifications.'],
   },
 };
 
@@ -129,11 +132,14 @@ export function createLetterRepository(storage: StorageAdapter, userId: string) 
     const templates = data.map(readLetterTemplate).map((template) => {
       const legacy = LEGACY_TEMPLATE_GUIDANCE[template.id];
       const current = DEFAULT_LETTER_TEMPLATES.find((item) => item.id === template.id);
-      if (!legacy || !current || template.structure !== legacy.structure) return template;
+      if (!legacy || !current) return template;
+      const upgradeStructure = template.structure === legacy.structure;
+      const upgradeTone = template.tone !== current.tone && legacy.tones.includes(template.tone);
+      if (!upgradeStructure && !upgradeTone) return template;
       upgraded = true;
-      return { ...template, structure: current.structure,
-        tone: template.tone === legacy.tone ? current.tone : template.tone,
-        closingInstructions: template.closingInstructions === DEFAULT_TEMPLATE_GUIDANCE.closingInstructions ? current.closingInstructions : template.closingInstructions,
+      return { ...template, structure: upgradeStructure ? current.structure : template.structure,
+        tone: upgradeTone ? current.tone : template.tone,
+        closingInstructions: upgradeStructure && template.closingInstructions === DEFAULT_TEMPLATE_GUIDANCE.closingInstructions ? current.closingInstructions : template.closingInstructions,
         revision: Math.max(template.revision + 1, current.revision), updatedAt: now() };
     });
     if (upgraded) storage.setItem(templatesKey, JSON.stringify(templates));

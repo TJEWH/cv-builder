@@ -185,6 +185,29 @@ test('built-in upgrades preserve edited guidance and never rewrite custom or imp
   assert.deepEqual(repository.listTemplates().find(item => item.id === imported.id), imported);
 });
 
+test('research tone defaults upgrade independently of structure without changing custom tones or snapshots', () => {
+  const previousTone = 'Thoughtful, precise and personal, with natural transitions and varied sentence lengths. Make motivation credible through concrete questions and reflection on evidence. Avoid stock enthusiasm, inflated claims and repetitive summaries. Use only supplied facts and confirmed answers; distinguish research interests and possible directions from established experience.';
+  for (const tone of [legacyResearchTemplate.tone, previousTone, 'Use my own voice.', template.tone]) {
+    for (const structure of [template.structure, 'My own research narrative.']) {
+      const storage = memory();
+      const repository = createLetterRepository(storage, 'owner');
+      const original = { ...template, revision: 6, tone, structure, closingInstructions: 'My own closing.', updatedAt: '2026-10-14T00:00:00.000Z' };
+      storage.setItem('cv.letters.v1:owner:templates', JSON.stringify([original]));
+      const letter = createApplicationLetter('owner', 'app', original, version);
+      repository.save(letter);
+      const upgraded = repository.listTemplates()[0];
+      if (tone === legacyResearchTemplate.tone || tone === previousTone) {
+        assert.deepEqual(upgraded, { ...original, tone: template.tone, revision: 7, updatedAt: upgraded.updatedAt });
+        assert.notEqual(upgraded.updatedAt, original.updatedAt);
+      } else {
+        assert.deepEqual(upgraded, original);
+      }
+      assert.deepEqual(repository.listTemplates()[0], upgraded, 'tone upgrades must run only once');
+      assert.deepEqual(repository.load('app'), letter, 'assigned letter guidance remains frozen');
+    }
+  }
+});
+
 test('library guidance upgrades preserve existing letter snapshots, context and final revisions', () => {
   const storage = memory();
   const repository = createLetterRepository(storage, 'owner');
