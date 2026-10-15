@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { watch } from 'vue';
 import { cloneCv } from '../src/composables/applicationCv';
 import { letterToEditableText } from '../src/composables/motivationLetters';
 import type { RefinementProposalV2 } from '../src/refinementTypes';
@@ -146,4 +147,22 @@ test('normal export cannot serialize an unaccepted candidate and Attachments exp
   setup.tab = 'review'; await idle(setup); await setup.getCvPdf(); await setup.getLetterPdf();
   assert.deepEqual(renderInputs, [JSON.stringify(cv), letter]); assert.equal(setup.reviewActive, false);
   assert.equal(fixture.props.application.status, 'attachments'); assert.equal(setup.requests[0].application_id, applicationId);
+});
+
+test('attachment exports wait for the stage update to replace comparison sources before starting', async t => {
+  const fixture = mount(t), setup = await prepare(fixture, 'base', { scope: 'letter' });
+  await setup.approve('cv'); await setup.approve('letter');
+  const cv = new Blob(['approved CV']), letter = new Blob(['approved letter']);
+  const premature = async () => { throw new DOMException('The operation was aborted.', 'AbortError'); };
+  setup.preview = { getPdfBlob: premature };
+  setup.letterPreview = { getPdfBlob: premature };
+  // Model Vue publishing the child sources in its pending render flush.
+  const stop = watch(() => setup.tab, () => {
+    setup.preview = { getPdfBlob: async () => cv };
+    setup.letterPreview = { getPdfBlob: async () => letter };
+  }, { flush: 'post' });
+  t.after(stop);
+  setup.tab = 'review';
+  const exports = [setup.getCvPdf(), setup.getLetterPdf()];
+  assert.deepEqual(await Promise.all(exports), [cv, letter]);
 });

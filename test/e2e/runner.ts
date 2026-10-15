@@ -582,6 +582,25 @@ async function previewRevisitFlow() {
   await rendered('letter', 'Updated while the application workspace was hidden.');
 }
 
+async function firstAttachmentsFlow() {
+  await prepare('letter');
+  const row = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Approved working letter for the attachment package.', persist: false });
+  await loadProposal(row);
+  await rendered('letter', 'Approved working letter for the attachment package.');
+  await click('Approve letter');
+  await field('Refinement scope', 'cv');
+  await click('Approve CV');
+  await field('Refinement scope', 'letter');
+  clearToasts();
+  await click('3Attachments');
+  await until(() => {
+    const failure = document.querySelector('.app-toaster [role="alert"]');
+    if (failure) throw new Error(failure.textContent || 'Attachment package failed');
+    assert(!root.querySelector('.application-documents')?.textContent?.includes('Retry preview'), 'The first attachment preview must not require a retry');
+    return root.querySelector('.package-inline-pdf .pdf-canvas-page[data-rendered="true"] canvas') && !button('Download PDF').disabled;
+  }, 'the first attachment preview completes without a retry');
+}
+
 async function cvSelectionFlow() {
   await prepare('cv');
   const row = fixture.cloud.seedProposal(setup.requests[0].id, { persist: false });
@@ -641,6 +660,7 @@ async function cvSelectionFlow() {
 }
 
 const flows = [
+  ['first-attachments', 'First switch from letter refinement → approved attachment PDF without retry', firstAttachmentsFlow],
   ['preview-revisit', 'Unchanged document previews return without rerendering', previewRevisitFlow],
   ['scope-layout', 'Scope dropdown → task controls → scoped preview and editor → preparation settings', scopeLayoutFlow],
   ['scoped-history', 'Scoped history → clear CV → preserve letter → clear letter to template → reload', scopedHistoryFlow],

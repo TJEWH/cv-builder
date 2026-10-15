@@ -288,7 +288,7 @@ test('opening then closing a proposal while an export awaits its DOM source perm
   assert.equal(renders, 0, 'the canceled export never renders the temporary proposal DOM');
 });
 
-for (const change of ['source', 'activation'] as const) test(`${change} changes cancel an in-flight PDF even when the renderer completes after cancellation`, async t => {
+for (const change of ['source', 'identity'] as const) test(`${change} changes cancel an in-flight PDF even when the renderer completes after cancellation`, async t => {
   let finishRender!: (blob: Blob) => void;
   let signal!: AbortSignal;
   const fixture = mountPreview({
@@ -300,8 +300,30 @@ for (const change of ['source', 'activation'] as const) test(`${change} changes 
   await Promise.resolve();
   assert.equal(signal.aborted, false);
   if (change === 'source') { fixture.version.value = 2; fixture.version.value = 1; }
-  else { fixture.active.value = true; fixture.active.value = false; }
+  else { fixture.identity.value = 'proposal'; fixture.identity.value = 'original'; }
   assert.equal(signal.aborted, true, 'the source watcher invalidates exports synchronously');
   finishRender(new Blob(['stale PDF']));
   await assert.rejects(exported, { name: 'AbortError' });
+});
+
+for (const phase of ['source capture', 'PDF rendering'] as const) test(`switching to Attachments during ${phase} preserves the unchanged document export`, async t => {
+  let finishSource!: (element: HTMLElement) => void;
+  let finishRender!: (blob: Blob) => void;
+  let signal!: AbortSignal;
+  const fixture = mountPreview({
+    renderPreview: async () => ({ pages: [] }),
+    renderPdfBlob: (_element, options) => new Promise(resolve => { signal = options.signal!; finishRender = resolve; }),
+  });
+  t.after(fixture.unmount);
+  fixture.active.value = true;
+  const exported = fixture.preview.getPdfBlob(() => new Promise(resolve => { finishSource = resolve; }));
+  if (phase === 'source capture') fixture.active.value = false;
+  finishSource({} as HTMLElement);
+  await Promise.resolve();
+  if (phase === 'PDF rendering') fixture.active.value = false;
+  assert.equal(signal.aborted, false, 'navigation must not cancel the PDF used in the attachment package');
+  const pdf = new Blob(['approved document']);
+  finishRender(pdf);
+  assert.equal(await exported, pdf);
+  assert.equal(fixture.preview.error.value, '');
 });

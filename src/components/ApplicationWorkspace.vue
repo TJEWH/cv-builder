@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faAlignLeft, faCheck, faCopy, faFeatherPointed, faRotate, faRotateLeft } from '@fortawesome/free-solid-svg-icons';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -1320,6 +1320,9 @@ function exportHistory(value: unknown, filename: string) {
 function exportRequest(id: string) { const row = requests.value.find(row => row.id === id); if (row) exportHistory(row.request_json, 'refinement-request-' + id + '.json'); }
 function exportProposal(id: string) { const row = proposals.value.find(row => row.id === id); if (row) exportHistory(row.proposal_json, 'refinement-proposal-' + id + '.json'); }
 async function getCvPdf() {
+  // Finish the stage's source/identity updates before starting a cancellable export.
+  await nextTick();
+  if (disposed) throw new Error('The application is closed.');
   if (showReviewPreview.value) throw new Error('Accept or close the temporary review before exporting.');
   if (!cvApproved.value || !preview.value) throw new Error(text('Approve the CV before export.', 'Den CV vor dem Export freigeben.'));
   const revision = cvRevision.value; const blob = await preview.value.getPdfBlob();
@@ -1327,6 +1330,8 @@ async function getCvPdf() {
   return blob;
 }
 async function getLetterPdf() {
+  await nextTick();
+  if (disposed) throw new Error('The application is closed.');
   if (showLetterComparison.value) throw new Error('Open Attachments to export the approved working letter.');
   if (!letterApproved.value || !letterPreview.value) throw new Error(text('Approve the letter before export.', 'Den Brief vor dem Export freigeben.'));
   const revision = letterRevision.value; const blob = await letterPreview.value.getPdfBlob();

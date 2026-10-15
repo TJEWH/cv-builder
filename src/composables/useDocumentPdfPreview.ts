@@ -54,10 +54,12 @@ export function useDocumentPdfPreview(input: {
     if (sourceChanged) completedPages = null;
     slot.cancel();
     clearTimeout(timer);
-    // Exports may be awaiting the same DOM source. A temporary proposal switch,
-    // even one immediately reverted, invalidates every export already in flight.
-    for (const controller of exports) controller.abort();
-    exports.clear();
+    // Hiding the preview must not cancel the PDF needed by Attachments. Only a
+    // source change (including a temporary proposal switch) invalidates exports.
+    if (sourceChanged) {
+      for (const controller of exports) controller.abort();
+      exports.clear();
+    }
     const nextIdentity = input.identity?.();
     const identityChanged = nextIdentity?.some((value, index) => value !== identity?.[index]) ?? false;
     identity = nextIdentity;
