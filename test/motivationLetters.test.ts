@@ -135,6 +135,69 @@ test('templates have monotonic revisions and importing copies never changes an a
   assert.equal(repository.listTemplates().length, 4);
 });
 
+const legacyResearchTemplate = {
+  ...template, revision: 2, updatedAt: '2026-10-03T00:00:00.000Z',
+  structure: 'Opening: identify the opportunity and research interest.\nEvidence: connect two relevant experiences from the CV to the requirements.\nResearch fit: explain a specific connection to the project.\nClosing: state the contribution and interest in a discussion.',
+  tone: 'Specific, thoughtful and professional. Use only facts present in the context; do not invent experience.',
+  closingInstructions: DEFAULT_TEMPLATE_GUIDANCE.closingInstructions,
+};
+
+test('saved built-in templates upgrade their original guidance once and retain personal settings', () => {
+  const storage = memory();
+  const key = 'cv.letters.v1:owner:templates';
+  const original = { ...legacyResearchTemplate, revision: 8, name: 'My research template', language: 'de', maxWords: 600,
+    researchInterests: 'Reliable measurements.', exampleText: 'My own example.', questionGuidance: 'Ask about my thesis.',
+    refinementSystemPrompt: 'Preserve my manual corrections.' };
+  const industry = { ...DEFAULT_LETTER_TEMPLATES[1], revision: 2,
+    structure: 'Opening: role and motivation.\nRelevant evidence: two examples of skills and outcomes from the CV.\nContribution: connect experience to the organization and role.\nClosing: concise invitation to discuss.' };
+  storage.setItem(key, JSON.stringify([original, industry]));
+  const repository = createLetterRepository(storage, 'owner');
+  repository.setDefaultTemplate(original.id);
+  const upgraded = repository.listTemplates();
+  assert.deepEqual(upgraded[0], { ...original, structure: template.structure, tone: template.tone,
+    closingInstructions: template.closingInstructions, revision: 9, updatedAt: upgraded[0].updatedAt });
+  assert.notEqual(upgraded[0].updatedAt, original.updatedAt);
+  assert.equal(upgraded[1].structure, DEFAULT_LETTER_TEMPLATES[1].structure);
+  assert.equal(upgraded[1].revision, 3);
+  assert.deepEqual(JSON.parse(storage.getItem(key)!), upgraded);
+  const persisted = storage.getItem(key);
+  assert.deepEqual(repository.listTemplates(), upgraded);
+  assert.equal(storage.getItem(key), persisted, 'repeated reads must not change revisions or timestamps');
+  assert.deepEqual(repository.defaultTemplate(), upgraded[0]);
+  const letter = createApplicationLetter('owner', 'new-app', repository.defaultTemplate()!, version);
+  assert.deepEqual(letter.templateSnapshot, upgraded[0]);
+});
+
+test('built-in upgrades preserve edited guidance and never rewrite custom or imported structures', () => {
+  const storage = memory();
+  const repository = createLetterRepository(storage, 'owner');
+  const customGuidance = { ...legacyResearchTemplate, tone: 'Use my own voice.', closingInstructions: 'End with my research question.' };
+  const customStructure = { ...DEFAULT_LETTER_TEMPLATES[1], structure: 'My own narrative structure.' };
+  const customCopy = { ...legacyResearchTemplate, id: 'personal-template' };
+  storage.setItem('cv.letters.v1:owner:templates', JSON.stringify([customGuidance, customStructure, customCopy]));
+  const upgraded = repository.listTemplates();
+  assert.equal(upgraded[0].structure, template.structure);
+  assert.equal(upgraded[0].tone, customGuidance.tone);
+  assert.equal(upgraded[0].closingInstructions, customGuidance.closingInstructions);
+  assert.deepEqual(upgraded.slice(1), [customStructure, customCopy]);
+  const [imported] = repository.importTemplates(JSON.stringify({ format: 'cv-letter-templates', version: 1, templates: [legacyResearchTemplate] }));
+  assert.equal(imported.structure, legacyResearchTemplate.structure);
+  assert.deepEqual(repository.listTemplates().find(item => item.id === imported.id), imported);
+});
+
+test('library guidance upgrades preserve existing letter snapshots, context and final revisions', () => {
+  const storage = memory();
+  const repository = createLetterRepository(storage, 'owner');
+  storage.setItem('cv.letters.v1:owner:templates', JSON.stringify([legacyResearchTemplate]));
+  const original = finalizeLetter(editLetter(createApplicationLetter('owner', 'app', legacyResearchTemplate, version), content), version, contact);
+  repository.save(original);
+  const exported = repository.exportLetter('app');
+  assert.equal(repository.listTemplates()[0].structure, template.structure);
+  assert.deepEqual(repository.load('app'), original);
+  assert.equal(repository.exportLetter('app'), exported);
+  assert.deepEqual(readLetterTemplate(legacyResearchTemplate), legacyResearchTemplate);
+});
+
 test('application template snapshots survive library changes and explicit replacement preserves letter history', () => {
   const repository = createLetterRepository(memory(), 'owner');
   const source = { ...template, exampleText: 'An example of concise research motivation.', researchInterests: 'Interpretable robot learning.', questionGuidance: 'Ask about relevant field experiments.', refinementSystemPrompt: 'Include concrete details only when they support the research narrative.' };
