@@ -93,7 +93,9 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   const reviews = ref<OpportunityReview[]>([]);
   const loading = ref(false);
   const saving = ref(false);
+  const savingReview = ref(false);
   const error = ref('');
+  const opportunityReviewError = ref('');
   const opportunityCommentError = ref('');
   let epoch = 0;
   let loadSequence = 0;
@@ -114,7 +116,8 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
     pendingReviews.clear();
     loadController = null;
     opportunities.value = []; applications.value = []; cvVariants.value = []; reviews.value = [];
-    loading.value = false; saving.value = false; error.value = ''; opportunityCommentError.value = '';
+    loading.value = false; saving.value = false; savingReview.value = false;
+    error.value = ''; opportunityReviewError.value = ''; opportunityCommentError.value = '';
     pendingCreate = null; pendingAssignment = null;
     mutationTail = Promise.resolve();
   }
@@ -174,7 +177,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   }
 
   async function runMutation<T>(action: (account: string, generation: number, signal: AbortSignal) => Promise<T>, saveResult: (value: T) => void,
-    failureMessage = 'Could not save the application. Check your connection and retry.', operationError = error): Promise<T | null> {
+    failureMessage = 'Could not save the application. Check your connection and retry.', operationError = error, isReviewMutation = false): Promise<T | null> {
     const account = toValue(userId);
     if (disposed || !client || !account) return null;
     const generation = epoch;
@@ -189,7 +192,9 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
     controllers.add(controller);
     // An older read must not overwrite the results of a newer write.
     loadSequence++; loadController?.abort(); loading.value = false;
-    saving.value = true; operationError.value = '';
+    // Interest writes retain the shared queue and refresh protection while the
+    // UI can allow navigation and accept an application-start request.
+    saving.value = true; savingReview.value = isReviewMutation; operationError.value = '';
     try {
       const result = await action(account, generation, controller.signal);
       if (!current(account, generation)) return null;
@@ -200,7 +205,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
       return null;
     } finally {
       controllers.delete(controller);
-      if (current(account, generation)) saving.value = false;
+      if (current(account, generation)) { saving.value = false; savingReview.value = false; }
       releaseMutation();
     }
   }
@@ -380,7 +385,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
       if (!opportunityId || !OPPORTUNITY_REVIEW_STATES.includes(state)) throw new Error('Select a valid opportunity review state.');
       return saveOpportunityReview(account, opportunityId, observedVersion, state, signal);
     }, (review) => rememberReview(review),
-    'Could not save the opportunity review. Check your connection and retry.');
+    'Could not save the opportunity review. Check your connection and retry.', opportunityReviewError, true);
   }
 
   function setOpportunityComment(opportunityId: string, comment: string): Promise<OpportunityReview | null> {
@@ -460,5 +465,5 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
 
   watch(() => toValue(userId), () => { reset(); void refresh(); }, { immediate: true, flush: 'sync' });
   onScopeDispose(() => { disposed = true; reset(); });
-  return { opportunities, applications, cvVariants, reviews, loading, saving, error, opportunityCommentError, refresh, createApplication, updateApplication, setApplicationStage, resetApplicationHistory, setApplicationChecklistItem, removeApplication, refreshApplicationContext, setOpportunityReview, setOpportunityComment, markOpportunityReviewed, getApplicationContext };
+  return { opportunities, applications, cvVariants, reviews, loading, saving, savingReview, error, opportunityReviewError, opportunityCommentError, refresh, createApplication, updateApplication, setApplicationStage, resetApplicationHistory, setApplicationChecklistItem, removeApplication, refreshApplicationContext, setOpportunityReview, setOpportunityComment, markOpportunityReviewed, getApplicationContext };
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, reactive, ref, shallowReactive, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, reactive, ref, shallowReactive, shallowRef, watch } from 'vue';
 import { faFilter } from '@fortawesome/free-solid-svg-icons';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CvState, SavedConfiguration } from '../types';
@@ -37,8 +37,11 @@ const props = withDefaults(defineProps<{
 const desktopSidebar = useDesktopSidebar();
 const sidebarActive = computed(() => desktopSidebar.value && props.active !== false);
 const emit = defineEmits<{ navigate: [tab: 'opportunities' | 'applications']; 'save-career-variant': [name: string, state: CvState]; 'edit-variant': [id: string] }>();
-const { opportunities, applications, reviews, loading, saving, error, opportunityCommentError, createApplication,
+const { opportunities, applications, reviews, loading, saving, savingReview, error, opportunityReviewError, opportunityCommentError, createApplication,
   updateApplication, setApplicationStage, setApplicationChecklistItem, resetApplicationHistory, removeApplication, setOpportunityReview, setOpportunityComment, markOpportunityReviewed } = useJobWorkspace(props.client, () => props.userId);
+const blockingSave = computed(() => saving.value && !savingReview.value);
+const startingApplication = shallowRef<{ opportunityId: string } | null>(null);
+watch(() => props.userId, () => { startingApplication.value = null; }, { flush: 'sync' });
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const queries = reactive({ opportunities: '', applications: '' });
 const query = computed({ get: () => queries[props.tab], set: (value: string) => { queries[props.tab] = value; } });
@@ -106,10 +109,17 @@ function fitLabel(score: number | undefined) { return score === undefined ? '' :
 const reviewState = (id: string): OpportunityReviewState => reviewById.value.get(id)?.state || 'unreviewed';
 // Keep the control responsive while the persistence queue saves in user order.
 // Filters continue to use confirmed state, so a failed save cannot hide a card.
-const pendingReviewSelections = shallowReactive(new Map<string, { state: OpportunityReviewState }>());
+const pendingReviewSelections = shallowReactive(new Map<string, { state: OpportunityReviewState; status: 'saving' | 'error' }>());
 const reviewSelection = (id: string) => pendingReviewSelections.get(id)?.state ?? reviewState(id);
-watch(() => props.userId, () => pendingReviewSelections.clear(), { flush: 'sync' });
-onBeforeUnmount(() => pendingReviewSelections.clear());
+const reviewToasts = useToasts();
+const reviewToastIds = new Map<string, number>();
+function clearReviewSelections() {
+  pendingReviewSelections.clear();
+  reviewToastIds.forEach(id => reviewToasts.dismiss(id));
+  reviewToastIds.clear();
+}
+watch(() => props.userId, clearReviewSelections, { flush: 'sync' });
+onBeforeUnmount(clearReviewSelections);
 const applicationByOpportunity = computed(() => new Map(applications.value.map((item) => [item.opportunity_id, item])));
 const filteredOpportunities = computed(() => {
   const needle = query.value.toLocaleLowerCase().trim();
@@ -264,22 +274,44 @@ watch([selectedOpportunity, () => props.tab], ([opportunity, tab]) => {
 }, { immediate: true });
 async function closeOpportunity() {
   const id = selectedOpportunityId.value;
+  commitPendingTextareas();
   if ((commentStatus.value !== 'saved' && !await flushComment()) || selectedOpportunityId.value !== id) return;
   selectedOpportunityId.value = null;
   if (id) focusResult('opportunities', id);
 }
-async function changeReview(item: Opportunity, event: Event) {
+function changeReview(item: Opportunity, event: Event) {
+  return saveReviewSelection(item, (event.target as HTMLSelectElement).value as OpportunityReviewState);
+}
+async function saveReviewSelection(item: Opportunity, state: OpportunityReviewState): Promise<boolean> {
   notice.value = '';
-  const target = event.target as HTMLSelectElement;
-  const selection = { state: target.value as OpportunityReviewState };
+  const owner = props.userId;
+  const selection = { state, status: 'saving' as const };
+  const previousToast = reviewToastIds.get(item.id);
+  if (previousToast) reviewToasts.dismiss(previousToast);
+  reviewToastIds.delete(item.id);
   pendingReviewSelections.set(item.id, selection);
   const result = await setOpportunityReview(item.id, selection.state);
   // An older response must never replace a newer choice or another account's draft.
-  if (pendingReviewSelections.get(item.id) !== selection) return;
+  if (props.userId !== owner || pendingReviewSelections.get(item.id) !== selection) return true;
+  if (!result) {
+    const failed = { state, status: 'error' as const };
+    pendingReviewSelections.set(item.id, failed);
+    const message = opportunityReviewError.value || text('Could not save interest. Please retry.', 'Interesse konnte nicht gespeichert werden. Bitte erneut versuchen.');
+    reviewToastIds.set(item.id, reviewToasts.notify({
+      key: `opportunity-interest:${owner}:${item.id}`, tone: 'error', duration: 0,
+      message: `${item.title}: ${message} ${text('Your choice is kept until you retry.', 'Deine Auswahl bleibt bis zum erneuten Versuch erhalten.')}`,
+      action: { label: text('Retry', 'Erneut versuchen'), run: () => {
+        if (props.userId !== owner || pendingReviewSelections.get(item.id) !== failed) return true;
+        return saveReviewSelection(item, failed.state);
+      } },
+    }));
+    return false;
+  }
   pendingReviewSelections.delete(item.id);
-  if (result) notice.value = result.state === 'not_interested' && hideNotInterested.value
+  notice.value = result.state === 'not_interested' && hideNotInterested.value
     ? text('Marked as low interest. Uncheck “Hide low interest” to show it again.', 'Mit geringem Interesse markiert. Deaktiviere „Geringes Interesse ausblenden“, um die Stelle wieder anzuzeigen.')
     : text('Your review state was saved.', 'Deine Bewertung wurde gespeichert.');
+  return true;
 }
 function openApplication(application: Application, keepOrder = false) {
   listNavigationRequest++;
@@ -350,7 +382,7 @@ function animateSwipedDetail(kind: 'opportunities' | 'applications', direction: 
 }
 
 async function navigateDetail(direction: -1 | 1) {
-  if (detailNavigationPending || saving.value || removingId.value) return;
+  if (detailNavigationPending || blockingSave.value || startingApplication.value || removingId.value) return;
   const kind = props.tab;
   const owner = props.userId;
   const currentId = kind === 'opportunities' ? selectedOpportunityId.value : editingId.value;
@@ -364,6 +396,7 @@ async function navigateDetail(direction: -1 | 1) {
   if (!nextId) return;
   detailNavigationPending = true;
   try {
+    if (kind === 'opportunities') commitPendingTextareas();
     const saved = await (kind === 'opportunities' ? flushComment() : flushApplicationTextareas());
     if (!saved || props.userId !== owner || props.tab !== kind || props.active === false
       || currentId !== (kind === 'opportunities' ? selectedOpportunityId.value : editingId.value)) return;
@@ -378,7 +411,7 @@ async function navigateDetail(direction: -1 | 1) {
   } finally { detailNavigationPending = false; }
 }
 const swipe = createJobSwipe({
-  enabled: () => props.active !== false && showingDetail.value && !saving.value && !removingId.value
+  enabled: () => props.active !== false && showingDetail.value && !blockingSave.value && !startingApplication.value && !removingId.value
     && window.matchMedia('(max-width: 760px)').matches,
   onSwipe: direction => { void navigateDetail(direction); },
 });
@@ -401,15 +434,32 @@ async function toggleApplication(application: Application) {
   editingId.value = null;
 }
 async function startApplication(item: Opportunity) {
+  if (startingApplication.value || blockingSave.value) return;
+  const operation = { opportunityId: item.id };
+  startingApplication.value = operation;
+  const owner = props.userId;
+  const kind = props.tab;
+  const selectedId = selectedOpportunityId.value;
+  const request = listNavigationRequest;
+  const stillCurrent = () => props.userId === owner && props.tab === kind && props.active !== false
+    && selectedOpportunityId.value === selectedId && listNavigationRequest === request;
   notice.value = '';
-  if (selectedOpportunityId.value === item.id && !await flushComment()) return;
-  const existing = applicationByOpportunity.value.get(item.id);
-  const application = existing || await createApplication({ opportunityId: item.id });
-  if (!application) return;
-  emit('navigate', 'applications');
-  await nextTick();
-  openApplication(application);
-  notice.value = existing ? '' : text('Application created with all opportunity context. Assign a career variant in the CV tab when ready.', 'Bewerbung mit allen Stellendaten angelegt. Weise im CV-Tab eine Karrierevariante zu, sobald du bereit bist.');
+  try {
+    commitPendingTextareas();
+    if (selectedId === item.id && !await flushComment()) return;
+    if (!stillCurrent()) return;
+    const existing = applicationByOpportunity.value.get(item.id);
+    const application = existing || await createApplication({ opportunityId: item.id });
+    if (!application || !stillCurrent()) return;
+    emit('navigate', 'applications');
+    await nextTick();
+    // The parent may still be flushing editors before activating Applications.
+    if (props.userId !== owner || props.active === false || listNavigationRequest !== request) return;
+    openApplication(application);
+    notice.value = existing ? '' : text('Application created with all opportunity context. Assign a career variant in the CV tab when ready.', 'Bewerbung mit allen Stellendaten angelegt. Weise im CV-Tab eine Karrierevariante zu, sobald du bereit bist.');
+  } finally {
+    if (startingApplication.value === operation) startingApplication.value = null;
+  }
 }
 async function changeApplicationStatus(item: Application, event: Event) {
   notice.value = '';
@@ -521,7 +571,7 @@ useToastWatch(() => notice.value, () => {
             <td v-if="researchSummary(item)" class="jobs-card-summary jobs-cell-wide"><p>{{ researchSummary(item) }}</p></td>
             <td class="jobs-topics jobs-cell-wide" :data-label="text('Topics', 'Themen')">{{ item.topics.join(' · ') || '—' }}</td>
             <td class="jobs-card-location" :data-label="text('Country', 'Land')" :data-mobile-label="text('Location', 'Ort')"><span class="jobs-card-country">{{ item.country || '—' }}</span><span class="jobs-card-location-text">{{ opportunityLocation(item) }}</span></td><td class="jobs-card-deadline" :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.details, now) }">{{ formatOpportunityDeadline(item.details, lang) }}</span></td>
-            <td class="jobs-cell-state" :data-label="text('Your review', 'Deine Bewertung')" @click.stop><select class="jobs-review-select" :aria-label="`${text('Review state for', 'Bewertung für')} ${item.title}`" :value="reviewSelection(item.id)" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></td>
+            <td class="jobs-cell-state" :data-label="text('Your review', 'Deine Bewertung')" @click.stop><select class="jobs-review-select" :aria-label="`${text('Review state for', 'Bewertung für')} ${item.title}`" :aria-invalid="pendingReviewSelections.get(item.id)?.status === 'error' || undefined" :value="reviewSelection(item.id)" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select><button v-if="pendingReviewSelections.get(item.id)?.status === 'error'" class="btn" type="button" @click="saveReviewSelection(item, reviewSelection(item.id))">{{ text('Retry interest save', 'Interesse erneut speichern') }}</button></td>
             <td v-if="reviewById.get(item.id)?.comment?.trim()" class="jobs-cell-wide jobs-card-evaluation" :data-label="text('Personal Evaluation', 'Persönliche Einschätzung')"><p>{{ reviewById.get(item.id)?.comment }}</p></td>
           </tr>
         </template></template></tbody><tbody v-if="!filteredOpportunities.length"><tr><td colspan="5" class="jobs-empty"><p :class="{ 'app-hint': !loading }">{{ loading ? text('Loading opportunities…', 'Stellenangebote werden geladen…') : text('No matching opportunities. Adjust the deadline, application, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewerbungs-, Bewertungs- oder Suchfilter.') }}</p></td></tr></tbody>
@@ -550,11 +600,18 @@ useToastWatch(() => notice.value, () => {
           <ApplicationIdentifier :application="applicationByOpportunity.get(selectedOpportunity.id)!" :lang="lang" />
         </template>
         <template #actions>
-          <label class="jobs-detail-state jobs-sidebar-controls"><span class="jobs-action-label">{{ text('Your review', 'Deine Bewertung') }}</span><select :aria-label="text('Your review', 'Deine Bewertung')" :value="reviewSelection(selectedOpportunity.id)" @change="changeReview(selectedOpportunity, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
-          <button class="btn btn--success jobs-detail-action" type="button" :disabled="saving" @click="startApplication(selectedOpportunity)"><span class="jobs-action-desktop">{{ applicationByOpportunity.has(selectedOpportunity.id) ? text('Open application', 'Bewerbung öffnen') : text('Create application', 'Bewerbung anlegen') }}</span><span class="jobs-action-mobile">{{ applicationByOpportunity.has(selectedOpportunity.id) ? text('Open', 'Öffnen') : text('Apply', 'Bewerben') }}</span></button>
+          <label class="jobs-detail-state jobs-sidebar-controls"><span class="jobs-action-label">{{ text('Your review', 'Deine Bewertung') }}</span><select :key="selectedOpportunity.id" :aria-label="text('Your review', 'Deine Bewertung')" :aria-invalid="pendingReviewSelections.get(selectedOpportunity.id)?.status === 'error' || undefined" :value="reviewSelection(selectedOpportunity.id)" @change="changeReview(selectedOpportunity, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
+          <button class="btn btn--success jobs-detail-action" type="button" :disabled="blockingSave || !!startingApplication" :aria-busy="!!startingApplication" @click="startApplication(selectedOpportunity)">
+            <span v-if="startingApplication">{{ applicationByOpportunity.has(selectedOpportunity.id) ? text('Opening…', 'Öffnet…') : text('Creating…', 'Wird angelegt…') }}</span>
+            <template v-else><span class="jobs-action-desktop">{{ applicationByOpportunity.has(selectedOpportunity.id) ? text('Open application', 'Bewerbung öffnen') : text('Create application', 'Bewerbung anlegen') }}</span><span class="jobs-action-mobile">{{ applicationByOpportunity.has(selectedOpportunity.id) ? text('Open', 'Öffnen') : text('Apply', 'Bewerben') }}</span></template>
+          </button>
         </template>
       </WorkspaceDetailHeader>
       <div class="opportunity-detail__body">
+        <div v-if="pendingReviewSelections.get(selectedOpportunity.id)?.status === 'error'" class="jobs-form-footer jobs-interest-error" role="status">
+          <span class="jobs-autosave-error">{{ text('Interest not saved. Your choice is kept.', 'Interesse nicht gespeichert. Deine Auswahl bleibt erhalten.') }}</span>
+          <button class="btn" type="button" @click="saveReviewSelection(selectedOpportunity, reviewSelection(selectedOpportunity.id))">{{ text('Retry', 'Erneut versuchen') }}</button>
+        </div>
         <div class="opportunity-comment">
           <label for="opportunity-comment">{{ text('Personal Evaluation', 'Persönliche Einschätzung') }}</label>
           <AutosaveTextarea id="opportunity-comment" v-model="opportunityComment" rows="2" maxlength="5000" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @commit="flushComment" />
@@ -707,6 +764,7 @@ tr.is-expanded { background: var(--ui-active); }
 .application-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .application-notes { grid-column: 1 / -1; }
 .jobs-form-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 12px; min-width: 0; overflow-wrap: anywhere; }
+.jobs-interest-error { justify-content: flex-start; margin-block: 12px; }
 .jobs-autosave { color: var(--ui-muted); font-size: 12px; }
 .jobs-autosave-error { color: #fecaca; }
 .jobs-upload-preview summary { color: #a0e7ca; cursor: pointer; }

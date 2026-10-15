@@ -7,9 +7,10 @@ import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive, ref } from 'vue';
 import type { Component } from 'vue';
-import type { Application, ApplicationStage, Opportunity, OpportunityReview } from '../src/cloudTypes';
+import type { Application, ApplicationStage, Opportunity, OpportunityReview, OpportunityReviewState } from '../src/cloudTypes';
 import { normalizeOpportunity } from '../src/composables/useJobWorkspace';
 import { useToasts, useToastWatch } from '../src/composables/useToasts';
+import { commitPendingTextareas, registerTextareaCommit } from '../src/composables/textareaCommit';
 
 const filename = new URL('../src/components/JobWorkspace.vue', import.meta.url);
 const { descriptor } = parse(readFileSync(filename, 'utf8'));
@@ -21,7 +22,7 @@ const renderer = createRenderer<object, object>({
   parentNode: () => null, nextSibling: () => null,
 });
 
-function mount(t: TestContext, options: { restoredOpportunityId?: string; active?: boolean } = {}) {
+function mount(t: TestContext, options: { restoredOpportunityId?: string; active?: boolean; awaitNavigationFlush?: boolean } = {}) {
   useToasts().clear();
   t.after(() => useToasts().clear());
   const storage = new Map<string, string>();
@@ -53,6 +54,14 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   const commentUpdates: { id: string; comment: string }[] = [];
   const stageUpdates: { id: string; stage: ApplicationStage }[] = [];
   const historyResets: { id: string; notes: string | null }[] = [];
+  const reviewUpdates: { id: string; state: OpportunityReviewState }[] = [];
+  const saving = ref(false);
+  const savingReview = ref(false);
+  const handlers: {
+    create?: () => Promise<Application | null>;
+    review?: (id: string, state: OpportunityReviewState) => Promise<OpportunityReview | null>;
+    comment?: (id: string, comment: string) => Promise<OpportunityReview | null>;
+  } = {};
   let failNotes = false;
   let failComment = false;
   let failHistoryReset = false;
@@ -65,9 +74,16 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   };
   const workspace = {
     opportunities, applications, reviews,
-    loading: ref(false), saving: ref(false), error: ref(''), opportunityCommentError: ref(''), refresh() {},
+    loading: ref(false), saving, savingReview, error: ref(''), opportunityCommentError: ref(''), opportunityReviewError: ref(''), refresh() {},
     markOpportunityReviewed: async (item: Opportunity) => { receipts.push(item); },
-    createApplication: async () => { created++; applications.value.push(application); return application; },
+    createApplication: async () => {
+      created++;
+      const owner = props.userId;
+      const saved = handlers.create ? await handlers.create() : application;
+      if (owner !== props.userId) return null;
+      if (saved) applications.value = [...applications.value.filter(item => item.id !== saved.id), saved];
+      return saved;
+    },
     updateApplication: async (id: string, changes: Partial<Application>) => {
       applicationUpdates.push({ id, changes });
       if (failNotes && 'notes' in changes) { failNotes = false; return null; }
@@ -89,29 +105,48 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
     setApplicationChecklistItem: async () => false,
     setOpportunityComment: async (id: string, comment: string) => {
       commentUpdates.push({ id, comment });
+      if (handlers.comment) return handlers.comment(id, comment);
       if (failComment) { failComment = false; return null; }
       const current = reviews.value.find(item => item.opportunity_id === id);
       const saved: OpportunityReview = { user_id: 'account-one', opportunity_id: id, state: 'unreviewed', reviewed_updated_at: null, created_at: '', updated_at: '', ...current, comment: comment.trim() || null };
       reviews.value = [...reviews.value.filter(item => item.opportunity_id !== id), saved];
       return saved;
     },
-    removeApplication: async (id: string) => { removed.push(id); applications.value = applications.value.filter((item) => item.id !== id); return true; }, setOpportunityReview: async () => null,
+    removeApplication: async (id: string) => { removed.push(id); applications.value = applications.value.filter((item) => item.id !== id); return true; },
+    setOpportunityReview: async (id: string, state: OpportunityReviewState) => {
+      const owner = props.userId;
+      reviewUpdates.push({ id, state });
+      const current = reviews.value.find(item => item.opportunity_id === id);
+      const saved: OpportunityReview | null = handlers.review ? await handlers.review(id, state)
+        : { user_id: owner, opportunity_id: id, reviewed_updated_at: null, created_at: '', updated_at: '', ...current, state };
+      if (owner !== props.userId) return null;
+      if (saved) reviews.value = [...reviews.value.filter(item => item.opportunity_id !== id), saved];
+      return saved;
+    },
     getApplicationContext: async () => null, refreshApplicationContext: async () => null,
   };
   const exports: { default?: Component } = {};
   const requireFromComponent = createRequire(filename);
   new Function('require', 'exports', code)((path: string) => path.endsWith('.vue') ? { default: {} }
     : path === '../composables/useJobWorkspace' ? { useJobWorkspace: () => workspace }
+    : path === '../composables/textareaCommit' ? { commitPendingTextareas }
     : path === '../composables/useToasts' ? { useToasts, useToastWatch } : requireFromComponent(path), exports);
   const component = { ...exports.default, render: () => null };
   const props = reactive({ client: null, userId: 'account-one', tab: 'opportunities' as 'opportunities' | 'applications', lang: 'en', configurations: [], selectedId: '', readVersion: () => null, ...(options.active === undefined ? {} : { active: options.active }) });
   let mounted: unknown;
-  const app = renderer.createApp({ render: () => h(component, { ...props, ref: (value: unknown) => { mounted = value; }, onNavigate: (tab: typeof props.tab) => { props.tab = tab; } }) });
+  const app = renderer.createApp({ render: () => h(component, { ...props, ref: (value: unknown) => { mounted = value; }, onNavigate: async (tab: typeof props.tab) => {
+    if (options.awaitNavigationFlush && !await setup.flushTextareas()) return;
+    props.tab = tab;
+  } }) });
   app.mount({});
   unmount = () => app.unmount();
   const setup = (mounted as { $: { setupState: {
     query: string; statusFilter: string; reviewFilter: string; hideWithApplication: boolean; hideNotInterested: boolean; sortBy: string; applicationSortBy: string; deadlineFilter: 'current' | 'past'; now: Date;
     statusLabel(status: string): string;
+    reviewSelection(id: string): OpportunityReviewState;
+    changeReview(item: Opportunity, event: Event): Promise<void>;
+    pendingReviewSelections: Map<string, { state: OpportunityReviewState; status: 'saving' | 'error' }>;
+    startingApplication: object | null;
     notes: string; notesStatus: string; notesError: string; flushNotes(): Promise<boolean>;
     applicationWorkspace: { flushTextareas(): Promise<boolean> } | null; flushTextareas(): Promise<boolean>;
     opportunityComment: string; commentStatus: string; commentError: string; flushComment(): Promise<boolean>;
@@ -128,8 +163,21 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
     requestDetailRemoval(item: Application): Promise<void>; cancelRemoval(): void; confirmRemoval(item: Application): Promise<void>;
   } } }).$.setupState;
   const componentProps = (mounted as { $props: { active: boolean } }).$props;
-  return { setup, props, componentProps, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, applicationUpdates, commentUpdates, stageUpdates, historyResets, failNextNotesSave: () => { failNotes = true; }, failNextCommentSave: () => { failComment = true; }, failNextHistoryReset: () => { failHistoryReset = true; }, created: () => created };
+  return { setup, props, componentProps, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, applicationUpdates, commentUpdates, stageUpdates, historyResets, reviewUpdates, saving, savingReview, handlers, failNextNotesSave: () => { failNotes = true; }, failNextCommentSave: () => { failComment = true; }, failNextHistoryReset: () => { failHistoryReset = true; }, created: () => created };
 }
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+async function settleUntil(check: () => boolean) {
+  for (let pass = 0; pass < 40 && !check(); pass++) await nextTick();
+  assert.ok(check(), 'the expected asynchronous operation should start');
+}
+
+const reviewEvent = (state: OpportunityReviewState) => ({ target: { value: state } }) as unknown as Event;
 
 function applicationWithHistory(application: Application): Application {
   return { ...application, status: 'contacted', workflow_stage: 'tracking', tracking_started: true, status_history: [
@@ -347,6 +395,163 @@ test('opportunity navigation saves evaluations and retains the current draft whe
   await setup.navigateDetail(-1);
   assert.equal(setup.selectedOpportunity?.id, opportunity.id);
   assert.equal(setup.opportunityComment, 'Ask about access to the robotics lab.');
+});
+
+test('interest can remain pending or failed while navigating away and back without losing the choice', async t => {
+  const f = mount(t);
+  const other = normalizeOpportunity({ id: 'other', title: 'Second research role', deadline: null });
+  f.opportunities.value = [f.opportunity, other];
+  f.setup.sortBy = 'title';
+  f.setup.openOpportunity(f.opportunity.id);
+  const write = deferred<OpportunityReview | null>();
+  f.handlers.review = () => write.promise;
+  f.saving.value = true;
+  f.savingReview.value = true;
+  const selection = f.setup.changeReview(f.opportunity, reviewEvent('strong_interest'));
+  assert.equal(f.setup.reviewSelection(f.opportunity.id), 'strong_interest');
+  await f.setup.navigateDetail(1);
+  assert.equal(f.setup.selectedOpportunity?.id, other.id, 'an interest request must not block the next opportunity');
+  await f.setup.navigateDetail(-1);
+  assert.equal(f.setup.selectedOpportunity?.id, f.opportunity.id);
+  assert.equal(f.setup.reviewSelection(f.opportunity.id), 'strong_interest', 'returning during the request retains the choice');
+  write.resolve(null);
+  await selection;
+  f.saving.value = false;
+  f.savingReview.value = false;
+  assert.equal(f.setup.reviewSelection(f.opportunity.id), 'strong_interest', 'a failed save retains the recoverable choice');
+  assert.equal(f.setup.pendingReviewSelections.get(f.opportunity.id)?.status, 'error');
+  await f.setup.navigateDetail(1);
+  await f.setup.navigateDetail(-1);
+  assert.equal(f.setup.reviewSelection(f.opportunity.id), 'strong_interest');
+  delete f.handlers.review;
+  await f.setup.changeReview(f.opportunity, reviewEvent('strong_interest'));
+  assert.equal(f.reviews.value[0]?.state, 'strong_interest');
+  assert.equal(f.setup.pendingReviewSelections.has(f.opportunity.id), false, 'a confirmed retry clears the pending draft');
+});
+
+test('interest-only saving still publishes and waits for dirty textarea drafts before swiping', async t => {
+  const f = mount(t);
+  const other = normalizeOpportunity({ id: 'other', title: 'Second research role', deadline: null });
+  f.opportunities.value = [f.opportunity, other];
+  f.setup.sortBy = 'title';
+  f.setup.openOpportunity(f.opportunity.id);
+  f.saving.value = true;
+  f.savingReview.value = true;
+  const comment = deferred<OpportunityReview | null>();
+  f.handlers.comment = () => comment.promise;
+  let unpublished = true;
+  const unregister = registerTextareaCommit(() => {
+    if (unpublished) { unpublished = false; f.setup.opportunityComment = 'Still need to confirm lab access.'; }
+  });
+  t.after(unregister);
+  const navigation = f.setup.navigateDetail(1);
+  await settleUntil(() => f.commentUpdates.length === 1);
+  assert.equal(unpublished, false, 'navigation must publish textarea drafts before flushing');
+  assert.equal(f.setup.selectedOpportunity?.id, f.opportunity.id, 'dirty evaluation text must finish saving before navigation');
+  comment.resolve(null);
+  await navigation;
+  assert.equal(f.setup.selectedOpportunity?.id, f.opportunity.id);
+  assert.equal(f.setup.opportunityComment, 'Still need to confirm lab access.');
+  assert.equal(f.setup.commentStatus, 'error');
+});
+
+test('an older interest response or failure cannot replace a newer selection', async t => {
+  const f = mount(t);
+  const first = deferred<OpportunityReview | null>();
+  const second = deferred<OpportunityReview | null>();
+  f.handlers.review = (_id, state) => state === 'interested' ? first.promise : second.promise;
+  const older = f.setup.changeReview(f.opportunity, reviewEvent('interested'));
+  const latest = f.setup.changeReview(f.opportunity, reviewEvent('strong_interest'));
+  first.resolve(null);
+  await older;
+  assert.equal(f.setup.reviewSelection(f.opportunity.id), 'strong_interest');
+  assert.equal(f.setup.pendingReviewSelections.get(f.opportunity.id)?.status, 'saving');
+  second.resolve({ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'strong_interest', reviewed_updated_at: null, created_at: '', updated_at: '' });
+  await latest;
+  assert.equal(f.setup.reviewSelection(f.opportunity.id), 'strong_interest');
+  assert.equal(f.setup.pendingReviewSelections.has(f.opportunity.id), false);
+});
+
+test('a failed interest save from the old account cannot replace the next account’s choice', async t => {
+  const f = mount(t);
+  const oldWrite = deferred<OpportunityReview | null>();
+  f.handlers.review = () => oldWrite.promise;
+  const older = f.setup.changeReview(f.opportunity, reviewEvent('strong_interest'));
+  f.props.userId = 'account-two';
+  await nextTick();
+  assert.equal(f.setup.pendingReviewSelections.size, 0);
+  delete f.handlers.review;
+  await f.setup.changeReview(f.opportunity, reviewEvent('interested'));
+  oldWrite.resolve(null);
+  await older;
+  assert.equal(f.setup.reviewSelection(f.opportunity.id), 'interested');
+  assert.equal(f.setup.pendingReviewSelections.size, 0);
+  assert.equal(f.reviews.value[0]?.user_id, 'account-two');
+});
+
+test('Apply accepts the first tap during interest saving and deduplicates repeated taps', async t => {
+  const f = mount(t);
+  f.setup.openOpportunity(f.opportunity.id);
+  f.saving.value = true;
+  f.savingReview.value = true;
+  const creation = deferred<Application | null>();
+  f.handlers.create = () => creation.promise;
+  const first = f.setup.startApplication(f.opportunity);
+  const duplicate = f.setup.startApplication(f.opportunity);
+  assert.ok(f.setup.startingApplication, 'the accepted tap must be visible synchronously');
+  await settleUntil(() => f.created() === 1);
+  await duplicate;
+  assert.equal(f.created(), 1, 'repeated taps must not queue duplicate creation requests');
+  creation.resolve(f.application);
+  await first;
+  assert.equal(f.props.tab, 'applications');
+  assert.equal(f.setup.editingApplication?.id, f.application.id);
+  assert.equal(f.setup.startingApplication, null);
+});
+
+test('Apply opens the created application when the parent activates its tab after flushing editors', async t => {
+  const f = mount(t, { awaitNavigationFlush: true });
+  f.setup.openOpportunity(f.opportunity.id);
+  const parentFlush = deferred<boolean>();
+  let flushingParentEditors = false;
+  f.setup.applicationWorkspace = { flushTextareas: () => {
+    flushingParentEditors = true;
+    return parentFlush.promise;
+  } };
+  const creation = f.setup.startApplication(f.opportunity);
+  await settleUntil(() => flushingParentEditors);
+  await creation;
+  assert.equal(f.props.tab, 'opportunities', 'the parent must finish its editor flush before switching tabs');
+  assert.equal(f.created(), 1);
+  parentFlush.resolve(true);
+  await settleUntil(() => f.props.tab === 'applications');
+  assert.equal(f.setup.editingApplication?.id, f.application.id, 'asynchronous tab activation must retain the requested application detail');
+  assert.equal(f.setup.showingDetail, true);
+});
+
+test('late Apply completion cannot navigate after the account, tab, item, or list request changes', async t => {
+  for (const change of ['account', 'tab', 'item', 'list'] as const) await t.test(change, async t => {
+    const f = mount(t);
+    const other = normalizeOpportunity({ id: 'other', title: 'Second research role', deadline: null });
+    f.opportunities.value = [f.opportunity, other];
+    f.setup.openOpportunity(f.opportunity.id);
+    const creation = deferred<Application | null>();
+    f.handlers.create = () => creation.promise;
+    const pending = f.setup.startApplication(f.opportunity);
+    await settleUntil(() => f.created() === 1);
+    if (change === 'account') f.props.userId = 'account-two';
+    if (change === 'tab') f.props.tab = 'applications';
+    if (change === 'item') f.setup.openOpportunity(other.id);
+    if (change === 'list') assert.equal(await f.setup.openList('opportunities'), true);
+    await nextTick();
+    creation.resolve(f.application);
+    await pending;
+    assert.equal(f.setup.editingApplication, undefined, 'a late result must not open an unsolicited application detail');
+    assert.equal(f.props.tab, change === 'tab' ? 'applications' : 'opportunities');
+    if (change === 'item') assert.equal(f.setup.selectedOpportunity?.id, other.id);
+    if (change === 'list') assert.equal(f.setup.selectedOpportunity, undefined);
+    assert.equal(f.setup.startingApplication, null);
+  });
 });
 
 test('application evaluations share opportunity drafts and block record navigation on save failure', async t => {

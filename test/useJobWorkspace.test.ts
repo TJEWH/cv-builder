@@ -271,6 +271,80 @@ test('opportunity review RPC updates the current user’s choice without writing
   scope.stop();
 });
 
+test('interest saves identify their activity while preserving application order and refresh protection', async (t) => {
+  const reviewWrite = deferred<Result>();
+  const applicationWrite = deferred<Result>();
+  const { client, queries } = fakeClient(query => {
+    if (query.table === 'review_job_opportunity') return reviewWrite.promise;
+    if (query.table === 'create_job_application') return applicationWrite.promise;
+    return { data: query.table === 'applications' && query.single ? application() : [], error: null };
+  });
+  const scope = effectScope(); t.after(() => scope.stop());
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  const interest = workspace.setOpportunityReview('opportunity-1', 'strong_interest');
+  await settleUntil(() => queries.some(query => query.table === 'review_job_opportunity'));
+  assert.equal(workspace.saving.value, true);
+  assert.equal(workspace.savingReview.value, true);
+  const readsBeforeRefresh = queries.filter(query => query.operation === 'select').length;
+  assert.equal(await workspace.refresh(), false, 'a refresh must not replace an outstanding interest write');
+  assert.equal(queries.filter(query => query.operation === 'select').length, readsBeforeRefresh);
+
+  const creation = workspace.createApplication({ opportunityId: 'opportunity-1' });
+  await Promise.resolve();
+  assert.deepEqual(queries.filter(query => query.operation === 'rpc').map(query => query.table), ['review_job_opportunity']);
+  assert.equal(workspace.savingReview.value, true, 'a queued application does not misidentify the active review write');
+  reviewWrite.resolve({ data: review('opportunity-1', 'strong_interest'), error: null });
+  assert.equal((await interest)?.state, 'strong_interest');
+  await settleUntil(() => queries.some(query => query.table === 'create_job_application'));
+  assert.equal(workspace.saving.value, true);
+  assert.equal(workspace.savingReview.value, false, 'application writes keep their existing blocking behavior');
+  applicationWrite.resolve({ data: 'application-1', error: null });
+  assert.equal((await creation)?.id, 'application-1');
+  assert.equal(workspace.reviews.value[0].state, 'strong_interest');
+  assert.equal(workspace.saving.value, false);
+  assert.equal(workspace.savingReview.value, false);
+});
+
+test('interest activity and queued work cannot cross account changes or disposal', async () => {
+  const oldWrite = deferred<Result>();
+  const newWrite = deferred<Result>();
+  const { client, queries } = fakeClient(query => query.table === 'review_job_opportunity'
+    ? query.payload?.p_opportunity_id === 'old-opportunity' ? oldWrite.promise : newWrite.promise
+    : { data: [], error: null });
+  const scope = effectScope();
+  const account = ref('account-a');
+  const workspace = scope.run(() => useJobWorkspace(client, account))!;
+  await settleUntil(() => !workspace.loading.value);
+  const oldInterest = workspace.setOpportunityReview('old-opportunity', 'strong_interest');
+  await settleUntil(() => queries.some(query => query.table === 'review_job_opportunity'));
+  const queuedCreation = workspace.createApplication({ opportunityId: 'old-opportunity' });
+  assert.equal(workspace.savingReview.value, true);
+  account.value = 'account-b';
+  assert.equal(workspace.savingReview.value, false);
+  assert.equal(workspace.saving.value, false);
+  assert.equal(workspace.opportunityReviewError.value, '');
+  await settleUntil(() => !workspace.loading.value);
+
+  const newInterest = workspace.setOpportunityReview('new-opportunity', 'interested');
+  await settleUntil(() => queries.filter(query => query.table === 'review_job_opportunity').length === 2);
+  oldWrite.resolve({ data: null, error: { message: 'Old account request failed' } });
+  assert.deepEqual(await Promise.all([oldInterest, queuedCreation]), [null, null]);
+  assert.equal(queries.some(query => query.table === 'create_job_application'), false);
+  assert.equal(workspace.saving.value, true, 'the old request must not clear the new account’s active save');
+  assert.equal(workspace.savingReview.value, true);
+  assert.equal(workspace.opportunityReviewError.value, '');
+  assert.deepEqual(workspace.reviews.value, []);
+
+  scope.stop();
+  assert.equal(workspace.saving.value, false);
+  assert.equal(workspace.savingReview.value, false);
+  newWrite.resolve({ data: { ...review('new-opportunity'), user_id: 'account-b' }, error: null });
+  assert.equal(await newInterest, null);
+  assert.deepEqual(workspace.reviews.value, []);
+  assert.equal(workspace.opportunityReviewError.value, '');
+});
+
 test('late strong-interest writes cannot restore a previous user’s choices after an account change', async () => {
   const saving = deferred<Result>();
   const { client } = fakeClient((query) => query.operation === 'rpc' ? saving.promise : { data: [], error: null });
@@ -366,20 +440,37 @@ test('invalid or failed comment saves preserve the saved comment and report a us
   assert.equal(workspace.error.value, '');
 });
 
-test('comment errors stay separate from unrelated workspace failures and clear when the account changes', async (t) => {
+test('review, comment and application failures stay separate and clear on retry or account changes', async (t) => {
+  let failReview = true;
   const { client } = fakeClient(query => query.operation === 'rpc'
-    ? { data: null, error: { message: 'Offline' } } : { data: [], error: null });
+    ? query.table === 'review_job_opportunity' && !failReview ? { data: review(), error: null }
+      : { data: null, error: { message: 'Offline' } } : { data: [], error: null });
   const scope = effectScope(); t.after(() => scope.stop());
   const account = ref<string | null>('account-a');
   const workspace = scope.run(() => useJobWorkspace(client, account))!;
   await settleUntil(() => !workspace.loading.value);
+  assert.equal(await workspace.createApplication({ opportunityId: 'opportunity-1' }), null);
+  assert.match(workspace.error.value, /Could not save the application/);
+  const applicationFailure = workspace.error.value;
   assert.equal(await workspace.setOpportunityReview('opportunity-1', 'strong_interest'), null);
-  assert.match(workspace.error.value, /Could not save the opportunity review/);
-  const reviewFailure = workspace.error.value;
+  assert.match(workspace.opportunityReviewError.value, /Could not save the opportunity review/);
+  assert.equal(workspace.error.value, applicationFailure, 'review errors must not replace unrelated workspace failures');
+  assert.equal(workspace.savingReview.value, false);
+  const reviewFailure = workspace.opportunityReviewError.value;
   assert.equal(await workspace.setOpportunityComment('opportunity-1', 'Private evaluation'), null);
   assert.match(workspace.opportunityCommentError.value, /Could not save the opportunity comment/);
-  assert.equal(workspace.error.value, reviewFailure, 'a comment save must neither replace nor dismiss an unrelated failure');
+  assert.equal(workspace.error.value, applicationFailure, 'a comment save must neither replace nor dismiss an unrelated failure');
+  assert.equal(workspace.opportunityReviewError.value, reviewFailure);
+  const commentFailure = workspace.opportunityCommentError.value;
+  failReview = false;
+  assert.ok(await workspace.setOpportunityReview('opportunity-1', 'interested'));
+  assert.equal(workspace.opportunityReviewError.value, '', 'retry clears its own error');
+  assert.equal(workspace.opportunityCommentError.value, commentFailure);
+  assert.equal(workspace.error.value, applicationFailure);
+  failReview = true;
+  assert.equal(await workspace.setOpportunityReview('opportunity-1', 'strong_interest'), null);
   account.value = 'account-b';
+  assert.equal(workspace.opportunityReviewError.value, '');
   assert.equal(workspace.opportunityCommentError.value, '');
   assert.equal(workspace.error.value, '');
 });

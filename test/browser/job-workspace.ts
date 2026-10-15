@@ -294,7 +294,7 @@ const Fixture = defineComponent({
         await until(() => document.querySelector('.jobs-row-toggle'), 'Opportunity must load.');
         document.querySelector<HTMLButtonElement>('.jobs-row-toggle')!.click();
         await until(() => document.getElementById('opportunity-comment'), 'Opportunity detail must open.');
-        const select = document.querySelector<HTMLSelectElement>('select[aria-label="Your review"]')!;
+        let select = document.querySelector<HTMLSelectElement>('select[aria-label="Your review"]')!;
         const comment = document.querySelector<HTMLTextAreaElement>('#opportunity-comment')!;
         holdReviewWrites = true;
         comment.focus();
@@ -323,6 +323,26 @@ const Fixture = defineComponent({
         reviewWrites.shift()!.release();
         await until(() => reviewWrites.length, 'First interest save must start.');
         assert(select.value === 'strong_interest', 'The evaluation response must not reset the latest interest.');
+        assert(!document.querySelector<HTMLButtonElement>('.jobs-detail-action')!.disabled, 'An interest save must not block Apply.');
+        if (!desktop.value) {
+          const initialTitle = document.querySelector('.opportunity-detail h1')!.textContent;
+          const swipeDetail = async (dx: number) => {
+            const body = document.querySelector<HTMLElement>('.opportunity-detail__body')!;
+            const start = new Touch({ identifier: 1, target: body, clientX: 200, clientY: 180 });
+            const end = new Touch({ identifier: 1, target: body, clientX: 200 + dx, clientY: 180 });
+            body.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [start], changedTouches: [start] }));
+            body.dispatchEvent(new TouchEvent('touchmove', { bubbles: true, cancelable: true, touches: [end], changedTouches: [end] }));
+            body.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], changedTouches: [end] }));
+            await settle();
+            select = document.querySelector<HTMLSelectElement>('select[aria-label="Your review"]')!;
+          };
+          const started = performance.now();
+          await swipeDetail(-100);
+          assert(document.querySelector('.opportunity-detail h1')!.textContent !== initialTitle, 'Swipe must navigate before the interest request completes.');
+          document.body.dataset.reviewSwipeMs = String(Math.round(performance.now() - started));
+          await swipeDetail(100);
+          assert(document.querySelector('.opportunity-detail h1')!.textContent === initialTitle && select.value === 'strong_interest', 'Returning must restore the pending interest for that opportunity.');
+        }
         reviewWrites.shift()!.release();
         await until(() => reviewWrites.length, 'Second interest save must start.');
         assert(select.value === 'strong_interest', 'An older interest response must not reset a newer choice.');
@@ -332,14 +352,28 @@ const Fixture = defineComponent({
         await choose('interested');
         await until(() => reviewWrites.length, 'The failing write must start.');
         reviewWrites.shift()!.release(true);
-        await until(() => select.value === 'strong_interest', 'A failed write must restore the last saved interest.');
-        assert(document.querySelector('.app-toast--error'), 'A failed save must be reported.');
-        await choose('interested');
+        await until(() => document.querySelector('.app-toast--error .app-toast__action'), 'A failed save must offer Retry.');
+        assert(select.value === 'interested', 'A failed write must keep the chosen interest visible.');
+        document.querySelector<HTMLButtonElement>('.app-toast--error .app-toast__close')!.click();
+        await settle();
+        assert(document.querySelector('.jobs-interest-error button'), 'Retry must remain available after dismissing the notification.');
+        document.querySelector<HTMLButtonElement>('.jobs-interest-error button')!.click();
         await until(() => reviewWrites.length, 'Retry must start.');
         reviewWrites.shift()!.release();
         await settle();
         assert(select.value === 'interested' && !select.disabled, 'Retry must save the selected interest.');
-        draftStatus.value = `PASS: ${desktop.value ? 'Desktop' : 'Mobile'} interest stays responsive during evaluation saves, rapid changes, failures and retries.`;
+        await choose('strong_interest');
+        await until(() => reviewWrites.length, 'Interest must still be pending when Apply is pressed.');
+        const apply = document.querySelector<HTMLButtonElement>('.jobs-detail-action')!;
+        assert(!apply.disabled, 'Apply must accept the first press during interest saving.');
+        apply.click(); apply.click();
+        await settle();
+        assert(apply.disabled && apply.textContent?.includes('Creating'), 'Apply must acknowledge the press and prevent duplicate starts.');
+        assert(database.applications.length === 0, 'Creation must remain queued behind the interest save.');
+        reviewWrites.shift()!.release();
+        await until(() => document.querySelector('.application-workspace')?.getClientRects().length, 'Apply must open the application when its queued save finishes.');
+        assert(database.applications.length === 1, 'Repeated presses must create only one application.');
+        draftStatus.value = `PASS: ${desktop.value ? 'Desktop' : 'Mobile'} interest, immediate swipe/Apply, ordered writes, retained failed choices and retry.`;
         document.body.dataset.reviewTest = 'passed';
       } catch (cause) {
         draftStatus.value = `FAIL: ${cause instanceof Error ? cause.message : String(cause)}`;
@@ -783,7 +817,10 @@ const Fixture = defineComponent({
           fixtureVariants.value.push({ id, name, mtime: Date.now() }); return id;
         },
         onEditVariant: (id: string) => { draftStatus.value = `Open ${fixtureVariants.value.find(item => item.id === id)?.name} in CV Studio (fixture).`; },
-        onNavigate: (value: 'opportunities' | 'applications') => { tab.value = value; } }),
+        onNavigate: async (value: 'opportunities' | 'applications') => {
+          if (workspace.value && !await workspace.value.flushTextareas()) return;
+          tab.value = value;
+        } }),
       h('nav', { class: 'fixture-mobile-nav', 'aria-label': 'Fixture workspaces' },
         (['opportunities', 'applications'] as const).map((value) => h('button', { class: 'btn', 'aria-pressed': tab.value === value, onClick: () => openWorkspaceList(value) }, value))),
     ]);
