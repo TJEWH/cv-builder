@@ -91,6 +91,18 @@ test('shortening shows complete before and after text, and omissions have an exp
   assert.equal(content(required(change('change-3'), item => hasClass(item, 'after'))), '(Omitted from this application)');
 });
 
+test('typo corrections show their original spelling, replacement and activation control', async (t) => {
+  const { props, change, toggles } = mount(t);
+  props.changes = [{ ...changes[0], type: 'fix_typos', before: 'Built reserach tools.', after: 'Built research tools.', explanation: 'Correct the spelling of research.' }];
+  await nextTick();
+  const row = change('change-1');
+  assert.equal(content(required(row, item => hasClass(item, 'before'))), 'Built reserach tools.');
+  assert.equal(content(required(row, item => hasClass(item, 'after'))), 'Built research tools.');
+  const checkbox = required(row, item => item.tag === 'input');
+  (checkbox.props.onChange as (event: unknown) => void)({ target: { checked: false } });
+  assert.deepEqual(toggles, [['change-1', false]]);
+});
+
 test('checkbox toggles emit preview selection only and never accept or mutate a change', async (t) => {
   const { props, root, toggles, change, accepted } = mount(t);
   const before = structuredClone({ changes: changes, selected: [...props.selected] });

@@ -46,6 +46,8 @@ local. There is no Storage bucket or cloud application-attachment table. To expo
    only the current status and its original recorded time.
    [`application_tracking_navigation.sql`](application_tracking_navigation.sql) keeps
    Tracking navigation and history resets from automatically assigning Ready.
+   [`refinement_typo_fixes.sql`](refinement_typo_fixes.sql) enables bounded spelling
+   corrections in automatic CV operations; apply it before the matching client.
 4. Provision existing email/password users through Supabase Authentication. The
    app has no signup or recovery flow. For this restricted workspace, keep public
    signup disabled and configure recovery, rate limits and password protection.
@@ -53,6 +55,13 @@ local. There is no Storage bucket or cloud application-attachment table. To expo
    frontend reads shared research and changes only the signed-in owner's records.
 
 ## Schema maintenance
+
+Migration `20261015192133` (`refinement_typo_fixes`) was applied to **phd-workflow**
+on 2026-10-15 (Europe/Tirane). Checks inside the migration verified spelling limits,
+Unicode, protected content, conflicting operations and helper permissions before
+commit. The live structured-refinement suite also verified persistence of a typo
+proposal and rolled back its synthetic records. No stored documents were rewritten;
+security and performance advisors reported no new findings.
 
 Migration `20261013231626` (`refinement_current_request`) was applied to
 **phd-workflow** on 2026-10-14 (Europe/Tirane). Live rollback tests verified exact

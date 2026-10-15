@@ -230,11 +230,44 @@ function validateShortening(next: string, original: string) {
   }
 }
 
+// Bounded spelling edits, including adjacent transpositions. The prompt and review
+// still decide whether a nearby spelling is appropriate; distance cannot prove meaning.
+function closeSpelling(before: string[], after: string[], budget: number, left = 0, right = 0): boolean {
+  while (left < before.length && right < after.length && before[left] === after[right]) { left++; right++; }
+  if (left === before.length || right === after.length) return before.length - left + after.length - right <= budget;
+  if (!budget || Math.abs(before.length - left - after.length + right) > budget) return false;
+  return closeSpelling(before, after, budget - 1, left + 1, right + 1)
+    || closeSpelling(before, after, budget - 1, left + 1, right)
+    || closeSpelling(before, after, budget - 1, left, right + 1)
+    || (before[left] === after[right + 1] && before[left + 1] === after[right]
+      && closeSpelling(before, after, budget - 1, left + 2, right + 2));
+}
+
+function validateTypoFix(next: string, original: string) {
+  if (!bounded(next) || !next.trim() || next === original) throw new Error('A typo correction must change nonempty text.');
+  if (!same(original.match(TOKEN) ?? [], next.match(TOKEN) ?? []) || /\{\{|\}\}/.test(next.replace(TOKEN, '')))
+    throw new Error('Private placeholders must remain intact and in their original order.');
+  if (!same(links(original), links(next))) throw new Error('Typo corrections must preserve links.');
+  const before = original.split(/(\s+)/u); const after = next.split(/(\s+)/u);
+  const word = /^([^\p{L}\p{M}\p{N}]*)([\p{L}\p{M}]+)([^\p{L}\p{M}\p{N}]*)$/u;
+  if (before.length !== after.length) throw new Error('Typo corrections cannot add, remove or reorder words.');
+  for (let index = 0; index < before.length; index++) {
+    if (before[index] === after[index]) continue;
+    const oldWord = before[index].match(word); const newWord = after[index].match(word);
+    if (!oldWord || !newWord || oldWord[1] !== newWord[1] || oldWord[3] !== newWord[3])
+      throw new Error('Typo corrections must preserve whitespace, punctuation, numbers and protected content.');
+    const left = [...oldWord[2]]; const right = [...newWord[2]];
+    if (Math.max(left.length, right.length) > 64 || !closeSpelling(left, right, Math.min(left.length, right.length) < 5 ? 1 : 2))
+      throw new Error('Typo corrections allow only small spelling changes, not wording rewrites.');
+  }
+}
+
 export function validateCvOperations(unknownOperations: unknown, unknownComments: unknown, inputStructure: CvStructure, fields: readonly CvAdjustmentField[]): { operations: CvOperation[]; comments: CvComment[] } {
   const structure = validateCvStructure(inputStructure, fields);
   if (!Array.isArray(unknownOperations) || unknownOperations.length > MAX_ITEMS || !Array.isArray(unknownComments) || unknownComments.length > MAX_ITEMS) throw new Error('Invalid CV operations or comments.');
   const operations: CvOperation[] = []; const comments: CvComment[] = [];
-  const ids = new Set<string>(); const targets = new Set<string>(); const shortenedBullets = new Set<string>(); const omittedBullets = new Set<string>();
+  const ids = new Set<string>(); const targets = new Set<string>(); const editedRanges = new Set<string>();
+  const shortenedBullets = new Set<string>(); const correctedBullets = new Set<string>(); const omittedBullets = new Set<string>();
   for (const value of unknownOperations) {
     if (!record(value) || !id(value.id, 'change') || ids.has(value.id) || !bounded(value.explanation, 1000) || !value.explanation.trim()
       || typeof value.targetId !== 'string' || typeof value.type !== 'string') throw new Error('Invalid or duplicate CV operation.');
@@ -247,14 +280,17 @@ export function validateCvOperations(unknownOperations: unknown, unknownComments
         : value.type === 'reorder_entries' ? structure.sections.find(section => section.id === value.targetId)?.entryIds
           : structure.entries.find(entry => entry.id === value.targetId)?.bulletIds;
       if (!original || !original.length || !references(value.order, original)) throw new Error('Reordering requires a complete permutation of existing eligible items in the same container.');
-    } else if (value.type === 'shorten_text') {
-      if (!exact(value, ['id', 'type', 'targetId', 'explanation', 'text']) || typeof value.text !== 'string') throw new Error('Invalid shortening operation.');
+    } else if (value.type === 'shorten_text' || value.type === 'fix_typos') {
+      if (!exact(value, ['id', 'type', 'targetId', 'explanation', 'text']) || typeof value.text !== 'string') throw new Error('Invalid CV text operation.');
       const range = structure.ranges.find(item => item.id === value.targetId);
-      if (!range) throw new Error('The shortening target is unavailable or supports comments only.');
-      validateShortening(value.text, range.text);
+      if (!range) throw new Error('The text target is unavailable or supports comments only.');
+      if (editedRanges.has(range.id)) throw new Error('Conflicting CV text operations target the same range.');
+      editedRanges.add(range.id);
+      if (value.type === 'shorten_text') validateShortening(value.text, range.text);
+      else validateTypoFix(value.text, range.text);
       if (range.bulletId) {
-        if (/\r|\n/.test(value.text)) throw new Error('A shortened bullet must remain one line.');
-        shortenedBullets.add(range.bulletId);
+        if (/\r|\n/.test(value.text)) throw new Error('An edited bullet must remain one line.');
+        (value.type === 'shorten_text' ? shortenedBullets : correctedBullets).add(range.bulletId);
       }
     } else if (value.type === 'omit_bullet') {
       if (!exact(value, ['id', 'type', 'targetId', 'explanation']) || !structure.bullets.some(bullet => bullet.id === value.targetId)) throw new Error('The bullet omission target is unavailable.');
@@ -263,6 +299,7 @@ export function validateCvOperations(unknownOperations: unknown, unknownComments
     operations.push(clone(value as unknown as CvOperation));
   }
   if ([...shortenedBullets].some(id => omittedBullets.has(id))) throw new Error('A bullet cannot be shortened and omitted in the same proposal.');
+  if ([...correctedBullets].some(id => omittedBullets.has(id))) throw new Error('A bullet cannot have typos corrected and be omitted in the same proposal.');
   for (const value of unknownComments) {
     if (!exact(value, ['id', 'fieldId', 'explanation']) || !id(value.id, 'comment') || ids.has(value.id)
       || !fields.some(field => field.id === value.fieldId) || !bounded(value.explanation, 1000) || !value.explanation.trim()) throw new Error('Invalid or duplicate CV comment.');
@@ -286,7 +323,7 @@ export function applyCvOperations(localCv: LocalCvAdjustmentRequest, structure: 
     if (value === undefined) throw new Error('A private reconstruction token is unavailable.');
     return value;
   });
-  for (const operation of selected) if (operation.type === 'shorten_text') {
+  for (const operation of selected) if (operation.type === 'shorten_text' || operation.type === 'fix_typos') {
     const range = rebuilt.bindings.ranges.find(item => item.id === operation.targetId)!;
     if (range.bulletId === null) setPath(result, range.path, restore(operation.text, range.fieldId));
   }
@@ -294,7 +331,7 @@ export function applyCvOperations(localCv: LocalCvAdjustmentRequest, structure: 
     const entry = structure.entries.find(item => item.id === bound.entryId)!;
     const reorder = selected.find((operation): operation is CvOperation & { order: string[] } => operation.type === 'reorder_bullets' && operation.targetId === entry.id);
     const omissions = new Set(selected.filter(operation => operation.type === 'omit_bullet').map(operation => operation.targetId));
-    const replacements = new Map(selected.filter((operation): operation is CvOperation & { text: string } => operation.type === 'shorten_text')
+    const replacements = new Map(selected.filter((operation): operation is CvOperation & { text: string } => operation.type === 'shorten_text' || operation.type === 'fix_typos')
       .map(operation => [structure.ranges.find(range => range.id === operation.targetId)!.bulletId, operation.text]));
     if (!reorder && !entry.bulletIds.some(id => omissions.has(id) || replacements.has(id))) continue;
     const order = (reorder?.order ?? entry.bulletIds).filter(id => !omissions.has(id));
@@ -325,9 +362,9 @@ export function applyCvOperations(localCv: LocalCvAdjustmentRequest, structure: 
 }
 
 export function describeCvOperation(operation: CvOperation, structure: CvStructure): { target: string; before: string; after: string } {
-  if (operation.type === 'shorten_text') {
+  if (operation.type === 'shorten_text' || operation.type === 'fix_typos') {
     const range = structure.ranges.find(item => item.id === operation.targetId);
-    if (!range) throw new Error('Unknown CV shortening target.');
+    if (!range) throw new Error('Unknown CV text target.');
     return { target: range.label, before: range.text, after: operation.text };
   }
   if (operation.type === 'omit_bullet') {

@@ -35,6 +35,34 @@ test('CV activation changes only the preview and persists across sync and reload
   assert.equal(documents(reopened), before);
 });
 
+test('typo fixes follow the same preview, selection, next-round application and reload flow', async t => {
+  const source = createPrivateRefinementCv(); source.about.text = 'I develop reserach tools.';
+  const fixture = mount(t, source);
+  const setup = await prepare(fixture, 'base', { scope: 'cv' });
+  const request = setup.requests[0];
+  const range = request.request_json.cvStructure.ranges.find(item => item.label === 'Profile')!;
+  const proposal = fixture.cloud.seedProposal(request.id, { persist: false });
+  proposal.proposal_json.cvOperations = [{ id: 'change-1', type: 'fix_typos', targetId: range.id,
+    text: 'I develop research tools.', explanation: 'Correct the spelling of research.' }];
+  fixture.database.application_refinement_proposals.push(proposal);
+  await setup.syncRefinement();
+  assert.equal(setup.error, '');
+  assert.equal(setup.record!.state.about.text, source.about.text);
+  assert.equal(setup.previewCvState!.about.text, 'I develop research tools.');
+  await setup.setCvChangeActive('change-1', false);
+  assert.equal(setup.previewCvState!.about.text, source.about.text);
+  await setup.setCvChangeActive('change-1', true);
+  await setup.copyIterationTask();
+  assert.equal(setup.error, '');
+  assert.equal(setup.record!.state.about.text, source.about.text);
+  fixture.cloud.seedProposal(setup.requests[0].id);
+  await setup.syncRefinement();
+  assert.equal(setup.error, '');
+  assert.equal(setup.record!.state.about.text, 'I develop research tools.');
+  const reopened = fixture.reopen(); await idle(reopened);
+  assert.equal(reopened.record!.state.about.text, 'I develop research tools.');
+});
+
 test('copy freezes active and inactive choices; only the matching next reply applies them', async t => {
   const { fixture, setup, proposal, before } = await cvRound(t);
   const id = setup.selectedChangeIds[0];

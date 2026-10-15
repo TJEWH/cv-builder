@@ -237,6 +237,68 @@ test('shortening is extractive, strictly shorter and limited to published prose 
   assert.deepEqual(validateCvOperations([good], [], structure, local.publicRequest.fields).operations, [good]);
 });
 
+test('typo fixes support small spelling corrections without requiring shorter text', () => {
+  for (const [before, after] of [
+    ['Built reserach tools.', 'Built research tools.'],
+    ['Studied teh results.', 'Studied the results.'],
+    ['Gained experiance.', 'Gained experience.'],
+    ['Ran succesfull experiments.', 'Ran successful experiments.'],
+    ['Used succesfully tested tools.', 'Used successfully tested tools.'],
+    ['Documented Reserach.', 'Documented Research.'],
+    ['Präzise Messugnen.', 'Präzise Messungen.'],
+    ['😀 Studied reserach.\n\tBuilt tools.', '😀 Studied research.\n\tBuilt tools.'],
+  ]) {
+    const state = createTestState({ about: { text: before } });
+    const local = prepareCvAdjustment({ state, variantId: 'template' }); const { structure } = prepareCvStructure(local);
+    const range = structure.ranges.find(item => item.label === 'Profile')!;
+    const fix = operation(1, { type: 'fix_typos', targetId: range.id, text: after });
+    assert.equal(applyCvOperations(local, structure, [fix], state).about.text, after);
+    assert.equal(applyCvOperations(local, structure, [fix], state, []).about.text, before);
+    assert.deepEqual(describeCvOperation(fix, structure), { target: range.label, before, after });
+    assert.equal(state.about.text, before);
+  }
+});
+
+test('typo fixes reject rewrites, factual numbers, changed formatting, links and private placeholders', () => {
+  const state = createTestState({ about: { text: 'Built reserach tools in 2023 with {{private lab}}. See https://example.org/report.' } });
+  const local = prepareCvAdjustment({ state, variantId: 'template' }); const { structure } = prepareCvStructure(local);
+  const range = structure.ranges.find(item => item.label === 'Profile')!;
+  const corrected = range.text.replace('reserach', 'research');
+  const good = operation(1, { type: 'fix_typos', targetId: range.id, text: corrected });
+  assert.equal(applyCvOperations(local, structure, [good], state).about.text, state.about.text.replace('reserach', 'research'));
+  for (const text of [
+    range.text, '', corrected.replace('tools', 'advanced tools'), corrected.replace('tools ', ''),
+    corrected.replace('Built', 'Designed'), corrected.replace('research tools', 'tools research'),
+    corrected.replace('2023', '2024'), corrected.replace(' ', '  '), corrected.replace('tools', 'tools\n'),
+    corrected.replace('tools', '**tools**'), corrected.replace('report.', 'report!'),
+    corrected.replace('https://example.org/report', 'https://example.org/reports'),
+    corrected.replace('{{PRIVATE_1}}', '{{PRIVATE_2}}'), corrected.replace('{{PRIVATE_1}}', 'a laboratory'),
+    corrected.replace('research', 'a'.repeat(65)),
+  ]) assert.throws(() => validateCvOperations([{ ...good, text }], [], structure, local.publicRequest.fields), /typo|spelling|placeholders|links/i, text);
+  const title = local.publicRequest.fields.find(item => item.label.includes('role'));
+  assert.throws(() => validateCvOperations([{ ...good, targetId: title?.id || 'field-999' }], [], structure, local.publicRequest.fields), /unavailable|comments only/);
+});
+
+test('typo fixes compose with reordering and omissions while preserving private text and bullet formatting', () => {
+  const state = createTestState({ experience: { jobs: [{ id: 'job', title: 'Researcher', bullets: '- Built reserach tools with {{private lab}}.  \r\n- Shared results.\r\n- Organized an event.\r\n' }] } });
+  const local = prepareCvAdjustment({ state, variantId: 'template' }); const { structure } = prepareCvStructure(local);
+  const job = structure.entries.find(item => item.label === 'Researcher')!;
+  const range = structure.ranges.find(item => item.bulletId === job.bulletIds[0])!;
+  const fix = operation(1, { type: 'fix_typos', targetId: range.id, text: range.text.replace('reserach', 'research') });
+  const reorder = operation(2, { type: 'reorder_bullets', targetId: job.id, order: [...job.bulletIds].reverse() });
+  const omit = operation(3, { type: 'omit_bullet', targetId: job.bulletIds[2] });
+  const result = applyCvOperations(local, structure, [fix, reorder, omit], state);
+  assert.equal(result.experience.jobs[0].bullets, '- Shared results.\r\n- Built research tools with {{private lab}}.  \r\n');
+  assert.deepEqual(applyCvOperations(local, structure, [omit, reorder, fix], state), result);
+  assert.equal(applyCvOperations(local, structure, [fix, reorder, omit], state, [fix.id]).experience.jobs[0].bullets, state.experience.jobs[0].bullets!.replace('reserach', 'research'));
+  const shorten = operation(4, { type: 'shorten_text', targetId: range.id, text: range.text.replace('reserach ', '') });
+  for (const conflict of [shorten, { ...omit, targetId: job.bulletIds[0] }, { ...fix, id: 'change-4' }]) {
+    for (const operations of [[fix, conflict], [conflict, fix]]) {
+      assert.throws(() => applyCvOperations(local, structure, operations, state, []), /Conflicting|omitted/);
+    }
+  }
+});
+
 test('shortening cannot remove, duplicate, rewrite or reorder private placeholders or links', () => {
   const state = createTestState({ about: { text: 'Worked with {{first secret}} and {{second secret}} on public [research](https://example.org).' } });
   const local = prepareCvAdjustment({ state, variantId: 'template' }); const { structure } = prepareCvStructure(local); const range = structure.ranges[0];

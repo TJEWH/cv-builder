@@ -627,7 +627,7 @@ test('cloud history rejects unsupported formats and foreign records while readin
 test('v2 prompt limits operations to existing references and requires extractive shortening, explanations and verified saving', () => {
   const request = local({ schemaVersion: 2, scope: 'cv' });
   const prompt = buildRefinementPrompt(request.request, 'test-project');
-  for (const phrase of ['protocol v2', 'request_json.cvStructure', 'extractive', 'without adding or paraphrasing', 'unique change-N', 'cvComments', 'omit_bullet', 'existing fieldId', 'nonempty explanation', 'persisted receipt', 'SAME proposal UUID']) assert.ok(prompt.includes(phrase), phrase);
+  for (const phrase of ['protocol v2', 'request_json.cvStructure', 'extractive', 'without adding or paraphrasing', 'unique change-N', 'cvComments', 'omit_bullet', 'fix_typos', 'unambiguous spelling mistakes', 'Do not shorten and correct the same range', 'existing fieldId', 'nonempty explanation', 'persisted receipt', 'SAME proposal UUID']) assert.ok(prompt.includes(phrase), phrase);
   assert.ok(prompt.includes('"cvOperations":[]'));
   assert.equal(prompt.includes('"cvEdits":'), false);
 });

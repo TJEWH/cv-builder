@@ -12,6 +12,7 @@ interface CvOperationBase { id: string; targetId: string; explanation: string }
 export type CvOperation = CvOperationBase & (
   | { type: 'reorder_sections' | 'reorder_entries' | 'reorder_bullets'; order: string[] }
   | { type: 'shorten_text'; text: string }
+  | { type: 'fix_typos'; text: string }
   | { type: 'omit_bullet' }
 );
 export interface CvComment { id: string; fieldId: string; explanation: string }
