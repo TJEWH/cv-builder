@@ -9,7 +9,7 @@ The user authorized deletion of the unused **Test** project (`vhkfrseocgiqxshrbe
 ## Storage and workflow boundaries
 
 **CV Studio** maintains CV variants, letter templates and attachments. Applications have Preparation, Refinement, Attachments and
-Tracking stages. Selecting templates freezes independent working copies. Save an approved application CV as a new reusable variant.
+Tracking stages. Selecting templates freezes independent working copies. Save the displayed CV in Refinement as a new independent variant, including selected proposal changes, before or after approval.
 
 Complete CVs, letters and private reconstruction data stay in LocalStorage. Attachment files, package arrangements and
 archived PDFs use IndexedDB. Cloud records cannot restore private originals on another device. CV, template and file/package backups
@@ -48,6 +48,9 @@ local. There is no Storage bucket or cloud application-attachment table. To expo
    Tracking navigation and history resets from automatically assigning Ready.
    [`refinement_typo_fixes.sql`](refinement_typo_fixes.sql) enables bounded spelling
    corrections in automatic CV operations; apply it before the matching client.
+   [`refinement_title_typos.sql`](refinement_title_typos.sql) adds spelling-only
+   ranges for visible titles and section headings. Apply it after the typo-fix
+   upgrade and before the matching client; existing range shapes remain valid.
 4. Provision existing email/password users through Supabase Authentication. The
    app has no signup or recovery flow. For this restricted workspace, keep public
    signup disabled and configure recovery, rate limits and password protection.
@@ -55,6 +58,13 @@ local. There is no Storage bucket or cloud application-attachment table. To expo
    frontend reads shared research and changes only the signed-in owner's records.
 
 ## Schema maintenance
+
+Migration `20261015204852` (`refinement_title_typos`) was applied to **phd-workflow**
+on 2026-10-15 (Europe/Tirane). Checks inside the transaction verified title spelling
+corrections, shortening rejection, legacy range compatibility and validator
+permissions. The title, spelling and structured-refinement SQL suites passed after
+deployment; synthetic records were rolled back. Security advisors reported no new
+findings.
 
 Migration `20261015192133` (`refinement_typo_fixes`) was applied to **phd-workflow**
 on 2026-10-15 (Europe/Tirane). Checks inside the migration verified spelling limits,

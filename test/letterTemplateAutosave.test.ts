@@ -8,13 +8,14 @@ import { createRenderer, h, nextTick, reactive, type Component } from 'vue';
 import { createLetterRepository, DEFAULT_LETTER_TEMPLATES, DEFAULT_REFINEMENT_SYSTEM_PROMPT } from '../src/composables/motivationLetters';
 import type { LetterFormatting, LetterTemplate } from '../src/letterTypes';
 import { useToasts, useToastWatch } from '../src/composables/useToasts';
+import * as textareaCommit from '../src/composables/textareaCommit';
 
 const filename = new URL('../src/components/LetterTemplates.vue', import.meta.url);
 const compiled = compileScript(parse(readFileSync(filename, 'utf8')).descriptor, { id: 'letter-template-autosave' });
 const code = ts.transpileModule(compiled.content, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const exports: { default?: Component } = {};
 const requireComponent = createRequire(filename);
-new Function('require', 'exports', code)((path: string) => path.endsWith('.vue') ? { default: {} } : path.endsWith('/useToasts') ? { useToasts, useToastWatch } : requireComponent(path), exports);
+new Function('require', 'exports', code)((path: string) => path.endsWith('.vue') ? { default: {} } : path.endsWith('/useToasts') ? { useToasts, useToastWatch } : path.endsWith('/textareaCommit') ? textareaCommit : requireComponent(path), exports);
 const renderer = createRenderer<object, object>({
   createElement: () => ({}), createText: () => ({}), createComment: () => ({}),
   insert() {}, remove() {}, setText() {}, setElementText() {}, patchProp() {}, parentNode: () => null, nextSibling: () => null,
@@ -69,6 +70,68 @@ test('template formatting autosaves, survives selection and resets to general de
   assert.equal(owner.defaultTemplate()?.formatting, undefined);
   editor.select('industry'); editor.select('research');
   assert.equal(editor.form.formatting, undefined);
+});
+
+test('saving another field from an older editor preserves research interests saved in another tab', t => {
+  const { editor, owner } = importFixture(t);
+  const interests = 'Reliable sensing and learning from human demonstrations.';
+  owner.saveTemplate({ ...owner.defaultTemplate()!, researchInterests: interests });
+  assert.equal(editor.form.researchInterests, '', 'the open editor still has the old snapshot');
+
+  editor.form.tone = 'Use concrete examples and direct language.';
+  assert.equal(editor.flushSave(), true);
+  assert.equal(owner.defaultTemplate()?.researchInterests, interests);
+  assert.equal(editor.form.researchInterests, interests);
+  assert.equal(owner.defaultTemplate()?.tone, editor.form.tone);
+
+  editor.select('industry'); editor.select('research');
+  assert.equal(editor.form.researchInterests, interests);
+  editor.form.researchInterests = '';
+  assert.equal(editor.flushSave(), true);
+  assert.equal(owner.defaultTemplate()?.researchInterests, '', 'an explicit clear still saves');
+});
+
+test('selecting a template reads the latest saved research interests', t => {
+  const { editor, owner } = importFixture(t);
+  editor.select('industry');
+  const interests = 'Reproducible robot learning.';
+  owner.saveTemplate({ ...owner.defaultTemplate()!, researchInterests: interests });
+  editor.select('research');
+  assert.equal(editor.form.researchInterests, interests);
+});
+
+test('conflicting research-interest edits keep both the saved version and local draft', t => {
+  const { editor, owner } = importFixture(t);
+  const interests = 'Research interests saved in the other tab.';
+  owner.saveTemplate({ ...owner.defaultTemplate()!, researchInterests: interests });
+  editor.form.researchInterests = 'My pending research interests.';
+  assert.equal(editor.flushSave(), false);
+  assert.equal(editor.saveStatus, 'error');
+  assert.match(editor.error, /another tab/i);
+  assert.equal(owner.defaultTemplate()?.researchInterests, interests);
+  assert.equal(editor.form.researchInterests, 'My pending research interests.');
+  editor.select('industry');
+  assert.equal(editor.selectedId, 'research', 'a conflict must keep the draft open');
+});
+
+test('a lazy research-interest draft is published before merging another field and switching templates', t => {
+  const { editor, owner } = importFixture(t);
+  owner.saveTemplate({ ...owner.defaultTemplate()!, tone: 'Tone saved in another tab.' });
+  let pending = true;
+  const unregister = textareaCommit.registerTextareaCommit(() => {
+    if (!pending) return;
+    pending = false;
+    editor.form.researchInterests = 'My research interests before navigating.';
+    editor.flushSave();
+  });
+  try {
+    editor.form.name = 'My research template';
+    editor.select('industry');
+    assert.equal(owner.defaultTemplate()?.researchInterests, 'My research interests before navigating.');
+    assert.equal(owner.defaultTemplate()?.tone, 'Tone saved in another tab.');
+    assert.equal(owner.defaultTemplate()?.name, 'My research template');
+    assert.equal(editor.selectedId, 'industry');
+  } finally { unregister(); }
 });
 
 test('refinement prompts default in the editor and retain custom or cleared values across autosave and selection', t => {

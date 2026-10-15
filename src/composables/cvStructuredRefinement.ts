@@ -65,7 +65,7 @@ function parseFlatBullets(value: string): ParsedBullets | null {
 }
 
 /** Verify private maps and derive capabilities only from the exact local source. */
-export function prepareCvStructure(localCv: LocalCvAdjustmentRequest): { structure: CvStructure; bindings: CvStructureBindings } {
+export function prepareCvStructure(localCv: LocalCvAdjustmentRequest, options: { titleTypos?: boolean } = {}): { structure: CvStructure; bindings: CvStructureBindings } {
   const rebuilt = validateLocalCvAdjustment(localCv);
   const state = rebuilt.baselineState;
   const fields = new Map(rebuilt.publicRequest.fields.map(field => [field.id, field]));
@@ -76,16 +76,17 @@ export function prepareCvStructure(localCv: LocalCvAdjustmentRequest): { structu
   const unsupported = new Map<string, string>();
   const excluded = new Set([...state.disabled, ...state.anonymization.excludedSections]);
   const excludedItems = new Set(state.anonymization.excludedItems);
+  const titlePaths: (string | number)[][] = [['contact', 'role']];
   const visible = (item: CvItem) => !item.hidden && !excludedItems.has(item.id);
   function field(path: (string | number)[]) { return fieldsByPath.get(pathKey(path)); }
   function label(path: (string | number)[], fallback: string) { return truncateLabel(field(path)?.text.trim() ?? '') || fallback; }
-  function prose(path: (string | number)[], rangeLabel: string) {
+  function prose(path: (string | number)[], rangeLabel: string, typoOnly = false) {
     const value = field(path);
     if (!value || !value.text.trim()) return;
     if (getFieldPrivacyOverride(state, path) !== undefined) { unsupported.set(value.id, 'Privacy replacement fields support comments only. Edit their replacement in CV Studio Privacy.'); return; }
     if (!plainProse(value.text) || structure.ranges.length >= MAX_ITEMS) { unsupported.set(value.id, 'Complex or oversized prose supports comments only.'); return; }
     const id = `range-${structure.ranges.length + 1}`;
-    structure.ranges.push({ id, fieldId: value.id, bulletId: null, text: value.text, label: truncateLabel(rangeLabel) });
+    structure.ranges.push({ id, fieldId: value.id, bulletId: null, text: value.text, label: truncateLabel(rangeLabel), ...(typoOnly ? { typoOnly: true as const } : {}) });
     bindings.ranges.push({ id, fieldId: value.id, path, bulletId: null });
   }
   function bullets(path: (string | number)[], entry: CvStructure['entries'][number]) {
@@ -109,13 +110,14 @@ export function prepareCvStructure(localCv: LocalCvAdjustmentRequest): { structu
     }
     bindings.bulletFields.push(bound);
   }
-  function entries(values: CvItem[], path: (string | number)[], section: CvStructure['sections'][number], allowDescription: boolean, allowBullets: boolean) {
+  function entries(values: CvItem[], path: (string | number)[], section: CvStructure['sections'][number], allowDescription: boolean, allowBullets: boolean, allowTitle: boolean) {
     values.forEach((item, index) => {
       if (!visible(item)) return;
       const entryPath = [...path, index];
       const entry: CvStructure['entries'][number] = { id: `entry-${structure.entries.length + 1}`, sectionId: section.id,
         label: label([...entryPath, 'title'], label([...entryPath, 'name'], `${section.label}: entry ${section.entryIds.length + 1}`)), bulletIds: [] };
       structure.entries.push(entry); section.entryIds.push(entry.id); bindings.entries.push({ id: entry.id, path: entryPath });
+      if (allowTitle) titlePaths.push([...entryPath, 'title']);
       if (allowBullets) bullets([...entryPath, 'bullets'], entry);
       if (allowDescription) prose([...entryPath, 'desc'], `${entry.label}: description`);
     });
@@ -128,15 +130,15 @@ export function prepareCvStructure(localCv: LocalCvAdjustmentRequest): { structu
       unique.add(sourceId);
       if (excluded.has(sourceId)) continue;
       const custom = area.id === 'body' ? state.customSections.findIndex(item => item.id === sourceId) : state.sidebarSections.findIndex(item => item.id === sourceId);
-      let path: (string | number)[] | null = null; let values: CvItem[] | null = null; let sectionLabel = ''; let textPath: (string | number)[] | null = null; let allowDescription = false; let allowBullets = false;
+      let path: (string | number)[] | null = null; let values: CvItem[] | null = null; let sectionLabel = ''; let textPath: (string | number)[] | null = null; let allowDescription = false; let allowBullets = false; let allowTitle = false;
       if (area.id === 'body') {
         if (sourceId === 'about') { textPath = ['about', 'text']; sectionLabel = 'Profile'; }
-        else if (sourceId === 'education') { path = ['education']; values = state.education; sectionLabel = 'Education'; }
-        else if (sourceId === 'jobs') { path = ['experience', 'jobs']; values = state.experience.jobs; sectionLabel = 'Experience'; allowBullets = true; }
+        else if (sourceId === 'education') { path = ['education']; values = state.education; sectionLabel = 'Education'; allowTitle = true; }
+        else if (sourceId === 'jobs') { path = ['experience', 'jobs']; values = state.experience.jobs; sectionLabel = 'Experience'; allowBullets = true; allowTitle = true; }
         else if (custom >= 0) {
           const item = state.customSections[custom]; sectionLabel = label(['customSections', custom, 'name'], 'Additional section');
           if (item.entryMode === 'textarea') textPath = ['customSections', custom, 'text'];
-          else { path = ['customSections', custom, 'entries']; values = item.entries; allowDescription = item.fields?.includes('desc') ?? true; }
+          else { path = ['customSections', custom, 'entries']; values = item.entries; allowDescription = item.fields?.includes('desc') ?? true; allowTitle = item.fields?.includes('title') ?? true; }
         }
       } else {
         if (sourceId === 'languages') { path = ['languages']; values = state.languages; sectionLabel = 'Languages'; }
@@ -148,9 +150,17 @@ export function prepareCvStructure(localCv: LocalCvAdjustmentRequest): { structu
       const section: CvStructure['sections'][number] = { id: `section-${structure.sections.length + 1}`, label: sectionLabel, area: area.id, entryIds: [] };
       structure.sections.push(section); area.sectionIds.push(section.id);
       bindings.sections.push({ id: section.id, sourceId, area: area.id, entriesPath: path });
-      if (values && path) entries(values, path, section, allowDescription, allowBullets);
+      if (state.sectionHeaderSizes[sourceId] !== 'null') titlePaths.push(custom >= 0
+        ? [area.id === 'body' ? 'customSections' : 'sidebarSections', custom, 'name'] : ['sectionNames', sourceId]);
+      if (values && path) entries(values, path, section, allowDescription, allowBullets, allowTitle);
       if (textPath) prose(textPath, section.label);
     }
+  }
+  // Publish eligible titles, without detecting or correcting their spelling here.
+  // Append them so existing prose IDs stay stable; legacy snapshots omit them.
+  if (options.titleTypos !== false) for (const path of titlePaths) {
+    const value = field(path);
+    if (value && plainProse(value.text) && getFieldPrivacyOverride(state, path) === undefined && structure.ranges.length < MAX_ITEMS) prose(path, value.label, true);
   }
   const supported = new Set(structure.ranges.map(range => range.fieldId));
   for (const value of rebuilt.publicRequest.fields) if (!supported.has(value.id)) unsupported.set(value.id, unsupported.get(value.id) ?? 'This field supports comments only; names, titles, dates and other facts are not editable operations.');
@@ -196,7 +206,9 @@ export function validateCvStructure(value: unknown, inputFields: readonly CvAdju
   }
   const rangeTargets = new Set<string>();
   for (const range of structure.ranges) {
-    if (!exact(range, ['id', 'fieldId', 'bulletId', 'text', 'label']) || !fields.has(range.fieldId) || !bounded(range.text) || !range.text.trim()
+    if (!exact(range, ['id', 'fieldId', 'bulletId', 'text', 'label', ...(Object.hasOwn(range, 'typoOnly') ? ['typoOnly'] : [])])
+      || (Object.hasOwn(range, 'typoOnly') && (range.typoOnly !== true || range.bulletId !== null))
+      || !fields.has(range.fieldId) || !bounded(range.text) || !range.text.trim()
       || !bounded(range.label, 200) || !range.label.trim() || !(range.bulletId === null || id(range.bulletId, 'bullet'))) return fail();
     const target = range.bulletId ?? range.fieldId;
     if (rangeTargets.has(target)) return fail(); rangeTargets.add(target);
@@ -286,7 +298,10 @@ export function validateCvOperations(unknownOperations: unknown, unknownComments
       if (!range) throw new Error('The text target is unavailable or supports comments only.');
       if (editedRanges.has(range.id)) throw new Error('Conflicting CV text operations target the same range.');
       editedRanges.add(range.id);
-      if (value.type === 'shorten_text') validateShortening(value.text, range.text);
+      if (value.type === 'shorten_text') {
+        if (range.typoOnly) throw new Error('Titles allow only single-word typo corrections, not shortening.');
+        validateShortening(value.text, range.text);
+      }
       else validateTypoFix(value.text, range.text);
       if (range.bulletId) {
         if (/\r|\n/.test(value.text)) throw new Error('An edited bullet must remain one line.');
@@ -311,7 +326,7 @@ export function validateCvOperations(unknownOperations: unknown, unknownComments
 /** Apply wording first and then structural permutations, making checkbox selection independent of proposal order. */
 export function applyCvOperations(localCv: LocalCvAdjustmentRequest, structure: CvStructure, operations: readonly CvOperation[], currentState: CvState, selectedIds?: readonly string[]): CvState {
   const result = reconstructCvAdjustment(localCv, { schemaVersion: 1, requestId: localCv.publicRequest.requestId, edits: [] }, currentState).state;
-  const rebuilt = prepareCvStructure(localCv);
+  const rebuilt = prepareCvStructure(localCv, { titleTypos: structure.ranges.some(range => range.typoOnly === true) });
   if (!same(structure, rebuilt.structure)) throw new Error('The CV structure does not match the original local snapshot. Prepare a new request.');
   const checked = validateCvOperations(operations, [], structure, localCv.publicRequest.fields).operations;
   if (selectedIds && (new Set(selectedIds).size !== selectedIds.length || selectedIds.some(id => !checked.some(operation => operation.id === id)))) throw new Error('Selected CV operations contain unknown or duplicate identifiers.');

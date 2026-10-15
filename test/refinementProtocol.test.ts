@@ -190,6 +190,29 @@ test('trace rejects tool rediscovery after a terminal security or permission den
   }
 });
 
+test('read and save safety denials stop the workflow without SQL retry or tool rediscovery', () => {
+  const fixture = createCase('feedback');
+  assert.match(fixture.task, /A permission, security or approval denial must stop the workflow immediately/);
+  assert.match(fixture.task, /Only after a transport timeout or connection loss without a security, permission or approval denial, retry once/);
+  for (const deniedStage of [0, 1]) {
+    const trace = goodTrace(fixture);
+    const message = 'OpenAI safety checks blocked this tool call. Connection closed.';
+    trace.calls[deniedStage].error = { message };
+    trace.calls[deniedStage].result = null;
+    trace.calls.splice(deniedStage + 1);
+    trace.final = 'Stopped after OpenAI safety checks blocked the tool call. No proposal was saved.';
+    const stopped = verifyTrace(fixture, trace, 'codex_apps');
+    assert.equal(stopped.passed, false, 'a blocked call must never count as a successful saved proposal');
+    assert.ok(stopped.issues.some(issue => issue.includes(message)));
+    assert.ok(!stopped.issues.includes('Tool call after the workflow should have stopped.'));
+    const retry = { ...trace.calls[deniedStage], id: 'retry-after-safety-denial' };
+    trace.calls.push(retry);
+    assert.ok(verifyTrace(fixture, trace, 'codex_apps').issues.includes('Tool call after the workflow should have stopped.'));
+    trace.calls[deniedStage + 1] = { id: 'rediscover-after-safety-denial', server: 'codex_apps', tool: 'search', arguments: { query: REFINEMENT_SQL_DISCOVERY_QUERIES[0] } };
+    assert.ok(verifyTrace(fixture, trace, 'codex_apps').issues.includes('Tool call after the workflow should have stopped.'));
+  }
+});
+
 test('one uncertain save can retry only the same UUID and identical payload', () => {
   const fixture = createCase('cv'); const trace = goodTrace(fixture);
   const uncertain = { ...trace.calls[1], id: 'save-uncertain', result: null, error: { message: 'Connection closed before receipt.' } };

@@ -4,7 +4,7 @@ export interface CvStructure {
   sections: { id: string; label: string; area: 'body' | 'sidebar'; entryIds: string[] }[];
   entries: { id: string; sectionId: string; label: string; bulletIds: string[] }[];
   bullets: { id: string; entryId: string; fieldId: string; text: string }[];
-  ranges: { id: string; fieldId: string; bulletId: string | null; text: string; label: string }[];
+  ranges: { id: string; fieldId: string; bulletId: string | null; text: string; label: string; typoOnly?: true }[];
   unsupported: { fieldId: string; reason: string }[];
 }
 

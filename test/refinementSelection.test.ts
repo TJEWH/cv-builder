@@ -36,19 +36,22 @@ test('CV activation changes only the preview and persists across sync and reload
 });
 
 test('typo fixes follow the same preview, selection, next-round application and reload flow', async t => {
-  const source = createPrivateRefinementCv(); source.about.text = 'I develop reserach tools.';
+  const source = createPrivateRefinementCv(); source.about.text = 'I develop reserach tools.'; source.experience.jobs[0].title = 'Reserach assistant';
   const fixture = mount(t, source);
   const setup = await prepare(fixture, 'base', { scope: 'cv' });
   const request = setup.requests[0];
   const range = request.request_json.cvStructure.ranges.find(item => item.label === 'Profile')!;
+  const title = request.request_json.cvStructure.ranges.find(item => item.text === 'Reserach assistant' && item.typoOnly)!;
   const proposal = fixture.cloud.seedProposal(request.id, { persist: false });
   proposal.proposal_json.cvOperations = [{ id: 'change-1', type: 'fix_typos', targetId: range.id,
-    text: 'I develop research tools.', explanation: 'Correct the spelling of research.' }];
+    text: 'I develop research tools.', explanation: 'Correct the spelling of research.' },
+  { id: 'change-2', type: 'fix_typos', targetId: title.id, text: 'Research assistant', explanation: 'Correct the spelling in the job title.' }];
   fixture.database.application_refinement_proposals.push(proposal);
   await setup.syncRefinement();
   assert.equal(setup.error, '');
   assert.equal(setup.record!.state.about.text, source.about.text);
   assert.equal(setup.previewCvState!.about.text, 'I develop research tools.');
+  assert.equal(setup.previewCvState!.experience.jobs[0].title, 'Research assistant');
   await setup.setCvChangeActive('change-1', false);
   assert.equal(setup.previewCvState!.about.text, source.about.text);
   await setup.setCvChangeActive('change-1', true);
@@ -61,6 +64,7 @@ test('typo fixes follow the same preview, selection, next-round application and 
   assert.equal(setup.record!.state.about.text, 'I develop research tools.');
   const reopened = fixture.reopen(); await idle(reopened);
   assert.equal(reopened.record!.state.about.text, 'I develop research tools.');
+  assert.equal(reopened.record!.state.experience.jobs[0].title, 'Research assistant');
 });
 
 test('copy freezes active and inactive choices; only the matching next reply applies them', async t => {

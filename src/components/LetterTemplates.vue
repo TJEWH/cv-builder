@@ -33,6 +33,7 @@ let importGeneration = 0;
 let disposed = false;
 let replacingForm = false;
 let dirty = false;
+let savedForm: LetterTemplate | null = null;
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const { notify } = useToasts();
 useToastWatch(() => message.value, { tone: 'success' });
@@ -44,6 +45,8 @@ const applicantNamePlaceholder = '{{APPLICANT_NAME}}';
 const repository = () => createLetterRepository(localStorage, editingOwner);
 function select(id: string) {
   if (!flushSave()) return;
+  try { templates.value = repository().listTemplates(); }
+  catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); return; }
   selectedId.value = id;
   const selected = templates.value.find((item) => item.id === id);
   replaceForm(selected ? JSON.parse(JSON.stringify(selected)) : null);
@@ -64,7 +67,8 @@ function reload() {
   }
   catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); }
 }
-function replaceForm(value: LetterTemplate | null) {
+function replaceForm(value: LetterTemplate | null, baseline = value) {
+  savedForm = baseline ? JSON.parse(JSON.stringify(baseline)) : null;
   replacingForm = true; form.value = value; validationError.value = ''; replacingForm = false;
 }
 function updateFormatting(value: LetterFormatting | undefined) {
@@ -79,7 +83,7 @@ function revealInvalidSection(event: Event) {
 }
 function create() {
   if (!flushSave()) return;
-  replaceForm({ ...DEFAULT_LETTER_TEMPLATES[0]!, id: crypto.randomUUID(), name: text('New letter template', 'Neue Briefvorlage'), revision: 1 });
+  replaceForm({ ...DEFAULT_LETTER_TEMPLATES[0]!, id: crypto.randomUUID(), name: text('New letter template', 'Neue Briefvorlage'), revision: 1 }, null);
   selectedId.value = ''; message.value = ''; dirty = true;
   save();
 }
@@ -103,12 +107,10 @@ function save(): boolean {
   validationError.value = '';
   try {
     error.value = '';
-    const saved = repository().saveTemplate(form.value);
+    const saved = repository().saveTemplate(form.value, savedForm);
     dirty = false;
     selectedId.value = saved.id;
-    replacingForm = true;
-    form.value.revision = saved.revision; form.value.updatedAt = saved.updatedAt;
-    replacingForm = false;
+    replaceForm(saved);
     templates.value = repository().listTemplates();
     defaultId.value = repository().defaultTemplate()?.id || '';
     saveStatus.value = 'saved';
@@ -121,8 +123,7 @@ function save(): boolean {
     return false;
   }
 }
-const saveLater = debounce(save, 250);
-function flushSave() { commitPendingTextareas(); saveLater.cancel(); return save(); }
+function flushSave() { commitPendingTextareas(); return save(); }
 watch(form, () => {
   if (replacingForm) return;
   announceSaved.cancel();
@@ -206,7 +207,7 @@ async function importLibrary(event: Event) {
       </DesktopSidebarPortal>
       <form v-if="form" class="template-form" @submit.prevent="flushSave" @focusout="flushSave" @invalid.capture="revealInvalidSection">
         <p v-if="validationError" class="app-hint" role="alert">{{ validationError }}</p>
-        <label>{{ text('Template name', 'Vorlagenname') }}<input v-model="form.name" @input="saveLater" required maxlength="120" /></label>
+        <label>{{ text('Template name', 'Vorlagenname') }}<input v-model="form.name" required maxlength="120" /></label>
         <details class="template-section" open>
           <summary><FontAwesomeIcon :icon="faAlignLeft" aria-hidden="true" /><span>{{ text('Main text', 'Haupttext') }}</span><FontAwesomeIcon class="template-chevron" :icon="faChevronDown" aria-hidden="true" /></summary>
           <div class="template-section-fields">

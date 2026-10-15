@@ -179,21 +179,16 @@ test('a deleted library source does not block acceptance or the next refinement 
   assert.equal(fixture.creations.length, 0);
 });
 
-test('only an explicitly saved approved CV becomes a new regular variant and keeps application provenance', async t => {
+test('explicitly saving the current CV creates a regular variant without approval or changing application provenance', async t => {
   const fixture = mount(t); let setup = await prepare(fixture);
-  setup.variantName = 'Robotics application';
-  await setup.saveApprovedVariant();
-  assert.match(setup.error, /Approve the CV/);
-  assert.equal(fixture.creations.length, 0);
   setup.record!.state.about.text += '\nCustom application wording.';
-  await setup.approve('cv'); await idle(setup);
-  assert.equal(setup.cvApproved, true);
+  assert.equal(setup.cvApproved, false);
   const before = documents(setup), approvals = JSON.stringify(setup.approvals), source = cloneCv(fixture.states.get('base')!);
   setup.variantName = '   ';
-  await setup.saveApprovedVariant();
+  await setup.saveCurrentVariant();
   assert.match(setup.error, /Enter a name/);
   setup.variantName = '  Robotics application  ';
-  await setup.saveApprovedVariant();
+  await setup.saveCurrentVariant();
   assert.equal(setup.error, '');
   assert.equal(fixture.creations.length, 1);
   const created = fixture.creations[0];
@@ -201,27 +196,30 @@ test('only an explicitly saved approved CV becomes a new regular variant and kee
   assert.deepEqual(created.state, setup.record!.state);
   assert.equal(Object.hasOwn(fixture.props.configurations.find(item => item.id === created.id)!, 'parentId'), false);
   assert.equal(setup.savedVariantId, created.id);
+  assert.equal(setup.currentVariantSaved, true);
   assert.equal(documents(setup), before);
   assert.equal(JSON.stringify(setup.approvals), approvals);
   assert.deepEqual(fixture.states.get('base'), source);
-  await setup.saveApprovedVariant();
+  await setup.saveCurrentVariant();
   setup = fixture.reopen(); await idle(setup);
-  await setup.saveApprovedVariant();
+  await setup.saveCurrentVariant();
   assert.equal(setup.error, '');
   assert.equal(fixture.creations.length, 1, 'repeated saving and reload reuse the recorded completed export');
-  await setup.approve('cv', true); await idle(setup);
   setup.record!.state.about.text += '\nA later application-only change.';
-  await setup.saveApprovedVariant();
-  assert.match(setup.error, /Approve the CV/);
+  assert.equal(setup.currentVariantSaved, false);
+  await setup.saveCurrentVariant();
+  assert.equal(setup.error, '');
+  assert.equal(fixture.creations.length, 2);
+  assert.deepEqual(fixture.creations[1].state, setup.record!.state);
   assert.deepEqual(fixture.states.get(created.id), created.state, 'later application edits leave the exported variant unchanged');
 });
 
 test('saving a new variant reports library failure without changing approved application documents', async t => {
   const fixture = mount(t), setup = await prepare(fixture);
-  await setup.approve('cv'); await idle(setup);
+  await setup.approve('cv'); await idle(setup); setup.feedbackScope = 'cv'; await idle(setup);
   const before = documents(setup), approvals = JSON.stringify(setup.approvals);
   fixture.failCreation();
-  await setup.saveApprovedVariant();
+  await setup.saveCurrentVariant();
   assert.match(setup.error, /variant could not be saved/i);
   assert.equal(fixture.creations.length, 0);
   assert.equal(documents(setup), before);
@@ -231,7 +229,7 @@ test('saving a new variant reports library failure without changing approved app
 
 test('a completed variant save is recovered after its final receipt fails and the application reopens', async t => {
   const fixture = mount(t); let setup = await prepare(fixture);
-  await setup.approve('cv'); await idle(setup);
+  await setup.approve('cv'); await idle(setup); setup.feedbackScope = 'cv'; await idle(setup);
   setup.variantName = 'Custom approved snapshot';
   const before = documents(setup), create = fixture.props.createVariant;
   fixture.props.createVariant = (name, state) => {
@@ -240,14 +238,14 @@ test('a completed variant save is recovered after its final receipt fails and th
     return id;
   };
   await idle(setup);
-  await setup.saveApprovedVariant();
+  await setup.saveCurrentVariant();
   assert.match(setup.error, /variant was saved.*save record/i);
   assert.equal(fixture.creations.length, 1);
   assert.equal(documents(setup), before);
   setup = fixture.reopen(); await idle(setup);
   assert.equal(setup.variantName, 'Custom approved snapshot', 'the saved intent preserves the name across an interrupted receipt');
   assert.equal(setup.cvApproved, true);
-  await setup.saveApprovedVariant();
+  await setup.saveCurrentVariant();
   assert.equal(setup.error, '');
   assert.equal(fixture.creations.length, 1, 'recovery reuses the exact completed snapshot');
   assert.equal(setup.savedVariantId, fixture.creations[0].id);
@@ -255,10 +253,10 @@ test('a completed variant save is recovered after its final receipt fails and th
 
 test('first explicit save creates a new variant even when its name and content match the source', async t => {
   const fixture = mount(t), setup = await prepare(fixture);
-  await setup.approve('cv'); await idle(setup);
+  await setup.approve('cv'); await idle(setup); setup.feedbackScope = 'cv'; await idle(setup);
   setup.variantName = 'Research';
   assert.deepEqual(setup.record!.state, fixture.states.get('base'));
-  await setup.saveApprovedVariant();
+  await setup.saveCurrentVariant();
   assert.equal(setup.error, '');
   assert.equal(fixture.creations.length, 1);
   assert.notEqual(setup.savedVariantId, 'base');
@@ -267,10 +265,10 @@ test('first explicit save creates a new variant even when its name and content m
 
 test('failed persistence before saving a variant leaves the library untouched', async t => {
   const fixture = mount(t), setup = await prepare(fixture);
-  await setup.approve('cv'); await idle(setup);
+  await setup.approve('cv'); await idle(setup); setup.feedbackScope = 'cv'; await idle(setup);
   const before = documents(setup);
   fixture.failSave(refinementKey);
-  await setup.saveApprovedVariant();
+  await setup.saveCurrentVariant();
   assert.match(setup.error, /Local storage quota reached/);
   assert.equal(fixture.creations.length, 0);
   assert.equal(documents(setup), before);
@@ -278,16 +276,16 @@ test('failed persistence before saving a variant leaves the library untouched', 
 
 test('an exported variant edited in the library no longer counts as the saved approved CV', async t => {
   const fixture = mount(t), setup = await prepare(fixture);
-  await setup.approve('cv'); await idle(setup);
+  await setup.approve('cv'); await idle(setup); setup.feedbackScope = 'cv'; await idle(setup);
   setup.variantName = 'Approved snapshot';
-  await setup.saveApprovedVariant();
+  await setup.saveCurrentVariant();
   assert.equal(setup.error, '');
   const first = fixture.creations[0];
   const edited = cloneCv(first.state); edited.about.text = 'A separate library edit.';
   fixture.states.set(first.id, edited);
   fixture.props.configurations.find(item => item.id === first.id)!.mtime = Date.now();
   await idle(setup);
-  await setup.saveApprovedVariant();
+  await setup.saveCurrentVariant();
   assert.equal(setup.error, '');
   assert.equal(fixture.creations.length, 2);
   assert.deepEqual(fixture.creations[1].state, setup.record!.state);

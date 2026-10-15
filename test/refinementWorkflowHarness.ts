@@ -19,8 +19,8 @@ export interface Workspace {
   record: ApplicationCvRecord | null; letter: ApplicationLetter | null;
   busy: boolean; refreshing: boolean; syncing: boolean; error: string; saveError: string;
   selectedCvId: string; selectedTemplateId: string; selectedProposalId: string;
-  variantName: string; savedVariantId: string;
-  saveApprovedVariant(): Promise<void>;
+  variantName: string; savedVariantId: string; currentVariantSaved: boolean;
+  saveCurrentVariant(): Promise<void>;
   reviews: RefinementReviewRow[];
   cloudState: RefinementState | null; approvals: RefinementApprovals;
   parentProposalId: string | null; resetRequestIds: string[];

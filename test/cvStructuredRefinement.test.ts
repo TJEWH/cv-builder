@@ -58,7 +58,7 @@ test('structure is deterministic, follows existing areas and exposes no local pa
   assert.ok(bindings.sections.some(item => item.sourceId === 'local-prose'), 'private source references remain in local bindings only');
   const protectedField = local.publicRequest.fields.find(item => item.label === 'Experience 1: company')!;
   assert.ok(structure.unsupported.some(item => item.fieldId === protectedField.id));
-  assert.ok(structure.ranges.every(range => !['title', 'company', 'institution', 'name', 'dates'].includes(String(bindings.ranges.find(item => item.id === range.id)!.path.at(-1)))));
+  assert.ok(structure.ranges.filter(range => !range.typoOnly).every(range => !['title', 'company', 'institution', 'name', 'dates'].includes(String(bindings.ranges.find(item => item.id === range.id)!.path.at(-1)))));
 });
 
 test('bounded labels preserve whole Unicode characters without generating invalid JSON surrogates', () => {
@@ -216,8 +216,9 @@ test('dormant entry fields and custom fields excluded from the rendered layout r
     bodyOrder: ['jobs', 'education', 'hidden-desc', 'visible-desc', 'textarea'],
   });
   const local = prepareCvAdjustment({ state, variantId: 'template' }); const { structure } = prepareCvStructure(local);
-  assert.deepEqual(structure.ranges.map(range => range.text), ['Visible useful work.', 'Visible useful custom description.', 'Visible useful text.']);
-  const operations = structure.ranges.map((range, index) => operation(index + 1, { type: 'shorten_text', targetId: range.id, text: range.text.replace('useful ', '') }));
+  const prose = structure.ranges.filter(range => !range.typoOnly);
+  assert.deepEqual(prose.map(range => range.text), ['Visible useful work.', 'Visible useful custom description.', 'Visible useful text.']);
+  const operations = prose.map((range, index) => operation(index + 1, { type: 'shorten_text', targetId: range.id, text: range.text.replace('useful ', '') }));
   const result = applyCvOperations(local, structure, operations, state);
   assert.equal(result.experience.jobs[0].desc, state.experience.jobs[0].desc);
   assert.deepEqual(result.education, state.education);
@@ -257,6 +258,68 @@ test('typo fixes support small spelling corrections without requiring shorter te
     assert.deepEqual(describeCvOperation(fix, structure), { target: range.label, before, after });
     assert.equal(state.about.text, before);
   }
+});
+
+test('ChatGPT can correct individual words in visible titles without changing the initial CV or allowing title shortening', () => {
+  const state = createTestState({
+    contact: { ...createTestState().contact, role: 'Reserach engineer' },
+    sectionNames: { jobs: 'Reserach experience' },
+    education: [{ id: 'degree', title: 'Experimantal physics' }],
+    experience: { jobs: [{ id: 'job', title: 'Reserach assistant', bullets: 'Built reserach tools.' }] },
+    customSections: [{ id: 'research', name: 'Reserach projects', entries: [{ id: 'project', title: 'Reserach methods' }] }],
+    bodyOrder: ['jobs', 'education', 'research'],
+  });
+  const original = structuredClone(state);
+  const local = prepareCvAdjustment({ state, variantId: 'template' }); const { structure } = prepareCvStructure(local);
+  assert.deepEqual(state, original, 'preparation does not run spelling detection or modify content');
+  assert.deepEqual(local.baselineState, original);
+  const titles = structure.ranges.filter(range => range.typoOnly);
+  assert.equal(titles.length, 6);
+  const fixes = titles.map((range, index) => operation(index + 1, { type: 'fix_typos', targetId: range.id,
+    text: range.text.replace('Reserach', 'Research').replace('Experimantal', 'Experimental') }));
+  const result = applyCvOperations(local, structure, fixes, state);
+  assert.equal(result.contact.role, 'Research engineer');
+  assert.equal(result.sectionNames.jobs, 'Research experience');
+  assert.equal(result.education[0].title, 'Experimental physics');
+  assert.equal(result.experience.jobs[0].title, 'Research assistant');
+  assert.equal(result.customSections[0].name, 'Research projects');
+  assert.equal(result.customSections[0].entries[0].title, 'Research methods');
+  assert.equal(result.experience.jobs[0].bullets, original.experience.jobs[0].bullets, 'only returned corrections apply');
+  for (const range of titles) assert.throws(() => validateCvOperations([
+    operation(1, { type: 'shorten_text', targetId: range.id, text: range.text.split(' ')[0] }),
+  ], [], structure, local.publicRequest.fields), /Titles allow only/);
+  assert.deepEqual(state, original);
+});
+
+test('title spelling capabilities exclude hidden headings, dormant titles, names and privacy replacements', () => {
+  const state = createTestState({
+    contact: { ...createTestState().contact, role: 'Reserach engineer' }, disabled: ['header'],
+    anonymization: { excludedSections: [], excludedItems: [], fieldOverrides: { '["item","masked","title"]': 'Reserach position' } },
+    sectionNames: { jobs: 'Hidden headding' }, sectionHeaderSizes: { jobs: 'null' },
+    experience: { jobs: [
+      { id: 'job', title: 'Public title', company: 'Reserach Institute' },
+      { id: 'hidden', title: 'Hidden Reserach', hidden: true },
+      { id: 'masked', title: 'Private original' },
+    ] },
+    customSections: [{ id: 'custom', name: 'Visible heading', fields: ['desc'], entries: [{ id: 'custom-item', title: 'Dormant Reserach', desc: 'Visible prose.' }] }],
+    bodyOrder: ['jobs', 'custom'],
+  });
+  const local = prepareCvAdjustment({ state, variantId: 'template' }); const { structure } = prepareCvStructure(local);
+  assert.deepEqual(structure.ranges.filter(range => range.typoOnly).map(range => range.text), ['Public title', 'Visible heading']);
+  const marker = structuredClone(structure); Object.assign(marker.ranges.find(range => range.typoOnly)!, { typoOnly: false });
+  assert.throws(() => validateCvStructure(marker, local.publicRequest.fields), /Invalid/);
+  const expanded = structuredClone(structure); delete expanded.ranges.find(range => range.typoOnly)!.typoOnly;
+  assert.throws(() => applyCvOperations(local, expanded, [], state), /does not match/);
+});
+
+test('previously published requests without title capabilities still reconstruct and apply their original ranges', () => {
+  const { state, local } = fixture();
+  const legacy = prepareCvStructure(local, { titleTypos: false });
+  assert.ok(legacy.structure.ranges.every(range => !Object.hasOwn(range, 'typoOnly')));
+  const profile = legacy.structure.ranges.find(range => range.label === 'Profile')!;
+  const result = applyCvOperations(local, legacy.structure, [operation(1, { type: 'shorten_text', targetId: profile.id, text: 'I develop robot sensing systems.' })], state);
+  assert.equal(result.about.text, 'I develop robot sensing systems.');
+  assert.deepEqual(result.experience, state.experience);
 });
 
 test('typo fixes reject rewrites, factual numbers, changed formatting, links and private placeholders', () => {
@@ -354,6 +417,7 @@ test('public topology validates exact cross references and cannot inject local r
     copy => { copy.ranges.push({ ...copy.ranges[0], id: 'range-999' }); },
     copy => { copy.unsupported.push({ fieldId: copy.ranges[0].fieldId, reason: 'Conflicting capability' }); },
     copy => { Object.assign(copy.ranges[0], { path: ['contact', 'name'] }); },
+    copy => { copy.ranges.find(range => range.bulletId)!.typoOnly = true; },
   ];
   for (const mutate of mutations) { const copy = structuredClone(structure); mutate(copy); assert.throws(() => validateCvStructure(copy, local.publicRequest.fields), /Invalid|inconsistent/); }
 });

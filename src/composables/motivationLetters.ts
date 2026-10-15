@@ -165,10 +165,30 @@ export function createLetterRepository(storage: StorageAdapter, userId: string) 
       if (!listTemplates().some(item => item.id === id)) throw new Error('Save the letter template before making it the default.');
       storage.setItem(`${scope}:default-template`, id);
     },
-    saveTemplate(input: LetterTemplate) {
-      const template = readLetterTemplate(input);
+    saveTemplate(input: LetterTemplate, baseline?: LetterTemplate | null) {
+      let template = readLetterTemplate(input);
       const templates = listTemplates();
       const previous = templates.find((item) => item.id === template.id);
+      if (baseline) {
+        const original = readLetterTemplate(baseline);
+        if (original.id !== template.id) throw new Error('The template does not match the editor’s saved version.');
+        if (!previous) throw new Error('This template is no longer saved. Your edits are still in the editor.');
+        // An editor can outlive writes from another tab. Apply only its actual
+        // changes, so an untouched blank field cannot erase newer saved context.
+        const merged: Record<string, unknown> = { ...previous };
+        for (const key of Object.keys({ ...original, ...template }) as (keyof LetterTemplate)[]) {
+          if (key === 'id' || key === 'revision' || key === 'updatedAt') continue;
+          const before = JSON.stringify(original[key]);
+          const incoming = JSON.stringify(template[key]);
+          const current = JSON.stringify(previous[key]);
+          if (incoming === before) continue;
+          if (current !== before && current !== incoming) {
+            throw new Error('This template has conflicting changes in another tab. Your edits are still here. Copy them before reloading to review the latest saved version.');
+          }
+          merged[key] = template[key];
+        }
+        template = readLetterTemplate(merged);
+      }
       const saved = { ...template, revision: previous ? previous.revision + 1 : 1, updatedAt: now() };
       storage.setItem(templatesKey, JSON.stringify([...templates.filter((item) => item.id !== saved.id), saved]));
       return clone(saved);

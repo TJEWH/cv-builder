@@ -31,7 +31,7 @@ Open [the synthetic runner](http://127.0.0.1:5177/cv-builder/test/e2e/index.html
 | `preview-revisit` | Reuse unchanged previews after scope or stage changes; invalidate previews edited while the workspace is hidden and render the update on return |
 | `scope-layout` | Scope selection, visible task controls, scoped preview/editor and preparation settings |
 | `scoped-history` | Merged, scoped Questions with legacy ToDos and comments, letter refinement tab icons and a single CV request field, history summaries without redundant scope or prompt details, CV reset before clearing its history, preservation of letter history, and letter clear returning to the selected template across reload |
-| `cv` | Publish, preview an operation proposal, toggle active changes, apply the previous selection only on the next reply, compare, reload, save an approved independent variant |
+| `cv` | Publish, preview an operation proposal, toggle active changes, apply the previous selection only on the next reply, compare, reload, save an independent variant before approval |
 | `initial-letter` | Publish an empty letter, apply its initial draft, show grouped Questions without review tabs, retain Tone / Structure / Content input tabs, compare and reload |
 | `existing-letter` | Publish the complete current letter, apply a refinement, compare and reload |
 | `proposal-review` | Automatic application, ignored annotation feedback, keyboard-accessible note tabs sharing one textarea, notes retained on copy and cleared on the next proposal, clear to template, and approved PDF generation |

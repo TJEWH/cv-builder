@@ -1236,7 +1236,7 @@ begin
       when 'entries' then '^entry-[1-9][0-9]*$' when 'bullets' then '^bullet-[1-9][0-9]*$' else '^range-[1-9][0-9]*$' end;
     ids:='{}';
     for item in select jsonb_array_elements(value->category) loop
-      if not public.refinement_exact_keys(item,keys) or jsonb_typeof(item->'id') is distinct from 'string'
+      if not public.refinement_exact_keys(item,case when category='ranges' and item ? 'typoOnly' then array_append(keys,'typoOnly') else keys end) or jsonb_typeof(item->'id') is distinct from 'string'
         or item->>'id' !~ id_pattern or item->>'id'=any(ids) then raise exception 'Invalid or duplicate structured CV reference.' using errcode='22023'; end if;
       ids:=array_append(ids,item->>'id');
       if category='bullets' and item->>'text'~E'[\r\n]' then raise exception 'A CV bullet must occupy one line.' using errcode='22023'; end if;
@@ -1279,6 +1279,9 @@ begin
     end if;
   end loop;
   for item in select jsonb_array_elements(value->'ranges') loop
+    if item ? 'typoOnly' and (item->'typoOnly' is distinct from 'true'::jsonb or item->'bulletId' is distinct from 'null'::jsonb) then
+      raise exception 'A typo-only range must be a whole field and explicitly marked true.' using errcode='22023';
+    end if;
     if not coalesce(fields_map ? (item->>'fieldId'),false) or jsonb_typeof(item->'bulletId') not in ('string','null') then raise exception 'Unknown CV text range.' using errcode='22023'; end if;
     if item->'bulletId'='null'::jsonb then
       if item->'text' is distinct from fields_map->(item->>'fieldId')->'text'
@@ -1410,6 +1413,7 @@ begin
         if target->>'bulletId' is not null then corrected_bullets:=array_append(corrected_bullets,target->>'bulletId'); end if;
         continue;
       end if;
+      if target->'typoOnly'='true'::jsonb then raise exception 'This CV range permits spelling corrections only.' using errcode='22023'; end if;
       if target->>'bulletId' is not null and replacement~E'[\r\n]' then raise exception 'A shortened bullet must occupy one line.' using errcode='22023'; end if;
       if public.refinement_utf16_length(replacement)>20000 or char_length(replacement)>=char_length(original) or regexp_replace(replacement,whitespace,'','g')='' then raise exception 'A shortened range must be nonempty and strictly shorter.' using errcode='22023'; end if;
       select coalesce(array_agg(v order by n),'{}') into words from regexp_split_to_table(original,whitespace) with ordinality as w(v,n) where v<>'';

@@ -41,6 +41,7 @@ import { refinementMatchesScope, visibleRefinementProposals } from '../composabl
 import { useDesktopSidebar } from '../composables/desktopSidebar';
 import AutosaveTextarea from './AutosaveTextarea.vue';
 import { commitPendingTextareas } from '../composables/textareaCommit';
+import { copyPreparedText } from '../composables/preparedClipboard';
 
 const props = withDefaults(defineProps<{
   projectId?: string; active?: boolean; checklistSaving?: boolean;
@@ -299,17 +300,18 @@ const baselineSignature = computed(() => refinementSignature([record.value?.stat
 const cvRevision = computed(() => refinementSignature([record.value?.state, props.application.context_json]));
 const letterRevision = computed(() => refinementSignature([letterText.value, setup.value, letter.value?.instructions || '', letterCvState.value?.design, letterCvState.value?.contact, letterCvState.value?.disabled.includes('header'), props.application.context_json, context.value.theme]));
 const cvApproved = computed(() => !!record.value && approvals.value.cv === cvRevision.value && !saveError.value);
-function suggestedVariantName() { return record.value ? `${record.value.baseName} · ${String(props.application.context_json.title || text('Approved CV', 'Freigegebener CV'))}` : ''; }
+function suggestedVariantName() { return record.value ? `${record.value.baseName} · ${String(props.application.context_json.title || text('Refined CV', 'Überarbeiteter CV'))}` : ''; }
 variantName.value = savedVariant.value?.name || suggestedVariantName();
 const savedVariantId = computed(() => savedVariant.value?.id || '');
-const approvedVariantSaved = computed(() => {
+const currentVariantSaved = computed(() => {
   const receipt = savedVariant.value;
-  if (!receipt || receipt.revision !== cvRevision.value || receipt.name !== variantName.value.trim()) return false;
+  const snapshot = previewCvState.value;
+  if (!snapshot || !receipt || receipt.revision !== refinementSignature([snapshot, props.application.context_json]) || receipt.name !== variantName.value.trim()) return false;
   const variant = props.configurations.find(item => item.id === savedVariantId.value);
-  if (!variant || variant.name !== receipt.name) return false;
+  if (!variant || !isMainCvVariant(variant) || variant.name !== receipt.name) return false;
   // Library saves signal changes to the stored snapshot through their metadata.
   void variant.mtime;
-  return refinementSignature(props.readVersion(variant.id)) === refinementSignature(record.value?.state);
+  return refinementSignature(props.readVersion(variant.id)) === refinementSignature(snapshot);
 });
 const unresolved = computed(() => letter.value ? unresolvedLetterPlaceholders(letter.value.working, letterCvState.value?.contact || null) : []);
 const letterApproved = computed(() => !!letterText.value.trim() && approvals.value.letter === letterRevision.value && !unresolved.value.length && !saveError.value);
@@ -991,23 +993,32 @@ async function syncRefinement() {
   } finally { syncing.value = false; }
 }
 async function copyIterationTask() {
-  if (!await flushTextareas()) return;
   if (busy.value || refreshing.value || scopeLocked.value) return;
-  // The CV selection becomes a frozen request source, not a working-document commit.
-  reviewActive.value = false;
-  const scope = pane.value, requestedScope = feedbackScope.value;
-  await run(async () => {
-    await refreshCloud();
-    const draft = clone(iterationNotes.value[scope]);
-    await savePendingResetFeedback(requestedScope);
-    await submitIterationFeedback(scope, draft);
-    await createRound(requestedScope);
-    if (disposed) return;
-    persist();
-    if (saveError.value) throw new Error(saveError.value);
+  shortInstructionNotice.value = ''; shortInstructionError.value = '';
+  const result = await copyPreparedText(async () => {
+    if (!await flushTextareas() || busy.value || refreshing.value || scopeLocked.value) return null;
+    // The CV selection becomes a frozen request source, not a working-document commit.
+    reviewActive.value = false;
+    const scope = pane.value, requestedScope = feedbackScope.value;
+    let instruction: string | null = null;
+    await run(async () => {
+      await refreshCloud();
+      const draft = clone(iterationNotes.value[scope]);
+      await savePendingResetFeedback(requestedScope);
+      await submitIterationFeedback(scope, draft);
+      await createRound(requestedScope);
+      if (disposed) return;
+      persist();
+      if (saveError.value) throw new Error(saveError.value);
+      refinementProjectId();
+      requestToCopy();
+      instruction = shortInstruction.value;
+    });
+    return disposed || error.value ? null : instruction;
   });
-  if (error.value) return;
-  await copyTask();
+  if (!result || disposed || shortInstruction.value !== result.value) return;
+  if (result.copied) shortInstructionNotice.value = text('ChatGPT instruction copied.', 'ChatGPT-Anweisung kopiert.');
+  else shortInstructionError.value = text('Copy unavailable. Select and copy the instruction below.', 'Kopieren nicht verfügbar. Die Anweisung unten markieren und kopieren.');
 }
 async function savePendingResetFeedback(scope: RefinementScope) {
   for (const document of [scope]) {
@@ -1190,16 +1201,24 @@ async function approve(kind: 'cv' | 'letter', reopen = false) {
       : reopen ? text('Letter reopened for editing.', 'Brief zur Bearbeitung wieder geöffnet.') : text('Letter approved.', 'Brief freigegeben.');
   });
 }
-async function saveApprovedVariant() {
+async function saveCurrentVariant() {
+  if (busy.value || refreshing.value || syncing.value) return;
+  if (!await flushTextareas()) {
+    if (saveError.value) error.value = saveError.value;
+    return;
+  }
   await run(async () => {
-    if (!record.value || !cvApproved.value) throw new Error(text('Approve the CV before saving it as a variant.', 'Den CV freigeben, bevor er als Variante gespeichert wird.'));
-    if (reviewActive.value) throw new Error(text('Close the proposal preview before saving the approved CV.', 'Die Vorschlagsvorschau schließen, bevor der freigegebene CV gespeichert wird.'));
+    if (!record.value) throw new Error(text('Select a CV before saving a variant.', 'Vor dem Speichern einer Variante einen CV auswählen.'));
+    const visibleState = previewCvState.value;
+    if (!visibleState) throw new Error(temporaryReview.value.error || text('The current CV preview is unavailable. Restore its source before saving.', 'Die aktuelle CV-Vorschau ist nicht verfügbar. Vor dem Speichern ihre Quelle wiederherstellen.'));
     const name = variantName.value.trim();
     if (!name) throw new Error(text('Enter a name for the new variant.', 'Einen Namen für die neue Variante eingeben.'));
     if (!props.createVariant) throw new Error(text('The variant library is unavailable. Reopen this application and try again.', 'Die Variantenbibliothek ist nicht verfügbar. Diese Bewerbung erneut öffnen und es noch einmal versuchen.'));
-    if (approvedVariantSaved.value) { notice.value = text('This approved CV is already saved in your variant library.', 'Dieser freigegebene CV ist bereits in der Variantenbibliothek gespeichert.'); return; }
-    const revision = cvRevision.value;
-    const snapshot = cloneCv(record.value.state);
+    if (currentVariantSaved.value) { notice.value = text('This CV is already saved in your variant library.', 'Dieser CV ist bereits in der Variantenbibliothek gespeichert.'); return; }
+    // Flatten the displayed version into a full CV, with private originals restored.
+    // Library persistence does not retain proposal operations or a parent dependency.
+    const snapshot = cloneCv(visibleState);
+    const revision = refinementSignature([snapshot, props.application.context_json]);
     const previousReceipt = savedVariant.value;
     const recovering = previousReceipt?.id === '' && previousReceipt.name === name && previousReceipt.revision === revision;
     // Record the intended name before creating anything so an interrupted final
@@ -1207,7 +1226,7 @@ async function saveApprovedVariant() {
     savedVariant.value = { id: '', name, revision, previousIds: recovering ? previousReceipt.previousIds : props.configurations.map(item => item.id) };
     persist();
     if (saveError.value) { savedVariant.value = previousReceipt; throw new Error(saveError.value); }
-    const existing = recovering ? props.configurations.find(item => !previousReceipt.previousIds?.includes(item.id)
+    const existing = recovering ? props.configurations.find(item => isMainCvVariant(item) && !previousReceipt.previousIds?.includes(item.id)
       && item.name === name && refinementSignature(props.readVersion(item.id)) === refinementSignature(snapshot)) : undefined;
     const id = existing?.id || props.createVariant(name, snapshot);
     if (!id) throw new Error(text('The variant could not be saved. Try again.', 'Die Variante konnte nicht gespeichert werden. Erneut versuchen.'));
@@ -1368,10 +1387,10 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
             <button v-if="pane === 'letter' && letter" class="primary refinement-icon-action" type="button" :disabled="busy || reviewActive || !record || !letterText.trim() || !!saveError || (unresolved.length > 0 && !letter.finalRevisionId)" @click="approve('letter', letterApproved || !!letter.finalRevisionId)"><FontAwesomeIcon :icon="letterApproved || letter.finalRevisionId ? faRotateLeft : faCheck" aria-hidden="true" />{{ letterApproved || letter.finalRevisionId ? text('Reopen letter', 'Brief wieder öffnen') : text('Approve letter', 'Brief freigeben') }}</button>
           </div>
           </WorkspaceMobileActions>
-          <div v-if="cvApproved && createVariant" class="approved-variant-save">
-            <p class="app-hint">{{ text('Save this approved CV to your variant library for reuse.', 'Diesen freigegebenen CV zur Wiederverwendung in der Variantenbibliothek speichern.') }}</p>
-            <label>{{ text('Variant name', 'Variantenname') }}<input v-model="variantName" type="text" :disabled="busy || reviewActive" /></label>
-            <button type="button" :disabled="busy || reviewActive || !variantName.trim() || approvedVariantSaved" @click="saveApprovedVariant">{{ approvedVariantSaved ? text('Variant saved', 'Variante gespeichert') : text('Save as new variant', 'Als neue Variante speichern') }}</button>
+          <div v-if="pane === 'cv' && record && createVariant" class="refinement-variant-save">
+            <label>{{ text('Variant name', 'Variantenname') }}<input v-model="variantName" type="text" :disabled="busy || refreshing || syncing" /></label>
+            <button type="button" :disabled="busy || refreshing || syncing || !previewCvState || !variantName.trim() || currentVariantSaved" @click="saveCurrentVariant">{{ currentVariantSaved ? text('Variant saved', 'Variante gespeichert') : text('Save as new CV variant', 'Als neue CV-Variante speichern') }}</button>
+            <p class="app-hint">{{ text('Saves the displayed CV as an independent copy that remains after clearing refinement history.', 'Speichert den angezeigten CV als eigenständige Kopie, die nach dem Löschen des Überarbeitungsverlaufs erhalten bleibt.') }}</p>
           </div>
         </div>
         </DesktopSidebarPortal>
@@ -1422,7 +1441,10 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
               </div>
               <button class="refinement-copy-action" type="button" :disabled="busy || refreshing || !preparedSource || scopeLocked" @click="copyIterationTask"><FontAwesomeIcon :icon="faCopy" aria-hidden="true" />{{ showInitialRefinement ? text('Copy task', 'Aufgabe kopieren') : text('Copy feedback', 'Feedback kopieren') }}</button>
             </section>
-            <AutosaveTextarea v-if="shortInstructionError" :model-value="shortInstruction" readonly rows="5" :aria-label="text('Short ChatGPT instruction', 'Kurze ChatGPT-Anweisung')" />
+            <template v-if="shortInstructionError">
+              <button type="button" :disabled="busy || refreshing" @click="copyTask">{{ text('Retry copy', 'Kopieren erneut versuchen') }}</button>
+              <AutosaveTextarea :model-value="shortInstruction" readonly rows="5" :aria-label="text('Short ChatGPT instruction', 'Kurze ChatGPT-Anweisung')" />
+            </template>
           <details class="disclosure-row"><summary>{{ text('Edit manually', 'Manuell bearbeiten') }}</summary>
 
           <section v-if="record" v-show="pane === 'cv'" class="working-document"><div class="action-row"><span class="app-hint">{{ text('Application copy — template stays unchanged', 'Bewerbungskopie — Vorlage bleibt unverändert') }}</span></div><fieldset :disabled="cvApproved || busy || reviewActive"><FormBuilder :state="record.state" :read-version="() => null" :save-version="() => false" /></fieldset></section>
@@ -1488,7 +1510,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 .preparation-actions{display:flex;justify-content:center;}
 .refinement-toolbar{position:sticky;top:0;z-index:10;min-width:0;padding-bottom:12px;border-bottom:1px solid var(--ui-border);background:#0b0f14}
 .refinement-toolbar > .action-row{margin:0}
-.approved-variant-save{margin-top:16px;padding-top:16px;border-top:1px solid var(--ui-border)}.approved-variant-save p{margin:0 0 12px;max-width:65ch;color:var(--ui-muted)}.approved-variant-save button{width:100%}
+.refinement-variant-save{margin-top:16px;padding-top:16px;border-top:1px solid var(--ui-border)}.refinement-variant-save p{margin:12px 0 0;max-width:65ch;color:var(--ui-muted)}.refinement-variant-save button{width:100%}
 @media(max-width:760px){.refinement-toolbar{position:static;padding:0;border:0;background:transparent;flex-shrink:0}}
 @media(min-width:761px) and (max-width:1180px){.workflow-body--review :deep(.application-documents){min-height:640px}}
 @media(min-width:761px){.application-workspace{margin-bottom:40px;padding:32px;}.workflow-body{padding:20px 0 0;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-gutter:stable}.application-header :deep(.workspace-detail-header__back){display:none}.workflow-navigation{position:fixed;inset-inline:0;bottom:0;z-index:30;display:flex;align-items:center;gap:20px;min-height:66px;padding:12px max(20px,calc((100vw - 1484px)/2));border-top:1px solid #24504e;background:var(--ui-shell);box-shadow:0 -6px 20px #0003}.workflow-back{display:inline-flex;align-items:center;gap:8px;flex-shrink:0}.workspace-subtabs button{justify-content:center}.preparation-stage{padding-bottom:6px}}
@@ -1539,9 +1561,9 @@ h3{font-size:16px;margin:0 0 14px}p{line-height:1.6;font-size:13px}button,input,
   .workflow-body{flex:1 0 auto;overflow:visible;padding:12px}
   .stage-heading h2{font-size:17px;line-height:1.35}
   .refinement-controls{padding-right:0}
-  .refinement-toolbar:not(:has(.approved-variant-save)){display:none}
-  .approved-variant-save{margin-top:0;padding-top:0;border-top:0}
-  .proposal-preview-action button,.approved-variant-save button,.preparation-selection select,.preparation-settings input,.preparation-settings select{min-height:44px}
+  .refinement-toolbar:not(:has(.refinement-variant-save)){display:none}
+  .refinement-variant-save{margin-top:0;padding-top:0;border-top:0}
+  .proposal-preview-action button,.refinement-variant-save button,.preparation-selection select,.preparation-settings input,.preparation-settings select{min-height:44px}
   .application-mobile-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex:1;min-width:0}
   .application-mobile-actions :deep(button),.application-mobile-actions :deep(select){min-height:44px;max-width:100%}
   .application-mobile-actions :deep(select){font-size:16px}

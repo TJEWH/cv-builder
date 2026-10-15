@@ -172,16 +172,15 @@ async function cvFlow() {
   assert(refinementSignature(setup.record!.state) === applied, 'The next response must apply the preceding selection');
   await mount(true); await click('Sync');
   assert(fixture.creations.length === 0 && refinementSignature(setup.record!.state) === applied, 'Reload must preserve the committed selection');
-  assert(!root.querySelector('.approved-variant-save'), 'An unapproved CV must not offer saving to the variant library');
+  assert(root.querySelector('.refinement-variant-save'), 'An unapproved CV must offer an independent variant save');
   if (setup.reviewActive) await click('Close preview');
-  await click('Approve CV');
-  await field('Variant name', 'Approved robotics CV');
+  await field('Variant name', 'Refined robotics CV');
   const applicationCopy = snapshot();
-  await click('Save as new variant');
-  assert(Number(fixture.creations.length) === 1 && fixture.creations[0].name === 'Approved robotics CV', 'Explicit save must create one named variant');
-  assert(refinementSignature(fixture.creations[0].state) === applied && !('parentId' in fixture.props.configurations.at(-1)!), 'Saved variant must contain the approved CV with no parent');
-  assert(snapshot() === applicationCopy && setup.cvApproved, 'Saving a variant must preserve the independent application and approval');
-  assert(button('Variant saved').disabled, 'Repeated saves must be disabled once the approved CV is saved');
+  await click('Save as new CV variant');
+  assert(Number(fixture.creations.length) === 1 && fixture.creations[0].name === 'Refined robotics CV', 'Explicit save must create one named variant');
+  assert(refinementSignature(fixture.creations[0].state) === applied && !('parentId' in fixture.props.configurations.at(-1)!), 'Saved variant must contain the current CV with no parent');
+  assert(snapshot() === applicationCopy && !setup.cvApproved, 'Saving a variant must preserve the independent application without approving it');
+  assert(button('Variant saved').disabled, 'Repeated saves must be disabled once the current CV is saved');
   await mount(true);
   assert(button('Variant saved').disabled && Number(fixture.creations.length) === 1, 'Reload must retain the saved variant receipt');
 }
@@ -645,7 +644,7 @@ const flows = [
   ['preview-revisit', 'Unchanged document previews return without rerendering', previewRevisitFlow],
   ['scope-layout', 'Scope dropdown → task controls → scoped preview and editor → preparation settings', scopeLayoutFlow],
   ['scoped-history', 'Scoped history → clear CV → preserve letter → clear letter to template → reload', scopedHistoryFlow],
-  ['cv', 'CV snapshot → application-only changes → compare → reload → save approved variant', cvFlow],
+  ['cv', 'CV snapshot → application-only changes → compare → reload → save independent variant', cvFlow],
   ['initial-letter', 'Initial letter → automatic application → compare → reload', () => letterFlow(true)],
   ['existing-letter', 'Existing letter → automatic refinement → compare → reload', () => letterFlow(false)],
   ['proposal-review', 'Automatic application → ignored answer → next iteration → reset → approved PDFs', proposalReviewFlow],
