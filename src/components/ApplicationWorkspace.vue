@@ -135,6 +135,9 @@ const pendingResetFeedback = ref<Record<DocumentScope, { id: string; text: strin
 const parentProposalIds = ref<Record<DocumentScope, string | null>>({ cv: null, letter: null });
 const resetRequestIds = ref<string[]>([]);
 const resetRequestIdsByScope = ref<Record<DocumentScope, string[]>>({ cv: [], letter: [] });
+// A reset may restore a pre-request CV that differs from its library baseline;
+// surviving reset request IDs block refresh until cloud history confirms the clear.
+const resetCvStateSignature = ref<string | null>(null);
 const cloudState = ref<RefinementState | null>(null);
 const requests = ref<RefinementRequestRow[]>([]);
 const proposals = ref<RefinementProposalRow[]>([]);
@@ -203,11 +206,12 @@ let disposed = false;
 let loadingCloud: Promise<void> | null = null;
 let localReadError = '';
 let committingSelection = false;
+let refreshSnapshotsOnOpen = false;
 const explicitHistorySelections = new Set<string>();
 
 try {
   record.value = loadApplicationCv(props.userId, props.application.id);
-  // Library identity is provenance only. Never overwrite an existing application copy.
+  // Keep the saved copy until current refinement history confirms it can be refreshed.
   if (record.value) { record.value.detached = true; saveApplicationCv(record.value); }
   templates.value = letterRepository.listTemplates();
   letter.value = letterRepository.load(props.application.id);
@@ -249,6 +253,7 @@ try {
       if (reset && typeof reset.id === 'string' && typeof reset.text === 'string' && (reset.requestId === null || typeof reset.requestId === 'string')) pendingResetFeedback.value[scope] = reset;
     }
     resetRequestIds.value = Array.isArray(value.resetRequestIds) ? value.resetRequestIds : [];
+    resetCvStateSignature.value = typeof value.resetCvStateSignature === 'string' ? value.resetCvStateSignature : null;
     if (value.selectedProposalIds && typeof value.selectedProposalIds === 'object') {
       for (const scope of ['cv', 'letter'] as const) if (typeof value.selectedProposalIds[scope] === 'string') selectedProposalIds.value[scope] = value.selectedProposalIds[scope];
     }
@@ -580,7 +585,7 @@ function persist() {
     const stagedStore = { getItem: (key: string) => localStorage.getItem(key), setItem: (key: string, value: string) => { writes.set(key, value); }, removeItem() {} };
     if (record.value) saveApplicationCv(record.value, stagedStore);
     if (letter.value) createLetterRepository(stagedStore, props.userId).save(letter.value);
-    writes.set(storageKey, JSON.stringify({ version: 1, privacyContexts: privacyContexts.value, approvals: approvals.value, savedVariant: savedVariant.value, requests: localRequests.value, cvSelections: cvSelections.value, parentProposalId: parentProposalId.value, parentProposalIds: parentProposalIds.value, scope: feedbackScope.value, selectedProposalIds: selectedProposalIds.value, resetRequestIds: resetRequestIds.value, resetRequestIdsByScope: resetRequestIdsByScope.value, iterationNotes: iterationNotes.value, iterationFeedbackSubmission: iterationFeedbackSubmission.value, pendingResetFeedback: pendingResetFeedback.value }));
+    writes.set(storageKey, JSON.stringify({ version: 1, privacyContexts: privacyContexts.value, approvals: approvals.value, savedVariant: savedVariant.value, requests: localRequests.value, cvSelections: cvSelections.value, parentProposalId: parentProposalId.value, parentProposalIds: parentProposalIds.value, scope: feedbackScope.value, selectedProposalIds: selectedProposalIds.value, resetRequestIds: resetRequestIds.value, resetRequestIdsByScope: resetRequestIdsByScope.value, resetCvStateSignature: resetCvStateSignature.value, iterationNotes: iterationNotes.value, iterationFeedbackSubmission: iterationFeedbackSubmission.value, pendingResetFeedback: pendingResetFeedback.value }));
     for (const [key, value] of writes) {
       const saved = localStorage.getItem(key);
       if (saved === value) continue;
@@ -703,13 +708,18 @@ async function selectReviewProposal(id: string) {
   tab.value = 'refinement'; selectedProposalId.value = id; openProposal();
 }
 async function checkProposals(navigate = true) { if (!await flushTextareas()) return; if (navigate) tab.value = 'refinement'; await run(async () => { await refreshCloud(); notice.value = proposals.value.length ? text('Proposals loaded. Review one before applying it.', 'Vorschläge geladen. Vor dem Übernehmen prüfen.') : text('No proposal yet. Run the copied prompt in ChatGPT, then check again.', 'Noch kein Vorschlag. Kopierten Prompt in ChatGPT ausführen und erneut prüfen.'); }); }
-function refreshOnFocus() { refreshLetterHeader(); if (!busy.value && !syncing.value && props.active !== false) void flushTextareas().then(async saved => { if (!saved) return; await refreshCloud(); if (tab.value === 'refinement') await applyCurrentProposal(); }).catch(report); }
-watch(() => props.active, active => { if (active) void syncRefinement(); });
+function refreshOnFocus() {
+  refreshLetterHeader();
+  if (busy.value || syncing.value || props.active === false) return;
+  if (refreshSnapshotsOnOpen) { void syncRefinement(); return; }
+  void flushTextareas().then(async saved => { if (!saved) return; await refreshCloud(); if (tab.value === 'refinement') await applyCurrentProposal(); }).catch(report);
+}
+watch(() => props.active, active => { if (active) void syncRefinement(true); });
 watch(tab, stage => { if (stage === 'refinement') refreshOnFocus(); });
 function reloadTemplates() { try { templates.value = letterRepository.listTemplates(); } catch (cause) { report(cause); } }
 onMounted(() => {
   if (!props.application.workflow_stage) emit('change-stage', tab.value);
-  void syncRefinement();
+  void syncRefinement(true);
   window.addEventListener('focus', refreshOnFocus);
   window.addEventListener('cv-letter-templates-updated', reloadTemplates);
 });
@@ -748,6 +758,7 @@ async function selectCv(id: string) {
     if (disposed || cvSelectionLocked.value) return;
     record.value = createApplicationCv(props.userId, props.application.id, id, variant.name, state);
     record.value.variantId = id; record.value.detached = true;
+    resetCvStateSignature.value = null;
     variantName.value = suggestedVariantName();
     approvals.value = { cv: null, letter: null }; persist();
     await publishCurrentCv(); if (letter.value) await saveSetup();
@@ -964,15 +975,74 @@ async function applyCurrentProposal(id?: string) {
   finally { if (pane.value === 'letter') reviewActive.value = false; }
   if (!error.value) notice.value = text('Proposal loaded and applied to the working document.', 'Vorschlag geladen und in die Arbeitsfassung übernommen.');
 }
-async function syncRefinement() {
+function refreshUnrefinedSnapshots(opening: { cv: string; letter: string }) {
+  if (!cloudLoaded.value || localReadError || saveError.value) return;
+  const refined = (scope: DocumentScope) => requests.value.some(request => matchesScope(request, scope)
+    && (proposals.value.some(proposal => proposal.request_id === request.id) || resetRequestIdsByScope.value[scope].includes(request.id)));
+  let nextRecord = record.value, nextLetter = letter.value;
+  const sourceId = selectedCvId.value;
+  const variant = props.configurations.find(item => item.id === sourceId);
+  if (nextRecord && variant && !cvApproved.value && !refined('cv') && opening.cv === documentSignature('cv')
+    && (!cvDifferences(nextRecord.baseState, nextRecord.state).length || resetCvStateSignature.value === refinementSignature(nextRecord.state))) {
+    const source = props.readVersion(sourceId);
+    if (source && cvDifferences(nextRecord.baseState, source).length) {
+      nextRecord = { ...clone(nextRecord), baseId: sourceId, baseName: variant.name,
+        baseState: cloneCv(source), state: cloneCv(source), baseRevision: nextRecord.baseRevision + 1,
+        revision: nextRecord.revision + 1, updatedAt: new Date().toISOString(),
+        publishedState: null, publishedSnapshotId: null, letterHeaderSource: captureLetterHeaderSource(sourceId, source) };
+    }
+  }
+  const latestTemplates = letterRepository.listTemplates();
+  const template = latestTemplates.find(item => item.id === nextLetter?.templateId);
+  if (nextLetter && template && !letterApproved.value && !nextLetter.finalRevisionId && !refined('letter')
+    && opening.letter === documentSignature('letter') && serializeRefinementDraft(nextLetter.working).empty
+    && refinementSignature(template) !== refinementSignature(nextLetter.templateSnapshot)) {
+    const previousTemplate = nextLetter.templateSnapshot;
+    const language = previousTemplate && nextLetter.language !== previousTemplate.language ? nextLetter.language : template.language;
+    const maxWords = previousTemplate && nextLetter.maxWords !== previousTemplate.maxWords ? nextLetter.maxWords : template.maxWords;
+    nextLetter = { ...selectApplicationLetterTemplate(nextLetter, template), language, maxWords };
+    const cv = nextRecord ? resolveApplicationLetterState(nextRecord.state, nextRecord.baseState, nextRecord.letterHeaderSource) : null;
+    nextLetter.workingContext = letterContextVersion(props.application, cv, template, language, nextLetter.instructions, maxWords, nextLetter.formatting);
+  }
+  templates.value = latestTemplates;
+  if (nextRecord === record.value && nextLetter === letter.value) return;
+  const previous = { record: record.value, letter: letter.value, approvals: approvals.value, resetCvStateSignature: resetCvStateSignature.value };
+  committingSelection = true;
+  try {
+    record.value = nextRecord; letter.value = nextLetter;
+    approvals.value = { cv: nextRecord !== previous.record ? null : approvals.value.cv,
+      letter: nextLetter !== previous.letter ? null : approvals.value.letter };
+    if (nextRecord !== previous.record) resetCvStateSignature.value = null;
+  } finally { committingSelection = false; }
+  persist();
+  if (saveError.value) {
+    committingSelection = true;
+    try {
+      record.value = previous.record; letter.value = previous.letter; approvals.value = previous.approvals;
+      resetCvStateSignature.value = previous.resetCvStateSignature;
+    } finally { committingSelection = false; }
+    throw new Error(saveError.value);
+  }
+}
+async function syncRefinement(refreshSnapshots = false) {
+  if (refreshSnapshots) refreshSnapshotsOnOpen = true;
   const stopped = () => disposed || props.active === false;
   if (stopped() || !props.client || busy.value || syncing.value) return;
   refreshLetterHeader();
   syncing.value = true;
   try {
+    const refreshOpeningSnapshots = refreshSnapshotsOnOpen;
+    if (refreshOpeningSnapshots && !await flushTextareas()) return;
+    const opening = { cv: documentSignature('cv'), letter: documentSignature('letter') };
     // Sync also runs on application load and must preserve the selected workflow stage.
     await checkProposals(false);
     if (stopped() || error.value) return;
+    if (refreshOpeningSnapshots) {
+      // Publish drafts typed during the history fetch before checking eligibility.
+      if (!await flushTextareas() || stopped()) return;
+      refreshUnrefinedSnapshots(opening);
+      refreshSnapshotsOnOpen = false;
+    }
     await applyCurrentProposal();
     if (stopped() || error.value) return;
     const currentCvProposal = currentPublishedRequest.value?.request_json.scope === 'cv' && pane.value === 'cv'
@@ -990,7 +1060,8 @@ async function syncRefinement() {
     notice.value = proposals.value.length || !preparedSource.value || scopeLocked.value
       ? text('Synced. Available proposals are up to date.', 'Synchronisiert. Verfügbare Vorschläge sind aktuell.')
       : text('Snapshot synced. Copy the task to create the initial draft.', 'Snapshot synchronisiert. Aufgabe kopieren, um den ersten Entwurf zu erstellen.');
-  } finally { syncing.value = false; }
+  } catch (cause) { if (!stopped()) report(cause); }
+  finally { syncing.value = false; }
 }
 async function copyIterationTask() {
   if (busy.value || refreshing.value || scopeLocked.value) return;
@@ -1263,7 +1334,7 @@ async function resetDocumentBeforeClearing(scope: DocumentScope) {
     nextLetter = createApplicationLetter(props.userId, props.application.id, template, templateContext);
     nextLetter.revisions = saveWorkingRevision(letter.value).revisions;
   }
-  const previous = { record: record.value, letter: letter.value, approvals: approvals.value, parent: parentProposalIds.value[scope], selected: selectedProposalId.value, review: reviewActive.value, resetRequests: resetRequestIdsByScope.value[scope], pendingReset: pendingResetFeedback.value[scope], iterationSubmission: iterationFeedbackSubmission.value[scope] };
+  const previous = { record: record.value, letter: letter.value, approvals: approvals.value, parent: parentProposalIds.value[scope], selected: selectedProposalId.value, review: reviewActive.value, resetRequests: resetRequestIdsByScope.value[scope], pendingReset: pendingResetFeedback.value[scope], iterationSubmission: iterationFeedbackSubmission.value[scope], resetCvStateSignature: resetCvStateSignature.value };
   const resetFeedback = pendingResetFeedback.value[scope] || (feedbackHistory().length ? {
     id: crypto.randomUUID(), requestId: row?.request_json.scope === scope ? row.id : null,
     text: `Workflow reset: for the ${scope === 'cv' ? 'CV' : 'motivation letter'} only, ignore earlier feedback and annotation answers. Start from ${scope === 'cv' ? 'the restored original CV' : 'an empty letter using the selected template'} and use only feedback explicitly provided after this reset. Keep the other document’s guidance active.`,
@@ -1273,6 +1344,9 @@ async function resetDocumentBeforeClearing(scope: DocumentScope) {
     record.value = nextRecord; letter.value = nextLetter; approvals.value = { ...approvals.value, [scope]: null };
     parentProposalIds.value[scope] = null; selectedProposalId.value = ''; reviewActive.value = false;
     resetRequestIdsByScope.value[scope] = [...new Set([...resetRequestIdsByScope.value[scope], ...scopedRequests.value.map(request => request.id)])];
+    // Save the restored state before clearing remotely. Surviving request IDs
+    // keep this receipt ineligible until a history read confirms the reset.
+    if (scope === 'cv') resetCvStateSignature.value = refinementSignature(nextRecord.state);
     // Commit the retry receipt with the restored documents before the cloud write.
     pendingResetFeedback.value[scope] = resetFeedback;
     iterationFeedbackSubmission.value[scope] = null;
@@ -1286,6 +1360,7 @@ async function resetDocumentBeforeClearing(scope: DocumentScope) {
       resetRequestIdsByScope.value[scope] = previous.resetRequests;
       pendingResetFeedback.value[scope] = previous.pendingReset;
       iterationFeedbackSubmission.value[scope] = previous.iterationSubmission;
+      resetCvStateSignature.value = previous.resetCvStateSignature;
     } finally { committingSelection = false; }
     throw new Error(saveError.value);
   }
@@ -1403,7 +1478,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
           <div class="proposal-preview-action" :class="{ 'proposal-preview-action--sidebar': desktopSidebar }">
             <RefinementComparisonToggle v-if="showLetterComparison" v-model="reviewComparison" :lang="lang" :disabled="busy" />
             <button v-else-if="pane === 'cv' && selectedProposal" type="button" :disabled="busy" :aria-pressed="reviewActive" @click="reviewActive ? discardReview() : openProposal()">{{ reviewActive ? text('Close preview', 'Vorschau schließen') : text('Preview proposal', 'Vorschlag ansehen') }}</button>
-            <button class="refinement-icon-action" type="button" :disabled="busy || refreshing || syncing" @click="syncRefinement"><FontAwesomeIcon :icon="faRotate" aria-hidden="true" />{{ syncing ? text('Syncing…', 'Synchronisieren…') : text('Sync', 'Synchronisieren') }}</button>
+            <button class="refinement-icon-action" type="button" :disabled="busy || refreshing || syncing" @click="syncRefinement()"><FontAwesomeIcon :icon="faRotate" aria-hidden="true" />{{ syncing ? text('Syncing…', 'Synchronisieren…') : text('Sync', 'Synchronisieren') }}</button>
           </div>
         </DesktopSidebarPortal>
         <div class="refinement-controls">

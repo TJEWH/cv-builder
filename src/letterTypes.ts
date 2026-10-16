@@ -59,7 +59,7 @@ export interface ApplicationLetter {
   applicationId: string;
   userId: string;
   templateId: string;
-  /** Frozen on selection; older local backups are pinned when loaded. */
+  /** Captured on selection; untouched applications can refresh it on open. */
   templateSnapshot?: LetterTemplate;
   instructions: string;
   language: string;

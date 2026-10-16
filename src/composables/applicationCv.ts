@@ -9,12 +9,12 @@ export interface ApplicationCvRecord {
   userId: string;
   applicationId: string;
   baseId: string;
-  /** Optional legacy library provenance; the working CV remains independent. */
+  /** Library source identity; only an unrefined working copy can refresh on open. */
   variantId?: string;
   /** Legacy backup provenance retained without changing the independent working copy. */
   detached?: boolean;
   baseName: string;
-  /** Legacy snapshot revision retained for saved application and refinement compatibility. */
+  /** Revision of the captured source; advances when an untouched snapshot refreshes. */
   baseRevision: number;
   baseState: CvState;
   state: CvState;

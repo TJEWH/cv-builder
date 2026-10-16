@@ -25,7 +25,7 @@ The owner starts each application with copies from a reusable document library a
 - In **CV Studio**, edit career variants, CV content, document design, privacy settings, letter templates, and local attachments. You do not need an account.
 - In **Opportunities**, review research and requirements, record interest, and create applications. The catalogue comes from outside the app; the app does not conduct searches.
 - In **Applications**, move between Preparation, Refinement, Attachments, and Tracking in any order.
-- Select CV and letter templates to create independent application copies pinned to their source revisions. Later library edits do not change those copies.
+- Select CV and letter templates to create independent application copies. On opening an application, untouched copies refresh from changed sources after checking refinement history. Proposals, manual document edits and approvals protect each document; clearing its refinement history makes the restored copy eligible again on the next open.
 - In Refinement, share privacy-filtered sources with ChatGPT through the connected Supabase workflow. A valid proposal for the current snapshot updates the selected document's working copy. Review the result, answer annotations, edit wording, and approve the CV and letter separately.
 - In Attachments, order the CV, letter, and selected supporting documents, then preview and download the PDF package. Submit it through the institution's portal or email and update the application status yourself.
 
