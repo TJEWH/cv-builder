@@ -32,7 +32,6 @@ import { buildShortRefinementInstruction } from '../composables/applicationRefer
 import { resolveRefinementSettings, serializeRefinementDraft, sameRefinementInputs } from '../composables/refinementSources';
 import RefinementAnnotations from './RefinementAnnotations.vue';
 import RefinementChangeReview from './RefinementChangeReview.vue';
-import RefinementPreviewStatus from './RefinementPreviewStatus.vue';
 import RefinementComparisonToggle from './RefinementComparisonToggle.vue';
 import { annotationViews, annotationReferenceChanged, annotationFeedback, validateAnnotationReview } from '../composables/refinementAnnotations';
 import { useToastWatch } from '../composables/useToasts';
@@ -327,7 +326,7 @@ const selectedRequest = computed(() => requests.value.find(item => item.id === s
 const selectedLocalRequest = computed(() => selectedProposal.value ? localRequests.value[selectedProposal.value.request_id] : undefined);
 const reviewScope = computed(() => selectedLocalRequest.value?.request.scope || selectedRequest.value?.request_json.scope);
 const showReviewPreview = computed(() => reviewActive.value && tab.value === 'refinement');
-const showCvReview = computed(() => showReviewPreview.value && reviewScope.value !== 'letter');
+const showCvReview = computed(() => tab.value === 'refinement' && pane.value === 'cv' && hasActiveProposal.value && reviewScope.value !== 'letter');
 const showLetterComparison = computed(() => tab.value === 'refinement' && pane.value === 'letter' && hasActiveProposal.value && reviewScope.value !== 'cv');
 const showLetterReview = computed(() => (showReviewPreview.value || showLetterComparison.value) && reviewScope.value !== 'cv');
 const currentPublishedRequest = computed(() => requests.value.find(item => item.id === currentRequestId.value) || null);
@@ -436,11 +435,6 @@ const cvChangeReviewError = computed(() => {
   try { checkedProposalResult(true); return ''; }
   catch (cause) { return cause instanceof Error ? cause.message : String(cause); }
 });
-const proposalSourceOutdated = computed(() => {
-  const row = selectedProposal.value, local = selectedLocalRequest.value;
-  if (!row || !local || proposalAlreadyApplied.value) return false;
-  return local.baselineSignature !== currentSourceSignature(local) || local.request.scope === 'cv' && local.cv.sourceVariantId !== (record.value?.variantId || record.value?.baseId) || currentRequestId.value !== row.request_id;
-});
 // The latest accepted letter remains editable while its source stays available
 // for comparison. CV-only acceptances and older letter proposals do not replace it.
 const selectedWorkingLetter = computed(() => {
@@ -458,7 +452,7 @@ watch(() => selectedProposal.value?.id, () => {
   reviewActive.value = !!selectedProposal.value && pane.value !== 'letter';
 }, { flush: 'sync' });
 const temporaryReview = computed(() => {
-  if (!reviewActive.value && !showLetterComparison.value) return { result: null, error: '' };
+  if (!reviewActive.value && !showCvReview.value && !showLetterComparison.value) return { result: null, error: '' };
   try {
     const row = selectedProposal.value, local = selectedLocalRequest.value, source = selectedRequest.value;
     if (!row || !local) throw new Error(text('Restore the original local snapshot to preview this proposal.', 'Ursprünglichen lokalen Snapshot wiederherstellen, um diesen Vorschlag anzusehen.'));
@@ -469,18 +463,47 @@ const temporaryReview = computed(() => {
 });
 const reviewAcceptanceError = computed(() => {
   if ((!reviewActive.value && !showLetterComparison.value) || proposalAlreadyApplied.value || showLetterComparison.value && selectedWorkingLetter.value) return '';
-  try { checkedProposalResult(); return ''; }
+  try { checkedProposalResult(pane.value === 'cv'); return ''; }
   catch (cause) { return cause instanceof Error ? cause.message : String(cause); }
 });
 const documentPreviewKey = computed(() => JSON.stringify([
-  props.application.id, showReviewPreview.value, showLetterComparison.value, reviewComparison.value,
+  props.application.id, showCvReview.value, showLetterComparison.value, reviewComparison.value,
   selectedProposal.value?.id, includeProposedLetter.value,
 ]));
-const previewCvState = computed(() => {
+const currentCvState = computed(() => {
+  // An editable current document must never replay an outdated selection over
+  // manual changes, an approved CV, or a newer refinement round.
   if (!showCvReview.value) return record.value?.state || null;
   if (!temporaryReview.value.result) return null;
-  return reviewComparison.value === 'original' ? selectedLocalRequest.value!.cv.baselineState : temporaryReview.value.result.state;
+  if (cvChangeReviewError.value || cvApproved.value) return record.value?.state || null;
+  return temporaryReview.value.result.state;
 });
+const previewCvState = computed(() => {
+  if (showCvReview.value && reviewComparison.value === 'original' && temporaryReview.value.result) return selectedLocalRequest.value!.cv.baselineState;
+  return currentCvState.value;
+});
+const cvEditorState = ref<CvState | null>(null);
+let syncingCvEditor = false;
+watch(() => refinementSignature(currentCvState.value || record.value?.state), () => {
+  const current = currentCvState.value || record.value?.state;
+  if (refinementSignature(cvEditorState.value) === refinementSignature(current)) return;
+  syncingCvEditor = true;
+  try { cvEditorState.value = current ? cloneCv(current) : null; }
+  finally { syncingCvEditor = false; }
+}, { immediate: true, flush: 'sync' });
+watch(cvEditorState, state => {
+  if (syncingCvEditor || !state || !record.value || cvApproved.value || busy.value
+    || refinementSignature(state) === refinementSignature(currentCvState.value)) return;
+  // FormBuilder publishes textarea changes on commit. Materialize the displayed
+  // selection together with that edit locally, without publishing or approving.
+  record.value = { ...record.value, state: cloneCv(state), revision: record.value.revision + 1, updatedAt: new Date().toISOString() };
+  reviewComparison.value = 'proposed';
+  reviewActive.value = false;
+  persist();
+}, { deep: true, flush: 'sync' });
+async function selectComparison(value: 'original' | 'proposed') {
+  if (await flushTextareas()) reviewComparison.value = value;
+}
 const previewLetterContent = computed(() => {
   if (!showLetterReview.value || comparingWorkingLetter.value) return letter.value?.working;
   if (!temporaryReview.value.result || !selectedLocalRequest.value?.letterBaseline) return undefined;
@@ -497,12 +520,6 @@ const previewLetterCvState = computed(() => {
   return letterCvState.value ? applyLetterHeader(snapshot, captureLetterHeaderSource(selectedCvId.value, letterCvState.value)) : snapshot;
 });
 const previewLetterLanguage = computed(() => showLetterReview.value && !comparingWorkingLetter.value ? selectedLocalRequest.value?.letterBaseline?.setup.language || props.lang : letter.value?.language || props.lang);
-const proposalPreviewReference = computed(() => selectedProposal.value ? selectedProposal.value.id + ' · ' + new Date(selectedProposal.value.created_at).toLocaleString() : '');
-function reviewPreviewLabel(document: 'cv' | 'letter') {
-  if (reviewComparison.value === 'original' || document === 'letter' && !showLetterComparison.value && !includeProposedLetter.value) return text('Original source snapshot', 'Ursprünglicher Quellen-Snapshot');
-  if (document === 'letter' && comparingWorkingLetter.value) return text('Current working letter', 'Aktuelle Arbeitsfassung des Briefs');
-  return proposalAlreadyApplied.value ? text('Accepted refinement', 'Angenommene Überarbeitung') : text('Proposed refinement — not yet accepted', 'Vorgeschlagene Überarbeitung — noch nicht angenommen');
-}
 const proposalAnnotations = computed(() => annotationViews(selectedProposal.value, reviews.value).map(view => {
   const currentLetter = record.value ? sanitizeRefinementText(serializeRefinementDraft(previewLetterContent.value).text, record.value.state) : '';
   const a = view.annotation;
@@ -532,8 +549,8 @@ function onReviewTabKeydown(event: KeyboardEvent, value: ReviewTab) {
   const tabs = (event.currentTarget as HTMLElement).parentElement;
   void selectReviewTab(next).then(changed => { if (changed) tabs?.querySelector<HTMLButtonElement>(`[data-review-tab="${next}"]`)?.focus(); });
 }
-// Return to saved documents on leaving review; keep ignored proposals closed on return.
-watch(tab, value => { if (value !== 'refinement') reviewActive.value = false; });
+// The comparison stays available on return; only the acceptance transaction ends.
+watch(tab, value => { if (value !== 'refinement') discardReview(); });
 watch([cvApproved, letterApproved], ([cv, letter]) => {
   if (committingSelection) return;
   if (cv && !letter && feedbackScope.value !== 'letter') feedbackScope.value = 'letter';
@@ -953,7 +970,7 @@ async function applyCurrentProposal(id?: string) {
     await run(async () => { await applyPendingCvSelection(local); });
     if (error.value || disposed) return;
     selectedProposalId.value = candidate.id;
-    reviewActive.value = tab.value === 'refinement';
+    reviewActive.value = tab.value === 'refinement' && !cvChangeReviewError.value;
     return;
   }
   if (local.acceptances?.some(receipt => receipt.proposalId === candidate.id)) return;
@@ -1165,7 +1182,7 @@ function openProposal() {
     reviewComparison.value = 'proposed'; reviewActive.value = pane.value !== 'letter';
     if (temporaryReview.value.error) throw new Error(temporaryReview.value.error);
     notice.value = pane.value === 'cv'
-      ? text('Previewing active changes. They will apply when the next requested refinement arrives.', 'Vorschau der aktiven Änderungen. Sie werden übernommen, sobald die nächste angeforderte Überarbeitung eintrifft.')
+      ? text('Showing the current CV with active changes and its previous snapshot.', 'Aktueller CV mit aktiven Änderungen und vorherigem Snapshot angezeigt.')
       : text('Temporary review only. Saved documents and approvals remain unchanged until you accept the selection.', 'Nur temporäre Prüfung. Gespeicherte Dokumente und Freigaben bleiben bis zur Übernahme unverändert.');
   } catch (cause) { report(cause); }
 }
@@ -1195,12 +1212,12 @@ function toggleProposedLetter(included: boolean) {
   if (busy.value || letterApproved.value || proposalAlreadyApplied.value) return;
   includeProposedLetter.value = included; reviewComparison.value = 'proposed'; reviewActive.value = pane.value !== 'letter';
 }
-function discardReview() { reviewActive.value = false; notice.value = text('Temporary preview closed. Working documents are unchanged.', 'Temporäre Vorschau geschlossen. Arbeitsfassungen sind unverändert.'); }
+function discardReview() { reviewActive.value = false; }
 async function acceptSelectedChanges() {
   if (!await flushTextareas()) return;
   await run(async () => {
     if ((!reviewActive.value && !showLetterComparison.value) || proposalAlreadyApplied.value) throw new Error('Preview the selection before accepting it.');
-    const result = checkedProposalResult();
+    const result = checkedProposalResult(pane.value === 'cv');
     const row = selectedProposal.value!, local = localRequests.value[row.request_id]!;
     const signature = currentSourceSignature(local);
     const selected = [...selectedChangeIds.value], includeLetter = includeProposedLetter.value;
@@ -1226,13 +1243,14 @@ async function acceptSelectedChanges() {
     if (disposed) return;
     if (!reviews.value.some(item => item.id === decision.id)) reviews.value.push(decision);
     if (signature !== currentSourceSignature(local) || selectionKey(row) !== key || selectedProposal.value?.id !== row.id) throw new Error('The working documents or selection changed while saving your decision. They were preserved. Review the proposal again.');
-    checkedProposalResult();
+    checkedProposalResult(pane.value === 'cv');
     // The recorded decision does not grant document approval; review the saved result separately.
     const previousRecord = record.value, previousLetter = letter.value, previousParent = parentProposalId.value;
     const previousAcceptances = local.acceptances;
+    const previousSelection = cvSelections.value[row.id];
     committingSelection = true;
     try {
-      if (local.request.scope === 'cv') record.value = nextRecord;
+      if (local.request.scope === 'cv') { record.value = nextRecord; cvSelections.value[row.id] = selected; }
       if (local.request.scope === 'letter') letter.value = nextLetter;
       local.acceptances = [...(local.acceptances || []), { key, proposalId: row.id, variantId: null, reviewId: decision.id, acceptedAt: new Date().toISOString() }];
       parentProposalId.value = row.id;
@@ -1242,7 +1260,11 @@ async function acceptSelectedChanges() {
     if (saveError.value) {
       committingSelection = true;
       try {
-        if (local.request.scope === 'cv') record.value = previousRecord;
+        if (local.request.scope === 'cv') {
+          record.value = previousRecord;
+          if (previousSelection) cvSelections.value[row.id] = previousSelection;
+          else delete cvSelections.value[row.id];
+        }
         if (local.request.scope === 'letter') letter.value = previousLetter;
         parentProposalId.value = previousParent;
         local.acceptances = previousAcceptances; reviewActive.value = pane.value !== 'letter';
@@ -1254,6 +1276,13 @@ async function acceptSelectedChanges() {
 }
 async function approve(kind: 'cv' | 'letter', reopen = false) {
   if (!await flushTextareas()) return;
+  if (kind === 'cv' && !reopen && showCvReview.value && !cvChangeReviewError.value && !proposalAlreadyApplied.value) {
+    // Approval applies to Current, even when Previous is selected for comparison.
+    reviewActive.value = true;
+    await acceptSelectedChanges();
+    if (error.value || saveError.value) return;
+  }
+  if (kind === 'cv') reviewActive.value = false;
   await run(async () => {
     if (reviewActive.value && pane.value === kind) throw new Error('Accept or close the temporary review before approving working documents.');
     if (!record.value || !letter.value) throw new Error('Select both templates first.');
@@ -1398,7 +1427,7 @@ async function getCvPdf() {
   // Finish the stage's source/identity updates before starting a cancellable export.
   await nextTick();
   if (disposed) throw new Error('The application is closed.');
-  if (showReviewPreview.value) throw new Error('Accept or close the temporary review before exporting.');
+  if (showCvReview.value) throw new Error('Open Attachments to export the approved working CV.');
   if (!cvApproved.value || !preview.value) throw new Error(text('Approve the CV before export.', 'Den CV vor dem Export freigeben.'));
   const revision = cvRevision.value; const blob = await preview.value.getPdfBlob();
   if (disposed || revision !== cvRevision.value || !cvApproved.value) throw new Error('The CV changed during export. Preview again.');
@@ -1463,7 +1492,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
           <WorkspaceMobileActions :active="active && tab === 'refinement'">
           <label class="refinement-scope"><span>{{ text('Refinement scope', 'Umfang der Überarbeitung') }}</span><select :value="feedbackScope" :disabled="busy" @change="selectScope"><option value="cv">CV</option><option value="letter">{{ text('Letter', 'Brief') }}</option></select></label>
           <div class="action-row refinement-approval">
-            <button v-if="pane === 'cv' && record" class="primary refinement-icon-action" type="button" :disabled="busy || reviewActive || !letter || !!saveError" @click="approve('cv', cvApproved)"><FontAwesomeIcon :icon="cvApproved ? faRotateLeft : faCheck" aria-hidden="true" />{{ cvApproved ? text('Reopen CV', 'CV wieder öffnen') : text('Approve CV', 'CV freigeben') }}</button>
+            <button v-if="pane === 'cv' && record" class="primary refinement-icon-action" type="button" :disabled="busy || !letter || !!saveError" @click="approve('cv', cvApproved)"><FontAwesomeIcon :icon="cvApproved ? faRotateLeft : faCheck" aria-hidden="true" />{{ cvApproved ? text('Reopen CV', 'CV wieder öffnen') : text('Approve CV', 'CV freigeben') }}</button>
             <button v-if="pane === 'letter' && letter" class="primary refinement-icon-action" type="button" :disabled="busy || reviewActive || !record || !letterText.trim() || !!saveError || (unresolved.length > 0 && !letter.finalRevisionId)" @click="approve('letter', letterApproved || !!letter.finalRevisionId)"><FontAwesomeIcon :icon="letterApproved || letter.finalRevisionId ? faRotateLeft : faCheck" aria-hidden="true" />{{ letterApproved || letter.finalRevisionId ? text('Reopen letter', 'Brief wieder öffnen') : text('Approve letter', 'Brief freigeben') }}</button>
           </div>
           </WorkspaceMobileActions>
@@ -1476,8 +1505,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
         </DesktopSidebarPortal>
         <DesktopSidebarPortal area="minor" :active="active && tab === 'refinement'">
           <div class="proposal-preview-action" :class="{ 'proposal-preview-action--sidebar': desktopSidebar }">
-            <RefinementComparisonToggle v-if="showLetterComparison" v-model="reviewComparison" :lang="lang" :disabled="busy" />
-            <button v-else-if="pane === 'cv' && selectedProposal" type="button" :disabled="busy" :aria-pressed="reviewActive" @click="reviewActive ? discardReview() : openProposal()">{{ reviewActive ? text('Close preview', 'Vorschau schließen') : text('Preview proposal', 'Vorschlag ansehen') }}</button>
+            <RefinementComparisonToggle v-if="showCvReview || showLetterComparison" :model-value="reviewComparison" :lang="lang" :disabled="busy" @update:model-value="selectComparison" />
             <button class="refinement-icon-action" type="button" :disabled="busy || refreshing || syncing" @click="syncRefinement()"><FontAwesomeIcon :icon="faRotate" aria-hidden="true" />{{ syncing ? text('Syncing…', 'Synchronisieren…') : text('Sync', 'Synchronisieren') }}</button>
           </div>
         </DesktopSidebarPortal>
@@ -1527,16 +1555,15 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
             </template>
           <details class="disclosure-row"><summary>{{ text('Edit manually', 'Manuell bearbeiten') }}</summary>
 
-          <section v-if="record" v-show="pane === 'cv'" class="working-document"><div class="action-row"><span class="app-hint">{{ text('Application copy — template stays unchanged', 'Bewerbungskopie — Vorlage bleibt unverändert') }}</span></div><fieldset :disabled="cvApproved || busy || reviewActive"><FormBuilder :state="record.state" :read-version="() => null" :save-version="() => false" /></fieldset></section>
+          <section v-if="cvEditorState" v-show="pane === 'cv'" class="working-document"><div class="action-row"><span class="app-hint">{{ text('Edit the current CV, including active changes. Previous stays unchanged.', 'Aktuellen CV einschließlich aktiver Änderungen bearbeiten. Der vorherige Stand bleibt unverändert.') }}</span></div><fieldset :disabled="cvApproved || busy"><FormBuilder :state="cvEditorState" :read-version="() => null" :save-version="() => false" /></fieldset></section>
           <section v-if="letter" v-show="pane === 'letter'" class="working-document"><label>{{ text('Complete letter text', 'Vollständiger Brieftext') }}<AutosaveTextarea :model-value="letterText" :model-modifiers="{ lazy: true }" rows="18" :disabled="letterApproved || busy || reviewActive" @update:model-value="updateLetter" /></label><p :class="{ warning: words > setup.maxWords }">{{ words }} / {{ setup.maxWords }} {{ text('target words (complete letter)', 'Zielwörter (vollständiger Brief)') }}</p><p v-if="words > setup.maxWords" class="app-hint warning">{{ text('Over the target. Review the tender limit; approval and export remain available.', 'Über der Zielwortzahl. Vorgabe prüfen; Freigabe und Export bleiben möglich.') }}</p><p v-if="unresolved.length" class="app-hint warning">{{ text('Resolve placeholders:', 'Platzhalter auflösen:') }} {{ unresolved.join(', ') }}</p><LetterFormattingControls :formatting="letter.formatting" :base-formatting="selectedTemplate.formatting" :lang="lang" :disabled="letterApproved || busy || reviewActive" @change="updateLetterFormatting" /></section>
           </details>
           <RefinementHistory :scope="pane" :requests="requests" :proposals="proposals" :local-requests="localRequests" :current-request-id="currentRequestId" :active-id="selectedProposalId" :review-active="reviewActive" :accepted="proposalAlreadyApplied" :publication-status="publicationStatus" :open="historyOpen" :lang="lang" :busy="busy || refreshing || syncing" :can-clear="canClearHistory" @clear="clearRefinementHistory" @select="selectReviewProposal" @details="historyOpen = $event" @export-request="exportRequest" @export-proposal="exportProposal" />
         </div>
         <div class="refinement-preview">
-          <RefinementPreviewStatus v-if="pane === 'cv' ? showCvReview : showLetterReview" v-model="reviewComparison" :hide-comparison="pane === 'letter'" :label="reviewPreviewLabel(pane)" :reference="proposalPreviewReference" :outdated="proposalSourceOutdated && !(showLetterComparison && selectedWorkingLetter)" :lang="lang" />
           <p v-if="reviewAcceptanceError" class="app-hint error" role="alert">{{ reviewAcceptanceError }}</p>
-          <div v-if="temporaryReview.error && (pane === 'cv' ? showCvReview : showLetterReview)" class="app-hint error" role="alert"><strong>{{ text('Proposal preview unavailable', 'Vorschlagsvorschau nicht verfügbar') }}</strong><p>{{ temporaryReview.error }}</p><p>{{ proposalPreviewReference }}</p></div>
-          <DocumentCvPreview v-if="previewCvState" v-show="pane === 'cv'" ref="preview" :preview-key="documentPreviewKey" :state="previewCvState" :active="active && tab === 'refinement' && feedbackScope === 'cv'" hide-actions :download-disabled="showReviewPreview" />
+          <div v-if="temporaryReview.error && (pane === 'cv' ? showCvReview : showLetterReview)" class="app-hint error" role="alert"><strong>{{ text('Proposal preview unavailable', 'Vorschlagsvorschau nicht verfügbar') }}</strong><p>{{ temporaryReview.error }}</p></div>
+          <DocumentCvPreview v-if="previewCvState" v-show="pane === 'cv'" ref="preview" :preview-key="documentPreviewKey" :state="previewCvState" :active="active && tab === 'refinement' && feedbackScope === 'cv'" hide-actions :download-disabled="!cvApproved || showCvReview" />
           <MotivationLetterPreview v-if="previewLetterContent" v-show="pane === 'letter'" ref="letterPreview" :preview-key="documentPreviewKey" :cv-state="previewLetterCvState" :content="previewLetterContent" :formatting="effectiveLetterFormatting" :lang="previewLetterLanguage" :active="active && tab === 'refinement' && feedbackScope === 'letter'" hide-actions :download-disabled="!letterApproved || showReviewPreview" />
         </div>
       </section>

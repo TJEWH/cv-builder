@@ -37,9 +37,8 @@ interface WorkspaceSetup {
   publishSources(): Promise<void>; checkProposals(): Promise<void>; syncRefinement(): Promise<void>; openProposal(): void; selectReviewProposal(id: string): void;
   acceptSelectedChanges(): Promise<void>; toggleProposedChange(id: string, included: boolean): void; toggleProposedLetter(included: boolean): void; discardReview(): void;
   selectedChangeIds: string[]; includeProposedLetter: boolean; reviewActive: boolean; previewCvState: CvState | null;
-  tab: 'preparation' | 'refinement' | 'review' | 'tracking'; reviewComparison: 'original' | 'proposed'; proposalSourceOutdated: boolean;
+  tab: 'preparation' | 'refinement' | 'review' | 'tracking'; reviewComparison: 'original' | 'proposed';
   previewLetterCvState: CvState | null; previewLetterLanguage: string; localRequests: Record<string, LocalRefinementRequest>;
-  reviewPreviewLabel(document: 'cv' | 'letter'): string;
   previewLetterContent: ApplicationLetter['working'] | undefined; temporaryReview: { result: { state: CvState; letterText: string } | null; error: string }; reviewAcceptanceError: string;
   proposalChanges: { id: string; type: string; status: 'proposed' | 'accepted' | 'rejected'; before: string; after: string; target: string }[];
   proposalAnnotations: (import('../src/composables/refinementAnnotations').AnnotationView & { referenceChanged: boolean; included: boolean })[];
@@ -973,16 +972,17 @@ test('loaded structured changes immediately preview without accepting, and each 
   assert.ok(setup.proposalChanges.filter(change => accepted.includes(change.id)).every(change => change.status === 'accepted'));
 });
 
-test('closing or reopening a temporary review stays read-only and manual corrections block application after reload', async (t) => {
+test('Current stays visible without a review mode and manual corrections block outdated application after reload', async (t) => {
   const fixture = mount(t);
   let setup = fixture.setup;
   await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
   setup.updateLetter('Retained manual letter.'); await setup.publishSources(); const proposal = fixture.cloud.seedProposal(setup.requests[0].id);
   await setup.checkProposals();
   const original = JSON.stringify({ record: setup.record, letter: setup.letter });
+  const current = cloneCv(setup.previewCvState!);
   setup.discardReview();
   assert.equal(setup.reviewActive, false);
-  assert.deepEqual(setup.previewCvState, setup.record?.state);
+  assert.deepEqual(setup.previewCvState, current);
   setup.openProposal();
   assert.equal(setup.reviewActive, true);
   assert.deepEqual(JSON.parse(JSON.stringify({ record: setup.record, letter: setup.letter })), JSON.parse(original));
@@ -1110,7 +1110,7 @@ test('stale annotation updates and failed saves preserve documents and do not cl
   assert.equal(JSON.stringify({ record: setup.record, letter: setup.letter }), before);
 });
 
-test('Original and Proposed use the exact published baseline after local edits and preserve working documents', async (t) => {
+test('Previous keeps the published baseline and Current preserves manual working edits', async (t) => {
   const { setup, cloud, storage } = mount(t);
   await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
   setup.letter!.working = { subject: 'Research interest', salutation: 'To the research committee:', body: 'The original private working letter.', closing: 'With sincere interest,\nPrivate applicant' };
@@ -1125,7 +1125,6 @@ test('Original and Proposed use the exact published baseline after local edits a
   await setup.checkProposals();
   assert.equal(setup.selectedProposalId, proposal.id);
   assert.equal(setup.reviewComparison, 'proposed');
-  assert.equal(setup.proposalSourceOutdated, true);
   assert.equal(setup.previewLetterContent?.body, 'A newer manual letter correction.');
   assert.equal(setup.previewLetterCvState?.contact.role, 'A newer local role', 'letter comparisons keep the current sender');
   assert.match(setup.reviewAcceptanceError, /changed after this request/);
@@ -1133,7 +1132,6 @@ test('Original and Proposed use the exact published baseline after local edits a
   setup.reviewComparison = 'original'; await nextTick();
   assert.deepEqual(setup.previewCvState, baselineCv);
   assert.deepEqual(setup.previewLetterContent, setup.letter!.working);
-  assert.equal(setup.reviewPreviewLabel('cv'), 'Original source snapshot');
   setup.reviewComparison = 'proposed'; await nextTick();
   assert.deepEqual(setup.previewCvState, candidate);
   assert.deepEqual(setup.previewLetterContent, setup.letter!.working, 'the other document remains on its current saved content');
@@ -1153,7 +1151,7 @@ for (const scope of ['cv', 'letter'] as const) test(`${scope}-only proposals lea
   if (scope === 'cv') {
     assert.deepEqual(setup.previewLetterContent, setup.letter!.working);
     assert.deepEqual(setup.previewLetterCvState, setup.record!.state);
-    assert.notDeepEqual(setup.previewCvState?.bodyOrder, baselineCv.bodyOrder);
+    assert.deepEqual(setup.previewCvState, setup.record!.state, 'Current keeps manual edits instead of replaying outdated suggestions');
     setup.reviewComparison = 'original';
     assert.deepEqual(setup.previewLetterContent, setup.letter!.working);
     assert.deepEqual(setup.previewLetterCvState, setup.record!.state);
@@ -1168,7 +1166,7 @@ for (const scope of ['cv', 'letter'] as const) test(`${scope}-only proposals lea
   }
 });
 
-test('missing private mappings produce no misleading proposed fallback and dismissal stays closed across tabs', async (t) => {
+test('missing private mappings remain a comparison error across scope revisits without altering documents', async (t) => {
   const { setup, cloud, database } = mount(t);
   await idle(setup); await setup.selectCv('base'); await idle(setup); await setup.selectLetterTemplate('research');
   setup.updateLetter('Existing letter.'); setup.feedbackScope = 'cv'; await setup.publishSources();
@@ -1184,11 +1182,11 @@ test('missing private mappings produce no misleading proposed fallback and dismi
   setup.reviewComparison = 'original';
   assert.equal(setup.previewCvState, null, 'invalid reconstruction is not disguised as an original/proposed comparison');
   setup.discardReview();
-  assert.deepEqual(setup.previewCvState, setup.record!.state);
+  assert.equal(setup.previewCvState, null);
   assert.deepEqual(setup.previewLetterContent, setup.letter!.working);
   setup.tab = 'review'; await nextTick(); setup.tab = 'refinement'; await idle(setup);
   assert.equal(setup.reviewActive, false);
-  assert.deepEqual(setup.previewCvState, setup.record!.state);
+  assert.equal(setup.previewCvState, null);
   assert.equal(JSON.stringify({ record: setup.record, letter: setup.letter }), original);
   assert.equal(database.application_refinement_reviews.length, 0);
 });

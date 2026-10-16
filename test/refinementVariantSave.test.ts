@@ -48,7 +48,7 @@ test('saving a pending CV flattens exactly its selected changes without acceptin
   assert.deepEqual(fixture.states.get(fixture.creations[0].id), expected, 'later selection changes do not alter the saved base state');
 });
 
-test('saving the original comparison and closed preview uses the displayed CV in each case', async t => {
+test('saving Previous and Current uses the displayed CV in each case', async t => {
   const { fixture, setup, proposal } = await pendingCv(t);
   setup.record!.state.about.text = 'A later working edit that is absent from the proposal source.';
   setup.reviewComparison = 'original';
@@ -58,7 +58,7 @@ test('saving the original comparison and closed preview uses the displayed CV in
   await setup.saveCurrentVariant();
   assert.equal(setup.error, '');
   assert.deepEqual(fixture.creations[0].state, source);
-  setup.discardReview();
+  await setup.selectComparison('proposed');
   const working = cloneCv(setup.record!.state);
   assert.deepEqual(setup.previewCvState, working);
   setup.variantName = 'Current working CV';
@@ -68,15 +68,15 @@ test('saving the original comparison and closed preview uses the displayed CV in
   assert.deepEqual(fixture.states.get(fixture.creations[0].id), source);
 });
 
-test('a correctly reconstructed historical preview can be saved independently of newer working edits', async t => {
+test('Current saves newer working edits instead of replaying an outdated historical candidate', async t => {
   const { fixture, setup } = await pendingCv(t);
-  const historical = cloneCv(setup.previewCvState!);
   setup.record!.state.about.text = 'Current working content after publication.';
+  const current = cloneCv(setup.record!.state);
   assert.match(setup.reviewAcceptanceError, /changed|outdated/i);
-  setup.variantName = 'Historical candidate';
+  setup.variantName = 'Current edited CV';
   await setup.saveCurrentVariant();
   assert.equal(setup.error, '');
-  assert.deepEqual(fixture.creations[0].state, historical);
+  assert.deepEqual(fixture.creations[0].state, current);
   assert.equal(setup.record!.state.about.text, 'Current working content after publication.');
   assert.equal(setup.localRequests[setup.requests[0].id].acceptances?.length || 0, 0);
 });

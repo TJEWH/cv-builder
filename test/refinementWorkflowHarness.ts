@@ -28,6 +28,8 @@ export interface Workspace {
   requests: RefinementRequestRow[]; proposals: RefinementProposalRow[]; localRequests: Record<string, LocalRefinementRequest>;
   selectedChangeIds: string[]; includeProposedLetter: boolean; reviewActive: boolean;
   previewCvState: CvState | null; previewLetterContent: ApplicationLetter['working'] | undefined;
+  cvEditorState: CvState | null; currentCvState: CvState | null;
+  selectComparison(value: 'original' | 'proposed'): Promise<void>;
   previewLetterCvState: CvState | null; reviewComparison: 'original' | 'proposed';
   temporaryReview: { error: string }; proposalAlreadyApplied: boolean; baselineSignature: string;
   preview: { getPdfBlob(): Promise<Blob> } | null; letterPreview: { getPdfBlob(): Promise<Blob> } | null;

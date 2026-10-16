@@ -45,7 +45,7 @@ const Preview = {
   useDocumentPdfPreview: () => ({ pages: ref([{ svg: 'current shared PDF' }]), page: ref(1), busy: ref(false), downloading: ref(false), error: ref(''), getPdfBlob: async () => new Blob(), download: async () => {} }),
 };
 
-for (const document of ['CV', 'letter'] as const) test(`${document} inline and expanded surfaces synchronize Original/Proposed controls`, async t => {
+for (const document of ['CV', 'letter'] as const) test(`${document} inline and expanded surfaces synchronize Previous/Current controls`, async t => {
   const Document = compile(document === 'CV' ? 'DocumentCvPreview.vue' : 'MotivationLetterPreview.vue', {
     './InlineDocumentPreview.vue': surface('inline'), './FullDocumentPreview.vue': surface('expanded'),
     '../composables/useDocumentPdfPreview': Preview,
@@ -70,18 +70,18 @@ for (const document of ['CV', 'letter'] as const) test(`${document} inline and e
       const groups = find(element, child => child.props.role === 'group' && child.props['aria-label'] === 'Compare proposal');
       assert.equal(groups.length, 1, 'each preview exposes one labelled comparison group');
       const buttons = find(groups[0], child => child.tag === 'button');
-      assert.deepEqual(buttons.map(content), ['Original', 'Proposed']);
+      assert.deepEqual(buttons.map(content), ['Previous', 'Current']);
       assert.deepEqual(buttons.map(button => button.props['aria-pressed']), [selected === 'original', selected === 'proposed']);
     }
   };
   assertComparison('proposed');
-  const original = find(surfaces[1], child => child.tag === 'button' && content(child) === 'Original')[0];
-  assert.ok(original, 'the expanded preview offers the Original toggle');
+  const original = find(surfaces[1], child => child.tag === 'button' && content(child) === 'Previous')[0];
+  assert.ok(original, 'the expanded preview offers the Previous toggle');
   (original.props.onClick as () => void)();
   await nextTick();
   assertComparison('original');
-  const proposed = find(surfaces[0], child => child.tag === 'button' && content(child) === 'Proposed')[0];
-  assert.ok(proposed, 'the inline preview offers the Proposed toggle');
+  const proposed = find(surfaces[0], child => child.tag === 'button' && content(child) === 'Current')[0];
+  assert.ok(proposed, 'the inline preview offers the Current toggle');
   (proposed.props.onClick as () => void)();
   await nextTick();
   assertComparison('proposed');

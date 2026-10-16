@@ -26,7 +26,8 @@ The owner starts each application with copies from a reusable document library a
 - In **Opportunities**, review research and requirements, record interest, and create applications. The catalogue comes from outside the app; the app does not conduct searches.
 - In **Applications**, move between Preparation, Refinement, Attachments, and Tracking in any order.
 - Select CV and letter templates to create independent application copies. On opening an application, untouched copies refresh from changed sources after checking refinement history. Proposals, manual document edits and approvals protect each document; clearing its refinement history makes the restored copy eligible again on the next open.
-- In Refinement, share privacy-filtered sources with ChatGPT through the connected Supabase workflow. A valid proposal for the current snapshot updates the selected document's working copy. Review the result, answer annotations, edit wording, and approve the CV and letter separately.
+- In Refinement, share privacy-filtered sources with ChatGPT through the connected Supabase workflow. Letter proposals update the working letter; CV suggestions appear in Current for review. Review the result, answer annotations, edit wording, and approve the CV and letter separately.
+- CV and letter previews share **Previous** / **Current** controls. The CV preview stays visible, and manual editing starts from Current with its active suggestions. Saving an edit or approving the CV keeps that version as the application copy; Previous stays unchanged.
 - In Attachments, order the CV, letter, and selected supporting documents, then preview and download the PDF package. Submit it through the institution's portal or email and update the application status yourself.
 
 ## Capabilities and Constraints

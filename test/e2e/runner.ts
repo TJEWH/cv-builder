@@ -162,8 +162,8 @@ async function cvFlow() {
   await click('Sync'); assert(!checkbox.checked, 'Sync must retain the exclusion');
   checkbox.click(); await settle();
   const applied = refinementSignature(setup.previewCvState);
-  await click('Original', root.querySelector('.refinement-preview')!); assert(same(setup.previewCvState, local.cv.baselineState), 'Original preview must use the frozen CV');
-  await click('Proposed', root.querySelector('.refinement-preview')!);
+  await click('Previous', root.querySelector('.proposal-preview-action')!); assert(same(setup.previewCvState, local.cv.baselineState), 'Original preview must use the frozen CV');
+  await click('Current', root.querySelector('.proposal-preview-action')!);
   await click('Copy feedback');
   assert(!setup.error && refinementSignature(setup.record!.state) === original, 'Copying must leave changes pending');
   const next = fixture.cloud.seedProposal(setup.requests[0].id, { persist: false });
@@ -173,7 +173,7 @@ async function cvFlow() {
   await mount(true); await click('Sync');
   assert(fixture.creations.length === 0 && refinementSignature(setup.record!.state) === applied, 'Reload must preserve the committed selection');
   assert(root.querySelector('.refinement-variant-save'), 'An unapproved CV must offer an independent variant save');
-  if (setup.reviewActive) await click('Close preview');
+  assert(![...root.querySelectorAll('button')].some(button => /Close preview|Preview proposal/.test(button.textContent || '')), 'CV preview must not require an open/close mode');
   await field('Variant name', 'Refined robotics CV');
   const applicationCopy = snapshot();
   await click('Save as new CV variant');
@@ -183,6 +183,40 @@ async function cvFlow() {
   assert(button('Variant saved').disabled, 'Repeated saves must be disabled once the current CV is saved');
   await mount(true);
   assert(button('Variant saved').disabled && Number(fixture.creations.length) === 1, 'Reload must retain the saved variant receipt');
+}
+async function currentCvEditingFlow() {
+  await prepare('cv');
+  const row = fixture.cloud.seedProposal(setup.requests[0].id, { persist: false });
+  await loadProposal(row); await rendered('cv', 'E2E South Lab');
+  const original = refinementSignature(setup.localRequests[row.request_id].cv.baselineState);
+  const current = refinementSignature(setup.previewCvState);
+  const actions = root.querySelector(sidebarEnabled() ? '#desktop-sidebar-minor' : '.proposal-preview-action')!;
+  assert(actions.contains(button('Previous')) && actions.contains(button('Current')), 'CV comparison must share the letter action area');
+  assert(!root.querySelector('.refinement-preview .refinement-comparison'), 'The inline preview must not duplicate comparison buttons');
+  assert(![...root.querySelectorAll('button')].some(button => /Preview proposal|Close preview/.test(button.textContent || '')), 'CV has no temporary preview mode');
+  await disclose('Edit manually');
+  const editor = root.querySelector<HTMLElement>('.working-document .builder')!;
+  const profileHeading = button('Profile', editor);
+  if (profileHeading.getAttribute('aria-expanded') === 'false') { profileHeading.click(); await nextTick(); }
+  const profile = editor.querySelector<HTMLTextAreaElement>('.about-editor textarea')!;
+  assert(profile && !profile.matches(':disabled'), 'Current CV must stay manually editable with a proposal loaded');
+  assert(profile.value === setup.previewCvState!.about.text, 'The editor must begin with the active CV suggestions');
+  assert(refinementSignature(setup.cvEditorState) === current, 'All editor sections must use the Current preview');
+  await click('Previous', actions);
+  assert(refinementSignature(setup.previewCvState) === original, 'Previous must show the frozen source');
+  const revised = 'My manually edited current research profile.';
+  profile.value = revised; profile.dispatchEvent(new Event('input', { bubbles: true }));
+  await nextTick();
+  assert(setup.record!.state.about.text !== revised, 'Typing must remain local until textarea commit');
+  profile.dispatchEvent(new FocusEvent('blur')); await settle();
+  assert(setup.record!.state.about.text === revised && setup.previewCvState!.about.text === revised, 'Saving edits must update Current and its preview');
+  assert(setup.reviewComparison === 'proposed', 'Editing while comparing Previous must return to Current');
+  assert(refinementSignature(setup.localRequests[row.request_id].cv.baselineState) === original, 'Manual edits must not alter Previous');
+  await click('Previous', actions); await click('Current', actions);
+  assert(setup.previewCvState!.about.text === revised, 'Comparison must preserve manual changes');
+  await mount(true); await click('Sync'); await disclose('Edit manually');
+  assert(setup.record!.state.about.text === revised && setup.previewCvState!.about.text === revised, 'Reload must preserve editable Current');
+  assert(!root.querySelector('.working-document .builder textarea')?.matches(':disabled'), 'Reload must not reintroduce a preview-mode editing lock');
 }
 async function letterFlow(initial: boolean) {
   const original = initial ? '' : 'Approved existing working draft.';
@@ -201,8 +235,8 @@ async function letterFlow(initial: boolean) {
   assert(root.querySelectorAll('.current-review .annotation-row').length === row.proposal_json.annotations!.filter(item => item.document === 'letter').length, 'Questions must retain legacy letter ToDos');
   assert(!root.querySelector('.proposal-content')?.textContent?.includes('Include proposed letter'), 'Letter selection toggle must be removed');
   assert(!surface('letter').querySelector('.document-inline-preview__actions'), 'Refinement must not show standalone preview/download actions');
-  await click('Original', root.querySelector('.proposal-preview-action')!); assert(setup.previewLetterContent!.body === original, 'Comparison did not show the exact original letter');
-  await click('Proposed', root.querySelector('.proposal-preview-action')!); assert(same(setup.previewLetterContent!.body, text), 'Proposed comparison differs from applied letter');
+  await click('Previous', root.querySelector('.proposal-preview-action')!); assert(setup.previewLetterContent!.body === original, 'Comparison did not show the exact original letter');
+  await click('Current', root.querySelector('.proposal-preview-action')!); assert(same(setup.previewLetterContent!.body, text), 'Proposed comparison differs from applied letter');
   const revisions = setup.letter!.revisions.length;
   await mount(true); await click('Sync'); await rendered('letter', text);
   assert(setup.letter!.working.body === text && setup.letter!.revisions.length === revisions, 'Repeated sync or reload duplicated the applied letter');
@@ -214,7 +248,7 @@ async function proposalReviewFlow() {
   first.proposal_json.annotations!.find(annotation => annotation.document === 'letter')!.type = 'question';
   await loadProposal(first); await rendered('letter', 'First automatically applied proposal.');
   const minor = root.querySelector(sidebarEnabled() ? '#desktop-sidebar-minor' : '.proposal-preview-action')!;
-  assert(minor?.contains(button('Original')) && minor?.contains(button('Proposed')), 'Letter comparison belongs in the minor action area');
+  assert(minor?.contains(button('Previous')) && minor?.contains(button('Current')), 'Letter comparison belongs in the minor action area');
   const approvalArea = window.matchMedia('(max-width:760px)').matches ? '.application-mobile-actions' : sidebarEnabled() ? '#desktop-sidebar-major' : '.refinement-toolbar';
   assert(root.querySelector(approvalArea)?.contains(button('Approve letter')), 'Approval belongs in the current device’s action area');
   assert(minor?.contains(button('Sync')), 'Sync belongs in the minor action area');
@@ -670,6 +704,7 @@ const flows = [
   ['scope-layout', 'Scope dropdown → task controls → scoped preview and editor → preparation settings', scopeLayoutFlow],
   ['scoped-history', 'Scoped history → clear CV → preserve letter → clear letter to template → reload', scopedHistoryFlow],
   ['cv', 'CV snapshot → application-only changes → compare → reload → save independent variant', cvFlow],
+  ['cv-current-editing', 'Always-visible Current CV → edit active suggestions → Previous comparison → reload', currentCvEditingFlow],
   ['initial-letter', 'Initial letter → automatic application → compare → reload', () => letterFlow(true)],
   ['existing-letter', 'Existing letter → automatic refinement → compare → reload', () => letterFlow(false)],
   ['proposal-review', 'Automatic application → ignored answer → next iteration → reset → approved PDFs', proposalReviewFlow],

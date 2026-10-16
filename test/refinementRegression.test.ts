@@ -109,13 +109,12 @@ for (const defect of ['unknown target', 'altered token', 'unsupported operation'
   await setup.acceptSelectedChanges(); assert.ok(setup.error); assert.equal(documents(setup), before); assert.equal(fixture.creations.length, 0);
 });
 
-test('manual source changes preserve the exact old preview but block acceptance with a conflict', async t => {
+test('Current shows manual source changes while outdated suggestion acceptance stays blocked', async t => {
   const fixture = mount(t, createPrivateRefinementCv()), setup = await prepare(fixture);
   fixture.cloud.seedProposal(setup.requests[0].id); await setup.checkProposals();
-  const oldCandidate = JSON.stringify(setup.previewCvState);
   setup.record!.state.about.text = 'Manual correction after publication.';
   setup.updateLetter('Manual letter correction after publication.'); await idle(setup);
-  assert.equal(JSON.stringify(setup.previewCvState), oldCandidate); assert.match(setup.reviewAcceptanceError, /changed|outdated|match/i);
+  assert.deepEqual(setup.previewCvState, setup.record!.state); assert.match(setup.reviewAcceptanceError, /changed|outdated|match/i);
   const before = documents(setup); await setup.acceptSelectedChanges(); assert.match(setup.error, /changed|outdated|match/i);
   assert.equal(documents(setup), before); assert.equal(fixture.creations.length, 0);
 });
