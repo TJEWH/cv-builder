@@ -10,6 +10,7 @@ import { safeEmailUrl } from '../composables/safeUrl';
 import { isOpportunityDeadlinePassed, opportunityDeadlineSortKey, formatOpportunityDeadline } from '../composables/opportunityDeadline';
 import { hasReviewedOpportunity, opportunityRecency } from '../composables/opportunityRecency';
 import { personalFitScore, fitScoreTone as fitTone } from '../composables/opportunityContext';
+import { readLivingStandard } from '../composables/livingStandard';
 import { applicationStatusHistory, applicationStatusLabel, applicationStatusTone, applicationTrackingStarted } from '../composables/applicationTracking';
 import { useApplicationNotesAutosave } from '../composables/useApplicationNotesAutosave';
 import AutosaveTextarea from './AutosaveTextarea.vue';
@@ -96,6 +97,9 @@ const unseenById = computed(() => new Map(opportunities.value.map((item) => {
   return [item.id, hasReviewedOpportunity(item, reviewedVersion) || visitedWithoutVersion ? null : recencyById.value.get(item.id) || (reviewedVersion ? 'updated' : 'new')];
 })));
 const fitScoreById = computed(() => new Map(opportunities.value.map((item) => [item.id, personalFitScore(item.details.personal_fit ?? item.data.personal_fit)])));
+const salaryScoreById = computed(() => new Map(opportunities.value.map((item) => [item.id,
+  readLivingStandard(item.details.living_standard ?? item.data.living_standard)?.factors.affordability.score ?? undefined,
+])));
 function researchSummary(item: Opportunity): string {
   const value = item.details.research_summary ?? item.data.research_summary;
   return typeof value === 'string' ? value.trim() : Array.isArray(value)
@@ -129,6 +133,7 @@ const filteredOpportunities = computed(() => {
     && (reviewFilter.value === 'all' || reviewState(item.id) === reviewFilter.value)
     && (!needle || [item.title, item.university, item.country, ...item.topics].join(' ').toLocaleLowerCase().includes(needle)))
     .toSorted((a, b) => sortBy.value === 'personal_fit' ? (fitScoreById.value.get(b.id) ?? -1) - (fitScoreById.value.get(a.id) ?? -1)
+      : sortBy.value === 'salary_score' ? (salaryScoreById.value.get(b.id) ?? -1) - (salaryScoreById.value.get(a.id) ?? -1)
       : sortBy.value === 'title' ? a.title.localeCompare(b.title)
       : sortBy.value === 'institution' ? (a.university || '').localeCompare(b.university || '')
         : opportunityDeadlineSortKey(a.details) - opportunityDeadlineSortKey(b.details));
@@ -540,7 +545,7 @@ useToastWatch(() => notice.value, () => {
         <template v-if="tab === 'opportunities'">
         <label>{{ text('Review state', 'Bewertung') }}<select v-model="reviewFilter"><option value="all">{{ text('All review states', 'Alle Bewertungen') }}</option><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
         <label>{{ text('Opportunities', 'Stellenangebote') }}<select v-model="deadlineFilter"><option value="current">{{ text('Current opportunities', 'Aktuelle Stellenangebote') }}</option><option value="past">{{ text('Past opportunities', 'Abgelaufene Stellenangebote') }}</option></select></label>
-        <label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="sortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option><option value="personal_fit">{{ text('Personal fit: high to low', 'Persönliche Passung: absteigend') }}</option></select></label>
+        <label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="sortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option><option value="personal_fit">{{ text('Personal fit: high to low', 'Persönliche Passung: absteigend') }}</option><option value="salary_score">{{ text('Salary score: high to low', 'Gehaltsbewertung: absteigend') }}</option></select></label>
         <DesktopSidebarPortal area="minor" :active="props.active !== false && !showingDetail">
           <div class="jobs-filter-checks jobs-sidebar-controls"><label class="jobs-check"><input v-model="hideWithApplication" type="checkbox" /> {{ text('Hide applications', 'Stellen mit Bewerbungen ausblenden') }}</label><label class="jobs-check"><input v-model="hideNotInterested" type="checkbox" /> {{ text('Hide low interest', 'Geringes Interesse ausblenden') }}</label></div>
         </DesktopSidebarPortal>

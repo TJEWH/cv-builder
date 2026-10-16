@@ -11,6 +11,7 @@ import type { Application, ApplicationStage, Opportunity, OpportunityReview, Opp
 import { normalizeOpportunity } from '../src/composables/useJobWorkspace';
 import { useToasts, useToastWatch } from '../src/composables/useToasts';
 import { commitPendingTextareas, registerTextareaCommit } from '../src/composables/textareaCommit';
+import { livingStandardFixture } from './fixtures/livingStandard';
 
 const filename = new URL('../src/components/JobWorkspace.vue', import.meta.url);
 const { descriptor } = parse(readFileSync(filename, 'utf8'));
@@ -1046,6 +1047,36 @@ test('personal fit sorts numeric structured scores high to low within groups, wi
   for (const score of [-1, 11, NaN, Infinity, true, '', '9.8 / 10', 'high']) {
     opportunities.value = [make('invalid', score), zero, ten];
     assert.deepEqual(setup.filteredOpportunities.map(item => item.id), ['ten', 'zero', 'invalid'], String(score));
+  }
+});
+
+test('salary sorting uses validated affordability scores, keeps zero above unknown, and preserves recency groups', (t) => {
+  const { setup, opportunities } = mount(t);
+  setup.now = new Date('2026-10-06T12:00:00Z');
+  const assessment = (score: number | null, otherScore = 5) => ({
+    ...livingStandardFixture,
+    factors: Object.fromEntries(Object.entries(livingStandardFixture.factors).map(([key, factor]) =>
+      [key, { ...factor, score: key === 'affordability' ? score : otherScore }])),
+  });
+  const make = (id: string, living_standard: unknown, extra: Record<string, unknown> = {}) => normalizeOpportunity({
+    id, title: id, deadline: null, salary: { amount: 999999 },
+    created_at: '2026-10-01T12:00:00Z', updated_at: '2026-10-01T12:00:00Z',
+    data: { living_standard }, ...extra,
+  });
+  const high = make('high-salary', assessment(9, 0));
+  const low = make('low-salary', undefined, { living_standard: assessment(5, 10) });
+  const zero = make('zero', assessment(0));
+  const unknown = make('unknown', assessment(null));
+  const missing = make('missing', undefined);
+  const recent = make('recent-seven', assessment(7), { created_at: '2026-10-06T11:00:00Z', updated_at: '2026-10-06T11:00:00Z' });
+  opportunities.value = [unknown, zero, low, missing, high, recent];
+  setup.sortBy = 'salary_score';
+  assert.deepEqual(setup.opportunityGroups.map(({ key, items }) => [key, items.map(item => item.id)]), [
+    ['recent', ['recent-seven']], ['other', ['high-salary', 'low-salary', 'zero', 'unknown', 'missing']],
+  ], 'the salary verdict, not total living standard or the raw salary, controls the order');
+  for (const invalid of [assessment(-1), assessment(11), { ...assessment(10), sources: [] }, { ...assessment(10), version: 2 }]) {
+    opportunities.value = [make('invalid', invalid), zero, high];
+    assert.deepEqual(setup.filteredOpportunities.map(item => item.id), ['high-salary', 'zero', 'invalid']);
   }
 });
 

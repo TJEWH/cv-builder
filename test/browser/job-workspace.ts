@@ -26,6 +26,7 @@ import { provideDesktopSidebar } from '../../src/composables/desktopSidebar';
 import { createSampleDocument } from '../../src/composables/builtinConfigurations';
 import { createLetterRepository, DEFAULT_LETTER_TEMPLATES } from '../../src/composables/motivationLetters';
 import { createRefinementFixture, REFINEMENT_TABLES } from '../refinementFixture';
+import { livingStandardFixture } from '../fixtures/livingStandard';
 import '../../src/assets/cv.css';
 
 if (!import.meta.env.DEV) throw new Error('The browser fixture is available only on the development server.');
@@ -64,13 +65,14 @@ const database: Record<string, Row[]> = {
         { url: 'https://example.org/opportunities/robotics', supports: ['Salary', 'Duration'], checked_at: '2026-09-20' },
         { url: 'https://example.org/opportunities/robotics', supports: ['Requirements', 'Salary'], notes: 'Official listing' },
       ],
-      data: { work_pattern: 'Hybrid', funding: 'Fully funded' }, created_at: recent, updated_at: recent },
+      data: { work_pattern: 'Hybrid', funding: 'Fully funded', living_standard: livingStandardFixture }, created_at: recent, updated_at: recent },
     { id: '10000000-0000-4000-8000-000000000002', opportunity_key: 'research-engineer',
       title: 'Research Engineer — Embedded AI Systems', university: 'Institute for Responsible Computing', country: 'Germany',
       deadline: '2026-11-15T17:00:00Z', topics: ['Embedded systems', 'Efficient AI'],
       contact: [{ name: 'Dr. Robin Example', email: 'careers@example.org' }], particularly_suitable: true,
       personal_fit: { score: 9.6, summary: 'Strong embedded systems fit' },
       salary_text: 'TV-L E13', duration_months: 36, requirements: ['Embedded software experience'],
+      data: { living_standard: { ...livingStandardFixture, factors: { ...livingStandardFixture.factors, affordability: { score: 9, reason: 'Synthetic example: a larger buffer after essentials.' } } } },
       required_documents: ['CV', 'Portfolio'], official_url: 'https://example.org/opportunities/embedded-ai',
       availability: 'open', created_at: now, updated_at: recent },
     { id: '10000000-0000-4000-8000-000000000003', opportunity_key: 'past-opportunity', title: 'Archived research position', institution: 'Example Institute', deadline: '2025-01-01', topics: ['Materials discovery'], contacts: [], personal_fit: { score: 6.4 }, original_search: 'Materials discovery', created_at: now, updated_at: now },
