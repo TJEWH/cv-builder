@@ -107,3 +107,110 @@ for (const previouslyResolved of [false, true]) test(`ignored comments ${previou
   assert.equal(request.request_json.feedback.length, 0, 'older published requests remain immutable');
   assert.deepEqual(JSON.parse(documents(setup)), JSON.parse(before));
 });
+
+test('clearing a resolved answer to open cancels the earlier feedback without rewriting its history', async t => {
+  const fixture = mount(t); let setup = await prepare(fixture, 'base', { scope: 'letter' });
+  const originalRequest = JSON.parse(JSON.stringify(setup.requests[0]));
+  fixture.cloud.seedProposal(setup.requests[0].id); await setup.syncRefinement(); await idle(setup);
+  const before = documents(setup);
+  assert.equal(await setup.saveAnnotation('annotation-1', 'resolved', 'Calibration answer to withdraw.', null), true);
+  const originalFeedback = JSON.parse(JSON.stringify(setup.feedbackHistory()[0]));
+  const resolvedReviewId = setup.proposalAnnotations[0].reviewId;
+
+  assert.equal(await setup.saveAnnotation('annotation-1', 'open', '   ', resolvedReviewId), true);
+
+  assert.equal(setup.error, '');
+  assert.equal(setup.proposalAnnotations[0].status, 'open');
+  assert.equal(setup.proposalAnnotations[0].response, null);
+  assert.equal(setup.proposalAnnotations[0].included, false);
+  assert.notEqual(setup.proposalAnnotations[0].reviewId, resolvedReviewId);
+  const history = setup.feedbackHistory();
+  assert.equal(history.length, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(history[0])), originalFeedback);
+  assert.match(history[1].text, /Status: open.*Ignore this annotation and all previous feedback/s);
+  assert.doesNotMatch(history[1].text, /Calibration answer to withdraw/);
+  assert.equal(history[1].annotation, undefined, 'cancellation must not approve the withdrawn answer');
+  assert.deepEqual(JSON.parse(JSON.stringify(setup.requests[0])), originalRequest);
+  assert.deepEqual(JSON.parse(documents(setup)), JSON.parse(before));
+
+  setup = fixture.reopen(); await idle(setup);
+  assert.equal(setup.proposalAnnotations[0].status, 'open');
+  assert.equal(setup.proposalAnnotations[0].response, null);
+  assert.equal(setup.feedbackHistory().length, 2);
+  setup.discardReview(); await setup.publishSources();
+  assert.equal(setup.error, '');
+  assert.deepEqual(setup.requests[0].request_json.feedback, history, 'the next round receives the cancellation after the historical answer');
+});
+
+for (const previouslyResolved of [false, true]) test(`editing an ignored answer stays excluded ${previouslyResolved ? 'after cancelling an earlier answer' : 'without any earlier feedback'}`, async t => {
+  const fixture = mount(t); let setup = await prepare(fixture, 'base', { scope: 'letter' });
+  fixture.cloud.seedProposal(setup.requests[0].id); await setup.syncRefinement(); await idle(setup);
+  const before = documents(setup);
+  if (previouslyResolved) assert.equal(await setup.saveAnnotation('annotation-1', 'resolved', 'Previously included answer.', null), true);
+  assert.equal(await setup.saveAnnotation('annotation-1', 'ignored', 'Retained ignored answer.', setup.proposalAnnotations[0].reviewId), true);
+  const ignoredReviewId = setup.proposalAnnotations[0].reviewId;
+  const feedbackBeforeEdit = setup.feedbackHistory().length;
+  const updatedAnswer = 'Edited ignored answer that must not become refinement feedback.';
+
+  assert.equal(await setup.saveAnnotation('annotation-1', 'ignored', updatedAnswer, ignoredReviewId), true);
+
+  assert.equal(setup.error, '');
+  assert.equal(setup.proposalAnnotations[0].status, 'ignored');
+  assert.equal(setup.proposalAnnotations[0].response, updatedAnswer);
+  assert.equal(setup.proposalAnnotations[0].included, false);
+  assert.notEqual(setup.proposalAnnotations[0].reviewId, ignoredReviewId);
+  assert.equal(setup.feedbackHistory().length, feedbackBeforeEdit + (previouslyResolved ? 1 : 0));
+  assert.doesNotMatch(JSON.stringify(setup.feedbackHistory()), /Edited ignored answer/);
+  if (previouslyResolved) {
+    assert.match(setup.feedbackHistory().at(-1)!.text, /Status: ignored.*Ignore this annotation/s);
+    assert.equal(setup.feedbackHistory().at(-1)!.annotation, undefined);
+  }
+  assert.deepEqual(JSON.parse(documents(setup)), JSON.parse(before));
+
+  setup = fixture.reopen(); await idle(setup);
+  assert.equal(setup.proposalAnnotations[0].status, 'ignored');
+  assert.equal(setup.proposalAnnotations[0].response, updatedAnswer);
+  setup.discardReview(); await setup.publishSources();
+  assert.equal(setup.error, '');
+  assert.doesNotMatch(JSON.stringify(setup.requests[0].request_json.feedback), /Edited ignored answer/);
+});
+
+test('failed ignore feedback cancellation retries the existing review and cancellation receipt idempotently', async t => {
+  const fixture = mount(t); const setup = await prepare(fixture, 'base', { scope: 'letter' });
+  fixture.cloud.seedProposal(setup.requests[0].id); await setup.syncRefinement(); await idle(setup);
+  const before = documents(setup), answer = 'The previously included answer is now ignored.';
+  assert.equal(await setup.saveAnnotation('annotation-1', 'resolved', answer, null), true);
+  const resolvedReviewId = setup.proposalAnnotations[0].reviewId;
+  const rpc = fixture.cloud.client.rpc.bind(fixture.cloud.client);
+  const cancellationAttempts: Record<string, unknown>[] = [];
+  fixture.cloud.client.rpc = (async (name: string, args: Record<string, unknown>) => {
+    if (name === 'save_refinement_review' && args.p_kind === 'feedback') {
+      cancellationAttempts.push(JSON.parse(JSON.stringify(args)));
+      if (cancellationAttempts.length === 1) return { data: null, error: new Error('Cancellation temporarily unavailable.') };
+    }
+    return rpc(name, args);
+  }) as unknown as typeof fixture.cloud.client.rpc;
+
+  assert.equal(await setup.saveAnnotation('annotation-1', 'ignored', answer, resolvedReviewId), false);
+
+  assert.match(setup.error, /Cancellation temporarily unavailable/);
+  const ignoredReviewId = setup.proposalAnnotations[0].reviewId;
+  assert.notEqual(ignoredReviewId, resolvedReviewId);
+  assert.equal(setup.proposalAnnotations[0].status, 'ignored');
+  assert.equal(setup.proposalAnnotations[0].included, false);
+  assert.equal(setup.feedbackHistory().length, 1, 'the failed cancellation has not yet reached shared feedback');
+  assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'annotation').length, 2);
+
+  assert.equal(await setup.saveAnnotation('annotation-1', 'ignored', answer, ignoredReviewId), true);
+  assert.equal(await setup.saveAnnotation('annotation-1', 'ignored', answer, ignoredReviewId), true);
+
+  assert.equal(setup.error, '');
+  assert.equal(setup.proposalAnnotations[0].reviewId, ignoredReviewId, 'retry reuses the persisted ignored review');
+  assert.equal(fixture.database.application_refinement_reviews.filter(row => row.kind === 'annotation').length, 2);
+  assert.equal(cancellationAttempts.length, 2, 'successful retry and further saves do not duplicate cancellation writes');
+  assert.deepEqual(cancellationAttempts[1], cancellationAttempts[0], 'uncertain writes retain their exact payload and UUID');
+  assert.equal(setup.feedbackHistory().length, 2);
+  assert.match(setup.feedbackHistory()[1].text, /Status: ignored.*Ignore this annotation/s);
+  assert.doesNotMatch(setup.feedbackHistory()[1].text, /previously included answer is now ignored/);
+  assert.deepEqual(JSON.parse(documents(setup)), JSON.parse(before));
+});

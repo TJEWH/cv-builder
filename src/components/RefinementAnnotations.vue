@@ -1,24 +1,29 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, reactive, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, reactive, useId, watch } from 'vue';
 import AutosaveTextarea from './AutosaveTextarea.vue';
 import type { AnnotationStatus } from '../refinementTypes';
 import { QUESTION_GROUPS, questionPresentation, type AnnotationView, type QuestionGroup } from '../composables/refinementAnnotations';
 import { useToasts } from '../composables/useToasts';
+import { commitPendingTextareas } from '../composables/textareaCommit';
 
 type Item = AnnotationView & { target: string; referenceChanged: boolean; included: boolean };
 const props = defineProps<{
-  items: Item[]; lang: string; disabled: boolean; hideHeading?: boolean;
+  items: Item[]; lang: string; disabled: boolean; busy?: boolean; hideHeading?: boolean;
   comments?: { id: string; explanation: string }[];
   save: (id: string, status: AnnotationStatus, response: string, previousReviewId: string | null) => Promise<boolean>;
   privacyPreview: (value: string) => string;
 }>();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const { notify, dismiss } = useToasts();
-const drafts = reactive<Record<string, { status: AnnotationStatus; response: string; reviewId: string | null; savedStatus: AnnotationStatus; savedResponse: string; saving: boolean; failed: boolean; failedStatus: AnnotationStatus | null; partialFailure: boolean }>>({});
+const drafts = reactive<Record<string, { status: AnnotationStatus; response: string; committedResponse: string; reviewId: string | null; savedStatus: AnnotationStatus; savedResponse: string; saving: boolean; failed: boolean; failedStatus: AnnotationStatus | null; partialFailure: boolean }>>({});
+const statusGroupId = useId();
+// A textarea's pointerdown commit can start saving before the status click runs.
+// Keep editing available during our own saves; the queue serializes the choices.
+const controlsDisabled = computed(() => props.disabled || !!props.busy && !Object.values(drafts).some(draft => draft.saving));
 const key = (item: Item) => `${item.proposalId}:${item.annotation.id}`;
 const dirty = (item: Item) => { const d = drafts[key(item)]; return !!d && (d.status !== d.savedStatus || d.response !== d.savedResponse); };
 function reset(item: Item) {
-  drafts[key(item)] = { status: item.status, response: item.response || '', reviewId: item.reviewId, savedStatus: item.status, savedResponse: item.response || '', saving: false, failed: false, failedStatus: null, partialFailure: false };
+  drafts[key(item)] = { status: item.status, response: item.response || '', committedResponse: item.response || '', reviewId: item.reviewId, savedStatus: item.status, savedResponse: item.response || '', saving: false, failed: false, failedStatus: null, partialFailure: false };
 }
 watch(() => props.items, items => { for (const item of items) if (!drafts[key(item)] || !dirty(item) && !drafts[key(item)]!.saving && !drafts[key(item)]!.failed) reset(item); }, { immediate: true });
 const conflictToasts = new Map<string, number>();
@@ -33,7 +38,7 @@ watch(() => props.items.filter(item => !drafts[key(item)]?.saving && drafts[key(
     tone: 'warning',
     action: { label: text('Load saved annotation', 'Gespeicherte Anmerkung laden'), run: () => {
       const current = props.items.find(item => key(item) === id);
-      if (current && !props.disabled) reset(current);
+      if (current && !props.disabled && !props.busy) reset(current);
     } },
   }));
 });
@@ -41,8 +46,8 @@ type Commit = { key: string; item: Item; status: AnnotationStatus; response: str
 const queue: Commit[] = [];
 let activeCommit: Commit | null = null;
 let disposed = false;
-watch(() => props.disabled, disabled => {
-  if (!disabled) void drain();
+watch(() => props.disabled || props.busy, blocked => {
+  if (!blocked) void drain();
 });
 onBeforeUnmount(() => {
   disposed = true;
@@ -56,14 +61,31 @@ function save(item: Item): Promise<boolean> {
   const pending = [...queue].reverse().find(commit => commit.key === key(item)) || (activeCommit?.key === key(item) ? activeCommit : null);
   if (pending?.status === status && pending.response === response) return pending.promise;
   if (!pending && !dirty(item) && !d.failed) return Promise.resolve(true);
+  if (props.disabled) return Promise.resolve(false);
   let resolve!: (saved: boolean) => void;
   const promise = new Promise<boolean>(done => { resolve = done; });
   queue.push({ key: key(item), item, status, response, promise, resolve });
   void drain();
   return promise;
 }
+function commitAnswer(item: Item): Promise<boolean> {
+  if (props.disabled || disposed) return Promise.resolve(false);
+  const draft = drafts[key(item)]!;
+  // Saving an empty answer reopens the question, including an ignored one.
+  // Unchanged nonempty historical answers must not resolve on blur or flush.
+  if (!draft.response.trim()) draft.status = 'open';
+  else if (draft.response !== draft.committedResponse && draft.status !== 'ignored') draft.status = 'resolved';
+  draft.committedResponse = draft.response;
+  return save(item);
+}
+function selectStatus(item: Item, status: 'resolved' | 'ignored'): Promise<boolean> {
+  if (controlsDisabled.value || disposed) return Promise.resolve(false);
+  commitPendingTextareas();
+  drafts[key(item)]!.status = status;
+  return save(item);
+}
 async function drain() {
-  if (activeCommit || props.disabled || disposed) return;
+  if (activeCommit || props.disabled || props.busy || disposed) return;
   const commit = queue.shift();
   if (!commit) return;
   activeCommit = commit;
@@ -79,15 +101,17 @@ async function drain() {
   function acceptSaved(current: Item) {
     const unchanged = d.status === status && d.response === response;
     d.savedStatus = current.status; d.savedResponse = current.response || ''; d.reviewId = current.reviewId;
-    if (unchanged) { d.status = current.status; d.response = current.response || ''; }
+    if (unchanged) {
+      if (d.committedResponse === response) d.committedResponse = current.response || '';
+      d.status = current.status; d.response = current.response || '';
+    }
   }
   function failed() {
     const current = props.items.find(value => key(value) === key(item));
     const statusSaved = !!current && current.status === status && (current.response || '') === props.privacyPreview(response).trim();
     if (current && statusSaved) acceptSaved(current);
     d.failed = true; d.failedStatus = status; d.partialFailure = statusSaved;
-    // A failed ignore must not look persisted or leave a hidden response stranded.
-    if (status === 'ignored' && !statusSaved && d.status === status) d.status = d.savedStatus;
+    // Retain the requested status as an unsaved draft so Retry preserves intent.
   }
   try {
     saved = await props.save(item.annotation.id, status, response, d.reviewId);
@@ -106,6 +130,7 @@ async function drain() {
   }
 }
 async function flush(): Promise<boolean> {
+  commitPendingTextareas();
   const results = await Promise.all(props.items.map(item => save(item)));
   return results.every(Boolean) && props.items.every(item => !dirty(item) && !drafts[key(item)]!.failed);
 }
@@ -113,9 +138,9 @@ defineExpose({ flush });
 function failureMessage(item: Item) {
   const draft = drafts[key(item)]!;
   if (draft.failedStatus === 'ignored') return draft.partialFailure
-    ? text('Ignored status saved, but previous feedback could not be cancelled. Change the status to Open, then Ignored to retry.', 'Der Status „Ignoriert“ wurde gespeichert, vorheriges Feedback konnte aber nicht zurückgenommen werden. Zum Wiederholen den Status auf „Offen“ und danach auf „Ignoriert“ setzen.')
-    : text('Ignoring failed. Your previous status and response are retained. Choose Ignored again to retry.', 'Ignorieren fehlgeschlagen. Der vorherige Status und deine Antwort bleiben erhalten. Zum Wiederholen erneut „Ignoriert“ auswählen.');
-  return text('The comment could not be fully saved. Your response is retained.', 'Der Kommentar konnte nicht vollständig gespeichert werden. Deine Antwort bleibt erhalten.');
+    ? text('Ignored status saved, but previous feedback could not be cancelled. Retry save to finish.', 'Der Status „Ignoriert“ wurde gespeichert, vorheriges Feedback konnte aber nicht zurückgenommen werden. Zum Abschließen erneut speichern.')
+    : text('Ignoring could not be saved. Your choice and answer are retained. Retry save to try again.', 'Ignorieren konnte nicht gespeichert werden. Deine Auswahl und Antwort bleiben erhalten. Bitte erneut speichern.');
+  return text('The question could not be fully saved. Your choice and answer are retained. Retry save to try again.', 'Die Frage konnte nicht vollständig gespeichert werden. Deine Auswahl und Antwort bleiben erhalten. Bitte erneut speichern.');
 }
 const questionGroupLabel = (group: QuestionGroup) => ({
   application_requirements: text('Application requirements', 'Bewerbungsanforderungen'),
@@ -141,11 +166,14 @@ const groups = computed(() => QUESTION_GROUPS.map(group => ({
           <p v-if="item.referenceChanged" class="app-hint">{{ text('Referenced text has changed', 'Referenzierter Text wurde geändert') }}</p>
           <details class="disclosure-row"><summary>{{ text('Original text reference', 'Ursprünglicher Textbezug') }}</summary><blockquote>{{ item.annotation.location.quote }}</blockquote></details>
         </template>
-        <label v-if="drafts[key(item)]!.status !== 'ignored'">{{ text('Your response (optional)', 'Deine Antwort (optional)') }}<AutosaveTextarea v-model="drafts[key(item)]!.response" @commit="save(item)" rows="3" maxlength="12000" :disabled="disabled" /></label>
-        <label>{{ text('Status', 'Status') }}<select v-model="drafts[key(item)]!.status" :disabled="disabled" @change="save(item)"><option value="open">{{ text('Open', 'Offen') }}</option><option value="resolved">{{ text('Resolved', 'Erledigt') }}</option><option value="ignored">{{ text('Ignored', 'Ignoriert') }}</option></select></label>
-        <p v-if="drafts[key(item)]!.reviewId !== item.reviewId" class="app-hint">{{ text('Load the saved annotation before continuing.', 'Vor dem Fortfahren die gespeicherte Anmerkung laden.') }} <button type="button" :disabled="disabled" @click="reset(item)">{{ text('Load saved annotation', 'Gespeicherte Anmerkung laden') }}</button></p>
+        <label>{{ text('Your response (optional)', 'Deine Antwort (optional)') }}<AutosaveTextarea v-model="drafts[key(item)]!.response" @commit="commitAnswer(item)" rows="3" maxlength="12000" :disabled="controlsDisabled" /></label>
+        <fieldset class="status-choices" :disabled="controlsDisabled" :aria-label="text('Question status', 'Fragenstatus')">
+          <label><input type="radio" :name="`${statusGroupId}-${key(item)}`" value="resolved" :checked="drafts[key(item)]!.status === 'resolved'" @change="selectStatus(item, 'resolved')" />{{ text('Resolved', 'Erledigt') }}</label>
+          <label><input type="radio" :name="`${statusGroupId}-${key(item)}`" value="ignored" :checked="drafts[key(item)]!.status === 'ignored'" @change="selectStatus(item, 'ignored')" />{{ text('Ignored', 'Ignoriert') }}</label>
+        </fieldset>
+        <p v-if="drafts[key(item)]!.reviewId !== item.reviewId" class="app-hint">{{ text('Load the saved annotation before continuing.', 'Vor dem Fortfahren die gespeicherte Anmerkung laden.') }} <button type="button" :disabled="disabled || busy" @click="reset(item)">{{ text('Load saved annotation', 'Gespeicherte Anmerkung laden') }}</button></p>
         <p v-if="drafts[key(item)]!.failed" class="save-error" role="alert">{{ failureMessage(item) }}</p>
-        <button v-if="drafts[key(item)]!.failed && drafts[key(item)]!.failedStatus !== 'ignored' && drafts[key(item)]!.status !== 'ignored'" type="button" :disabled="disabled || drafts[key(item)]!.saving || drafts[key(item)]!.reviewId !== item.reviewId" @click="save(item)">{{ text('Retry save', 'Erneut speichern') }}</button>
+        <button v-if="drafts[key(item)]!.failed" type="button" :disabled="disabled || busy || drafts[key(item)]!.saving || drafts[key(item)]!.reviewId !== item.reviewId" @click="save(item)">{{ text('Retry save', 'Erneut speichern') }}</button>
       </article>
       <p v-for="comment in group.comments" :key="comment.id" class="legacy-question">{{ questionPresentation(comment.explanation).text }}</p>
     </section>
@@ -163,7 +191,12 @@ const groups = computed(() => QUESTION_GROUPS.map(group => ({
 .save-error { color: #fecaca; font-size: .85rem; }
 blockquote { margin: .6rem 0; border-left: 3px solid #28534e; padding-left: .7rem; }
 label { display: flex; flex-direction: column; gap: .3rem; margin: .65rem 0; font-size: .85rem; }
-textarea, select, button { font: inherit; border: 1px solid #28534e; border-radius: 7px; padding: .6rem; background: #0b1b25; color: #d1fae5; max-width: 100%; }
+textarea, button { font: inherit; border: 1px solid #28534e; border-radius: 7px; padding: .6rem; background: #0b1b25; color: #d1fae5; max-width: 100%; }
 textarea { resize: vertical; width: 100%; box-sizing: border-box; }button { cursor: pointer; }button:disabled { opacity: .55; cursor: default; }
+.status-choices { display: flex; flex-wrap: wrap; gap: .3rem 1.25rem; border: 0; padding: 0; margin: .65rem 0; min-width: 0; }
+.status-choices label { flex-direction: row; margin: 0; cursor: pointer; }
+.status-choices input { margin: 0; accent-color: var(--ui-accent, #6ee7b7); }
+.status-choices:disabled label { opacity: .55; cursor: default; }
+.status-choices input:focus-visible, button:focus-visible { outline: 2px solid var(--ui-accent, #6ee7b7); outline-offset: 3px; }
 @media (max-width: 640px) { .annotation-row { padding: .75rem 0; } }
 </style>

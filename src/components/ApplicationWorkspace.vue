@@ -1502,7 +1502,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
                     </template>
                     <p v-else class="review-guidance">{{ text('No individual CV changes for this document.', 'Keine einzelnen CV-Änderungen für dieses Dokument.') }}</p>
                   </template>
-                  <RefinementAnnotations v-show="pane === 'letter' || reviewTab === 'question'" ref="annotations" :items="currentAnnotations" :comments="pane === 'cv' ? proposalComments : []" hide-heading :lang="lang" :disabled="busy || !record || legacyReview" :save="saveAnnotation" :privacy-preview="previewOutgoingText" />
+                  <RefinementAnnotations v-show="pane === 'letter' || reviewTab === 'question'" ref="annotations" :items="currentAnnotations" :comments="pane === 'cv' ? proposalComments : []" hide-heading :lang="lang" :disabled="!record || legacyReview" :busy="busy" :save="saveAnnotation" :privacy-preview="previewOutgoingText" />
                   <p v-if="(pane === 'letter' || reviewTab === 'question') && !reviewCounts.question" class="review-guidance">{{ text('No questions.', 'Keine Fragen.') }}</p>
                 </div>
               </div>
