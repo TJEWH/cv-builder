@@ -1,4 +1,5 @@
 import { safeEmailUrl, safeLinkUrl, safeWebUrl } from './safeUrl';
+import { livingStandardNode } from './livingStandard';
 
 export interface OpportunityContextNode {
   id: string;
@@ -7,7 +8,7 @@ export interface OpportunityContextNode {
   href?: string;
   children?: OpportunityContextNode[];
   missing?: boolean;
-  kind?: 'summary' | 'main-link' | 'fit';
+  kind?: 'summary' | 'main-link' | 'fit' | 'living-standard';
   score?: number;
   checklistKey?: string;
   requirementStatus?: 'required' | 'optional' | 'beneficial' | 'preferred' | 'recommended' | 'desired';
@@ -347,9 +348,11 @@ export function buildOpportunityGroups(context: Record<string, unknown>, lang: s
   const seen = new Map<string, string[]>();
   const primaryLinks = new Map<string, string>();
   const visitedWrappers = new Set<object>();
+  let livingStandard: unknown;
   const add = (rawKey: string, value: unknown, source: string) => {
     const key = keyName(rawKey);
     if (PRIVATE_KEYS.has(key) || key === 'title') return;
+    if (key === 'living_standard') { livingStandard ??= value; return; }
     if ((key === 'data' || key === 'details') && isRecord(value)) {
       if (visitedWrappers.has(value)) return;
       visitedWrappers.add(value);
@@ -394,6 +397,8 @@ export function buildOpportunityGroups(context: Record<string, unknown>, lang: s
     else byGroup.get('advisor')!.items.push({ id: `root.${key}`, label: opportunityFieldLabel(key, lang), text: phrase(en, de, lang), missing: true });
   }
   Object.entries(context).forEach(([key, value]) => add(key, value, 'root'));
+  const salary = byGroup.get('salary')!;
+  if (salary.items.length || livingStandard !== undefined || context.city) salary.items.unshift(livingStandardNode(livingStandard, lang));
   const links = byGroup.get('links')!;
   links.items = consolidateSourceLinks(links.items, lang);
   const primaryHref = PRIMARY_LINK_FIELDS.map((key) => primaryLinks.get(key)).find(Boolean);

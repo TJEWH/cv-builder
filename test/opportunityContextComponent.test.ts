@@ -6,6 +6,7 @@ import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive } from 'vue';
 import type { Component } from 'vue';
+import { livingStandardFixture } from './fixtures/livingStandard';
 
 const filename = new URL('../src/components/OpportunityContext.vue', import.meta.url);
 const { descriptor } = parse(readFileSync(filename, 'utf8'));
@@ -13,6 +14,25 @@ const compiled = compileScript(descriptor, { id: 'opportunity-context-labels', i
 const code = ts.transpileModule(compiled.content, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const exports: { default?: Component } = {};
 new Function('require', 'exports', code)(createRequire(filename), exports);
+
+test('living-standard verdicts are visible, with evidence in a native disclosure and no checklist actions', t => {
+  const view = mountContext(undefined, { checklist: true, context: { salary: { amount: 3204 }, data: { living_standard: livingStandardFixture } } });
+  t.after(view.unmount);
+  const content = (node: HostNode): string => [node.text || '', ...node.children.map(content)].join('');
+  const scores = view.nodes.filter(node => node.props.class === 'opportunity-context__living-standard');
+  assert.equal(scores.length, 2);
+  for (const score of scores) {
+    assert.match(content(score.children[0]), /7\.2 \/ 10\.0 · Good · provisional/);
+    assert.match(content(score.children[1]), /Salary verdict: 7\.5 \/ 10\.0 · Good/);
+    const detail = score.children.find(node => node.tag === 'details')!;
+    assert.equal(detail.children[0].tag, 'summary');
+    assert.match(content(detail), /Baseline: /);
+    assert.doesNotMatch(content(detail), /Salary verdict:/);
+  }
+  assert.equal(view.nodes.filter(node => node.tag === 'input').length, 0);
+  const source = view.nodes.find(node => node.tag === 'a' && node.props.href === livingStandardFixture.sources[0].url)!;
+  assert.equal(source.props.rel, 'noopener noreferrer');
+});
 
 type HostNode = { tag?: string; text?: string; props: Record<string, unknown>; parent?: HostNode; children: HostNode[] };
 function mountContext(onlyGroups?: ['documents'], overrides: Record<string, unknown> = {}) {

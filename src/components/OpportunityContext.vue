@@ -66,7 +66,8 @@ const ContextValue = defineComponent({
       const withinScore = scoreProse || node.kind === 'fit';
       const singleScorePoint = withinScore && node.children?.length === 1;
       const plainChildren = valueProps.table || singleScorePoint;
-      const children = node.children?.length ? h(plainChildren ? 'div' : 'ul', { class: valueProps.table ? 'opportunity-context__values' : singleScorePoint ? 'opportunity-context__prose' : 'opportunity-context__list' }, node.children.map((child) => {
+      const displayedChildren = node.kind === 'living-standard' ? node.children?.filter(child => !child.id.endsWith('.salary_verdict')) : node.children;
+      const children = displayedChildren?.length ? h(plainChildren ? 'div' : 'ul', { class: valueProps.table ? 'opportunity-context__values' : singleScorePoint ? 'opportunity-context__prose' : 'opportunity-context__list' }, displayedChildren.map((child) => {
         const checklistChild = !!(props.checklist && !labelFor && child.checklistKey);
         return h(plainChildren ? 'div' : 'li', { key: child.id }, [child.label && !checklistChild ? h(labelFor ? 'label' : 'span', { ...(labelFor ? { for: labelFor } : {}), class: ['opportunity-context__nested-label', { 'opportunity-context__checklist-label': !!labelFor }] }, `${child.label}: `) : null, renderValue(child, !labelFor, labelFor, checklistChild, withinScore)]);
       })) : null;
@@ -89,6 +90,14 @@ const ContextValue = defineComponent({
           : h('div', [heading]);
       }
       if (!children) return value;
+      if (node.kind === 'living-standard') return h('div', { class: 'opportunity-context__living-standard' }, [
+        h('strong', { class: 'opportunity-context__living-standard-score' }, node.text),
+        h('p', { class: 'opportunity-context__prose' }, [
+          `${props.lang === 'de' ? 'Gehaltsbewertung' : 'Salary verdict'}: `,
+          node.children?.find(child => child.id.endsWith('.salary_verdict'))?.text,
+        ]),
+        h('details', [h('summary', props.lang === 'de' ? 'Bewertung, Annahmen und Quellen' : 'Breakdown, assumptions and sources'), children]),
+      ]);
       return h('div', [node.text ? value : null, children]);
     }
     return () => {
@@ -148,6 +157,10 @@ const ContextValue = defineComponent({
 .opportunity-context__field { min-width: 0; }
 .opportunity-context__field dl { margin: 0; }
 .opportunity-context__field--summary, .opportunity-context__field--main-link { grid-column: 1 / -1; }
+.opportunity-context__field--living-standard { grid-column: 1 / -1; padding-bottom: 16px; border-bottom: 1px solid #2a5046; }
+.opportunity-context :deep(.opportunity-context__living-standard-score) { font-size: 16px; font-variant-numeric: tabular-nums; color: #d7e8df; }
+.opportunity-context :deep(.opportunity-context__living-standard > details > summary) { cursor: pointer; min-height: 44px; align-content: center; color: #9be8c7; }
+.opportunity-context :deep(.opportunity-context__living-standard > details > summary:focus-visible) { outline: 2px solid #9be8c7; outline-offset: 3px; }
 .opportunity-context__field--fit { padding: 15px; border: 1px solid #2a5046; border-radius: 8px; background: #102b30; }
 .opportunity-context__field dt { margin-bottom: 5px; color: #91b4a7; font-size: 11px; font-weight: 600; }
 .opportunity-context__value { margin: 0; color: #d7e8df; font-size: 12px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }

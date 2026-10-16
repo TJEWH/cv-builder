@@ -25,6 +25,8 @@ Open the URL printed by Vite (default: [localhost:5173/cv-builder/](http://local
 
 The opportunity catalogue comes from outside the app. Use the app to review existing research; conduct new searches through your research tools.
 
+Salary & funding includes a sourced 0–10.0 living-standard assessment when available, assuming a private room in a shared flat, with a separate salary verdict and a breakdown for affordability, room search, culture, nature, student life and climate. See the [scoring rubric and research contract](docs/living-standard.md).
+
 ### Application workflow
 
 Move between these stages in any order:
