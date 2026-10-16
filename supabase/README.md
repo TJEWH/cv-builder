@@ -59,6 +59,18 @@ local. There is no Storage bucket or cloud application-attachment table. To expo
 
 ## Schema maintenance
 
+Migration `20261016105328` (`revert_refinement_history_checkpoints`) rolled back
+the unsuccessful `20261016101949` history-restoration upgrade on **phd-workflow**
+on 2026-10-16. It restored the previous refinement functions and removed the
+checkpoint RPCs, event table and metadata columns. No restores or suffix replacements
+had been committed. Checksums confirmed that existing refinement state, request,
+proposal and review records were unchanged, excluding removed feature metadata.
+Document-round, history-clear and annotation ownership/concurrency SQL suites passed
+both during the rollback rehearsal and against the restored backend. The frontend
+and fresh-install schema had already been reverted. The one-time rollback is retained
+in [`revert_refinement_history_checkpoints.sql`](revert_refinement_history_checkpoints.sql);
+do not apply it to a fresh database or rerun it after a successful rollback.
+
 Migration `20261015204852` (`refinement_title_typos`) was applied to **phd-workflow**
 on 2026-10-15 (Europe/Tirane). Checks inside the transaction verified title spelling
 corrections, shortening rejection, legacy range compatibility and validator
