@@ -103,7 +103,9 @@ for (const previouslyResolved of [false, true]) test(`ignored comments ${previou
   setup = fixture.reopen(); await idle(setup); setup.discardReview(); await setup.publishSources();
   assert.equal(setup.error, '');
   assert.equal(setup.proposalAnnotations[0].status, 'ignored');
-  assert.equal(setup.requests[0].request_json.feedback.length, previouslyResolved ? 2 : 0);
+  const nextFeedback = setup.requests[0].request_json.feedback;
+  assert.equal(nextFeedback.filter(item => item.text.startsWith(`Annotation: ${setup.proposals[0].id}/annotation-1\n`)).length, previouslyResolved ? 2 : 0);
+  assert.ok(nextFeedback.some(item => item.annotation?.annotationId === 'annotation-2' && /Status: open/.test(item.text)), 'the separate unanswered question carries forward');
   assert.equal(request.request_json.feedback.length, 0, 'older published requests remain immutable');
   assert.deepEqual(JSON.parse(documents(setup)), JSON.parse(before));
 });
@@ -127,9 +129,9 @@ test('clearing a resolved answer to open cancels the earlier feedback without re
   const history = setup.feedbackHistory();
   assert.equal(history.length, 2);
   assert.deepEqual(JSON.parse(JSON.stringify(history[0])), originalFeedback);
-  assert.match(history[1].text, /Status: open.*Ignore this annotation and all previous feedback/s);
+  assert.match(history[1].text, /Status: open.*Keep this question pending.*disregard any earlier answer/s);
   assert.doesNotMatch(history[1].text, /Calibration answer to withdraw/);
-  assert.equal(history[1].annotation, undefined, 'cancellation must not approve the withdrawn answer');
+  assert.equal(history[1].annotation?.reviewId, setup.proposalAnnotations[0].reviewId, 'the pending reference identifies the reopened question without approving an answer');
   assert.deepEqual(JSON.parse(JSON.stringify(setup.requests[0])), originalRequest);
   assert.deepEqual(JSON.parse(documents(setup)), JSON.parse(before));
 
@@ -139,7 +141,7 @@ test('clearing a resolved answer to open cancels the earlier feedback without re
   assert.equal(setup.feedbackHistory().length, 2);
   setup.discardReview(); await setup.publishSources();
   assert.equal(setup.error, '');
-  assert.deepEqual(setup.requests[0].request_json.feedback, history, 'the next round receives the cancellation after the historical answer');
+  assert.deepEqual(setup.requests[0].request_json.feedback.slice(0, 2), history, 'the next round receives the reopened question after the historical answer');
 });
 
 for (const previouslyResolved of [false, true]) test(`editing an ignored answer stays excluded ${previouslyResolved ? 'after cancelling an earlier answer' : 'without any earlier feedback'}`, async t => {

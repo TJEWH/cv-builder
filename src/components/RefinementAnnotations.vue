@@ -10,7 +10,7 @@ type Item = AnnotationView & { target: string; referenceChanged: boolean; includ
 const props = defineProps<{
   items: Item[]; lang: string; disabled: boolean; busy?: boolean; hideHeading?: boolean;
   comments?: { id: string; explanation: string }[];
-  save: (id: string, status: AnnotationStatus, response: string, previousReviewId: string | null) => Promise<boolean>;
+  save: (id: string, status: AnnotationStatus, response: string, previousReviewId: string | null, proposalId?: string) => Promise<boolean>;
   privacyPreview: (value: string) => string;
 }>();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
@@ -114,7 +114,7 @@ async function drain() {
     // Retain the requested status as an unsaved draft so Retry preserves intent.
   }
   try {
-    saved = await props.save(item.annotation.id, status, response, d.reviewId);
+    saved = await props.save(item.annotation.id, status, response, d.reviewId, item.proposalId);
     const current = props.items.find(value => key(value) === key(item));
     if (saved) { if (current) acceptSaved(current); }
     else failed();
@@ -160,7 +160,7 @@ const groups = computed(() => QUESTION_GROUPS.map(group => ({
     <h3 v-if="!hideHeading">{{ text('Questions', 'Fragen') }}</h3>
     <section v-for="group in groups" :key="group.id" class="question-group" :data-question-group="group.id">
       <h4>{{ questionGroupLabel(group.id) }}</h4>
-      <article v-for="item in group.items" :key="key(item)" class="annotation-row" :data-annotation-id="item.annotation.id" :aria-label="item.target" :aria-busy="drafts[key(item)]!.saving">
+      <article v-for="item in group.items" :key="key(item)" class="annotation-row" :data-annotation-id="item.annotation.id" :data-proposal-id="item.proposalId" :aria-label="item.target" :aria-busy="drafts[key(item)]!.saving">
         <p class="annotation-text">{{ questionPresentation(item.annotation.text).text }}</p>
         <template v-if="item.annotation.document === 'letter' && item.annotation.location">
           <p v-if="item.referenceChanged" class="app-hint">{{ text('Referenced text has changed', 'Referenzierter Text wurde geändert') }}</p>

@@ -698,7 +698,40 @@ async function cvSelectionFlow() {
   await rendered('cv', 'E2E North Lab');
 }
 
+async function pendingQuestionsFlow() {
+  await prepare('letter');
+  const first = fixture.cloud.seedProposal(setup.requests[0].id, { persist: false });
+  first.proposal_json.annotations = [{ id: 'annotation-1', type: 'question', document: 'letter', location: null, text: '[experience] Which calibration methods did you use?' }];
+  await loadProposal(first);
+  await click('Copy feedback');
+  assert(setup.requests[0].request_json.feedback.some(item => item.annotation?.proposalId === first.id && /Status: open/.test(item.text)), 'The next request must include the unanswered question');
+  await mount(true);
+  assert(root.querySelector(`[data-proposal-id="${first.id}"]`), 'Pending questions must remain visible after reloading while waiting for the next proposal');
+  const next = fixture.cloud.seedProposal(setup.requests[0].id, { persist: false });
+  next.proposal_json.annotations = [{ id: 'annotation-1', type: 'question', document: 'letter', location: null, text: '[experience] Which dataset did you evaluate?' }];
+  await loadProposal(next);
+  assert(root.querySelectorAll('.annotation-row').length === 2, 'New and carried questions must coexist');
+  const carried = root.querySelector<HTMLElement>(`[data-proposal-id="${first.id}"]`)!;
+  const answer = carried.querySelector('textarea')!;
+  answer.value = 'I compared calibration repeatability.';
+  answer.dispatchEvent(new Event('input', { bubbles: true })); await nextTick();
+  assert(setup.currentAnnotations.find(view => view.proposalId === first.id)?.status === 'open', 'Typing must remain a draft');
+  answer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await settle();
+  assert(carried.querySelector<HTMLInputElement>('input[value="resolved"]')!.checked, 'Committing a carried answer must resolve its original question');
+  assert(setup.currentAnnotations.find(view => view.proposalId === next.id)?.status === 'open', 'The same-numbered new question must remain open');
+  carried.querySelector<HTMLInputElement>('input[value="ignored"]')!.click(); await settle();
+  assert(carried.querySelector<HTMLInputElement>('input[value="ignored"]')!.checked, 'A carried resolved question can still be ignored');
+  await click('Copy feedback');
+  const third = fixture.cloud.seedProposal(setup.requests[0].id, { persist: false });
+  third.proposal_json.annotations = [];
+  await loadProposal(third); await mount(true);
+  assert(!root.querySelector(`[data-proposal-id="${first.id}"]`), 'Ignored questions must stop carrying into the next round');
+  assert(root.querySelectorAll('.annotation-row').length === 1 && root.querySelector(`[data-proposal-id="${next.id}"]`), 'An omitted unanswered question must survive another round and reload');
+  assert(!setup.error, setup.error);
+}
+
 const flows = [
+  ['pending-questions', 'Open questions → next round → answer original → ignore → retain remaining question', pendingQuestionsFlow],
   ['first-attachments', 'First switch from letter refinement → approved attachment PDF without retry', firstAttachmentsFlow],
   ['preview-revisit', 'Unchanged document previews return without rerendering', previewRevisitFlow],
   ['scope-layout', 'Scope dropdown → task controls → scoped preview and editor → preparation settings', scopeLayoutFlow],

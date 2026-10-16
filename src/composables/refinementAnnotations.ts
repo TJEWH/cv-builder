@@ -55,6 +55,17 @@ export function annotationViews(proposal: RefinementProposalRow | undefined, rev
     return { annotation, proposalId: proposal.id, requestId: proposal.request_id, status: (review?.payload.status as AnnotationStatus) || 'open', response: (review?.payload.response as string | null) || null, reviewId: review?.id || null };
   });
 }
+/** Keep carried questions on this round after a save, so their status and failed saves remain editable. */
+export function retainedAnnotationViews(current: RefinementProposalRow | undefined, previous: RefinementProposalRow[], reviews: RefinementReviewRow[], roundStartedAt: string): AnnotationView[] {
+  const started = Date.parse(roundStartedAt);
+  const beforeRound = reviews.filter(review => Date.parse(review.created_at) < started);
+  const carried = previous.filter(proposal => proposal.id !== current?.id && proposal.request_id !== current?.request_id
+    && Date.parse(proposal.created_at) < started).flatMap(proposal => {
+    const original = new Map(annotationViews(proposal, beforeRound).map(view => [view.annotation.id, view.status]));
+    return annotationViews(proposal, reviews).filter(view => view.status === 'open' || original.get(view.annotation.id) === 'open');
+  });
+  return [...annotationViews(current, reviews), ...carried];
+}
 /** A conservative version anchor; never search a changed document for another matching passage. */
 export function annotationReferenceChanged(annotation: RefinementAnnotation, proposalText: string, currentText: string): boolean {
   if (annotation.document !== 'letter' || !annotation.location) return false;
@@ -64,6 +75,7 @@ export function annotationReferenceChanged(annotation: RefinementAnnotation, pro
 export function annotationFeedback(view: AnnotationView): string {
   const a = view.annotation;
   const prefix = `Annotation: ${view.proposalId}/${a.id}\nStatus: ${view.status}\n`;
+  if (view.status === 'open') return prefix + `${a.document === 'cv' ? 'CV' : 'Motivation letter'} pending question: ${a.text}\nKeep this question pending until the user resolves or ignores it. It is already retained in the question list; do not duplicate it in new annotations. No answer is approved for use; disregard any earlier answer to this question.`;
   if (view.status !== 'resolved' || !view.response) return prefix + 'Ignore this annotation and all previous feedback associated with it. No answer is approved for use.';
   const location = a.location ? a.document === 'cv' ? ` (${a.location.fieldId})` : ` (original quote: ${a.location.quote})` : '';
   return prefix + `${a.document === 'cv' ? 'CV' : 'Motivation letter'} ${a.type}${location}: ${a.text}\nStatus: ${view.status}${view.response ? `\nUser response: ${view.response}` : ''}`;

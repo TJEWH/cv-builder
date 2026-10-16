@@ -460,7 +460,7 @@ test('refinement preserves manual fixes and accumulates letter-only feedback whi
   assert.equal(setup.error, '');
   const second = setup.requests[0];
   assert.equal(second.request_json.scope, 'letter');
-  assert.equal(second.request_json.feedback.length, 1);
+  assert.equal(second.request_json.feedback.length, 2, 'include the resolved answer and the other pending question');
   assert.equal(second.request_json.feedback[0].scope, 'letter');
   assert.equal(second.request_json.feedback[0].annotation?.proposalId, firstProposal.id);
   assert.ok(second.request_json.letter.text.includes('Manual letter correction retained.'));
@@ -473,15 +473,15 @@ test('refinement preserves manual fixes and accumulates letter-only feedback whi
   assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'Keep the closing concise as well.', null), true);
   await setup.publishSources();
   assert.equal(setup.error, '');
-  assert.equal(setup.requests[0].request_json.feedback.length, 2);
-  assert.deepEqual(setup.requests[0].request_json.feedback.map(item => item.annotation?.proposalId), [firstProposal.id, secondProposal.id]);
+  assert.equal(setup.requests[0].request_json.feedback.length, 4);
+  assert.deepEqual(setup.requests[0].request_json.feedback.filter(item => /Status: resolved/.test(item.text)).map(item => item.annotation?.proposalId), [firstProposal.id, secondProposal.id]);
   const thirdProposal = cloud.seedProposal(setup.requests[0].id, { overLimit: true });
   await setup.checkProposals(); setup.selectedProposalId = thirdProposal.id; setup.openProposal(); await setup.acceptSelectedChanges();
   await setup.approve('letter');
   assert.equal(setup.error, '', 'word count is advisory and does not block approval');
   assert.equal(setup.cvApproved, true);
   assert.equal(setup.letterApproved, true);
-  assert.equal(database.application_refinement_reviews.filter(row => row.kind === 'feedback').length, 2);
+  assert.equal(database.application_refinement_reviews.filter(row => row.kind === 'feedback').length, 4);
   setup.updateLetter(setup.letterText + '\nA further manual change.');
   await nextTick();
   assert.equal(setup.letterApproved, false, 'changing an approved letter reopens its review');
@@ -531,7 +531,7 @@ test('answering an annotation never applies an unopened proposal over newer manu
   assert.equal(setup.letterText, 'Newer manual correction must be the starting point.');
   assert.equal(setup.requests[0].request_json.letter.text, setup.letterText);
   assert.ok(setup.requests[0].request_json.cv.fields.some(field => field.text.includes('Newer CV correction.')));
-  assert.equal(setup.requests[0].request_json.feedback.length, 1);
+  assert.equal(setup.requests[0].request_json.feedback.length, 2);
 });
 
 test('superseded feedback rounds remain viewable but cannot replace documents with the same baseline', async (t) => {
@@ -555,7 +555,7 @@ test('superseded feedback rounds remain viewable but cannot replace documents wi
   assert.equal(setup.error, '');
   const currentRequest = setup.requests[0];
   assert.notEqual(currentRequest.id, firstRequest.id);
-  assert.equal(currentRequest.request_json.feedback.length, 1);
+  assert.equal(currentRequest.request_json.feedback.length, 2);
   assert.deepEqual(currentRequest.request_json.cv.fields, firstRequest.request_json.cv.fields);
   assert.equal(currentRequest.request_json.letter.text, firstRequest.request_json.letter.text);
   setup.selectedProposalId = olderProposal.id;
@@ -706,7 +706,8 @@ test('reopening syncs corrected working sources while preserving documents and k
   assert.equal(setup.requests[0].request_json.letter.text, 'A newer local correction, independent of the pending proposal.');
   assert.deepEqual(setup.requests[1], previousRequest, 'the older immutable request remains unchanged');
   assert.equal(setup.proposals.length, 1, 'a returned proposal remains available for explicit review');
-  assert.equal(fixture.database.application_refinement_reviews.length, 0, 'the stale proposal was not applied');
+  assert.ok(fixture.database.application_refinement_reviews.every(row => row.kind === 'feedback'), 'only pending questions are recorded; the stale proposal was not applied');
+  assert.equal(setup.requests[0].request_json.feedback.length, 2);
   const database = JSON.stringify(fixture.database);
   await setup.checkProposals();
   assert.equal(setup.error, '');

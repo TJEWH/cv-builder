@@ -46,6 +46,8 @@ CV and letter requests run independently, with separate feedback, history and dr
 
 Both refinement scopes keep the preview visible and share **Previous** / **Current** controls. Previous shows the frozen request snapshot. **Edit manually** starts from Current, including active CV suggestions. Saving a manual CV edit keeps that version in the application; start a new refinement to request further suggestions. Approving the CV also applies its active suggestions, so the approved document matches Current.
 
+Unanswered questions carry into later refinements of the same document until you select **Resolved** or **Ignored**. They remain editable with their original question reference and are included in the next request as pending questions, never as confirmed evidence. Clearing a document's refinement history also clears its carried questions.
+
 Questions offer **Resolved** and **Ignored**; neither is selected while a question is open. Saving a changed nonempty answer resolves it unless it is ignored. Ignored answers remain editable and stay ignored during nonempty edits. Saving an empty answer clears either selection and reopens the question. Ignoring or clearing an answer withdraws its earlier feedback from future refinement.
 
 Package export requires both document approvals and the files for all included attachments. Submit the downloaded package through the institution's portal or email, then update **Tracking**.

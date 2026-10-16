@@ -27,7 +27,9 @@ test('structured annotations validate without altering CV or letter document con
   const prompt = buildRefinementPrompt(local.request, 'fixture');
   assert.match(prompt, /Annotations are separate review material, never document text/);
   assert.match(prompt, /only the latest ordered entry applies/);
-  assert.match(prompt, /ignored or open status.*ignore that annotation and every earlier answer/);
+  assert.match(prompt, /ignored status.*ignore that annotation and every earlier answer/);
+  assert.match(prompt, /An open status means the question is still pending/);
+  assert.match(prompt, /do not repeat them in new annotations/);
 });
 test('unknown targets, non-exact references, duplicate IDs, embedded state and invalid annotations are rejected', () => {
   const { local, proposal } = fixture();

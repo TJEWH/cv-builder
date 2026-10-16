@@ -33,7 +33,7 @@ import { resolveRefinementSettings, serializeRefinementDraft, sameRefinementInpu
 import RefinementAnnotations from './RefinementAnnotations.vue';
 import RefinementChangeReview from './RefinementChangeReview.vue';
 import RefinementComparisonToggle from './RefinementComparisonToggle.vue';
-import { annotationViews, annotationReferenceChanged, annotationFeedback, validateAnnotationReview } from '../composables/refinementAnnotations';
+import { annotationViews, retainedAnnotationViews, annotationReferenceChanged, annotationFeedback, validateAnnotationReview } from '../composables/refinementAnnotations';
 import { useToastWatch } from '../composables/useToasts';
 import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
 import { refinementMatchesScope, visibleRefinementProposals } from '../composables/refinementHistory';
@@ -520,12 +520,19 @@ const previewLetterCvState = computed(() => {
   return letterCvState.value ? applyLetterHeader(snapshot, captureLetterHeaderSource(selectedCvId.value, letterCvState.value)) : snapshot;
 });
 const previewLetterLanguage = computed(() => showLetterReview.value && !comparingWorkingLetter.value ? selectedLocalRequest.value?.letterBaseline?.setup.language || props.lang : letter.value?.language || props.lang);
-const proposalAnnotations = computed(() => annotationViews(selectedProposal.value, reviews.value).map(view => {
+const annotationProposals = computed(() => proposals.value.filter(proposal => requests.value.some(request => request.id === proposal.request_id
+  && request.request_json.scope === pane.value && !isRequestReset(request.id) && matchesScope(request))));
+const allAnnotations = computed(() => annotationProposals.value.flatMap(proposal => annotationViews(proposal, reviews.value))
+  .filter(view => view.annotation.document === pane.value));
+const proposalAnnotations = computed(() => retainedAnnotationViews(selectedProposal.value, annotationProposals.value, reviews.value,
+  selectedRequest.value?.created_at || currentPublishedRequest.value?.created_at || selectedProposal.value?.created_at || '').map(view => {
   const currentLetter = record.value ? sanitizeRefinementText(serializeRefinementDraft(previewLetterContent.value).text, record.value.state) : '';
   const a = view.annotation;
+  const source = requests.value.find(request => request.id === view.requestId);
+  const proposal = proposals.value.find(proposal => proposal.id === view.proposalId);
   return { ...view,
-    target: a.document === 'letter' ? text('Motivation letter', 'Motivationsschreiben') : 'CV' + (a.location ? ' · ' + (selectedRequest.value?.request_json.cv.fields.find(field => field.id === a.location?.fieldId)?.label || a.location.fieldId) : ''),
-    referenceChanged: annotationReferenceChanged(a, selectedProposal.value?.proposal_json.letterText || '', currentLetter),
+    target: a.document === 'letter' ? text('Motivation letter', 'Motivationsschreiben') : 'CV' + (a.location ? ' · ' + (source?.request_json.cv.fields.find(field => field.id === a.location?.fieldId)?.label || a.location.fieldId) : ''),
+    referenceChanged: annotationReferenceChanged(a, proposal?.proposal_json.letterText || '', currentLetter),
     included: view.status === 'resolved' && reviews.value.some(row => row.kind === 'feedback' && (row.payload.annotation as AnnotationReference | undefined)?.proposalId === view.proposalId && (row.payload.annotation as AnnotationReference).annotationId === a.id && (row.payload.annotation as AnnotationReference).reviewId === view.reviewId),
   };
 }));
@@ -813,10 +820,10 @@ function feedbackHistory(): RefinementFeedback[] {
       ...(annotation ? { annotation: clone(annotation) } : {}) };
   });
 }
-async function saveAnnotation(id: string, status: AnnotationStatus, response: string, previousReviewId: string | null): Promise<boolean> {
+async function saveAnnotation(id: string, status: AnnotationStatus, response: string, previousReviewId: string | null, proposalId = selectedProposalId.value): Promise<boolean> {
   let saved = false;
   await run(async () => {
-    const view = proposalAnnotations.value.find(item => item.annotation.id === id);
+    const view = proposalAnnotations.value.find(item => item.annotation.id === id && item.proposalId === proposalId);
     if (legacyReview.value || view && requests.value.find(row => row.id === view.requestId)?.request_json.scope === 'both') throw new Error('Combined refinement is read-only history. Publish a separate request.');
     if (!view || !record.value) throw new Error('Restore the local CV before saving an anonymized response.');
     const safeResponse = response.trim() ? sanitizeRefinementText(response.trim(), record.value.state) : null;
@@ -829,7 +836,7 @@ async function saveAnnotation(id: string, status: AnnotationStatus, response: st
       if (disposed) return;
       if (!reviews.value.some(item => item.id === row.id)) reviews.value.push(row);
     }
-    await includeAnnotationFeedback(id);
+    await includeAnnotationFeedback(id, proposalId);
     if (disposed) return;
     saved = true;
     notice.value = status === 'resolved' && safeResponse
@@ -839,24 +846,25 @@ async function saveAnnotation(id: string, status: AnnotationStatus, response: st
   });
   return saved;
 }
-async function includeAnnotationFeedback(id: string) {
-  const view = proposalAnnotations.value.find(item => item.annotation.id === id);
-  if (!view || !record.value || view.included) return;
+async function includeAnnotationFeedback(id: string, proposalId = selectedProposalId.value) {
+  const view = allAnnotations.value.find(item => item.annotation.id === id && item.proposalId === proposalId);
+  if (!view || !record.value) return;
   const annotation = { proposalId: view.proposalId, annotationId: id, reviewId: view.reviewId };
   const prefix = `Annotation: ${view.proposalId}/${id}`;
   const previouslyIncluded = reviews.value.some(row => row.kind === 'feedback' &&
     ((row.payload.annotation as AnnotationReference | undefined)?.proposalId === view.proposalId && (row.payload.annotation as AnnotationReference).annotationId === id
       || String(row.payload.text).startsWith(prefix)));
   const resolved = view.status === 'resolved' && !!view.response;
-  if (!resolved && !previouslyIncluded) return;
+  const pending = view.status === 'open';
+  if (!pending && !resolved && !previouslyIncluded) return;
   const safeText = sanitizeRefinementText(annotationFeedback(view), record.value.state);
-  const hash = refinementSignature(['annotation-feedback', props.application.id, annotation]).slice(3, 35);
+  const hash = refinementSignature([pending ? 'annotation-pending' : 'annotation-feedback', props.application.id, annotation]).slice(3, 35);
   const reviewId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20)}`;
   if (reviews.value.some(row => row.id === reviewId)) return;
   // Review history is immutable. A cancellation supersedes the older answer;
   // it does not send that answer again or rewrite an already published request.
   const row = await repository.saveReview(props.application.id, view.requestId, 'feedback', {
-    text: safeText, scope: view.annotation.document, ...(resolved ? { annotation } : {}),
+    text: safeText, scope: view.annotation.document, ...(pending || resolved ? { annotation } : {}),
   }, reviewId);
   if (disposed) return;
   if (!reviews.value.some(item => item.id === row.id)) reviews.value.push(row);
@@ -885,6 +893,13 @@ async function createRound(scope: RefinementScope) {
   if (saveError.value) throw new Error(saveError.value);
   if (cvApproved.value && scope !== 'letter' || letterApproved.value && scope !== 'cv') throw new Error(text('Reopen the approved document before requesting changes to it.', 'Das freigegebene Dokument vor weiteren Änderungen wieder öffnen.'));
   if (!preparedSource.value) throw new Error(sourceError.value || text('Select both templates in Preparation first.', 'Zuerst beide Vorlagen in Vorbereitung auswählen.'));
+  // Reconcile pending questions and later closures before freezing the request,
+  // including status saves from another device whose feedback step failed.
+  // Failed or partial writes are retried with deterministic IDs.
+  for (const view of allAnnotations.value) {
+    await includeAnnotationFeedback(view.annotation.id, view.proposalId);
+    if (disposed) return;
+  }
   // Reuse the current immutable receipt without writing state, changing timestamps,
   // or creating another request. Old receipts cannot be reactivated by retrying them.
   const current = currentPublishedRequest.value;
@@ -1515,7 +1530,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
           <p v-if="sourceError" class="app-hint error" role="alert">{{ sourceError }}</p>
             <section v-if="!showInitialRefinement" class="iteration-step current-review">
               <h3>{{ text('Current Review', 'Aktuelle Prüfung') }}</h3>
-              <div v-if="selectedProposal && hasActiveProposal" class="proposal-content">
+              <div v-if="hasActiveProposal || currentAnnotations.length" class="proposal-content">
                 <p v-if="legacyReview" class="review-guidance">{{ text('Combined round · read-only history. Create a separate request to continue.', 'Gemeinsame Runde · schreibgeschützter Verlauf. Zum Fortfahren eine eigene Anfrage erstellen.') }}</p>
                 <h4 v-if="pane === 'letter'" :id="reviewTabId('question')">{{ text('Questions', 'Fragen') }} <span class="review-tab-count">{{ reviewCounts.question }}</span></h4>
                 <div v-if="pane === 'cv'" class="review-tabs" role="tablist" :aria-label="text('Proposal review', 'Vorschlag prüfen')">
@@ -1523,7 +1538,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
                 </div>
                 <div :id="reviewPanelId" class="review-panel" :role="pane === 'cv' ? 'tabpanel' : 'region'" :aria-labelledby="reviewTabId(pane === 'cv' ? reviewTab : 'question')" :tabindex="pane === 'cv' ? 0 : undefined">
                   <template v-if="pane === 'cv' && reviewTab === 'changes'">
-                    <template v-if="pane === 'cv' && reviewScope !== 'letter'">
+                    <template v-if="hasActiveProposal && reviewScope !== 'letter'">
                       <p v-if="!legacyReview" class="review-guidance">{{ text('Activate the changes to keep for the next iteration. Your selection is saved with the next request and applied when its ChatGPT reply arrives.', 'Aktivieren Sie die Änderungen für die nächste Runde. Ihre Auswahl wird mit der nächsten Anfrage gespeichert und übernommen, sobald die ChatGPT-Antwort eintrifft.') }}</p>
                       <p v-if="cvChangeReviewError" class="app-hint warning" role="status">{{ cvChangeReviewError }}</p>
                       <RefinementChangeReview :changes="proposalChanges" :selected="selectedChangeIds" :comments="[]" :lang="lang" :disabled="busy || refreshing || syncing || !record" :locked="!!cvChangeReviewError" @toggle="setCvChangeActive" />
@@ -1539,7 +1554,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
             <section class="iteration-step refinement-task" :class="showInitialRefinement ? 'initial-refinement' : 'next-refinement'">
               <h3>{{ showInitialRefinement ? text('Initial Refinement', 'Erste Überarbeitung') : text('Next Refinement', 'Nächste Überarbeitung') }}</h3>
               <p v-if="iterationPending" role="status">{{ text('Waiting for the next draft. Sync to load it.', 'Der nächste Entwurf steht aus. Zum Laden synchronisieren.') }}</p>
-              <p class="review-guidance">{{ text('Optional requests for this document. Included with your answered questions when you copy the task.', 'Optionale Wünsche für dieses Dokument. Sie werden beim Kopieren der Aufgabe zusammen mit Ihren beantworteten Fragen übermittelt.') }}</p>
+              <p class="review-guidance">{{ text('Optional requests for this document. Included with your answers and open questions when you copy the task.', 'Optionale Wünsche für dieses Dokument. Sie werden beim Kopieren der Aufgabe zusammen mit Ihren Antworten und offenen Fragen übermittelt.') }}</p>
               <label v-if="pane === 'cv'" class="cv-refinement-request"><span>{{ text('Refinement request', 'Überarbeitungswunsch') }}</span><AutosaveTextarea v-model.lazy="cvIterationNote" rows="4" maxlength="12000" :placeholder="text('What should the next CV refinement focus on?', 'Worauf soll sich die nächste CV-Überarbeitung konzentrieren?')" :disabled="busy || scopeLocked" /></label>
               <div v-if="pane === 'letter'" class="iteration-note-tabs" role="tablist" :aria-label="text('Refinement requests', 'Überarbeitungswünsche')">
                 <button v-for="field in visibleIterationNoteFields" :id="iterationNoteTabId(field)" :key="field" type="button" role="tab" :data-iteration-note="field" :aria-controls="iterationNotePanelId" :aria-selected="activeIterationNote === field" :tabindex="activeIterationNote === field ? 0 : -1" @click="selectIterationNote(field)" @keydown="onIterationNoteKeydown($event, field)"><FontAwesomeIcon :icon="iterationNoteIcons[field]" aria-hidden="true" />{{ iterationNoteLabel(field) }}</button>

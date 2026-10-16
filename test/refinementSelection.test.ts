@@ -229,7 +229,7 @@ test('one CV request preserves earlier grouped drafts and consumes them only on 
   await reopened.copyIterationTask();
   assert.equal(reopened.error, '');
   assert.equal(reopened.cvIterationNote, requestText, 'copying retains the request draft until a reply arrives');
-  assert.equal(reopened.requests[0].request_json.feedback.at(-1)!.text, requestText);
+  assert.ok(reopened.requests[0].request_json.feedback.some(item => item.text === requestText));
   fixture.cloud.seedProposal(reopened.requests[0].id);
   await reopened.syncRefinement();
   assert.equal(reopened.error, '');

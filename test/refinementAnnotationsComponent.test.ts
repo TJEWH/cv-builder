@@ -45,7 +45,7 @@ function mount(t: TestContext, initial: Partial<Item> = {}) {
     ...initial,
   };
   const props = reactive({ items: [item], lang: 'en', disabled: false, busy: false,
-    save: async (_id: string, _status: AnnotationStatus, _response: string, _reviewId: string | null): Promise<boolean> => false,
+    save: async (_id: string, _status: AnnotationStatus, _response: string, _reviewId: string | null, _proposalId?: string): Promise<boolean> => false,
     privacyPreview: (value: string) => value,
   });
   let mounted: unknown;
@@ -65,6 +65,28 @@ function acknowledgeSaves(fixture: ReturnType<typeof mount>) {
   };
   return writes;
 }
+
+test('carried and new questions with the same annotation number save to their own proposals', async t => {
+  const { props, setup, item } = mount(t, { status: 'open', response: null, reviewId: null });
+  props.items = [...props.items, { ...item, proposalId: 'proposal-2' }];
+  await nextTick();
+  const writes: string[] = [];
+  props.save = async (id, status, response, _reviewId, proposalId) => {
+    writes.push(`${proposalId}/${id}`);
+    props.items = props.items.map(current => current.proposalId === proposalId
+      ? { ...current, status, response, reviewId: `review-${writes.length}` } : current);
+    await nextTick();
+    return true;
+  };
+  await nextTick();
+  setup.drafts[setup.key(item)]!.response = 'Answer to the carried question.';
+  assert.equal(await setup.commitAnswer(item), true);
+  const newer = props.items.find(current => current.proposalId === 'proposal-2')!;
+  assert.equal(await setup.selectStatus(newer, 'ignored'), true);
+  assert.deepEqual(writes, ['proposal-1/annotation-1', 'proposal-2/annotation-1']);
+  assert.equal(props.items[0]!.status, 'resolved');
+  assert.equal(props.items[1]!.status, 'ignored');
+});
 
 test('failed ignore retains the explicit ignored intent and its response for a direct retry', async t => {
   const { props, setup, item, draft } = mount(t);

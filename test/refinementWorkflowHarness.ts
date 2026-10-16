@@ -34,9 +34,9 @@ export interface Workspace {
   temporaryReview: { error: string }; proposalAlreadyApplied: boolean; baselineSignature: string;
   preview: { getPdfBlob(): Promise<Blob> } | null; letterPreview: { getPdfBlob(): Promise<Blob> } | null;
   getCvPdf(): Promise<Blob>; getLetterPdf(): Promise<Blob>;
-  saveAnnotation(id: string, status: 'open' | 'resolved' | 'ignored', response: string, previousReviewId: string | null): Promise<boolean>;
-  includeAnnotationFeedback(id: string): Promise<void>; feedbackHistory(): RefinementFeedback[];
-  proposalAnnotations: { annotation: { id: string }; status: string; response: string | null; reviewId: string | null; included: boolean }[];
+  saveAnnotation(id: string, status: 'open' | 'resolved' | 'ignored', response: string, previousReviewId: string | null, proposalId?: string): Promise<boolean>;
+  includeAnnotationFeedback(id: string, proposalId?: string): Promise<void>; feedbackHistory(): RefinementFeedback[];
+  proposalAnnotations: (import('../src/composables/refinementAnnotations').AnnotationView & { included: boolean; referenceChanged: boolean })[];
   reviewAcceptanceError: string; letterText: string;
   selectCv(id: string): Promise<void>; selectLetterTemplate(id: string): Promise<void>; publishSources(): Promise<void>; syncRefinement(): Promise<void>; copyTask(): Promise<void>; copyIterationTask(): Promise<void>; clearRefinementHistory(): Promise<void>; checkProposals(): Promise<void>;
   openProposal(): void; discardReview(): void; acceptSelectedChanges(): Promise<void>;
@@ -53,7 +53,7 @@ export interface Workspace {
   reviewTab: 'changes' | 'question';
   reviewCounts: Record<'changes' | 'question', number>;
   selectReviewTab(tab: 'changes' | 'question'): Promise<boolean>;
-  currentAnnotations: { annotation: { id: string; type: string; document: string } }[];
+  currentAnnotations: (import('../src/composables/refinementAnnotations').AnnotationView & { included: boolean; referenceChanged: boolean })[];
 }
 
 const filename = new URL('../src/components/ApplicationWorkspace.vue', import.meta.url);
