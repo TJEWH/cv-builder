@@ -49,11 +49,11 @@ const queries = reactive({ opportunities: '', applications: '' });
 const query = computed({ get: () => queries[props.tab], set: (value: string) => { queries[props.tab] = value; } });
 const statusFilter = ref('');
 const reviewFilter = ref('all');
-const hideNotInterested = ref(true);
+const showLowInterest = ref(false);
 const deadlineFilter = ref<'current' | 'past'>('current');
 const filtersOpen = ref(false);
 const filterToggle = ref<HTMLButtonElement | null>(null);
-const hideWithApplication = ref(true);
+const showWithApplications = ref(false);
 const sortBy = ref('deadline');
 const applicationSortBy = ref('deadline');
 const showApplicationIds = ref(false);
@@ -129,8 +129,8 @@ const applicationByOpportunity = computed(() => new Map(applications.value.map((
 const filteredOpportunities = computed(() => {
   const needle = query.value.toLocaleLowerCase().trim();
   return opportunities.value.filter((item) => (isOpportunityDeadlinePassed(item.details, now.value) === (deadlineFilter.value === 'past'))
-    && (!hideWithApplication.value || !applicationByOpportunity.value.has(item.id))
-    && (!hideNotInterested.value || reviewState(item.id) !== 'not_interested')
+    && (showWithApplications.value || !applicationByOpportunity.value.has(item.id))
+    && (showLowInterest.value || reviewState(item.id) !== 'not_interested')
     && (reviewFilter.value === 'all' || reviewState(item.id) === reviewFilter.value)
     && (!needle || [item.title, item.university, item.country, ...item.topics].join(' ').toLocaleLowerCase().includes(needle)))
     .toSorted((a, b) => sortBy.value === 'personal_fit' ? (fitScoreById.value.get(b.id) ?? -1) - (fitScoreById.value.get(a.id) ?? -1)
@@ -314,8 +314,8 @@ async function saveReviewSelection(item: Opportunity, state: OpportunityReviewSt
     return false;
   }
   pendingReviewSelections.delete(item.id);
-  notice.value = result.state === 'not_interested' && hideNotInterested.value
-    ? text('Marked as low interest. Uncheck “Hide low interest” to show it again.', 'Mit geringem Interesse markiert. Deaktiviere „Geringes Interesse ausblenden“, um die Stelle wieder anzuzeigen.')
+  notice.value = result.state === 'not_interested' && !showLowInterest.value
+    ? text('Marked as low interest. Check “Show low interest” to show it again.', 'Mit geringem Interesse markiert. Aktiviere „Geringes Interesse anzeigen“, um die Stelle wieder anzuzeigen.')
     : text('Your review state was saved.', 'Deine Bewertung wurde gespeichert.');
   return true;
 }
@@ -520,7 +520,7 @@ async function showRemovedOpportunity(id: string) {
   const opportunity = id && opportunityById.value.get(id);
   emit('navigate', 'opportunities');
   await nextTick();
-  query.value = ''; reviewFilter.value = 'all'; hideNotInterested.value = true;
+  query.value = ''; reviewFilter.value = 'all'; showLowInterest.value = false;
   if (opportunity) {
     deadlineFilter.value = isOpportunityDeadlinePassed(opportunity.details, now.value) ? 'past' : 'current';
     openOpportunity(opportunity.id);
@@ -548,7 +548,7 @@ useToastWatch(() => notice.value, () => {
         <label>{{ text('Opportunities', 'Stellenangebote') }}<select v-model="deadlineFilter"><option value="current">{{ text('Current opportunities', 'Aktuelle Stellenangebote') }}</option><option value="past">{{ text('Past opportunities', 'Abgelaufene Stellenangebote') }}</option></select></label>
         <label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="sortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option><option value="personal_fit">{{ text('Personal fit: high to low', 'Persönliche Passung: absteigend') }}</option><option value="salary_score">{{ text('Salary score: high to low', 'Gehaltsbewertung: absteigend') }}</option></select></label>
         <DesktopSidebarPortal area="minor" :active="props.active !== false && !showingDetail">
-          <div class="jobs-filter-checks jobs-sidebar-controls"><label class="jobs-check"><input v-model="hideWithApplication" type="checkbox" /> {{ text('Hide applications', 'Stellen mit Bewerbungen ausblenden') }}</label><label class="jobs-check"><input v-model="hideNotInterested" type="checkbox" /> {{ text('Hide low interest', 'Geringes Interesse ausblenden') }}</label></div>
+          <div class="jobs-filter-checks jobs-sidebar-controls"><label class="jobs-check"><input v-model="showWithApplications" type="checkbox" /> {{ text('Show opportunities with applications', 'Stellen mit Bewerbungen anzeigen') }}</label><label class="jobs-check"><input v-model="showLowInterest" type="checkbox" /> {{ text('Show low interest', 'Geringes Interesse anzeigen') }}</label></div>
         </DesktopSidebarPortal>
         </template>
         <template v-else><label>{{ text('Status', 'Status') }}<select v-model="statusFilter"><option value="">{{ text('All statuses', 'Alle Status') }}</option><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label><label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="applicationSortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option></select></label>

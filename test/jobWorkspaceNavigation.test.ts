@@ -142,7 +142,7 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   app.mount({});
   unmount = () => app.unmount();
   const setup = (mounted as { $: { setupState: {
-    query: string; statusFilter: string; reviewFilter: string; hideWithApplication: boolean; hideNotInterested: boolean; sortBy: string; applicationSortBy: string; deadlineFilter: 'current' | 'past'; now: Date;
+    query: string; statusFilter: string; reviewFilter: string; showWithApplications: boolean; showLowInterest: boolean; sortBy: string; applicationSortBy: string; deadlineFilter: 'current' | 'past'; now: Date;
     statusLabel(status: string): string;
     reviewSelection(id: string): OpportunityReviewState;
     changeReview(item: Opportunity, event: Event): Promise<void>;
@@ -350,7 +350,7 @@ test('opportunity navigation follows captured group order, skips removed results
   assert.equal(setup.selectedOpportunity?.id, charlie.id, 'the last result does not wrap to the first');
   assert.equal(setup.query, 'Research');
   assert.equal(setup.sortBy, 'title');
-  assert.equal(setup.hideNotInterested, true);
+  assert.equal(setup.showLowInterest, false);
 });
 
 test('application navigation waits for nested textarea saves and retains the item on failure', async t => {
@@ -845,7 +845,7 @@ test('strong-interest reviews remain filterable for current and past opportuniti
   assert.equal(setup.filteredOpportunities.length, 0);
 });
 
-test('hide not interesting is an independent checkbox that combines with review and application filters', (t) => {
+test('show checkboxes include low-interest and applied opportunities independently and combine with review filters', (t) => {
   const { setup, props, opportunity, opportunities, reviews, applications, application } = mount(t);
   const ignored = normalizeOpportunity({ id: 'ignored', title: 'Ignored opportunity', deadline: null });
   opportunities.value.push(ignored);
@@ -854,17 +854,18 @@ test('hide not interesting is an independent checkbox that combines with review 
     { user_id: props.userId, opportunity_id: ignored.id, state: 'not_interested', reviewed_updated_at: null, created_at: '', updated_at: '' },
   ];
   assert.equal(setup.reviewFilter, 'all');
-  assert.equal(setup.hideNotInterested, true);
+  assert.equal(setup.showLowInterest, false);
+  assert.equal(setup.showWithApplications, false);
   assert.deepEqual(setup.filteredOpportunities.map(item => item.id), [opportunity.id]);
-  setup.hideNotInterested = false;
+  setup.showLowInterest = true;
   assert.equal(setup.filteredOpportunities.length, 2);
   setup.reviewFilter = 'not_interested';
   assert.deepEqual(setup.filteredOpportunities.map(item => item.id), [ignored.id]);
   applications.value = [{ ...application, opportunity_id: ignored.id }];
   assert.equal(setup.filteredOpportunities.length, 0);
-  setup.hideWithApplication = false;
+  setup.showWithApplications = true;
   assert.deepEqual(setup.filteredOpportunities.map(item => item.id), [ignored.id]);
-  setup.hideNotInterested = true;
+  setup.showLowInterest = false;
   assert.equal(setup.filteredOpportunities.length, 0);
   assert.equal(setup.reviewFilter, 'not_interested', 'the checkbox preserves the chosen review filter');
 });
@@ -957,7 +958,7 @@ test('opportunity detail preserves filters and stays open after its review remov
   assert.equal(setup.showingDetail, false);
   assert.equal(setup.query, 'Robotics');
   assert.equal(setup.reviewFilter, 'all');
-  assert.equal(setup.hideNotInterested, true);
+  assert.equal(setup.showLowInterest, false);
   assert.equal(storage.has('CV_SELECTED_OPPORTUNITY:account-one'), false);
 });
 
@@ -1013,8 +1014,8 @@ test('deadline options show mutually exclusive current and past opportunities an
   assert.deepEqual(ids(), ['unknown']);
   setup.query = '';
   setup.reviewFilter = 'all';
-  setup.hideNotInterested = false;
-  setup.hideWithApplication = false;
+  setup.showLowInterest = true;
+  setup.showWithApplications = true;
   assert.deepEqual(ids(), ['applied', 'exact', 'future', 'invalid', 'not-interested', 'unknown']);
   setup.now = new Date('2026-10-06T12:00:00.001Z');
   assert.equal(ids().includes('exact'), false, 'current deadlines expire reactively');
