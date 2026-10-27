@@ -9,12 +9,13 @@ test('notices replace matching keys, refresh expiry and ignore empty messages', 
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 0 });
   clear(); t.after(clear);
   assert.equal(notify({ message: '  ' }), 0);
-  const id = notify({ message: 'Saved', key: 'save', tone: 'success', duration: 1000 });
+  const id = notify({ message: 'Saved', key: 'save', tone: 'success' });
+  assert.equal(toasts.value[0].duration, 2000);
   t.mock.timers.tick(700);
-  assert.equal(notify({ message: 'Saved again', key: 'save', tone: 'success', duration: 1000 }), id);
+  assert.equal(notify({ message: 'Saved again', key: 'save', tone: 'success' }), id);
   assert.equal(toasts.value.length, 1);
   assert.equal(toasts.value[0].message, 'Saved again');
-  t.mock.timers.tick(999);
+  t.mock.timers.tick(1999);
   assert.equal(toasts.value.length, 1);
   t.mock.timers.tick(1);
   assert.equal(toasts.value.length, 0);
@@ -23,7 +24,7 @@ test('notices replace matching keys, refresh expiry and ignore empty messages', 
 test('reading or focusing a toast pauses its remaining lifetime until all pause reasons end', t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 0 });
   clear(); t.after(clear);
-  const id = notify({ message: 'Copied', duration: 1000 });
+  const id = notify({ message: 'Copied' });
   t.mock.timers.tick(400);
   pause(id, 'pointer'); pause(id, 'focus');
   t.mock.timers.tick(5000);
@@ -31,23 +32,42 @@ test('reading or focusing a toast pauses its remaining lifetime until all pause 
   t.mock.timers.tick(5000);
   assert.equal(toasts.value.length, 1);
   resume(id, 'focus');
-  t.mock.timers.tick(599);
+  t.mock.timers.tick(1599);
   assert.equal(toasts.value.length, 1);
   t.mock.timers.tick(1);
   assert.equal(toasts.value.length, 0);
 });
 
-test('errors persist for recovery, repeated messages deduplicate, and dismissal clears their lifetime', t => {
+test('errors use the same two-second lifetime, keep retry actions and refresh when repeated', t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 0 });
   clear(); t.after(clear);
   let retried = false;
   const id = notify({ message: 'Save failed', tone: 'error', action: { label: 'Retry', run: () => { retried = true; } } });
-  t.mock.timers.tick(100000);
+  t.mock.timers.tick(1500);
   assert.equal(toasts.value.length, 1);
   assert.equal(notify({ message: 'Save failed', tone: 'error', action: toasts.value[0].action }), id);
   toasts.value[0].action!.run();
   assert.ok(retried);
-  dismiss(id);
+  t.mock.timers.tick(1999);
+  assert.equal(toasts.value.length, 1);
+  t.mock.timers.tick(1);
+  assert.equal(toasts.value.length, 0);
+});
+
+test('a newer toast replaces the previous one immediately and receives its own full lifetime', t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 0 });
+  clear(); t.after(clear);
+  const old = notify({ message: 'Saved', key: 'save', tone: 'success' });
+  t.mock.timers.tick(750);
+  const latest = notify({ message: 'Copied', key: 'copy' });
+  assert.notEqual(latest, old);
+  assert.deepEqual(toasts.value.map(toast => toast.message), ['Copied']);
+  dismiss(old);
+  t.mock.timers.tick(1250);
+  assert.equal(toasts.value[0].id, latest, 'the earlier timer cannot dismiss the replacement');
+  t.mock.timers.tick(749);
+  assert.equal(toasts.value.length, 1);
+  t.mock.timers.tick(1);
   assert.equal(toasts.value.length, 0);
 });
 
@@ -77,7 +97,7 @@ test('leaving a component invalidates retry actions without losing non-action re
     useToastWatch(() => error.value, { tone: 'error', action: { label: 'Retry', run() {} } });
     useToastWatch(() => notice.value);
   });
-  assert.equal(toasts.value.length, 2);
+  assert.equal(toasts.value.length, 1);
   scope.stop();
   assert.deepEqual(toasts.value.map(toast => toast.message), ['Copied']);
   error.value = 'Another error';

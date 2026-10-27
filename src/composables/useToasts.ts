@@ -3,7 +3,6 @@ import { getCurrentScope, onScopeDispose, readonly, shallowRef, watch } from 'vu
 export type ToastTone = 'info' | 'success' | 'warning' | 'error';
 export interface ToastOptions {
   tone?: ToastTone;
-  duration?: number;
   key?: string;
   action?: { label: string; run: () => unknown | Promise<unknown> };
 }
@@ -18,6 +17,7 @@ type Lifetime = { timer?: ReturnType<typeof setTimeout>; started: number; remain
 
 const toasts = shallowRef<Toast[]>([]);
 const lifetimes = new Map<number, Lifetime>();
+const TOAST_DURATION_MS = 2000;
 let sequence = 0;
 
 function dismiss(id: number) {
@@ -38,13 +38,16 @@ function notify(input: ToastOptions & { message: string }): number {
   const tone = input.tone || 'info';
   const existing = toasts.value.find(toast => input.key ? toast.key === input.key : !toast.key && toast.message === message && toast.tone === tone);
   const id = existing?.id || ++sequence;
-  const duration = input.duration ?? (tone === 'error' || tone === 'warning' ? 0 : 6000);
+  const duration = TOAST_DURATION_MS;
   const pauses = lifetimes.get(id)?.pauses || new Set<string>();
-  clearTimeout(lifetimes.get(id)?.timer);
+  for (const toast of toasts.value) {
+    clearTimeout(lifetimes.get(toast.id)?.timer);
+    lifetimes.delete(toast.id);
+  }
   const toast: Toast = { ...input, id, revision: (existing?.revision || 0) + 1, message, tone, duration };
-  toasts.value = existing ? toasts.value.map(item => item.id === id ? toast : item) : [...toasts.value, toast];
   const lifetime = { remaining: duration, started: Date.now(), pauses };
   lifetimes.set(id, lifetime);
+  toasts.value = [toast];
   startTimer(id, lifetime);
   return id;
 }

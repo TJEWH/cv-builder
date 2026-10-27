@@ -188,7 +188,7 @@ watch(combinedSaveStatus, (status, previous) => {
       label: lang.value === 'de' ? 'Erneut speichern' : 'Retry save', run: retryStateSave,
     } });
   } else if (status === 'saved' && previous !== 'saved') {
-    saveToastTimer = setTimeout(() => notify({ key: 'cv-autosave', message: saveStatusLabel.value, tone: 'success', duration: 3000 }), 1500);
+    saveToastTimer = setTimeout(() => notify({ key: 'cv-autosave', message: saveStatusLabel.value, tone: 'success' }), 1500);
   }
 }, { flush: 'sync' });
 onBeforeUnmount(() => clearTimeout(saveToastTimer));

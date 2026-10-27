@@ -1465,7 +1465,7 @@ function downloadBlob(blob: Blob, filename: string) {
 useToastWatch(() => error.value, { tone: 'error' });
 useToastWatch(() => notice.value);
 useToastWatch(() => saveError.value, () => ({
-  tone: 'error', duration: 0,
+  tone: 'error',
   action: { label: text('Retry save', 'Erneut speichern'), run: () => { persist(); return !saveError.value; } },
 }));
 useToastWatch(() => shortInstructionNotice.value, { tone: 'success' });

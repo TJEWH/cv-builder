@@ -14,6 +14,8 @@ const labels = computed(() => props.lang === 'de'
 const host = ref<HTMLElement | null>(null);
 const target = ref<HTMLElement | string>('body');
 const acting = ref(new Set<number>());
+const transitionKey = ref(0);
+const leaving = new Set<Element>();
 let observer: MutationObserver | undefined;
 function modalTarget() {
   // Keep notification actions reachable while a native modal makes the rest of the page inert.
@@ -24,10 +26,12 @@ async function show() {
   await nextTick();
   const element = host.value;
   if (!element?.showPopover) return;
-  if (toasts.value.length) {
+  if (toasts.value.length || leaving.size) {
     if (!element.matches(':popover-open')) element.showPopover();
   } else if (element.matches(':popover-open')) element.hidePopover();
 }
+function beginLeave(element: Element) { leaving.add(element); }
+function finishLeave(element: Element) { leaving.delete(element); void show(); }
 function visibility() {
   for (const toast of toasts.value) (document.hidden ? pause : resume)(toast.id, 'page-hidden');
 }
@@ -51,6 +55,13 @@ async function runAction(toast: Toast) {
     resume(toast.id, 'action');
   }
 }
+watch(toasts, (current, previous) => {
+  if (current.length && (previous.length || leaving.size)) {
+    // Replacing the group cancels an interrupted transition and shows the new message immediately.
+    leaving.clear();
+    transitionKey.value++;
+  }
+}, { flush: 'sync' });
 watch([toasts, target], () => { visibility(); void show(); });
 onMounted(() => {
   modalTarget();
@@ -66,7 +77,8 @@ onBeforeUnmount(() => { observer?.disconnect(); document.removeEventListener('vi
 <template>
   <Teleport :to="target">
     <aside ref="host" class="app-toaster" popover="manual" :aria-label="labels.region">
-      <TransitionGroup name="toast" tag="div" class="app-toaster__stack">
+      <TransitionGroup :key="transitionKey" name="toast" tag="div" class="app-toaster__stack" :appear="transitionKey === 0"
+        @before-leave="beginLeave" @after-leave="finishLeave" @leave-cancelled="finishLeave">
         <article v-for="toast in toasts" :key="toast.id" class="app-toast" :class="`app-toast--${toast.tone}`"
           :role="toast.tone === 'error' ? 'alert' : 'status'" aria-atomic="true"
           @mouseenter="pause(toast.id)" @mouseleave="resume(toast.id)" @focusin="pause(toast.id, 'focus')" @focusout="focusOut(toast.id, $event)">
@@ -100,9 +112,10 @@ onBeforeUnmount(() => { observer?.disconnect(); document.removeEventListener('vi
 .app-toast button:hover:not(:disabled) { background: var(--ui-surface-hover); }
 .app-toast button:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 .app-toast button:disabled { opacity: .6; cursor: wait; }
-.toast-enter-active, .toast-leave-active { transition: opacity .18s ease, transform .18s ease; }
-.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(16px); }
+.toast-enter-active { transition: opacity 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1); }
+.toast-leave-active { transition: opacity 120ms ease-in, transform 120ms ease-in; }
+.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(10px); }
 @media (max-width: 760px) { .app-toaster { display: none !important; } }
-@media (prefers-reduced-motion: reduce) { .toast-enter-active, .toast-leave-active { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .toast-enter-active, .toast-leave-active { transition: opacity 80ms linear; } .toast-enter-from, .toast-leave-to { transform: none; } }
 @media print { .app-toaster { display: none !important; } }
 </style>

@@ -200,7 +200,6 @@ watch([() => props.userId, selectedOpportunityId, () => props.tab, () => props.a
         ? text('Saving evaluation…', 'Einschätzung wird gespeichert…')
         : text('Evaluation saved.', 'Einschätzung gespeichert.'),
       tone: status === 'error' ? 'error' : status === 'saving' ? 'info' : 'success',
-      duration: status === 'saved' ? 3500 : 0,
       action: status === 'error' ? { label: text('Retry', 'Erneut versuchen'), run: () => {
         if (props.userId !== owner || selectedOpportunityId.value !== id || props.tab !== 'opportunities' || props.active === false) return true;
         return flushComment();
@@ -304,7 +303,7 @@ async function saveReviewSelection(item: Opportunity, state: OpportunityReviewSt
     pendingReviewSelections.set(item.id, failed);
     const message = opportunityReviewError.value || text('Could not save interest. Please retry.', 'Interesse konnte nicht gespeichert werden. Bitte erneut versuchen.');
     reviewToastIds.set(item.id, reviewToasts.notify({
-      key: `opportunity-interest:${owner}:${item.id}`, tone: 'error', duration: 0,
+      key: `opportunity-interest:${owner}:${item.id}`, tone: 'error',
       message: `${item.title}: ${message} ${text('Your choice is kept until you retry.', 'Deine Auswahl bleibt bis zum erneuten Versuch erhalten.')}`,
       action: { label: text('Retry', 'Erneut versuchen'), run: () => {
         if (props.userId !== owner || pendingReviewSelections.get(item.id) !== failed) return true;
