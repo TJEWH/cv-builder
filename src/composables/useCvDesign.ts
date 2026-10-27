@@ -69,6 +69,7 @@ export function applyCvDesign(input: CvDesign = {}, target: HTMLElement = docume
   const fontColor = design.ink;
   root.setProperty('--ink', fontColor);
   root.setProperty('--accent', fontColor);
+  root.setProperty('--title-color', "#9be8c7");
   root.setProperty('--subtitle', fontColor);
   root.setProperty('--graphic', colorWithOpacity(fontColor, design.graphicOpacity));
   root.setProperty('--date-color', colorWithOpacity(fontColor, design.dateOpacity));

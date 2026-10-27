@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue';
 import { FIELD_PRIVACY_TYPES, type CvState, type FieldPrivacyType } from '../types';
 import { makeT } from '../i18n/dict';
@@ -130,7 +131,7 @@ function resetEdits() {
     <template #before-tabs>
       <div class="privacy-editor-intro">
         <fieldset class="privacy-automatic">
-          <legend>{{ t('privacyAutomaticMasking') }}</legend>
+          <legend>{{ t('privacyAutomaticMasking') }}<InfoHint :lang="state.lang" :label="t('privacyAutomaticMasking')" :text="t('privacyEditorHelp')" /></legend>
           <div class="privacy-automatic__fields">
             <label class="privacy-automatic__header" :title="t('privacyHeaderMaskedHelp')">
               <input type="checkbox" checked disabled :aria-label="t('header')">
@@ -141,7 +142,6 @@ function resetEdits() {
               <span>{{ t(proxyFieldLabels[field]) }}</span>
             </label>
           </div>
-          <p class="privacy-editor-help">{{ t('privacyEditorHelp') }}</p>
         </fieldset>
         <button v-if="hasEdits" class="privacy-reset" type="button" @click="resetEdits">{{ t('privacyResetAll') }}</button>
       </div>
@@ -157,7 +157,6 @@ function resetEdits() {
 .privacy-automatic__fields label { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; color: var(--ui-text); cursor: pointer; white-space: nowrap; }
 .privacy-automatic__fields input { flex-shrink: 0; width: 16px; height: 16px; margin: 0; accent-color: var(--ui-accent); }
 .privacy-automatic__fields .privacy-automatic__header { cursor: help; }
-.privacy-editor-help { margin: 0; padding: 4px 0 0; color: var(--ui-muted); font-size: 12px; line-height: 1.5; }
 .privacy-reset { justify-self: start; padding: 4px 0; border: 0; background: transparent; color: var(--ui-text); font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .privacy-reset:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 </style>

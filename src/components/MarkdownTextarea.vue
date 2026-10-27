@@ -26,7 +26,7 @@ const emptyPlaceholder = computed(() => [props.placeholder, props.help].filter(B
 </script>
 
 <template>
-  <AutosaveTextarea v-bind="$attrs" v-model.lazy="value" class="p-textarea p-component p-textarea-fluid" :placeholder="emptyPlaceholder" :aria-label="ariaLabel || undefined" :aria-describedby="help ? helpId : undefined" auto-resize :rows="rows" @commit="commit" />
+  <AutosaveTextarea v-bind="$attrs" v-model.lazy="value" class="p-textarea p-component p-textarea-fluid" :placeholder="emptyPlaceholder" :aria-label="ariaLabel || undefined" :aria-describedby="help ? helpId : ($attrs['aria-describedby'] as string | undefined)" auto-resize :rows="rows" @commit="commit" />
   <span v-if="help" :id="helpId" class="markdown-help">{{ help }}</span>
 </template>
 

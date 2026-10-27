@@ -4,6 +4,7 @@ import type { CvDesign } from '../types';
 import type { DesignControl, DesignControlRow, FavoriteLink, StringDesignKey } from '../composables/designControls';
 import { DEFAULT_DESIGN, designValue, designNumber } from '../defaults';
 import { makeT } from '../i18n/dict';
+import InfoHint from './InfoHint.vue';
 const props = defineProps<{ modelValue: CvDesign; entries: DesignControlRow[]; lang: string }>();
 const t = makeT(computed(() => props.lang));
 const design = computed(() => new Proxy(props.modelValue, {
@@ -81,7 +82,7 @@ function setLinked(key: FavoriteLink['linkKey'], primaryKey: StringDesignKey, se
                 </div>
               </div>
               <div v-else class="design-control">
-                <div v-if="entry.option.type !== 'toggle'" class="design-control-label"><span>{{ entry.option.label }}<template v-if="entry.option.type === 'range'">: {{ valueLabel(entry.option) }}</template></span></div>
+                <div v-if="entry.option.type !== 'toggle'" class="design-control-label"><span>{{ entry.option.label }}<template v-if="entry.option.type === 'range'">: {{ valueLabel(entry.option) }}</template></span><InfoHint v-if="entry.option.help" :lang="lang" :label="entry.option.label" :text="entry.option.help" /></div>
                 <label v-if="entry.option.type === 'toggle'" class="design-toggle-control">
                   <span>{{ entry.option.label }}</span>
                   <input class="design-toggle" type="checkbox" role="switch" :checked="Boolean(controlValue(entry.option))" @change="setControlValue(entry.option, ($event.target as HTMLInputElement).checked)">
@@ -100,7 +101,7 @@ function setLinked(key: FavoriteLink['linkKey'], primaryKey: StringDesignKey, se
 .design-controls { container: design-controls / inline-size; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 8px; min-width: 0; }
 .design-control { display: grid; gap: 4px; align-content: start; min-width: 0; overflow-wrap: anywhere; }
 .design-control--linked { grid-column: span 2; }
-.design-control-label { display: flex; align-items: center; justify-content: space-between; gap: 6px; color: var(--ui-muted); font-size: 10pt; }
+.design-control-label { display: flex; align-items: center; gap: 2px; color: var(--ui-muted); font-size: 10pt; }
 .design-paired-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .design-linked-slider { display: grid; gap: 4px; min-width: 0; }
 .design-linked-slider-heading { display: flex; align-items: center; gap: 6px; color: var(--ui-muted); font-size: 10pt; }

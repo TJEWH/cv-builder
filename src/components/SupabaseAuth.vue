@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue';
 import { useSupabaseAuth } from '../composables/useSupabaseAuth';
 import { useToasts, useToastWatch } from '../composables/useToasts';
@@ -76,7 +77,7 @@ onBeforeUnmount(() => { password.value = ''; });
     </summary>
     <section class="supabase-auth__panel" :aria-labelledby="`${id}-title`">
       <div class="supabase-auth__heading">
-        <h2 :id="`${id}-title`">{{ user ? copy.account : copy.title }}</h2>
+        <h2 :id="`${id}-title`">{{ user ? copy.account : copy.title }}<InfoHint :lang="lang" :label="user ? copy.account : copy.title" :text="`${copy.help} ${copy.session}`" /></h2>
         <button type="button" class="supabase-auth__close" :aria-label="copy.close" @click="close">×</button>
       </div>
       <p v-if="configuration.status !== 'ready'" class="app-hint">{{ copy[configuration.status] }}</p>
@@ -87,14 +88,12 @@ onBeforeUnmount(() => { password.value = ''; });
         </template>
         <p v-else-if="!ready" role="status">{{ copy.checking }}</p>
         <form v-else class="supabase-auth__form" @submit.prevent="submit">
-          <p class="app-hint">{{ copy.help }}</p>
           <label :for="`${id}-email`">{{ copy.email }}</label>
           <input :id="`${id}-email`" v-model="email" type="email" name="email" autocomplete="username" autocapitalize="none" spellcheck="false" required :disabled="busy" @input="clearError" />
           <label :for="`${id}-password`">{{ copy.password }}</label>
           <input :id="`${id}-password`" v-model="password" type="password" name="password" autocomplete="current-password" required :disabled="busy" @input="clearError" />
           <button type="submit" class="btn btn--success" :disabled="busy || !email.trim() || !password">{{ busy ? copy.working : copy.login }}</button>
         </form>
-        <p class="app-hint supabase-auth__hint">{{ copy.session }}</p>
         <p class="app-hint supabase-auth__hint">{{ copy.privacy }}</p>
       </template>
     </section>

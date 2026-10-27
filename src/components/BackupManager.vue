@@ -3,6 +3,7 @@ import type { PropType } from 'vue';
 import type { CvState, CvJsonKind, SavedConfiguration } from '../types';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { makeT } from '../i18n/dict';
+import InfoHint from './InfoHint.vue';
 import { STORAGE_KEY } from '../composables/useStorage';
 import { builtinConfigurations, createEmptyDocument, createSampleDocument, EMPTY_DOCUMENT_ID, SAMPLE_DOCUMENT_ID } from '../composables/builtinConfigurations';
 import { createNormalizedContentState } from '../composables/contentLayout';
@@ -433,38 +434,35 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
         </div>
       </Teleport>
 
-      <p class="backup-manager__hint app-hint">{{ isEmptyDocument ? t('versionEmptyHint') : t('versionSaveAsHint') }}</p>
+      <p v-if="isEmptyDocument" class="backup-manager__hint app-hint">{{ t('versionEmptyHint') }}</p>
+      <h3>{{ t('versionSaveAs') }}<InfoHint :lang="lang" :label="t('versionSaveAs')" :text="t('versionSaveAsHint')" /></h3>
       <form class="backup-manager__save-as" @submit.prevent="saveAs">
         <input v-model="newName" :placeholder="t('versionNewName')" :aria-label="t('versionNewName')" />
         <button type="submit" class="btn btn--success" :disabled="!newName.trim()">{{ t('versionSaveAs') }}</button>
       </form>
 
       <div class="backup-manager__language">
-        <h3>{{ t('language') }}</h3>
+        <h3>{{ t('language') }}<InfoHint id="variant-language-help" :lang="lang" :label="t('language')" :text="lang === 'de' ? 'Die Sprache wird für diese Variante gespeichert. Sie ändert die Oberfläche und Standardbeschriftungen im CV. Deine eigenen Texte werden nicht übersetzt.' : 'The language is saved for this variant. It changes the interface and default CV labels. Your own text is not translated.'" /></h3>
         <button class="backup-manager__language-toggle" type="button" :class="{ 'is-on': lang === 'en' }" :aria-label="`${t('language')}: ${lang === 'en' ? 'English' : 'Deutsch'}`" aria-describedby="variant-language-help" :aria-pressed="lang === 'en'" @click="emit('toggle-language')">
           <span class="backup-manager__language-track"><span>DE</span><span>EN</span><span class="backup-manager__language-thumb"></span></span>
         </button>
       </div>
-      <p id="variant-language-help" class="backup-manager__hint app-hint">{{ lang === 'de' ? 'Die Sprache wird für diese Variante gespeichert. Sie ändert die Oberfläche und Standardbeschriftungen im CV. Deine eigenen Texte werden nicht übersetzt.' : 'The language is saved for this variant. It changes the interface and default CV labels. Your own text is not translated.' }}</p>
 
       <div class="backup-manager__json-group">
-        <h3>{{ t('versionContentJson') }}</h3>
-        <p class="backup-manager__hint app-hint">{{ t('versionContentJsonHelp') }}</p>
+        <h3>{{ t('versionContentJson') }}<InfoHint :lang="lang" :label="t('versionContentJson')" :text="t('versionContentJsonHelp')" /></h3>
         <div class="backup-manager__file-actions">
           <input ref="contentFileInput" class="backup-manager__file-input" type="file" accept="application/json,.json" @change="importJson($event, 'content')" />
           <button type="button" class="btn" @click="exportJson('content')">{{ t('versionExportContent') }}</button>
           <button type="button" class="btn" :disabled="isImporting" @click="chooseJsonFile('content')">{{ t('versionImportContent') }}</button>
         </div>
-        <label class="backup-manager__privacy-option">
-          <input v-model="bypassPrivacyProxy" type="checkbox" :disabled="isImporting" aria-describedby="content-json-privacy-help content-json-privacy-edits" />
+        <div class="hint-label-row"><label class="backup-manager__privacy-option">
+          <input v-model="bypassPrivacyProxy" type="checkbox" :disabled="isImporting" :aria-describedby="bypassPrivacyProxy ? 'content-json-privacy-help' : 'content-json-privacy-help content-json-privacy-edits'" />
           <span>{{ t('versionBypassPrivacy') }}</span>
-        </label>
+        </label><InfoHint v-if="!bypassPrivacyProxy" id="content-json-privacy-edits" :lang="lang" :label="t('versionBypassPrivacy')" :text="t('versionPrivacyEditsHelp')" /></div>
         <p id="content-json-privacy-help" class="backup-manager__hint app-hint">{{ t(bypassPrivacyProxy ? 'versionBypassPrivacyHelp' : 'versionRespectPrivacyHelp') }}</p>
-        <p v-if="!bypassPrivacyProxy" id="content-json-privacy-edits" class="backup-manager__hint app-hint">{{ t('versionPrivacyEditsHelp') }}</p>
       </div>
       <div class="backup-manager__json-group">
-        <h3>{{ t('versionConfigJson') }}</h3>
-        <p class="backup-manager__hint app-hint">{{ t('versionConfigJsonHelp') }}</p>
+        <h3>{{ t('versionConfigJson') }}<InfoHint :lang="lang" :label="t('versionConfigJson')" :text="t('versionConfigJsonHelp')" /></h3>
         <div class="backup-manager__file-actions">
           <input ref="configFileInput" class="backup-manager__file-input" type="file" accept="application/json,.json" @change="importJson($event, 'config')" />
           <button type="button" class="btn" @click="exportJson('config')">{{ t('versionExportConfig') }}</button>
@@ -478,6 +476,9 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
 <style scoped>
 .variant-selector--docked { width: min(100%, 420px); min-width: 0; min-height: 40px; font: inherit; color: #d1fae5; border: 1px solid #28534e; border-radius: 7px; background: #0b1b25; padding: 9px 11px; }
 .group-panel__scroll-body { display: grid; align-content: start; gap: 10px; min-height: 0; }
+.builder-layout__controls h3 {
+  margin: 0; font-size: 14px; color: #9be8c7; letter-spacing: .4px;
+}
 .backup-manager__actions, .backup-manager__save-as, .backup-manager__file-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .backup-manager__actions select { flex: 1 1 220px; width: auto; }
 .backup-manager__actions--docked { flex: 1; min-width: 0; flex-wrap: nowrap; }
@@ -487,8 +488,7 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
 .backup-manager__actions--sidebar select, .backup-manager__actions--sidebar .btn { width: 100%; max-width: none; }
 .backup-manager__save-as input { flex: 1 1 220px; width: auto; }
 .backup-manager__file-input { display: none; }
-.backup-manager__json-group { display: grid; gap: 8px; padding-top: 20px; }
-.backup-manager__json-group h3 { margin: 0; font-size: 14px; color: #9be8c7; letter-spacing: .4px; }
+.backup-manager__json-group { display: grid; gap: 8px;}
 .backup-manager__hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .backup-manager__privacy-option { display: flex; align-items: center; gap: 8px; color: #d1fae5; font-size: 13px; cursor: pointer; }
 .backup-manager__privacy-option input { width: 16px; height: 16px; margin: 0; accent-color: #27f3a2; }

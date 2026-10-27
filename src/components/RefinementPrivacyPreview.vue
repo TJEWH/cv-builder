@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import type { LocalCvAdjustmentRequest } from '../cvAdjustmentTypes';
 import type { PrivacyContextType, RefinementRequest } from '../refinementTypes';
@@ -95,8 +96,8 @@ const typeLabel = (type: PrivacyContextType) => ({ person: text('Person', 'Perso
     </details>
     <details class="disclosure-row"><summary>{{ text('Outgoing saved feedback', 'Ausgehendes gespeichertes Feedback') }} ({{ request.feedback.length }})</summary><article v-for="item in request.feedback" :key="item.id"><strong>{{ item.scope }} · {{ item.createdAt }}</strong><PrivacyTextPreview :value="item.text" :lang="lang" /></article></details>
     <details v-if="targets.length || request.privacyLegend?.length" class="disclosure-row privacy-contexts">
-      <summary>{{ text('Approved context descriptions (optional)', 'Freigegebene Kontextbeschreibungen (optional)') }}</summary>
-      <p class="app-hint">{{ text('Enter general context yourself, then approve it for sharing. No description is generated from private data. Tokens remain the reference; descriptions never replace originals or mappings.', 'Allgemeinen Kontext selbst eingeben und zum Teilen freigeben. Beschreibungen werden nicht aus privaten Daten erzeugt. Tokens bleiben die Referenz; Beschreibungen ersetzen weder Originale noch Zuordnungen.') }}</p>
+      <summary>{{ text('Approved context descriptions (optional)', 'Freigegebene Kontextbeschreibungen (optional)') }}<InfoHint :lang="lang" :label="text('Approved context descriptions (optional)', 'Freigegebene Kontextbeschreibungen (optional)')" :text="text('No description is generated from private data. Tokens remain the reference; descriptions never replace originals or mappings.', 'Beschreibungen werden nicht aus privaten Daten erzeugt. Tokens bleiben die Referenz; Beschreibungen ersetzen weder Originale noch Zuordnungen.')" /></summary>
+      <p class="app-hint">{{ text('Enter general context yourself, then approve it for sharing.', 'Allgemeinen Kontext selbst eingeben und zum Teilen freigeben.') }}</p>
       <article v-for="target in targets" :key="target.sourceKey" class="privacy-context">
         <strong>{{ target.label }}</strong> · <code>{{ target.token }}</code>
         <label>{{ text('Type', 'Typ') }}<select v-model="draft(target).type" @change="persistDraft(target.sourceKey)"><option v-for="type in PRIVACY_CONTEXT_TYPES" :key="type" :value="type">{{ typeLabel(type) }}</option></select></label>

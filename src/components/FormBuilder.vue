@@ -11,6 +11,7 @@ import PrivacySectionHeading from './PrivacySectionHeading.vue';
 import ContactFields from './ContactFields.vue';
 import SectionItems from './SectionItems.vue';
 import MarkdownTextarea from './MarkdownTextarea.vue';
+import InfoHint from './InfoHint.vue';
 import PrivacyField from './PrivacyField.vue';
 import { PRIVACY_EDITOR } from '../composables/privacyEditorContext';
 import ConfirmDeletionDialog from './ConfirmDeletionDialog.vue';
@@ -436,13 +437,12 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
               <button class="mini field-config-dialog__close" type="button" :aria-label="t('close')" :title="t('close')" @click="closeFieldConfig"><font-awesome-icon :icon="['fas', 'xmark']" /></button>
             </header>
             <fieldset class="field-config-mode">
-              <legend>{{ t('fieldInputMode') }}</legend>
+              <legend>{{ t('fieldInputMode') }}<InfoHint :id="`${editorId}-field-config-help`" :lang="langRef" :label="t('fieldInputMode')" :text="usesCustomBodyTextarea(activeFieldConfigSection) ? t('textareaFieldHelp') : t('fieldConfigurationHelp')" /></legend>
               <div class="field-config-options">
                 <label class="field-config-option"><input type="radio" :name="`${editorId}-custom-field-mode`" :checked="!usesCustomBodyTextarea(activeFieldConfigSection)" @change="setCustomBodyEntryMode(activeFieldConfigSection, 'fields')" /><span>{{ t('fieldInputModeFields') }}</span></label>
                 <label class="field-config-option"><input type="radio" :name="`${editorId}-custom-field-mode`" :checked="usesCustomBodyTextarea(activeFieldConfigSection)" @change="setCustomBodyEntryMode(activeFieldConfigSection, 'textarea')" /><span>{{ t('fieldInputModeTextarea') }}</span></label>
               </div>
             </fieldset>
-            <p :id="`${editorId}-field-config-help`" class="app-hint">{{ usesCustomBodyTextarea(activeFieldConfigSection) ? t('textareaFieldHelp') : t('fieldConfigurationHelp') }}</p>
             <div v-if="!usesCustomBodyTextarea(activeFieldConfigSection)" class="field-config-options" role="group" :aria-label="t('fields')" :aria-describedby="`${editorId}-field-config-help`">
               <label v-for="field in customBodyFieldOptions" :key="field.key" class="field-config-option">
                 <input type="checkbox" :checked="isCustomBodyFieldEnabled(activeFieldConfigSection, field.key)" @change="setCustomBodyFieldEnabled(activeFieldConfigSection, field.key, ($event.target as HTMLInputElement).checked)" />
@@ -473,8 +473,7 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
         <div class="grid-2"><PrivacyField :owner="state.contact" field="name" v-slot="{ disabled }"><label>{{ t('name') }}<InputText :disabled="disabled" v-model="state.contact.name" :placeholder="SAMPLE_CONTACT.name" fluid /></label></PrivacyField><PrivacyField :owner="state.contact" field="role" v-slot="{ disabled }"><label>{{ t('role') }}<InputText :disabled="disabled" v-model="state.contact.role" :placeholder="SAMPLE_CONTACT.role" fluid /></label></PrivacyField></div>
         <ContactFields v-if="!contactInSidebar" :contact="state.contact" :lang="langRef" />
         <fieldset v-if="!privacyMode" class="letter-contact-fields" :aria-describedby="`${editorId}-letter-contact-help`">
-          <legend>{{ t('letterContactFields') }}</legend>
-          <p :id="`${editorId}-letter-contact-help`">{{ t('letterContactFieldsHelp') }}</p>
+          <legend>{{ t('letterContactFields') }}<InfoHint :id="`${editorId}-letter-contact-help`" :lang="langRef" :label="t('letterContactFields')" :text="t('letterContactFieldsHelp')" /></legend>
           <div class="letter-contact-fields__options">
             <label v-for="field in CONTACT_FIELDS" :key="field" class="letter-contact-fields__option">
               <input v-model="letterContactFields" type="checkbox" :value="field" />
@@ -503,7 +502,7 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
               </div>
               <div :id="sectionContentId(key)" class="section-content" :inert="isCollapsed(key)">
                 <div class="section-content__inner">
-                  <PrivacyField :owner="state.about" field="text" v-slot="{ disabled }"><label class="about-editor">{{ t('aboutTextLabel') }}<MarkdownTextarea :disabled="disabled" v-model="state.about.text" :aria-label="t('aboutTextLabel')" placeholder="Me in a nutshell..." :help="t('markdownTextareaHelp')" :rows="4" /></label></PrivacyField>
+                  <PrivacyField :owner="state.about" field="text" v-slot="{ disabled }"><div class="markdown-field about-editor"><div class="hint-label-row"><label :for="`${editorId}-about-text`">{{ t('aboutTextLabel') }}</label><InfoHint :id="`${editorId}-about-text-help`" :lang="langRef" :label="t('aboutTextLabel')" :text="t('markdownTextareaHelp')" /></div><MarkdownTextarea :id="`${editorId}-about-text`" :disabled="disabled" v-model="state.about.text" :aria-label="t('aboutTextLabel')" placeholder="Me in a nutshell..." :aria-describedby="`${editorId}-about-text-help`" :rows="4" /></div></PrivacyField>
                 </div>
               </div>
             </section>
@@ -541,7 +540,7 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
               </div>
               <div :id="sectionContentId(key)" class="section-content" :inert="isCollapsed(key)">
                 <div class="section-content__inner">
-                  <PrivacyField :owner="section" field="text" v-if="usesCustomBodyTextarea(section)" v-slot="{ disabled }"><label class="about-editor">{{ t('textarea') }}<MarkdownTextarea :disabled="disabled" v-model="section.text" :aria-label="t('textarea')" :help="t('markdownTextareaHelp')" :rows="6" /></label></PrivacyField>
+                  <PrivacyField :owner="section" field="text" v-if="usesCustomBodyTextarea(section)" v-slot="{ disabled }"><div class="markdown-field about-editor"><div class="hint-label-row"><label :for="`${editorId}-${section.id}-text`">{{ t('textarea') }}</label><InfoHint :id="`${editorId}-${section.id}-text-help`" :lang="langRef" :label="t('textarea')" :text="t('markdownTextareaHelp')" /></div><MarkdownTextarea :id="`${editorId}-${section.id}-text`" :disabled="disabled" v-model="section.text" :aria-label="t('textarea')" :aria-describedby="`${editorId}-${section.id}-text-help`" :rows="6" /></div></PrivacyField>
                   <template v-else>
                     <SectionItems v-model="section.entries" :lang="langRef" :reorder-mode="reorderMode">
                       <template #default="{ item: entry, index }">
@@ -550,7 +549,7 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
                           <div v-if="enabledCustomBodyEntryFields(section).length" class="custom-body-entry__fields" :style="{ '--custom-body-field-count': enabledCustomBodyEntryFields(section).length }">
                             <PrivacyField :owner="entry" :field="field.key" v-for="field in enabledCustomBodyEntryFields(section)" :key="field.key" v-slot="{ disabled }"><label>{{ field.label }}<InputText :disabled="disabled" v-if="field.type === 'text'" v-model="entry[field.key]" :placeholder="field.placeholder" fluid /><Select :disabled="disabled" v-else-if="field.type === 'select'" v-model="entry[field.key]" :options="field.options" option-label="label" option-value="value" :aria-label="field.label" fluid /></label></PrivacyField>
                           </div>
-                          <PrivacyField :owner="entry" field="desc" v-if="isCustomBodyFieldEnabled(section, 'desc')" v-slot="{ disabled }"><label>{{ t('desc') }}<MarkdownTextarea :disabled="disabled" v-model="entry.desc" :aria-label="t('desc')" :placeholder="customBodyFieldOptions.find((field) => field.key === 'desc')?.placeholder" :help="t('markdownTextareaHelp')" /></label></PrivacyField>
+                          <PrivacyField :owner="entry" field="desc" v-if="isCustomBodyFieldEnabled(section, 'desc')" v-slot="{ disabled }"><div class="markdown-field"><div class="hint-label-row"><label :for="`${editorId}-${section.id}-${entry.id}-desc`">{{ t('desc') }}</label><InfoHint :id="`${editorId}-${section.id}-${entry.id}-desc-help`" :lang="langRef" :label="t('desc')" :text="t('markdownTextareaHelp')" /></div><MarkdownTextarea :id="`${editorId}-${section.id}-${entry.id}-desc`" :disabled="disabled" v-model="entry.desc" :aria-label="t('desc')" :placeholder="customBodyFieldOptions.find((field) => field.key === 'desc')?.placeholder" :aria-describedby="`${editorId}-${section.id}-${entry.id}-desc-help`" /></div></PrivacyField>
                         </div>
                       </template>
                     </SectionItems>
@@ -644,11 +643,11 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
       <Teleport v-if="!privacyMode" defer :to="toolbarTarget || 'body'" :disabled="!toolbarTarget">
         <div v-show="toolbarVisible" class="content-mode-toolbar" :class="{ 'content-mode-toolbar--docked': !!toolbarTarget, 'content-mode-toolbar--sidebar': toolbarTarget.startsWith('#desktop-sidebar-') }" role="group" :aria-label="t('contentTools')">
           <div class="panel-header-action content-mode-actions content-mode-actions--left">
-            <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': todosMode }" :aria-pressed="todosMode" @click="todosMode = !todosMode"><font-awesome-icon :icon="['fas', 'check']" aria-hidden="true" />{{ t('todos') }}</button>
-            <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': configMode }" :aria-pressed="configMode" @click="toggleConfigMode"><font-awesome-icon :icon="['fas', 'sliders']" aria-hidden="true" />{{ t('config') }}</button>
+            <div class="content-mode-tool"><button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': todosMode }" :aria-pressed="todosMode" :aria-describedby="`${editorId}-todos-help`" @click="todosMode = !todosMode"><font-awesome-icon :icon="['fas', 'check']" aria-hidden="true" />{{ t('todos') }}</button><InfoHint :id="`${editorId}-todos-help`" :lang="langRef" :label="t('todos')" :text="t('contentTodosHelp')" /></div>
+            <div class="content-mode-tool"><button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': configMode }" :aria-pressed="configMode" :aria-describedby="`${editorId}-config-help`" @click="toggleConfigMode"><font-awesome-icon :icon="['fas', 'sliders']" aria-hidden="true" />{{ t('config') }}</button><InfoHint :id="`${editorId}-config-help`" :lang="langRef" :label="t('config')" :text="t('contentConfigHelp')" /></div>
           </div>
           <div class="panel-header-action content-mode-actions">
-            <button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': reorderMode && activeContentTab !== 'header' }" :aria-label="t('reorderSections')" :aria-pressed="reorderMode && activeContentTab !== 'header'" :disabled="activeContentTab === 'header'" @click="toggleReorderMode"><font-awesome-icon :icon="['fas', 'grip-vertical']" aria-hidden="true" />{{ t('reorder') }}</button>
+            <div class="content-mode-tool"><button class="mini content-reorder-toggle" type="button" :class="{ 'is-active': reorderMode && activeContentTab !== 'header' }" :aria-label="t('reorderSections')" :aria-pressed="reorderMode && activeContentTab !== 'header'" :aria-describedby="`${editorId}-reorder-help`" :disabled="activeContentTab === 'header'" @click="toggleReorderMode"><font-awesome-icon :icon="['fas', 'grip-vertical']" aria-hidden="true" />{{ t('reorder') }}</button><InfoHint :id="`${editorId}-reorder-help`" :lang="langRef" :label="t('reorderSections')" :text="t('contentReorderHelp')" /></div>
           </div>
         </div>
       </Teleport>
@@ -667,7 +666,6 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
 .content-tab-panel { min-width: 0; }
 .letter-contact-fields { min-width: 0; margin: 16px 0 0; padding: 0; border: 0; }
 .letter-contact-fields legend { padding: 0; color: var(--ui-text); font-size: .875rem; font-weight: 600; }
-.letter-contact-fields p { margin: 6px 0 8px; color: var(--muted); font-size: .8125rem; line-height: 1.5; }
 .letter-contact-fields__options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; }
 .letter-contact-fields__option { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 40px; color: var(--ui-text); cursor: pointer; }
 .letter-contact-fields__option:hover { color: var(--ui-accent); }
@@ -676,11 +674,13 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
 .content-panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .content-panel__scroll-body { display: grid; align-content: start; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .content-reorder-toggle { display: inline-flex; align-items: center; gap: 6px; }
+.content-mode-tool { display: flex; align-items: center; min-width: 0; gap: 2px; }
+.content-mode-tool > .content-reorder-toggle { flex: 1; min-width: 0; }
 .content-mode-toolbar { display: flex; flex: none; justify-content: center; flex-wrap: wrap; gap: 6px; margin-top: auto; padding: 10px; border-top: 1px solid #134e4a; border-radius: 0 0 6px 6px; background: #06141f; }
 .content-mode-toolbar--docked { justify-content: flex-start; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
-.content-mode-toolbar--docked button { min-height: 40px; }
+.content-mode-toolbar--docked .content-reorder-toggle { min-height: 40px; }
 .content-mode-toolbar--sidebar { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
-.content-mode-toolbar--sidebar button { justify-content: flex-start; width: 100%; }
+.content-mode-toolbar--sidebar .content-reorder-toggle { justify-content: flex-start; width: 100%; }
 .content-mode-actions { display: contents; }
 .content-reorder-toggle.is-active { color: var(--ui-accent); background: var(--ui-active); border-color: var(--ui-accent-border); }
 .content-reorder-toggle:disabled { border-color: #18332e; background: #0b2520; color: #52736b; cursor: not-allowed; opacity: .65; }
@@ -701,9 +701,9 @@ const hobbiesSchema = computed<ItemField[]>(() => [{ label: t('hobby'), key: 'na
   }
   .content-mode-actions { display: contents; }
   .content-mode-toolbar.content-mode-toolbar--docked { order: initial; display: flex; width: 100%; padding: 0; border: 0; background: transparent; }
-  .content-mode-toolbar--docked button { flex: 1; }
-  .content-reorder-toggle { justify-content: center; gap: 6px; min-width: 0; min-height: 40px; padding: 6px 4px; font-size: 14px; }
-  .content-reorder-toggle .svg-inline--fa { font-size: 14px; }
+  .content-mode-toolbar--docked .content-mode-tool { flex: 1 0 112px; }
+  .content-reorder-toggle { justify-content: center; gap: 6px; min-width: 0; min-height: 40px; padding: 6px 2px; font-size: 13px; }
+  .content-reorder-toggle .svg-inline--fa { display: none; }
   .section-fields-control .svg-inline--fa { display: inline-block; }
   .section-fields-control span { display: none; }
 }

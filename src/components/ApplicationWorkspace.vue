@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faAlignLeft, faCheck, faCopy, faFeatherPointed, faRotate, faRotateLeft } from '@fortawesome/free-solid-svg-icons';
@@ -1512,9 +1513,8 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
           </div>
           </WorkspaceMobileActions>
           <div v-if="pane === 'cv' && record && createVariant" class="refinement-variant-save">
-            <label>{{ text('Variant name', 'Variantenname') }}<input v-model="variantName" type="text" :disabled="busy || refreshing || syncing" /></label>
+            <div><div class="hint-label-row"><label :for="`${application.id}-variant-name`">{{ text('Variant name', 'Variantenname') }}</label><InfoHint :lang="lang" :label="text('Variant name', 'Variantenname')" :text="text('Saves the displayed CV as an independent copy that remains after clearing refinement history.', 'Speichert den angezeigten CV als eigenständige Kopie, die nach dem Löschen des Überarbeitungsverlaufs erhalten bleibt.')" /></div><input :id="`${application.id}-variant-name`" v-model="variantName" type="text" :disabled="busy || refreshing || syncing" /></div>
             <button type="button" :disabled="busy || refreshing || syncing || !previewCvState || !variantName.trim() || currentVariantSaved" @click="saveCurrentVariant">{{ currentVariantSaved ? text('Variant saved', 'Variante gespeichert') : text('Save as new CV variant', 'Als neue CV-Variante speichern') }}</button>
-            <p class="app-hint">{{ text('Saves the displayed CV as an independent copy that remains after clearing refinement history.', 'Speichert den angezeigten CV als eigenständige Kopie, die nach dem Löschen des Überarbeitungsverlaufs erhalten bleibt.') }}</p>
           </div>
         </div>
         </DesktopSidebarPortal>
@@ -1526,7 +1526,6 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
         </DesktopSidebarPortal>
         <div class="refinement-controls">
           <p v-if="!record || !letter" class="app-hint">{{ text('Select both templates in Preparation to begin. Existing proposals remain available below.', 'Zum Start beide Vorlagen in Vorbereitung auswählen. Bestehende Vorschläge bleiben unten verfügbar.') }}</p>
-          <p v-if="preparedSource && feedbackScope !== 'cv' && !preparedSource.request.letter.text.trim()" class="app-hint hint initial-letter-notice">{{ text('Initial letter draft: the source letter is empty. ChatGPT should create the first draft from the published CV, opportunity and template.', 'Erster Briefentwurf: Der Quellbrief ist leer. ChatGPT soll anhand des veröffentlichten CVs, der Ausschreibung und der Vorlage einen ersten Entwurf erstellen.') }}</p>
           <p v-if="sourceError" class="app-hint error" role="alert">{{ sourceError }}</p>
             <section v-if="!showInitialRefinement" class="iteration-step current-review">
               <h3>{{ text('Current Review', 'Aktuelle Prüfung') }}</h3>
@@ -1552,9 +1551,8 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
               <p v-if="!hasActiveProposal">{{ text('Waiting for a proposal.', 'Vorschlag ausstehend.') }}</p>
             </section>
             <section class="iteration-step refinement-task" :class="showInitialRefinement ? 'initial-refinement' : 'next-refinement'">
-              <h3>{{ showInitialRefinement ? text('Initial Refinement', 'Erste Überarbeitung') : text('Next Refinement', 'Nächste Überarbeitung') }}</h3>
+              <h3>{{ showInitialRefinement ? text('Initial Refinement', 'Erste Überarbeitung') : text('Next Refinement', 'Nächste Überarbeitung') }}<InfoHint :lang="lang" :label="showInitialRefinement ? text('Initial Refinement', 'Erste Überarbeitung') : text('Next Refinement', 'Nächste Überarbeitung')" :text="text('Optional requests for this document. Included with your answers and open questions when you copy the task.', 'Optionale Wünsche für dieses Dokument. Sie werden beim Kopieren der Aufgabe zusammen mit Ihren Antworten und offenen Fragen übermittelt.') + (preparedSource && feedbackScope !== 'cv' && !preparedSource.request.letter.text.trim() ? ' ' + text('Initial letter draft: the source letter is empty. ChatGPT should create the first draft from the published CV, opportunity and template.', 'Erster Briefentwurf: Der Quellbrief ist leer. ChatGPT soll anhand des veröffentlichten CVs, der Ausschreibung und der Vorlage einen ersten Entwurf erstellen.') : '')" /></h3>
               <p v-if="iterationPending" role="status">{{ text('Waiting for the next draft. Sync to load it.', 'Der nächste Entwurf steht aus. Zum Laden synchronisieren.') }}</p>
-              <p class="review-guidance">{{ text('Optional requests for this document. Included with your answers and open questions when you copy the task.', 'Optionale Wünsche für dieses Dokument. Sie werden beim Kopieren der Aufgabe zusammen mit Ihren Antworten und offenen Fragen übermittelt.') }}</p>
               <label v-if="pane === 'cv'" class="cv-refinement-request"><span>{{ text('Refinement request', 'Überarbeitungswunsch') }}</span><AutosaveTextarea v-model.lazy="cvIterationNote" rows="4" maxlength="12000" :placeholder="text('What should the next CV refinement focus on?', 'Worauf soll sich die nächste CV-Überarbeitung konzentrieren?')" :disabled="busy || scopeLocked" /></label>
               <div v-if="pane === 'letter'" class="iteration-note-tabs" role="tablist" :aria-label="text('Refinement requests', 'Überarbeitungswünsche')">
                 <button v-for="field in visibleIterationNoteFields" :id="iterationNoteTabId(field)" :key="field" type="button" role="tab" :data-iteration-note="field" :aria-controls="iterationNotePanelId" :aria-selected="activeIterationNote === field" :tabindex="activeIterationNote === field ? 0 : -1" @click="selectIterationNote(field)" @keydown="onIterationNoteKeydown($event, field)"><FontAwesomeIcon :icon="iterationNoteIcons[field]" aria-hidden="true" />{{ iterationNoteLabel(field) }}</button>
@@ -1568,9 +1566,9 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
               <button type="button" :disabled="busy || refreshing" @click="copyTask">{{ text('Retry copy', 'Kopieren erneut versuchen') }}</button>
               <AutosaveTextarea :model-value="shortInstruction" readonly rows="5" :aria-label="text('Short ChatGPT instruction', 'Kurze ChatGPT-Anweisung')" />
             </template>
-          <details class="disclosure-row"><summary>{{ text('Edit manually', 'Manuell bearbeiten') }}</summary>
+          <details class="disclosure-row"><summary>{{ text('Edit manually', 'Manuell bearbeiten') }}<InfoHint v-if="pane === 'cv'" :lang="lang" :label="text('Edit manually', 'Manuell bearbeiten')" :text="text('Edit the current CV, including active changes. Previous stays unchanged.', 'Aktuellen CV einschließlich aktiver Änderungen bearbeiten. Der vorherige Stand bleibt unverändert.')" /></summary>
 
-          <section v-if="cvEditorState" v-show="pane === 'cv'" class="working-document"><div class="action-row"><span class="app-hint">{{ text('Edit the current CV, including active changes. Previous stays unchanged.', 'Aktuellen CV einschließlich aktiver Änderungen bearbeiten. Der vorherige Stand bleibt unverändert.') }}</span></div><fieldset :disabled="cvApproved || busy"><FormBuilder :state="cvEditorState" :read-version="() => null" :save-version="() => false" /></fieldset></section>
+          <section v-if="cvEditorState" v-show="pane === 'cv'" class="working-document"><fieldset :disabled="cvApproved || busy"><FormBuilder :state="cvEditorState" :read-version="() => null" :save-version="() => false" /></fieldset></section>
           <section v-if="letter" v-show="pane === 'letter'" class="working-document"><label>{{ text('Complete letter text', 'Vollständiger Brieftext') }}<AutosaveTextarea :model-value="letterText" :model-modifiers="{ lazy: true }" rows="18" :disabled="letterApproved || busy || reviewActive" @update:model-value="updateLetter" /></label><p :class="{ warning: words > setup.maxWords }">{{ words }} / {{ setup.maxWords }} {{ text('target words (complete letter)', 'Zielwörter (vollständiger Brief)') }}</p><p v-if="words > setup.maxWords" class="app-hint warning">{{ text('Over the target. Review the tender limit; approval and export remain available.', 'Über der Zielwortzahl. Vorgabe prüfen; Freigabe und Export bleiben möglich.') }}</p><p v-if="unresolved.length" class="app-hint warning">{{ text('Resolve placeholders:', 'Platzhalter auflösen:') }} {{ unresolved.join(', ') }}</p><LetterFormattingControls :formatting="letter.formatting" :base-formatting="selectedTemplate.formatting" :lang="lang" :disabled="letterApproved || busy || reviewActive" @change="updateLetterFormatting" /></section>
           </details>
           <RefinementHistory :scope="pane" :requests="requests" :proposals="proposals" :local-requests="localRequests" :current-request-id="currentRequestId" :active-id="selectedProposalId" :review-active="reviewActive" :accepted="proposalAlreadyApplied" :publication-status="publicationStatus" :open="historyOpen" :lang="lang" :busy="busy || refreshing || syncing" :can-clear="canClearHistory" @clear="clearRefinementHistory" @select="selectReviewProposal" @details="historyOpen = $event" @export-request="exportRequest" @export-proposal="exportProposal" />
@@ -1632,7 +1630,8 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
 .preparation-actions{display:flex;justify-content:center;}
 .refinement-toolbar{position:sticky;top:0;z-index:10;min-width:0;padding-bottom:12px;border-bottom:1px solid var(--ui-border);background:#0b0f14}
 .refinement-toolbar > .action-row{margin:0}
-.refinement-variant-save{margin-top:16px;padding-top:16px;border-top:1px solid var(--ui-border)}.refinement-variant-save p{margin:12px 0 0;max-width:65ch;color:var(--ui-muted)}.refinement-variant-save button{width:100%}
+.refinement-variant-save > div{display:grid;gap:7px;margin-bottom:12px}
+.refinement-variant-save{margin-top:16px;padding-top:16px;border-top:1px solid var(--ui-border)}.refinement-variant-save button{width:100%}
 @media(max-width:760px){.refinement-toolbar{position:static;padding:0;border:0;background:transparent;flex-shrink:0}}
 @media(min-width:761px) and (max-width:1180px){.workflow-body--review :deep(.application-documents){min-height:640px}}
 @media(min-width:761px){.application-workspace{margin-bottom:40px;padding:32px;}.workflow-body{padding:20px 0 0;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-gutter:stable}.application-header :deep(.workspace-detail-header__back){display:none}.workflow-navigation{position:fixed;inset-inline:0;bottom:0;z-index:30;display:flex;align-items:center;gap:20px;min-height:66px;padding:12px max(20px,calc((100vw - 1484px)/2));border-top:1px solid #24504e;background:var(--ui-shell);box-shadow:0 -6px 20px #0003}.workflow-back{display:inline-flex;align-items:center;gap:8px;flex-shrink:0}.workspace-subtabs button{justify-content:center}.preparation-stage{padding-bottom:6px}}

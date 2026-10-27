@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, nextTick, onBeforeUnmount, reactive, ref, shallowReactive, shallowRef, watch } from 'vue';
 import { faFilter } from '@fortawesome/free-solid-svg-icons';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -642,9 +643,8 @@ useToastWatch(() => notice.value, () => {
       </template>
       <template #tracking>
         <section class="application-status-history" :aria-label="text('Status history', 'Statusverlauf')">
-          <div class="application-status-history__header"><h3>{{ text('Status history', 'Statusverlauf') }}</h3><button class="btn" type="button" :disabled="saving || resettingHistory || statusHistory.length < 2" @click="resetTrackingHistory(editingApplication)">{{ resettingHistory ? text('Resetting…', 'Wird zurückgesetzt…') : text('Reset history', 'Verlauf zurücksetzen') }}</button></div>
+          <div class="application-status-history__header"><h3>{{ text('Status history', 'Statusverlauf') }}<InfoHint v-if="statusHistory.some(entry => !entry.changedAt)" :lang="lang" :label="text('Status history', 'Statusverlauf')" :text="text('Earlier status changes and their times were not recorded.', 'Frühere Statusänderungen und ihre Zeitpunkte wurden nicht erfasst.')" /></h3><button class="btn" type="button" :disabled="saving || resettingHistory || statusHistory.length < 2" @click="resetTrackingHistory(editingApplication)">{{ resettingHistory ? text('Resetting…', 'Wird zurückgesetzt…') : text('Reset history', 'Verlauf zurücksetzen') }}</button></div>
           <p v-if="historyResetError" class="jobs-autosave-error" role="alert">{{ historyResetError }}</p>
-          <p v-if="statusHistory.some(entry => !entry.changedAt)" class="app-hint jobs-subline">{{ text('Earlier status changes and their times were not recorded.', 'Frühere Statusänderungen und ihre Zeitpunkte wurden nicht erfasst.') }}</p>
           <ol><li v-for="(entry, index) in statusHistory" :key="index" :class="`application-status--${applicationStatusTone(entry.status)}`" :aria-current="index === statusHistory.length - 1 ? 'step' : undefined">
             <strong>{{ statusLabel(entry.status) }}</strong><span v-if="index === statusHistory.length - 1" class="jobs-badge">{{ text('Current', 'Aktuell') }}</span>
             <time v-if="entry.changedAt" :datetime="entry.changedAt">{{ timestampLabel(entry.changedAt) }}</time><span v-else class="jobs-subline">{{ text('Time not recorded', 'Zeitpunkt nicht erfasst') }}</span>

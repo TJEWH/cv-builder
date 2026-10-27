@@ -3,7 +3,7 @@ import type { CvDesign, KeysOfType, SelectOption } from '../types';
 export type StringDesignKey = KeysOfType<CvDesign, string>;
 export interface FavoriteLink { linkKey: 'pageMarginVerticalLinked' | 'pageMarginHorizontalLinked' | 'headerBottomSpacingLinked'; primaryKey: StringDesignKey; secondaryKey: StringDesignKey }
 export type DesignControl = {
-  section: string; visible?: boolean; label: string; options?: SelectOption[];
+  section: string; visible?: boolean; label: string; help?: string; options?: SelectOption[];
   min?: number; max?: number; step?: number; suffix?: string;
 } & (
   | { type: 'toggle'; key: KeysOfType<CvDesign, boolean>; unit?: never; link?: never }

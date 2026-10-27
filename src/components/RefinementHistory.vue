@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, ref, watch } from 'vue';
 import type { LocalRefinementRequest, RefinementProposalRow, RefinementRequestRow, RefinementScope } from '../refinementTypes';
 import { refinementMatchesScope, refinementRunMetadata } from '../composables/refinementHistory';
@@ -47,9 +48,8 @@ watch(() => props.scope, cancelClear);
       @confirm="confirmClear"
     />
     <details class="disclosure-row run-details" :open="open" @toggle="emit('details', ($event.target as HTMLDetailsElement).open)">
-      <summary>{{ text('History', 'Verlauf') }}</summary>
+      <summary>{{ text('History', 'Verlauf') }}<InfoHint :lang="lang" :label="text('History', 'Verlauf')" :text="text('Historical metadata comes from saved records. Missing versions remain unknown.', 'Historische Metadaten stammen aus gespeicherten Datensätzen. Fehlende Versionen bleiben unbekannt.')" /></summary>
       <button type="button" class="btn btn--danger" :disabled="busy || !canClear" @click="requestClear">{{ text('Clear history', 'Verlauf löschen') }}</button>
-      <p class="app-hint">{{ text('Historical metadata comes from saved records. Missing versions remain unknown.', 'Historische Metadaten stammen aus gespeicherten Datensätzen. Fehlende Versionen bleiben unbekannt.') }}</p>
       <p v-if="!runs.length" class="app-hint">{{ emptyMessage }}</p>
       <details v-for="run in runs" :key="run.row.id" class="disclosure-row history-run">
         <summary>{{ date(run.row.created_at) }} · {{ run.proposals.length }} {{ text('proposals', 'Vorschläge') }}{{ run.row.id === currentRequestId ? text(' · Current', ' · Aktuell') : '' }}</summary>

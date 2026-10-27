@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import type { PropType } from 'vue';
 import type { CustomFont, CvDesign, FontSource } from '../types';
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, useId, watch } from 'vue';
 import { DEFAULT_DESIGN, designValue } from '../defaults';
 import { makeT } from '../i18n/dict';
 import { BODY_FONTS, HEADING_FONTS, FontImportError, fontOptions, importWebFont, storeCustomFont } from '../composables/webFonts';
@@ -18,6 +19,7 @@ const props = defineProps({
 });
 const emit = defineEmits<{ 'update:modelValue': [design: CvDesign] }>();
 const desktopSidebar = useDesktopSidebar();
+const fontNameId = `custom-font-${useId()}`;
 
 const design = computed({
   get: () => new Proxy(props.modelValue, {
@@ -96,7 +98,7 @@ const controls = computed<DesignControl[]>(() => [
   { key: 'contactItemSpacing', section: 'header', label: t('designContactItemSpacing'), type: 'range', min: 0, max: 12, step: 0.5, unit: 'mm' },
   { key: 'separatorWidth', section: 'spacing', label: t('designSeparatorWidth'), type: 'range', min: 0.5, max: 5, step: 0.5, unit: 'px' },
   { key: 'hstyle', section: 'layout', label: t('designHeadingStyle'), type: 'select', options: hStyles.map((value) => ({ value, label: t(`headingStyle_${value}`) })) },
-  { key: 'headerLayoutStyle', section: 'header', label: t('designHeaderStyle'), type: 'select', options: [{ value: 'boxed', label: t('designBoxed') }, { value: 'separator', label: t('designSeparator') }] },
+  { key: 'headerLayoutStyle', section: 'header', label: t('designHeaderStyle'), help: t('designWithASeparatorHeaderPaddingIsAboveTheLineAndMarginIsBelowIt'), type: 'select', options: [{ value: 'boxed', label: t('designBoxed') }, { value: 'separator', label: t('designSeparator') }] },
   { key: 'pageMarginTop', section: 'layout', label: t('designPageMarginTop'), type: 'range', min: 0, max: 30, step: 1, unit: 'mm', link: favoriteLinks.pageMarginVertical },
   { key: 'pageMarginBottom', section: 'layout', label: t('designPageMarginBottom'), type: 'range', min: 0, max: 30, step: 1, unit: 'mm', link: favoriteLinks.pageMarginVertical },
   { key: 'pageMarginRight', section: 'layout', label: t('designPageMarginRight'), type: 'range', min: 0, max: 30, step: 1, unit: 'mm', link: favoriteLinks.pageMarginHorizontal },
@@ -107,7 +109,7 @@ const controls = computed<DesignControl[]>(() => [
   { key: 'sidebarAlign', section: 'sidebar', label: t('designSidebarPosition'), type: 'select', options: [{ value: 'left', label: t('designLeft') }, { value: 'right', label: t('designRight') }] },
   { key: 'sidebarLayoutStyle', section: 'sidebar', label: t('designSidebarStyle'), type: 'select', options: [{ value: 'boxed', label: t('designBoxed') }, { value: 'separator', label: t('designSeparator') }] },
   { key: 'sidebarFillMode', section: 'sidebar', label: t('designSidebarStart'), type: 'select', options: [{ value: 'start', label: t('designFillFromStart') }, { value: 'last-page', label: t('designFillFromLastPDFPage') }, { value: 'after-cover', label: t('designSkipCoverPage') }] },
-  { key: 'sidebarHeightMode', section: 'sidebar', label: t('designSidebarHeight'), type: 'select', options: [{ value: 'content', label: t('designFitContent') }, { value: 'full-page', label: t('designFullPage') }] },
+  { key: 'sidebarHeightMode', section: 'sidebar', label: t('designSidebarHeight'), help: t('designFitContentLetsTheBodyUseTheFullWidthBelowTheSidebar'), type: 'select', options: [{ value: 'content', label: t('designFitContent') }, { value: 'full-page', label: t('designFullPage') }] },
   { key: 'sidebarBottomPadding', section: 'sidebar', visible: isContentHeight.value, label: t('designSidebarBottomPadding'), type: 'range', min: 0, max: 30, step: 1, unit: 'mm' },
   { key: 'sectionSpacingBody', section: 'spacing', label: t('designBodySectionSpacing'), type: 'range', min: 2, max: 20, step: 1, unit: 'mm' },
   { key: 'sectionSpacingSidebar', section: 'spacing', label: t('designSidebarSectionSpacing'), type: 'range', min: 2, max: 20, step: 1, unit: 'mm' },
@@ -212,17 +214,13 @@ function toggleSection(key: string) {
         </h4>
         <div :id="`design-section-${section.key}`" class="editor-subsection__body">
           <DesignControlFields :model-value="design" :entries="section.entries" :lang="lang" />
-          <p v-if="section.key === 'header'" class="spacing-hint app-hint">{{ t('designWithASeparatorHeaderPaddingIsAboveTheLineAndMarginIsBelowIt') }}</p>
-          <p v-if="section.key === 'sidebar'" class="spacing-hint app-hint">{{ t('designFitContentLetsTheBodyUseTheFullWidthBelowTheSidebar') }}</p>
           <template v-if="section.key === 'typography'">
           <div class="font-import subsection-row" @click.stop>
-            <label>{{ t('fontSource') }}<select v-model="fontSource" :disabled="isImportingFont"><option value="bunny">Bunny Fonts</option><option value="google">Google Fonts</option></select></label>
-            <label>{{ t('customFontName') }}<input v-model="fontName" :disabled="isImportingFont" maxlength="100" placeholder="Open Sans" @keydown.enter.prevent="importFont"></label>
+            <div><div class="hint-label-row"><label :for="`${fontNameId}-source`">{{ t('fontSource') }}</label><InfoHint :lang="lang" :label="t('fontSource')" :text="t('webfontHelp')" /></div><select :id="`${fontNameId}-source`" v-model="fontSource" :disabled="isImportingFont"><option value="bunny">Bunny Fonts</option><option value="google">Google Fonts</option></select></div>
+            <div><div class="hint-label-row"><label :for="fontNameId">{{ t('customFontName') }}</label><InfoHint :lang="lang" :label="t('customFontName')" :text="t('customFontHelp')" /></div><input :id="fontNameId" v-model="fontName" :disabled="isImportingFont" maxlength="100" placeholder="Open Sans" @keydown.enter.prevent="importFont"></div>
             <button class="mini font-import-button" type="button" :disabled="isImportingFont" @click="importFont">{{ t(isImportingFont ? 'importingFont' : 'importFont') }}</button>
           </div>
-          <p class="note app-hint">{{ t('customFontHelp') }}</p>
           <p v-if="fontImportError?.code === 'network' && fontImportError.source === 'google'" class="note app-hint">{{ t('googleFontErrorHelp') }}</p>
-          <p class="note app-hint">{{ t('webfontHelp') }}</p>
           </template>
         </div>
       </section>
@@ -249,7 +247,7 @@ function toggleSection(key: string) {
 .design-favorites__row h4 { margin: 0; color: var(--ui-muted); font-size: 9pt; font-weight: 600; }
 .design-favorites__empty { margin: 0; color: var(--muted); font-size: 12px; }
 .editor-subsection h4 { margin: 0; color: var(--ui-text); font-size: 10pt; font-weight: 600; }
-/* The button owns the header padding, so its entire visible row is clickable. */
+/* The full header row toggles the section; help belongs to individual fields. */
 .editor-subsection { padding: 0; }
 .editor-subsection__header { width: 100%; padding: 16px; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-align: left; text-transform: inherit; cursor: pointer; }
 .editor-subsection__header:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
@@ -260,7 +258,6 @@ function toggleSection(key: string) {
 .font-import { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 8px; }
 .font-import-button { min-height: 34px; padding-inline: 12px; }
 @media (max-width: 640px) { .font-import { grid-template-columns: 1fr; } }
-.spacing-hint { margin: 6px 0 0; color: var(--muted); font-size: 9pt; }
 @media (max-width: 640px) { .design-favorites { margin-inline: 0; } .design-favorites__picker, .design-favorites__controls, .design-favorites__paired-controls { grid-template-columns: 1fr; } .design-favorites__control--linked { grid-column: auto; } }
 @container cv-editor (max-width: 600px) {
   .editor-subsection > .editor-subsection__body { margin-inline: 16px; }

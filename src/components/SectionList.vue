@@ -8,6 +8,7 @@ import SectionHeading from './SectionHeading.vue';
 import { makeT } from '../i18n/dict.ts';
 import { createContentId } from '../composables/contentLayout.ts';
 import MarkdownTextarea from './MarkdownTextarea.vue';
+import InfoHint from './InfoHint.vue';
 import PrivacyField from './PrivacyField.vue';
 import { PRIVACY_EDITOR } from '../composables/privacyEditorContext';
 import ConfirmDeletionDialog from './ConfirmDeletionDialog.vue';
@@ -189,9 +190,8 @@ const finishTitleEdit = (cancel = false) => {
                   <Select :disabled="disabled" v-else-if="field.type === 'select' && field.key === 'state'" :model-value="item.state || ''" :options="field.options" option-label="label" option-value="value" :aria-label="field.label" fluid @update:model-value="updateItemState(item, $event)" />
                   <Select :disabled="disabled" v-else-if="field.type === 'select'" v-model="item[field.key]" :options="field.options" option-label="label" option-value="value" :aria-label="field.label" fluid /></label></PrivacyField>
               </div>
-              <PrivacyField :owner="item" :field="field.key" v-for="field in textareaFields" :key="field.key" v-slot="{ disabled }"><label>
-                {{ field.label }}
-                <MarkdownTextarea :disabled="disabled" v-model="item[field.key]" :placeholder="field.placeholder || ''" :aria-label="field.label" :help="t('markdownTextareaHelp')" /></label></PrivacyField>
+              <PrivacyField :owner="item" :field="field.key" v-for="field in textareaFields" :key="field.key" v-slot="{ disabled }"><div class="markdown-field"><div class="hint-label-row"><label :for="`${contentId}-${item.id}-${field.key}`">{{ field.label }}</label><InfoHint :id="`${contentId}-${item.id}-${field.key}-help`" :lang="lang" :label="field.label" :text="t('markdownTextareaHelp')" /></div>
+                <MarkdownTextarea :id="`${contentId}-${item.id}-${field.key}`" :disabled="disabled" v-model="item[field.key]" :placeholder="field.placeholder || ''" :aria-label="field.label" :aria-describedby="`${contentId}-${item.id}-${field.key}-help`" /></div></PrivacyField>
             </div>
           </template>
         </SectionItems>

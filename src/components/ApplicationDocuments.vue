@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faArrowDown, faArrowUp, faFilePdf, faXmark } from '@fortawesome/free-solid-svg-icons';
@@ -237,10 +238,10 @@ useToastWatch(() => previewError.value, () => ({
           </DesktopSidebarPortal>
         </section>
         <details v-if="mode === 'tracking'" class="document-section">
-          <summary>{{ text('Local backup', 'Lokales Backup') }}</summary>
-          <p class="app-hint muted">{{ text('Manage reusable files, names and descriptions in CV Studio → Local attachments. Clearing browser data removes local files; keep a backup.', 'Wiederverwendbare Dateien, Namen und Beschreibungen unter CV-Studio → Lokale Anhänge verwalten. Beim Löschen der Browserdaten gehen lokale Dateien verloren; ein Backup aufbewahren.') }}</p>
+          <summary>{{ text('Local backup', 'Lokales Backup') }}<InfoHint :lang="lang" :label="text('Local backup', 'Lokales Backup')" :text="text('Manage reusable files, names and descriptions in CV Studio → Local attachments. This backup includes local attachments, package order, and archived PDFs.', 'Wiederverwendbare Dateien, Namen und Beschreibungen unter CV-Studio → Lokale Anhänge verwalten. Dieses Backup enthält lokale Anhänge, die Reihenfolge und archivierte PDFs.')" /></summary>
+          <p class="app-hint muted">{{ text('Clearing browser data removes local files; keep a backup.', 'Beim Löschen der Browserdaten gehen lokale Dateien verloren; ein Backup aufbewahren.') }}</p>
           <div class="backup-actions"><button type="button" :disabled="busy" @click="exportBackup">{{ text('Back up files & packages', 'Dateien & Zusammenstellungen sichern') }}</button><label class="file-button secondary" :class="{ disabled: busy }">{{ text('Restore backup', 'Backup wiederherstellen') }}<input type="file" accept="application/json,.json" :disabled="busy" @change="importBackup" /></label></div>
-          <p class="app-hint muted">{{ text('This backup includes local attachments, package order, and archived PDFs. Back up your editable CVs separately in CV Studio.', 'Dieses Backup enthält lokale Anhänge, die Reihenfolge und archivierte PDFs. Bearbeitbare Lebensläufe separat im CV-Studio sichern.') }}</p>
+          <p class="app-hint muted">{{ text('Back up your editable CVs separately in CV Studio.', 'Bearbeitbare Lebensläufe separat im CV-Studio sichern.') }}</p>
         </details>
         </template>
       </div>
