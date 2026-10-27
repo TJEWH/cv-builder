@@ -45,7 +45,8 @@ function wallTimeToTimestamp(parts: WallTime, timeZone: string | null): number |
   } catch { return null; }
 }
 
-export function resolveDeadline(input: DeadlineInput): Deadline | null {
+/** An optional civil-time default applies only to dates without a supplied local time. */
+export function resolveDeadline(input: DeadlineInput, defaultDateOnlyTime: string | null = null): Deadline | null {
   const details = record(input);
   const raw = typeof input === 'string' ? input : details.deadline;
   if (typeof raw !== 'string' || !raw.trim()) return null;
@@ -57,7 +58,8 @@ export function resolveDeadline(input: DeadlineInput): Deadline | null {
   const dateOnly = value === date;
   const timestampMatch = value.match(/^\d{4}-\d{2}-\d{2}[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?)(Z|[+-]\d{2}(?::?\d{2})?)?$/i);
   if (!dateOnly && !timestampMatch) return null;
-  const rawTime = dateOnly ? details.deadline_time_local : timestampMatch?.[1];
+  const providedTime = dateOnly ? details.deadline_time_local : timestampMatch?.[1];
+  const rawTime = dateOnly && (providedTime === undefined || providedTime === null || providedTime === '') ? defaultDateOnlyTime : providedTime;
   const time = typeof rawTime === 'string' && rawTime.trim() ? rawTime.trim() : null;
   const match = time?.match(/^(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?$/);
   if ((rawTime !== undefined && rawTime !== null && rawTime !== '' && !time) || (time && !match)) return null;

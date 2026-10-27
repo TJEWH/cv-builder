@@ -10,12 +10,41 @@ function calendar(context: Record<string, unknown>, lang = 'en') {
   return { ...result, unfolded: result.content.replace(/\r\n[ \t]/g, '') };
 }
 
-test('date-only deadlines stay all-day with exclusive next-day ends across month and year boundaries', () => {
-  for (const [deadline, end] of [['2026-12-31', '20270101'], ['2028-02-29', '20280301'], ['2026-09-30', '20261001']]) {
+test('date-only deadlines become exact 23:59 events in the source timezone across month and year boundaries', () => {
+  for (const [deadline, expected] of [['2026-12-31', '20261231T105900Z'], ['2028-02-29', '20280229T105900Z'], ['2026-09-30', '20260930T105900Z']]) {
     const { unfolded } = calendar({ deadline, deadline_timezone: 'Pacific/Auckland' });
-    assert.ok(unfolded.includes(`DTSTART;VALUE=DATE:${deadline.replace(/-/g, '')}\r\n`));
-    assert.ok(unfolded.includes(`DTEND;VALUE=DATE:${end}\r\n`));
-    assert.doesNotMatch(unfolded, /TZID|DTSTART:\d+T/);
+    assert.ok(unfolded.includes(`DTSTART:${expected}\r\n`));
+    assert.ok(unfolded.includes(`Assumed deadline: ${deadline} 23:59 (Pacific/Auckland)`));
+    assert.doesNotMatch(unfolded, /VALUE=DATE|DTEND/);
+  }
+});
+
+test('the inferred cutoff respects daylight saving and timezone offsets that cross UTC dates', () => {
+  for (const [deadline, zone, expected] of [
+    ['2026-01-20', 'Europe/Berlin', '20260120T225900Z'],
+    ['2026-07-20', 'Europe/Berlin', '20260720T215900Z'],
+    ['2026-03-29', 'Europe/Berlin', '20260329T215900Z'],
+    ['2026-10-25', 'Europe/Berlin', '20261025T225900Z'],
+    ['2026-09-20', 'America/New_York', '20260921T035900Z'],
+    ['2026-09-20', 'Asia/Kolkata', '20260920T182900Z'],
+    ['2018-11-03', 'America/Sao_Paulo', '20181104T025900Z'],
+  ]) {
+    assert.ok(calendar({ deadline, deadline_timezone: zone }).unfolded.includes(`DTSTART:${expected}\r\n`));
+  }
+});
+
+test('missing local times use the default while explicitly supplied midnight remains unchanged', () => {
+  for (const deadline_time_local of [undefined, null, '']) {
+    assert.match(calendar({ deadline: '2026-09-20', deadline_time_local, deadline_timezone: 'Europe/Berlin' }).unfolded,
+      /\r\nDTSTART:20260920T215900Z\r\n/);
+  }
+  for (const context of [
+    { deadline: '2026-09-20T00:00:00+02:00' },
+    { deadline: '2026-09-20', deadline_time_local: '00:00', deadline_timezone: 'Europe/Berlin' },
+  ]) {
+    const { unfolded } = calendar(context);
+    assert.match(unfolded, /\r\nDTSTART:20260919T220000Z\r\n/);
+    assert.doesNotMatch(unfolded, /Assumed deadline/);
   }
 });
 
@@ -41,13 +70,20 @@ test('timezone daylight-saving offsets follow the actual deadline date, includin
   }
 });
 
-test('timed deadlines without a source timezone use the device timezone', () => {
+test('deadlines without a source timezone use the device timezone while known source zones remain authoritative', () => {
   const previous = process.env.TZ;
   try {
-    for (const [zone, expected] of [['America/Los_Angeles', '20260920T163000Z'], ['Europe/Berlin', '20260920T073000Z']]) {
+    for (const [zone, expected, endOfDay] of [
+      ['America/Los_Angeles', '20260920T163000Z', '20260921T065900Z'],
+      ['Europe/Berlin', '20260920T073000Z', '20260920T215900Z'],
+    ]) {
       process.env.TZ = zone;
       assert.ok(calendar({ deadline: '2026-09-20', deadline_time_local: '09:30' }).unfolded.includes(`DTSTART:${expected}\r\n`));
-      assert.match(calendar({ deadline: '2026-09-20' }).unfolded, /DTSTART;VALUE=DATE:20260920\r\n/);
+      const defaulted = calendar({ deadline: '2026-09-20' }).unfolded;
+      assert.ok(defaulted.includes(`DTSTART:${endOfDay}\r\n`));
+      assert.ok(defaulted.includes(`Assumed deadline: 2026-09-20 23:59 (${zone})`));
+      assert.match(calendar({ deadline: '2026-09-20', deadline_timezone: 'America/New_York' }).unfolded,
+        /\r\nDTSTART:20260921T035900Z\r\n/);
     }
   } finally {
     if (previous === undefined) delete process.env.TZ;
@@ -56,10 +92,11 @@ test('timed deadlines without a source timezone use the device timezone', () => 
 });
 
 test('every event includes a one-week-before display alarm and useful application details', () => {
-  const { unfolded } = calendar({ deadline: '2026-12-31', university: 'Example University', application_url: 'https://example.org/apply?id=42' });
+  const { unfolded } = calendar({ deadline: '2026-12-31', deadline_timezone: 'Europe/Berlin', university: 'Example University', application_url: 'https://example.org/apply?id=42' });
   assert.match(unfolded, /DTSTAMP:20261010T123456Z\r\n/);
   assert.match(unfolded, /SUMMARY:Application deadline: Robotics PhD\r\n/);
-  assert.match(unfolded, /DESCRIPTION:Application deadline: Robotics PhD\\nExample University\\nReference: APP-0042\r\n/);
+  assert.match(unfolded, /DTSTART:20261231T225900Z\r\n/);
+  assert.match(unfolded, /DESCRIPTION:Application deadline: Robotics PhD\\nAssumed deadline: 2026-12-31 23:59 \(Europe\/Berlin\)\\nExample University\\nReference: APP-0042\r\n/);
   assert.match(unfolded, /URL:https:\/\/example.org\/apply\?id=42\r\n/);
   assert.match(unfolded, /BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-P1W\r\nDESCRIPTION:Application deadline: Robotics PhD\r\nEND:VALARM\r\n/);
 });
@@ -100,9 +137,10 @@ test('UTF-8 lines fold safely and Unicode filenames are portable and bounded', (
 });
 
 test('German output localizes event details and the download filename', () => {
-  const { unfolded, filename } = calendar({ deadline: '2026-12-31', institution: 'Universität Beispiel' }, 'de');
+  const { unfolded, filename } = calendar({ deadline: '2026-12-31', deadline_timezone: 'Europe/Berlin', institution: 'Universität Beispiel' }, 'de');
   assert.match(unfolded, /SUMMARY:Bewerbungsfrist: Robotics PhD\r\n/);
   assert.match(unfolded, /\\nReferenz: APP-0042\r\n/);
+  assert.match(unfolded, /Angenommene Frist: 2026-12-31 23:59 \(Europe\/Berlin\)/);
   assert.equal(filename, 'bewerbungsfrist-Robotics-PhD-APP-0042.ics');
 });
 
@@ -116,6 +154,7 @@ test('missing, malformed, impossible, and nonexistent civil deadlines produce no
   for (const context of [
     {}, { deadline: null }, { deadline: 'TBC' }, { deadline: '2026-02-30' },
     { deadline: '2026-09-20T25:00:00Z' }, { deadline: '2026-09-20', deadline_timezone: 'invalid/zone' },
+    { deadline: '2026-09-20', deadline_time_local: 'not a time' },
     { deadline: '9999-12-31T23:59:00-12:00' }, { deadline: '0000-01-01T00:00:00+12:00' },
     { deadline: '2026-03-29', deadline_time_local: '02:30', deadline_timezone: 'Europe/Berlin' },
   ]) assert.equal(buildApplicationDeadlineCalendar({ ...base, context_json: context }, 'en', now), null);

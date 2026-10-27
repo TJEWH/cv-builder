@@ -52,15 +52,18 @@ function filenamePart(value: string): string {
   return result.replace(/-+$/g, '');
 }
 
-/** Timed deadlines retain their instant; calendar apps display it in the device's timezone. */
+/** Export exact instants, defaulting date-only deadlines to 23:59 in their source timezone. */
 export function buildApplicationDeadlineCalendar(
   application: CalendarApplication,
   lang = 'en',
   now = new Date(),
 ): ApplicationDeadlineCalendar | null {
   const context = application.context_json;
-  const deadline = resolveDeadline(context);
+  // Resolve 23:59 on the deadline date, without relying on the following midnight existing.
+  // This calendar default leaves the catalogue's full-day expiry rules unchanged.
+  const deadline = resolveDeadline(context, '23:59');
   if (!deadline || !Number.isFinite(now.getTime()) || now.getUTCFullYear() < 0 || now.getUTCFullYear() > 9999) return null;
+  const assumedTime = deadline.dateOnly && (context.deadline_time_local === undefined || context.deadline_time_local === null || context.deadline_time_local === '');
   const timestamp = new Date(deadline.timestamp);
   if (timestamp.getUTCFullYear() < 0 || timestamp.getUTCFullYear() > 9999) return null;
   const german = lang === 'de';
@@ -69,20 +72,15 @@ export function buildApplicationDeadlineCalendar(
   const summary = `${label}: ${title}`;
   const institution = text(context.institution) || text(context.university);
   const reference = text(application.application_code);
-  const description = [summary, institution, reference ? `${german ? 'Referenz' : 'Reference'}: ${reference}` : ''].filter(Boolean).join('\n');
+  const assumedDeadline = assumedTime
+    ? `${german ? 'Angenommene Frist' : 'Assumed deadline'}: ${deadline.date} 23:59 (${deadline.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone})` : '';
+  const description = [summary, assumedDeadline, institution, reference ? `${german ? 'Referenz' : 'Reference'}: ${reference}` : ''].filter(Boolean).join('\n');
   const url = safeWebUrl(context.application_url) || safeWebUrl(context.official_url);
   const lines = [
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//CV Builder//Application Deadlines//EN', 'CALSCALE:GREGORIAN',
     'BEGIN:VEVENT', `UID:${escapeText(`application-deadline-${application.id}@cv-builder`)}`, `DTSTAMP:${calendarTimestamp(now)}`,
   ];
-  if (deadline.dateOnly && !deadline.time) {
-    const nextDay = new Date(`${deadline.date}T00:00:00Z`);
-    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
-    if (nextDay.getUTCFullYear() > 9999) return null;
-    lines.push(`DTSTART;VALUE=DATE:${deadline.date.replace(/-/g, '')}`, `DTEND;VALUE=DATE:${nextDay.toISOString().slice(0, 10).replace(/-/g, '')}`);
-  } else {
-    lines.push(`DTSTART:${calendarTimestamp(timestamp)}`);
-  }
+  lines.push(`DTSTART:${calendarTimestamp(timestamp)}`);
   lines.push(`SUMMARY:${escapeText(summary)}`, `DESCRIPTION:${escapeText(description)}`, 'TRANSP:TRANSPARENT', 'CLASS:PRIVATE');
   if (url) lines.push(`URL:${url}`);
   lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', 'TRIGGER:-P1W', `DESCRIPTION:${escapeText(summary)}`, 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR');

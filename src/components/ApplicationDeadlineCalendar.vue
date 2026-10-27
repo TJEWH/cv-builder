@@ -4,12 +4,12 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faCalendarPlus } from '@fortawesome/free-solid-svg-icons';
 import type { Application } from '../cloudTypes';
 import { buildApplicationDeadlineCalendar } from '../composables/applicationDeadlineCalendar';
-import { opportunityDeadlineSortKey } from '../composables/opportunityDeadline';
+import { resolveDeadline } from '../composables/opportunityDeadline';
 import { useToastWatch } from '../composables/useToasts';
 
 const props = defineProps<{ application: Pick<Application, 'id' | 'application_code' | 'context_json'>; lang: string }>();
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
-const available = computed(() => Number.isFinite(opportunityDeadlineSortKey(props.application.context_json)));
+const available = computed(() => !!resolveDeadline(props.application.context_json, '23:59'));
 const label = computed(() => available.value
   ? text('Download deadline calendar (.ics), with a reminder one week before', 'Bewerbungsfrist als Kalenderdatei (.ics) herunterladen, mit Erinnerung eine Woche vorher')
   : text('Calendar download unavailable: no confirmed deadline', 'Kalenderdownload nicht verfügbar: keine bestätigte Frist'));
