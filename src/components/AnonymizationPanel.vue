@@ -143,7 +143,7 @@ function resetEdits() {
             </label>
           </div>
         </fieldset>
-        <button v-if="hasEdits" class="privacy-reset" type="button" @click="resetEdits">{{ t('privacyResetAll') }}</button>
+        <button v-if="hasEdits" class="btn privacy-reset" type="button" @click="resetEdits">{{ t('privacyResetAll') }}</button>
       </div>
     </template>
   </FormBuilder>
@@ -157,6 +157,6 @@ function resetEdits() {
 .privacy-automatic__fields label { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; color: var(--ui-text); cursor: pointer; white-space: nowrap; }
 .privacy-automatic__fields input { flex-shrink: 0; width: 16px; height: 16px; margin: 0; accent-color: var(--ui-accent); }
 .privacy-automatic__fields .privacy-automatic__header { cursor: help; }
-.privacy-reset { justify-self: start; padding: 4px 0; border: 0; background: transparent; color: var(--ui-text); font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.privacy-reset:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.privacy-reset { justify-self: start; min-height: 40px; margin-top: 4px; font-size: 13px; }
+@media (max-width: 760px), (pointer: coarse) { .privacy-reset { min-height: 44px; } }
 </style>
