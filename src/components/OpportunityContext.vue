@@ -149,7 +149,6 @@ const ContextValue = defineComponent({
 
 <style scoped>
 .opportunity-context { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; min-width: 0; color: #c8ded5; }
-.opportunity-context__group:first-child { border-top-color: transparent; }
 .opportunity-context__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 24px; }
 .opportunity-context__group--overview .opportunity-context__fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .opportunity-context__group--requirements .opportunity-context__fields,

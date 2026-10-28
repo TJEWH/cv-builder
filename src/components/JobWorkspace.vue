@@ -198,11 +198,11 @@ function clearCommentToast() {
   if (commentToastId && commentToastStatus !== 'saved') commentToasts.dismiss(commentToastId);
   commentToastId = 0;
 }
-watch([() => props.userId, selectedOpportunityId, () => props.tab, () => props.active, commentStatus, commentError],
+watch([() => props.userId, evaluationOpportunityId, () => props.tab, () => props.active, commentStatus, commentError],
   ([owner, id, tab, active, status, message], previous) => {
-    const changedItem = owner !== previous?.[0] || id !== previous?.[1];
-    if (changedItem || tab !== 'opportunities' || !active) clearCommentToast();
-    if (!id || tab !== 'opportunities' || !active) return;
+    const changedItem = owner !== previous?.[0] || id !== previous?.[1] || tab !== previous?.[2];
+    if (changedItem || !active) clearCommentToast();
+    if (!id || !active) return;
     if (status === 'unsaved') {
       if (commentToastId) commentToasts.dismiss(commentToastId);
       commentToastId = 0;
@@ -217,7 +217,7 @@ watch([() => props.userId, selectedOpportunityId, () => props.tab, () => props.a
         : text('Evaluation saved.', 'Einschätzung gespeichert.'),
       tone: status === 'error' ? 'error' : status === 'saving' ? 'info' : 'success',
       action: status === 'error' ? { label: text('Retry', 'Erneut versuchen'), run: () => {
-        if (props.userId !== owner || selectedOpportunityId.value !== id || props.tab !== 'opportunities' || !props.active) return true;
+        if (props.userId !== owner || evaluationOpportunityId.value !== id || props.tab !== tab || !props.active) return true;
         return flushComment();
       } } : undefined,
     });
@@ -640,20 +640,21 @@ useToastWatch(() => notice.value, () => {
           <span class="jobs-autosave-error">{{ text('Interest not saved. Your choice is kept.', 'Interesse nicht gespeichert. Deine Auswahl bleibt erhalten.') }}</span>
           <button class="btn" type="button" @click="saveReviewSelection(selectedOpportunity, reviewSelection(selectedOpportunity.id))">{{ text('Retry', 'Erneut versuchen') }}</button>
         </div>
-        <div class="opportunity-comment">
-          <label for="opportunity-comment">{{ text('Personal Evaluation', 'Persönliche Einschätzung') }}</label>
-          <AutosaveTextarea id="opportunity-comment" v-model="opportunityComment" rows="2" maxlength="5000" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @commit="flushComment" />
-        </div>
+        <details :key="selectedOpportunity.id" class="opportunity-evaluation personal-evaluation disclosure-row" open>
+          <summary id="opportunity-evaluation-heading">{{ text('Personal Evaluation', 'Persönliche Einschätzung') }}</summary>
+          <div class="opportunity-comment">
+            <AutosaveTextarea id="opportunity-comment" v-model="opportunityComment" aria-labelledby="opportunity-evaluation-heading" rows="2" maxlength="5000" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @commit="flushComment" />
+          </div>
+        </details>
         <OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity.details" :lang="lang" />
       </div>
     </section>
     <ApplicationWorkspace ref="applicationWorkspace" tabindex="-1" :aria-label="editingApplication ? contextTitle(editingApplication) : undefined" v-if="editingApplication" v-show="tab === 'applications'" :active="props.active !== false && tab === 'applications'" :checklist-saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-variant="createVariant" :flush-evaluation="flushComment" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @change-stage="stage => setApplicationStage(editingApplication!.id, stage)" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
       <template #preparation-evaluation>
-        <details class="application-evaluation disclosure-row" open>
+        <details class="application-evaluation personal-evaluation disclosure-row" open>
           <summary :id="`application-evaluation-${editingApplication.id}`">{{ text('Personal Evaluation', 'Persönliche Einschätzung') }}</summary>
           <div class="opportunity-comment">
             <AutosaveTextarea v-model="opportunityComment" :aria-labelledby="`application-evaluation-${editingApplication.id}`" rows="3" maxlength="5000" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @commit="flushComment" />
-            <div class="jobs-form-footer jobs-autosave" aria-live="polite"><template v-if="commentError"><span class="jobs-autosave-error">{{ commentError }}</span><button class="btn" type="button" @click="flushComment">{{ text('Retry', 'Erneut versuchen') }}</button></template><span v-else>{{ commentStatus === 'saving' ? text('Saving…', 'Speichert…') : commentStatus === 'unsaved' ? text('Unsaved changes', 'Ungespeicherte Änderungen') : text('All changes saved', 'Alle Änderungen gespeichert') }}</span></div>
           </div>
         </details>
       </template>
@@ -702,8 +703,8 @@ useToastWatch(() => notice.value, () => {
 .jobs-workspace .opportunity-comment label { display: block; font-size: 14px; font-weight: 600; }
 .jobs-workspace .opportunity-comment textarea { box-sizing: border-box; min-height: 76px; resize: vertical; font-size: 14px; line-height: 1.5; }
 .opportunity-comment textarea::placeholder { color: var(--ui-muted); opacity: 1; }
-.jobs-workspace .application-evaluation { border-top-color: transparent; }
-.application-evaluation .opportunity-comment { margin-bottom: 0; }
+.jobs-workspace .personal-evaluation { border-top-color: transparent; }
+.personal-evaluation .opportunity-comment { margin-bottom: 0; }
 .application-status-history h3 { color: var(--ui-accent); margin: 0 0 12px; }
 .application-status-history__header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .application-status-history__header h3 { margin: 0; }

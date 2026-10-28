@@ -770,60 +770,95 @@ test('switching accounts cancels pending opportunity comments and clears the edi
   assert.deepEqual(commentUpdates, []);
 });
 
-test('evaluation save feedback starts on commit and stays quiet while typing', async (t) => {
-  const { setup, opportunity, commentUpdates } = mount(t);
-  const { toasts } = useToasts();
-  setup.openOpportunity(opportunity.id);
-  await nextTick();
-  assert.equal(toasts.value.length, 0);
-  setup.opportunityComment = 'Strong match with my research.';
-  await nextTick();
-  assert.equal(toasts.value.length, 0);
-  assert.deepEqual(commentUpdates, []);
-  assert.equal(setup.commentStatus, 'unsaved');
-  const commit = setup.flushComment();
-  await nextTick();
-  assert.equal(toasts.value.length, 1);
-  assert.equal(toasts.value[0].message, 'Saving evaluation…');
-  const toastId = toasts.value[0].id;
-  await commit;
-  await nextTick();
-  assert.equal(toasts.value.length, 1);
-  assert.equal(toasts.value[0].id, toastId);
-  assert.equal(toasts.value[0].message, 'Evaluation saved.');
-  assert.equal(toasts.value[0].tone, 'success');
-  await setup.closeOpportunity();
-  await nextTick();
-  assert.equal(toasts.value[0].message, 'Evaluation saved.', 'closing does not remove the success before it can be seen');
-});
+for (const tab of ['opportunities', 'applications'] as const) {
+  test(`${tab}: evaluation save feedback starts on commit and stays quiet while typing`, async (t) => {
+    const { setup, props, opportunity, application, applications, commentUpdates } = mount(t);
+    const { toasts } = useToasts();
+    if (tab === 'applications') {
+      applications.value = [application];
+      props.tab = tab;
+      setup.openApplication(application);
+    } else setup.openOpportunity(opportunity.id);
+    await nextTick();
+    assert.equal(toasts.value.length, 0);
+    setup.opportunityComment = 'Strong match with my research.';
+    await nextTick();
+    assert.equal(toasts.value.length, 0);
+    assert.deepEqual(commentUpdates, []);
+    assert.equal(setup.commentStatus, 'unsaved');
+    const commit = setup.flushComment();
+    await nextTick();
+    assert.equal(toasts.value.length, 1);
+    assert.equal(toasts.value[0].message, 'Saving evaluation…');
+    const toastId = toasts.value[0].id;
+    await commit;
+    await nextTick();
+    assert.equal(toasts.value.length, 1);
+    assert.equal(toasts.value[0].id, toastId);
+    assert.equal(toasts.value[0].message, 'Evaluation saved.');
+    assert.equal(toasts.value[0].tone, 'success');
+    await (tab === 'opportunities' ? setup.closeOpportunity() : setup.closeApplication());
+    await nextTick();
+    assert.equal(toasts.value[0].message, 'Evaluation saved.', 'closing does not remove the success before it can be seen');
+  });
 
-test('failed evaluation saves offer a toast retry and stale retries cannot save a different account', async (t) => {
-  const { setup, props, opportunity, commentUpdates, failNextCommentSave } = mount(t);
+  test(`${tab}: failed evaluation saves offer a toast retry and stale retries cannot save a different account`, async (t) => {
+    const { setup, props, opportunity, application, applications, commentUpdates, failNextCommentSave } = mount(t);
+    const { toasts } = useToasts();
+    if (tab === 'applications') {
+      applications.value = [application];
+      props.tab = tab;
+      setup.openApplication(application);
+    } else setup.openOpportunity(opportunity.id);
+    await nextTick();
+    setup.opportunityComment = 'Funding is unclear.';
+    failNextCommentSave();
+    await setup.flushComment();
+    await nextTick();
+    assert.equal(toasts.value.length, 1);
+    assert.equal(toasts.value[0].tone, 'error');
+    assert.equal(toasts.value[0].action?.label, 'Retry');
+    const retry = toasts.value[0].action!.run;
+    await retry();
+    await nextTick();
+    assert.equal(toasts.value.length, 1);
+    assert.equal(toasts.value[0].message, 'Evaluation saved.');
+    setup.opportunityComment = 'A newer private evaluation.';
+    failNextCommentSave();
+    await setup.flushComment();
+    await nextTick();
+    const staleRetry = toasts.value[0].action!.run;
+    props.userId = 'account-two';
+    await nextTick();
+    assert.equal(toasts.value.length, 0);
+    const writes = commentUpdates.length;
+    await staleRetry();
+    assert.equal(commentUpdates.length, writes);
+  });
+}
+
+test('application evaluation toast retries cannot commit after switching editors', async (t) => {
+  const { setup, props, opportunity, application, applications, commentUpdates, failNextCommentSave } = mount(t);
+  applications.value = [application];
+  props.tab = 'applications';
+  setup.openApplication(application);
+  await nextTick();
+  setup.opportunityComment = 'Keep this evaluation draft.';
+  failNextCommentSave();
+  await setup.flushComment();
+  await nextTick();
   const { toasts } = useToasts();
-  setup.openOpportunity(opportunity.id);
-  setup.opportunityComment = 'Funding is unclear.';
-  failNextCommentSave();
-  await setup.flushComment();
-  await nextTick();
-  assert.equal(toasts.value.length, 1);
-  assert.equal(toasts.value[0].tone, 'error');
-  assert.equal(toasts.value[0].action?.label, 'Retry');
-  const retry = toasts.value[0].action!.run;
-  await retry();
-  await nextTick();
-  assert.equal(toasts.value.length, 1);
-  assert.equal(toasts.value[0].message, 'Evaluation saved.');
-  setup.opportunityComment = 'A newer private evaluation.';
-  failNextCommentSave();
-  await setup.flushComment();
-  await nextTick();
   const staleRetry = toasts.value[0].action!.run;
-  props.userId = 'account-two';
+  props.tab = 'opportunities';
+  setup.openOpportunity(opportunity.id);
   await nextTick();
-  assert.equal(toasts.value.length, 0);
   const writes = commentUpdates.length;
   await staleRetry();
-  assert.equal(commentUpdates.length, writes);
+  assert.equal(commentUpdates.length, writes, 'the old editor cannot commit the shared draft');
+  assert.equal(setup.opportunityComment, 'Keep this evaluation draft.');
+  await toasts.value[0].action!.run();
+  await nextTick();
+  assert.equal(toasts.value[0].message, 'Evaluation saved.', 'the active editor can retry');
 });
 
 test('standalone workspaces activate sidebar controls by default while accepting explicit inactivity', async (t) => {
