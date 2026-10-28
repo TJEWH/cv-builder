@@ -33,7 +33,8 @@ if (!import.meta.env.DEV) throw new Error('The browser fixture is available only
 
 type Row = Record<string, unknown>;
 const account = '90000000-0000-4000-8000-000000000001';
-if (new URLSearchParams(location.search).get('flow') === 'job-navigation') {
+const fixtureFlow = new URLSearchParams(location.search).get('flow');
+if (['job-navigation', 'application-groups'].includes(fixtureFlow || '')) {
   for (const key of ['CV_SELECTED_OPPORTUNITY', 'CV_SELECTED_APPLICATION']) sessionStorage.removeItem(`${key}:${account}`);
 }
 const now = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
@@ -95,6 +96,30 @@ const database: Record<string, Row[]> = {
     { user_id: account, opportunity_id: '10000000-0000-4000-8000-000000000008', state: 'interested', reviewed_updated_at: recent, created_at: now, updated_at: recent },
   ],
 };
+if (fixtureFlow === 'application-groups') {
+  const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const examples = [
+    { title: 'Robot Learning PhD', institution: 'Northbridge Technical University', status: 'interview', deadline: past },
+    { title: 'Acoustic Sensing Fellowship', institution: 'Institute for Responsible Computing', status: 'submitted', deadline: past },
+    { title: 'Embedded AI Researcher', institution: 'Synthetic Science University', status: 'ready', deadline: past },
+    { title: 'Multisensory Interfaces PhD', institution: 'Example Institute', status: 'preparation', deadline: past },
+    { title: 'Human–Robot Interaction PhD', institution: 'Northbridge Technical University', status: 'preparation', deadline: future },
+    { title: 'Rolling Research Fellowship', institution: 'Example Institute', status: 'refinement', deadline: null },
+  ];
+  for (const [index, example] of examples.entries()) {
+    const suffix = String(index + 10).padStart(12, '0');
+    const opportunityId = `10000000-0000-4000-8000-${suffix}`;
+    const context = { title: example.title, institution: example.institution, deadline: example.deadline, contacts: [{ name: 'Dr. Alex Example', email: 'research@example.org' }] };
+    const applied = ['submitted', 'interview'].includes(example.status);
+    database.opportunities.push({ id: opportunityId, opportunity_key: `application-group-${index}`, ...context, created_at: now, updated_at: now });
+    database.applications.push({ id: `20000000-0000-4000-8000-${suffix}`, user_id: account, opportunity_id: opportunityId,
+      application_code: `APP-GROUP${index + 1}`, cv_variant_id: null, contact_email: null, context_json: context,
+      context_captured_at: now, completed_checklist_keys: [], status: example.status,
+      workflow_stage: applied ? 'tracking' : 'preparation', tracking_started: applied, status_history: [{ status: example.status, changedAt: now }],
+      notes: null, contacted_at: null, submitted_at: applied ? now : null, created_at: now, updated_at: now });
+  }
+}
 const refinement = createRefinementFixture(database, account);
 // Hold writes explicitly so the interaction check does not depend on network timing.
 let holdReviewWrites = false;
@@ -267,7 +292,7 @@ const Fixture = defineComponent({
     viewport.addEventListener('change', resize);
     onBeforeUnmount(() => viewport.removeEventListener('change', resize));
     provideDesktopSidebar(desktop);
-    const tab = ref<'opportunities' | 'applications'>('opportunities');
+    const tab = ref<'opportunities' | 'applications'>(fixtureFlow === 'application-groups' ? 'applications' : 'opportunities');
     const lang = ref('en');
     const draftStatus = ref('');
     const workspaceKey = ref(0);

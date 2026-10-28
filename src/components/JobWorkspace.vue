@@ -12,7 +12,7 @@ import { isOpportunityDeadlinePassed, opportunityDeadlineSortKey, formatOpportun
 import { hasReviewedOpportunity, opportunityRecency } from '../composables/opportunityRecency';
 import { personalFitScore, fitScoreTone as fitTone } from '../composables/opportunityContext';
 import { readLivingStandard } from '../composables/livingStandard';
-import { applicationStatusHistory, applicationStatusLabel, applicationStatusTone, applicationTrackingStarted } from '../composables/applicationTracking';
+import { applicationStatusHistory, applicationStatusLabel, applicationStatusTone, applicationTrackingStarted, applicationWasSubmitted } from '../composables/applicationTracking';
 import { useApplicationNotesAutosave } from '../composables/useApplicationNotesAutosave';
 import AutosaveTextarea from './AutosaveTextarea.vue';
 import OpportunityContext from './OpportunityContext.vue';
@@ -51,6 +51,7 @@ const statusFilter = ref('');
 const reviewFilter = ref('all');
 const showLowInterest = ref(false);
 const deadlineFilter = ref<'current' | 'past'>('current');
+const applicationDeadlineFilter = ref<'current' | 'past'>('current');
 const filtersOpen = ref(false);
 const filterToggle = ref<HTMLButtonElement | null>(null);
 const showWithApplications = ref(false);
@@ -151,11 +152,22 @@ const opportunityGroups = computed(() => {
   ].filter((group) => group.items.length);
 });
 const opportunityById = computed(() => new Map(opportunities.value.map((item) => [item.id, item])));
-const filteredApplications = computed(() => applications.value.filter((item) => (!statusFilter.value || item.status === statusFilter.value)
+const filteredApplications = computed(() => applications.value.filter((item) => (isOpportunityDeadlinePassed(item.context_json, now.value) === (applicationDeadlineFilter.value === 'past'))
+  && (!statusFilter.value || item.status === statusFilter.value)
   && [item.application_code, item.id, item.context_json.title, item.context_json.institution, item.context_json.university].join(' ').toLocaleLowerCase().includes(query.value.toLocaleLowerCase().trim()))
   .toSorted((a, b) => applicationSortBy.value === 'title' ? contextTitle(a).localeCompare(contextTitle(b))
     : applicationSortBy.value === 'institution' ? contextInstitution(a).localeCompare(contextInstitution(b))
       : opportunityDeadlineSortKey(a.context_json) - opportunityDeadlineSortKey(b.context_json)));
+const applicationGroups = computed(() => {
+  if (applicationDeadlineFilter.value === 'current') return [{ key: 'current', title: '', items: filteredApplications.value }];
+  const applied: Application[] = [];
+  const notApplied: Application[] = [];
+  for (const item of filteredApplications.value) (applicationWasSubmitted(item) ? applied : notApplied).push(item);
+  return [
+    { key: 'applied', title: text('Applied', 'Beworben'), items: applied },
+    { key: 'not-applied', title: text('Not applied', 'Nicht beworben'), items: notApplied },
+  ].filter(group => group.items.length);
+});
 const editingApplication = computed(() => applications.value.find(({ id }) => id === editingId.value));
 const { notes, status: notesStatus, error: notesError, flush: flushNotes } = useApplicationNotesAutosave({
   application: () => editingApplication.value,
@@ -320,7 +332,7 @@ async function saveReviewSelection(item: Opportunity, state: OpportunityReviewSt
 }
 function openApplication(application: Application, keepOrder = false) {
   listNavigationRequest++;
-  if (!keepOrder) applicationNavigationIds.value = filteredApplications.value.map(item => item.id);
+  if (!keepOrder) applicationNavigationIds.value = applicationGroups.value.flatMap(group => group.items.map(item => item.id));
   filtersOpen.value = false;
   editingId.value = application.id;
   formError.value = '';
@@ -394,7 +406,7 @@ async function navigateDetail(direction: -1 | 1) {
   const orderedIds = kind === 'opportunities'
     ? (opportunityNavigationIds.value.length ? opportunityNavigationIds.value : opportunityGroups.value.flatMap(group => group.items.map(item => item.id)))
       .filter(id => opportunityById.value.has(id))
-    : (applicationNavigationIds.value.length ? applicationNavigationIds.value : filteredApplications.value.map(item => item.id))
+    : (applicationNavigationIds.value.length ? applicationNavigationIds.value : applicationGroups.value.flatMap(group => group.items.map(item => item.id)))
       .filter(id => applications.value.some(item => item.id === id));
   const index = orderedIds.indexOf(currentId || '');
   const nextId = index < 0 ? undefined : orderedIds[index + direction];
@@ -460,6 +472,7 @@ async function startApplication(item: Opportunity) {
     await nextTick();
     // The parent may still be flushing editors before activating Applications.
     if (props.userId !== owner || props.active === false || listNavigationRequest !== request) return;
+    applicationDeadlineFilter.value = isOpportunityDeadlinePassed(application.context_json, now.value) ? 'past' : 'current';
     openApplication(application);
     notice.value = existing ? '' : text('Application created with all opportunity context. Assign a career variant in the CV tab when ready.', 'Bewerbung mit allen Stellendaten angelegt. Weise im CV-Tab eine Karrierevariante zu, sobald du bereit bist.');
   } finally {
@@ -550,7 +563,9 @@ useToastWatch(() => notice.value, () => {
           <div class="jobs-filter-checks jobs-sidebar-controls"><label class="jobs-check"><input v-model="showWithApplications" type="checkbox" /> {{ text('Show opportunities with applications', 'Stellen mit Bewerbungen anzeigen') }}</label><label class="jobs-check"><input v-model="showLowInterest" type="checkbox" /> {{ text('Show low interest', 'Geringes Interesse anzeigen') }}</label></div>
         </DesktopSidebarPortal>
         </template>
-        <template v-else><label>{{ text('Status', 'Status') }}<select v-model="statusFilter"><option value="">{{ text('All statuses', 'Alle Status') }}</option><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label><label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="applicationSortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option></select></label>
+        <template v-else><label>{{ text('Status', 'Status') }}<select v-model="statusFilter"><option value="">{{ text('All statuses', 'Alle Status') }}</option><option v-for="status in APPLICATION_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</option></select></label>
+        <label>{{ text('Applications', 'Bewerbungen') }}<select v-model="applicationDeadlineFilter"><option value="current">{{ text('Current applications', 'Aktuelle Bewerbungen') }}</option><option value="past">{{ text('Past applications', 'Vergangene Bewerbungen') }}</option></select></label>
+        <label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="applicationSortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option></select></label>
         <DesktopSidebarPortal area="minor" :active="props.active !== false && !showingDetail">
           <div class="jobs-filter-checks jobs-sidebar-controls jobs-application-display-options">
             <label class="jobs-check"><input v-model="showApplicationIds" type="checkbox" /> {{ text('Show application ID', 'Bewerbungs-ID anzeigen') }}</label>
@@ -584,14 +599,19 @@ useToastWatch(() => notice.value, () => {
       <table v-else class="jobs-applications-table">
         <colgroup><col style="width: 48%" /><col style="width: 18%" /><col style="width: 22%" /><col style="width: 12%" /></colgroup>
         <thead><tr><th scope="col">{{ text('Application', 'Bewerbung') }}</th><th scope="col">{{ text('Deadline', 'Frist') }}</th><th scope="col">{{ text('Contact person', 'Kontaktperson') }}</th><th scope="col">{{ text('Status', 'Status') }}</th></tr></thead>
-        <tbody :class="{ 'jobs-card-track': filteredApplications.length }"><template v-for="item in filteredApplications" :key="item.id">
+        <template v-for="group in applicationGroups" :key="group.key">
+        <tbody v-if="group.title" class="jobs-application-group-heading">
+          <tr class="jobs-group-row" :data-application-group="group.key"><th :id="`jobs-application-group-${group.key}`" scope="rowgroup" colspan="4">{{ group.title }} <span>{{ group.items.length }}</span></th></tr>
+        </tbody>
+        <tbody v-if="group.items.length" class="jobs-card-track" :aria-labelledby="group.title ? `jobs-application-group-${group.key}` : undefined">
+          <template v-for="item in group.items" :key="item.id">
           <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'is-expanded': editingId === item.id }" :aria-disabled="saving" @click="toggleApplication(item)"><td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :disabled="saving" :aria-label="`${text('Open application:', 'Bewerbung öffnen:')} ${contextTitle(item)}`" @click.stop="toggleApplication(item)"><strong>{{ contextTitle(item) }}</strong></button><span class="jobs-subline">{{ contextInstitution(item) }}</span><ApplicationIdentifier v-if="showApplicationIds" :application="item" :lang="lang" /></td><td class="jobs-cell-wide" :data-label="text('Deadline', 'Frist')"><div class="jobs-application-deadline"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.context_json, now) }">{{ formatOpportunityDeadline(item.context_json, lang) }}</span><ApplicationDeadlineCalendar v-if="showApplicationCalendars" :application="item" :lang="lang" /></div></td>
             <td class="jobs-cell-wide jobs-cell-contacts" :data-label="text('Contact person', 'Kontaktperson')"><template v-for="(person, index) in contacts(item)" :key="index"><span class="jobs-subline">{{ person.name }}</span><a v-if="safeEmailUrl(person.email)" :href="safeEmailUrl(person.email)!" @click.stop>{{ person.email }}</a><span v-else>{{ person.email }}</span></template><span v-if="!contacts(item).length">{{ text('Not recorded', 'Nicht erfasst') }}</span></td>
             <td class="jobs-cell-state jobs-application-state" :data-label="text('Status', 'Status')" @click.stop><span class="jobs-badge" :class="`application-status--${applicationStatusTone(item.status)}`">{{ statusLabel(item.status) }}</span></td>
             <td v-if="reviewById.get(item.opportunity_id)?.comment?.trim()" class="jobs-cell-wide jobs-card-evaluation" :data-label="text('Personal Evaluation', 'Persönliche Einschätzung')"><p>{{ reviewById.get(item.opportunity_id)?.comment }}</p></td>
           </tr>
 
-        </template><tr v-if="!filteredApplications.length"><td colspan="4" class="jobs-empty"><p :class="{ 'app-hint': !loading }">{{ loading ? text('Loading applications…', 'Bewerbungen werden geladen…') : text('No matching applications. Create one from an opportunity.', 'Keine passenden Bewerbungen. Lege eine aus einem Stellenangebot an.') }}</p><button class="btn" type="button" @click="emit('navigate', 'opportunities')">{{ text('Browse opportunities', 'Stellenangebote ansehen') }}</button></td></tr></tbody>
+        </template></tbody></template><tbody v-if="!filteredApplications.length"><tr><td colspan="4" class="jobs-empty"><p :class="{ 'app-hint': !loading }">{{ loading ? text('Loading applications…', 'Bewerbungen werden geladen…') : applications.length ? text('No matching applications. Adjust the deadline, status or search filters.', 'Keine passenden Bewerbungen. Ändere die Frist-, Status- oder Suchfilter.') : text('No applications yet. Create one from an opportunity.', 'Noch keine Bewerbungen. Lege eine aus einem Stellenangebot an.') }}</p><button class="btn" type="button" @click="emit('navigate', 'opportunities')">{{ text('Browse opportunities', 'Stellenangebote ansehen') }}</button></td></tr></tbody>
       </table>
     </div>
     <section v-if="selectedOpportunity" v-show="tab === 'opportunities'" ref="opportunityDetail" class="opportunity-detail" :class="{ 'opportunity-detail--sidebar': sidebarActive }" :aria-label="selectedOpportunity.title" tabindex="-1">
@@ -879,6 +899,8 @@ tr.is-expanded { background: var(--ui-active); }
   table tbody { gap: 12px; }
   table tr { column-gap: 0; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface); }
   table .jobs-group-row { display: none; }
+  .jobs-applications-table .jobs-group-row { display: block; }
+  .jobs-applications-table .jobs-application-group-heading + tbody { margin-top: 0; }
   .jobs-workspace td { padding: 10px 14px; }
   .jobs-workspace .jobs-cell-state { display: none; }
   .jobs-workspace .jobs-application-state { display: flex; padding-top: 0; }

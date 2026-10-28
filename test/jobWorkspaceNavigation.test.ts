@@ -142,7 +142,7 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   app.mount({});
   unmount = () => app.unmount();
   const setup = (mounted as { $: { setupState: {
-    query: string; statusFilter: string; reviewFilter: string; showWithApplications: boolean; showLowInterest: boolean; sortBy: string; applicationSortBy: string; deadlineFilter: 'current' | 'past'; now: Date;
+    query: string; statusFilter: string; reviewFilter: string; showWithApplications: boolean; showLowInterest: boolean; sortBy: string; applicationSortBy: string; deadlineFilter: 'current' | 'past'; applicationDeadlineFilter: 'current' | 'past'; now: Date;
     statusLabel(status: string): string;
     reviewSelection(id: string): OpportunityReviewState;
     changeReview(item: Opportunity, event: Event): Promise<void>;
@@ -155,6 +155,7 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
     fitScoreById: Map<string, number | undefined>; fitTone(score: number | undefined): string | undefined; fitLabel(score: number | undefined): string;
     filteredOpportunities: Opportunity[]; filteredApplications: Application[]; selectedOpportunity?: Opportunity; showingDetail: boolean; editingApplication?: Application;
     opportunityGroups: { key: string; title: string; items: Opportunity[] }[];
+    applicationGroups: { key: string; title: string; items: Application[] }[];
     removingId: string | null; removalDialog: { open?: boolean; showModal(): void; close(): void };
     openOpportunity(id: string): void; closeOpportunity(): Promise<void>; closeApplication(): Promise<void>; startApplication(item: Opportunity): Promise<void>;
     openApplication(item: Application): void; openList(kind: 'opportunities' | 'applications'): Promise<boolean>; navigateDetail(direction: -1 | 1): Promise<void>;
@@ -900,6 +901,88 @@ test('application status filters include each preparation stage and Ready alongs
   assert.deepEqual(statuses.slice(0, 4).map(status => setup.statusLabel(status)), ['Preparation', 'Refinement', 'Attachments', 'Ready']);
   setup.statusFilter = '';
   assert.equal(setup.filteredApplications.length, statuses.length);
+});
+
+test('application deadline views are exclusive, use captured deadlines and preserve search/status filters', async (t) => {
+  const { setup, props, application, applications, opportunities } = mount(t);
+  props.tab = 'applications';
+  setup.now = new Date('2026-10-06T12:00:00Z');
+  const make = (id: string, deadline: unknown, status: Application['status'] = 'preparation'): Application => ({
+    ...application, id, status, context_json: { title: `Research ${id}`, deadline },
+  });
+  applications.value = [make('past', '2026-10-06T11:59:59Z'), make('exact', '2026-10-06T12:00:00Z'),
+    make('future', '2026-10-07T12:00:00Z', 'submitted'), make('unknown', null), make('invalid', 'Until filled')];
+  opportunities.value = opportunities.value.map(item => ({ ...item, details: { ...item.details, deadline: '2025-01-01' } }));
+  await nextTick();
+  const ids = () => setup.filteredApplications.map(item => item.id).sort();
+  assert.equal(setup.applicationDeadlineFilter, 'current');
+  assert.deepEqual(ids(), ['exact', 'future', 'invalid', 'unknown']);
+  assert.deepEqual(setup.applicationGroups.map(group => group.title), ['']);
+  setup.applicationDeadlineFilter = 'past';
+  assert.deepEqual(ids(), ['past']);
+  assert.equal(setup.deadlineFilter, 'current', 'application and opportunity views are independent');
+  setup.statusFilter = 'submitted';
+  assert.deepEqual(ids(), []);
+  setup.applicationDeadlineFilter = 'current';
+  assert.deepEqual(ids(), ['future']);
+  setup.query = 'unknown';
+  assert.deepEqual(ids(), []);
+  setup.statusFilter = '';
+  assert.deepEqual(ids(), ['unknown']);
+  setup.query = '';
+  setup.now = new Date('2026-10-06T12:00:00.001Z');
+  assert.ok(!ids().includes('exact'), 'the application moves to Past as its precise deadline passes');
+  setup.applicationDeadlineFilter = 'past';
+  assert.deepEqual(ids(), ['exact', 'past']);
+});
+
+test('past application groups keep sorting within groups, omit empty groups and navigate in displayed order', async (t) => {
+  const { setup, props, application, applications, applicationUpdates } = mount(t);
+  props.tab = 'applications';
+  setup.applicationDeadlineFilter = 'past';
+  setup.now = new Date('2026-10-06T12:00:00Z');
+  const make = (id: string, status: Application['status']): Application => ({
+    ...application, id, status, context_json: { title: id, deadline: '2026-10-01' },
+  });
+  applications.value = [make('A draft', 'preparation'), make('D submitted', 'submitted'),
+    make('B ready', 'ready'), make('C interview', 'interview')];
+  setup.applicationSortBy = 'title';
+  await nextTick();
+  const groups = () => setup.applicationGroups.map(({ key, title, items }) => ({ key, title, ids: items.map(item => item.id) }));
+  assert.deepEqual(groups(), [
+    { key: 'applied', title: 'Applied', ids: ['C interview', 'D submitted'] },
+    { key: 'not-applied', title: 'Not applied', ids: ['A draft', 'B ready'] },
+  ]);
+  setup.openApplication(applications.value.find(item => item.id === 'D submitted')!);
+  await nextTick();
+  await setup.navigateDetail(1);
+  assert.equal(setup.editingApplication?.id, 'A draft', 'next follows the group order');
+  await setup.closeApplication();
+  assert.equal(setup.applicationDeadlineFilter, 'past');
+  assert.deepEqual(applicationUpdates, [], 'filtering and grouping do not write application state');
+  setup.statusFilter = 'ready';
+  assert.deepEqual(groups(), [{ key: 'not-applied', title: 'Not applied', ids: ['B ready'] }]);
+  props.lang = 'de';
+  await nextTick();
+  assert.equal(setup.applicationGroups[0]?.title, 'Nicht beworben');
+  setup.query = 'missing';
+  assert.deepEqual(groups(), []);
+});
+
+test('opening an application from an expired opportunity selects Past and returns to its group', async (t) => {
+  const { setup, opportunity, application, handlers } = mount(t);
+  const context = { ...application.context_json, deadline: '2025-01-01' };
+  const expired = { ...opportunity, details: { ...opportunity.details, deadline: '2025-01-01' } };
+  handlers.create = async () => ({ ...application, context_json: context });
+  setup.deadlineFilter = 'past';
+  setup.applicationDeadlineFilter = 'current';
+  await setup.startApplication(expired);
+  assert.equal(setup.editingApplication?.id, application.id);
+  assert.equal(setup.applicationDeadlineFilter, 'past');
+  await setup.closeApplication();
+  assert.deepEqual(setup.applicationGroups.map(group => [group.key, group.items.map(item => item.id)]), [
+    ['not-applied', [application.id]],
+  ]);
 });
 
 test('tracking dropdown flushes pending notes and selecting Ready starts tracking even when already ready', async (t) => {

@@ -29,6 +29,14 @@ export function applicationTrackingStarted(application: Application): boolean {
   return application.tracking_started ?? ['contacted', 'submitted', 'interview', 'offer', 'rejected', 'withdrawn'].includes(application.status);
 }
 
+/** Ready/contacted are not submissions; a withdrawal needs prior submission evidence. */
+export function applicationWasSubmitted(application: Pick<Application, 'status' | 'submitted_at' | 'status_history'>): boolean {
+  const submitted = (status: string) => ['submitted', 'interview', 'offer', 'rejected'].includes(status);
+  return submitted(application.status)
+    || Boolean(application.submitted_at && Number.isFinite(Date.parse(application.submitted_at)))
+    || Boolean(application.status_history?.some(entry => submitted(entry.status)));
+}
+
 export function applicationStage(application: Application): ApplicationStage {
   if (application.workflow_stage && APPLICATION_STAGES.includes(application.workflow_stage)) return application.workflow_stage;
   if (application.status === 'preparation' || application.status === 'refinement') return application.status;

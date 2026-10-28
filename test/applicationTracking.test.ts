@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Application } from '../src/cloudTypes';
-import { applicationStage, applicationStatusHistory, applicationTrackingStarted, normalizeApplication } from '../src/composables/applicationTracking';
+import { applicationStage, applicationStatusHistory, applicationTrackingStarted, applicationWasSubmitted, normalizeApplication } from '../src/composables/applicationTracking';
 import { createSyntheticRefinementWorkspace } from './refinementFixture';
 
 test('status history preserves repeated states in server order and never guesses missing transition dates', () => {
@@ -30,6 +30,25 @@ test('saved tab is restored independently from an explicit tracking status', () 
   }
   assert.equal(applicationTrackingStarted({ ...props.application, status: 'ready', tracking_started: true }), true);
   assert.equal(applicationTrackingStarted({ ...props.application, status: 'ready', tracking_started: false }), false);
+});
+
+test('applied grouping distinguishes submission from preparation, contact and withdrawal', () => {
+  const { props } = createSyntheticRefinementWorkspace();
+  const baseline = { ...props.application, submitted_at: null, status_history: undefined };
+  for (const status of ['preparation', 'refinement', 'attachments', 'ready', 'contacted', 'withdrawn'] as const) {
+    assert.equal(applicationWasSubmitted({ ...baseline, status }), false, status);
+  }
+  for (const status of ['submitted', 'interview', 'offer', 'rejected'] as const) {
+    assert.equal(applicationWasSubmitted({ ...baseline, status }), true, status);
+  }
+  assert.equal(applicationWasSubmitted({ ...baseline, status: 'withdrawn', submitted_at: '2026-10-01T08:00:00Z' }), true);
+  assert.equal(applicationWasSubmitted({ ...baseline, status: 'withdrawn', submitted_at: 'invalid' }), false);
+  assert.equal(applicationWasSubmitted({ ...baseline, status: 'withdrawn', status_history: [
+    { status: 'submitted', changedAt: null }, { status: 'withdrawn', changedAt: null },
+  ] }), true);
+  assert.equal(applicationWasSubmitted({ ...baseline, status: 'refinement', status_history: [
+    { status: 'interview', changedAt: null }, { status: 'refinement', changedAt: null },
+  ] }), true, 'reopening document work does not undo a recorded submission');
 });
 
 test('legacy rows normalize Shortlist and history without inventing saved workflow fields or dates', () => {
