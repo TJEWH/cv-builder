@@ -97,13 +97,13 @@ const database: Record<string, Row[]> = {
   ],
 };
 if (fixtureFlow === 'application-groups') {
-  const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const deadline = (daysFromNow: number) => new Date(Date.now() + daysFromNow * 24 * 60 * 60 * 1000).toISOString();
+  const future = deadline(7);
   const examples = [
-    { title: 'Robot Learning PhD', institution: 'Northbridge Technical University', status: 'interview', deadline: past },
-    { title: 'Acoustic Sensing Fellowship', institution: 'Institute for Responsible Computing', status: 'submitted', deadline: past },
-    { title: 'Embedded AI Researcher', institution: 'Synthetic Science University', status: 'ready', deadline: past },
-    { title: 'Multisensory Interfaces PhD', institution: 'Example Institute', status: 'preparation', deadline: past },
+    { title: 'Robot Learning PhD', institution: 'Northbridge Technical University', status: 'interview', deadline: deadline(-28) },
+    { title: 'Acoustic Sensing Fellowship', institution: 'Institute for Responsible Computing', status: 'submitted', deadline: deadline(-7) },
+    { title: 'Embedded AI Researcher', institution: 'Synthetic Science University', status: 'ready', deadline: deadline(-35) },
+    { title: 'Multisensory Interfaces PhD', institution: 'Example Institute', status: 'preparation', deadline: deadline(-14) },
     { title: 'Human–Robot Interaction PhD', institution: 'Northbridge Technical University', status: 'preparation', deadline: future },
     { title: 'Rolling Research Fellowship', institution: 'Example Institute', status: 'refinement', deadline: null },
   ];

@@ -142,7 +142,7 @@ const filteredOpportunities = computed(() => {
       : sortBy.value === 'salary_score' ? (salaryScoreById.value.get(b.id) ?? -1) - (salaryScoreById.value.get(a.id) ?? -1)
       : sortBy.value === 'title' ? a.title.localeCompare(b.title)
       : sortBy.value === 'institution' ? (a.university || '').localeCompare(b.university || '')
-        : opportunityDeadlineSortKey(a.details) - opportunityDeadlineSortKey(b.details));
+        : (opportunityDeadlineSortKey(a.details) - opportunityDeadlineSortKey(b.details)) * (deadlineFilter.value === 'past' ? -1 : 1));
 });
 const opportunityGroups = computed(() => {
   const recent: Opportunity[] = [];
@@ -161,7 +161,7 @@ const filteredApplications = computed(() => applications.value.filter((item) => 
   && [item.application_code, item.id, item.context_json.title, item.context_json.institution, item.context_json.university].join(' ').toLocaleLowerCase().includes(query.value.toLocaleLowerCase().trim()))
   .toSorted((a, b) => applicationSortBy.value === 'title' ? contextTitle(a).localeCompare(contextTitle(b))
     : applicationSortBy.value === 'institution' ? contextInstitution(a).localeCompare(contextInstitution(b))
-      : opportunityDeadlineSortKey(a.context_json) - opportunityDeadlineSortKey(b.context_json)));
+      : (opportunityDeadlineSortKey(a.context_json) - opportunityDeadlineSortKey(b.context_json)) * (applicationDeadlineFilter.value === 'past' ? -1 : 1)));
 const applicationGroups = computed(() => {
   if (applicationDeadlineFilter.value === 'current') return [{ key: 'current', title: '', items: filteredApplications.value }];
   const applied: Application[] = [];

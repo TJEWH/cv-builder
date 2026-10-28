@@ -972,6 +972,55 @@ test('application deadline views are exclusive, use captured deadlines and prese
   assert.deepEqual(ids(), ['exact', 'past']);
 });
 
+test('deadline sorting reverses only past opportunities and keeps current unknown deadlines last', (t) => {
+  const { setup, opportunities } = mount(t);
+  setup.now = new Date('2026-10-06T12:00:00Z');
+  const make = (id: string, deadline: string | null) => normalizeOpportunity({ id, title: id, deadline });
+  opportunities.value = [make('later', '2026-10-08T12:00:00Z'), make('a-oldest', '2026-09-01T12:00:00Z'),
+    make('unknown', null), make('z-latest', '2026-10-06T11:59:59Z'), make('soon', '2026-10-07T12:00:00Z'),
+    make('m-middle', '2026-10-01T12:00:00Z'), make('exact', '2026-10-06T12:00:00Z'), make('invalid', 'Until filled')];
+  const ids = () => setup.filteredOpportunities.map(item => item.id);
+  assert.deepEqual(ids(), ['exact', 'soon', 'later', 'unknown', 'invalid']);
+  setup.deadlineFilter = 'past';
+  assert.deepEqual(ids(), ['z-latest', 'm-middle', 'a-oldest']);
+  assert.deepEqual(setup.opportunityGroups.flatMap(group => group.items.map(item => item.id)), ids());
+  setup.sortBy = 'title';
+  assert.deepEqual(ids(), ['a-oldest', 'm-middle', 'z-latest'], 'other sort choices keep their direction');
+  setup.sortBy = 'deadline';
+  setup.deadlineFilter = 'current';
+  assert.deepEqual(ids(), ['exact', 'soon', 'later', 'unknown', 'invalid']);
+});
+
+test('deadline sorting shows latest past applications first within each group and keeps current order', async (t) => {
+  const { setup, props, application, applications } = mount(t);
+  props.tab = 'applications';
+  setup.now = new Date('2026-10-06T12:00:00Z');
+  const make = (id: string, deadline: string | null, status: Application['status'] = 'preparation'): Application => ({
+    ...application, id, status, context_json: { title: id, deadline },
+  });
+  applications.value = [make('old-applied', '2026-09-01T12:00:00Z', 'submitted'),
+    make('later', '2026-10-08T12:00:00Z'), make('old-draft', '2026-08-01T12:00:00Z'),
+    make('unknown', null), make('new-draft', '2026-10-04T12:00:00Z', 'ready'),
+    make('soon', '2026-10-07T12:00:00Z'), make('new-applied', '2026-10-05T12:00:00Z', 'interview'),
+    make('exact', '2026-10-06T12:00:00Z'), make('invalid', 'Until filled')];
+  await nextTick();
+  const ids = () => setup.filteredApplications.map(item => item.id);
+  assert.deepEqual(ids(), ['exact', 'soon', 'later', 'unknown', 'invalid']);
+  setup.applicationDeadlineFilter = 'past';
+  assert.deepEqual(ids(), ['new-applied', 'new-draft', 'old-applied', 'old-draft']);
+  assert.deepEqual(setup.applicationGroups.map(group => [group.key, group.items.map(item => item.id)]), [
+    ['applied', ['new-applied', 'old-applied']], ['not-applied', ['new-draft', 'old-draft']],
+  ]);
+  setup.openApplication(applications.value.find(item => item.id === 'new-applied')!);
+  await setup.navigateDetail(1);
+  assert.equal(setup.editingApplication?.id, 'old-applied', 'detail navigation follows the descending group order');
+  await setup.navigateDetail(1);
+  assert.equal(setup.editingApplication?.id, 'new-draft');
+  await setup.closeApplication();
+  setup.applicationDeadlineFilter = 'current';
+  assert.deepEqual(ids(), ['exact', 'soon', 'later', 'unknown', 'invalid']);
+});
+
 test('past application groups keep sorting within groups, omit empty groups and navigate in displayed order', async (t) => {
   const { setup, props, application, applications, applicationUpdates } = mount(t);
   props.tab = 'applications';
