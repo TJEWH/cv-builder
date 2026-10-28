@@ -37,7 +37,7 @@ const props = withDefaults(defineProps<{
   active?: boolean;
 }>(), { active: true });
 const desktopSidebar = useDesktopSidebar();
-const sidebarActive = computed(() => desktopSidebar.value && props.active !== false);
+const sidebarActive = computed(() => desktopSidebar.value && props.active);
 const emit = defineEmits<{ navigate: [tab: 'opportunities' | 'applications']; 'save-career-variant': [name: string, state: CvState]; 'edit-variant': [id: string] }>();
 const { opportunities, applications, reviews, loading, saving, savingReview, error, opportunityReviewError, opportunityCommentError, createApplication,
   updateApplication, setApplicationStage, setApplicationChecklistItem, resetApplicationHistory, removeApplication, setOpportunityReview, setOpportunityComment, markOpportunityReviewed } = useJobWorkspace(props.client, () => props.userId);
@@ -99,6 +99,10 @@ const unseenById = computed(() => new Map(opportunities.value.map((item) => {
   return [item.id, hasReviewedOpportunity(item, reviewedVersion) || visitedWithoutVersion ? null : recencyById.value.get(item.id) || (reviewedVersion ? 'updated' : 'new')];
 })));
 const fitScoreById = computed(() => new Map(opportunities.value.map((item) => [item.id, personalFitScore(item.details.personal_fit ?? item.data.personal_fit)])));
+function showPersonalFitBadge(item: Opportunity): boolean {
+  const score = fitScoreById.value.get(item.id);
+  return score !== undefined && score > 9;
+}
 const salaryScoreById = computed(() => new Map(opportunities.value.map((item) => [item.id,
   readLivingStandard(item.details.living_standard ?? item.data.living_standard)?.factors.affordability.score ?? undefined,
 ])));
@@ -197,8 +201,8 @@ function clearCommentToast() {
 watch([() => props.userId, selectedOpportunityId, () => props.tab, () => props.active, commentStatus, commentError],
   ([owner, id, tab, active, status, message], previous) => {
     const changedItem = owner !== previous?.[0] || id !== previous?.[1];
-    if (changedItem || tab !== 'opportunities' || active === false) clearCommentToast();
-    if (!id || tab !== 'opportunities' || active === false) return;
+    if (changedItem || tab !== 'opportunities' || !active) clearCommentToast();
+    if (!id || tab !== 'opportunities' || !active) return;
     if (status === 'unsaved') {
       if (commentToastId) commentToasts.dismiss(commentToastId);
       commentToastId = 0;
@@ -213,14 +217,14 @@ watch([() => props.userId, selectedOpportunityId, () => props.tab, () => props.a
         : text('Evaluation saved.', 'Einschätzung gespeichert.'),
       tone: status === 'error' ? 'error' : status === 'saving' ? 'info' : 'success',
       action: status === 'error' ? { label: text('Retry', 'Erneut versuchen'), run: () => {
-        if (props.userId !== owner || selectedOpportunityId.value !== id || props.tab !== 'opportunities' || props.active === false) return true;
+        if (props.userId !== owner || selectedOpportunityId.value !== id || props.tab !== 'opportunities' || !props.active) return true;
         return flushComment();
       } } : undefined,
     });
   });
 onBeforeUnmount(clearCommentToast);
 const showingDetail = computed(() => props.tab === 'opportunities' ? Boolean(selectedOpportunity.value) : Boolean(editingApplication.value));
-useJobCardTrackHeight(tableScroll, () => props.active !== false && !showingDetail.value);
+useJobCardTrackHeight(tableScroll, () => props.active && !showingDetail.value);
 const statusNames: Record<string, [string, string]> = {
   unreviewed: ['Not reviewed', 'Ungeprüft'], not_interested: ['Low', 'Gering'], interested: ['Medium', 'Mittel'], strong_interest: ['High', 'Hoch'],
 };
@@ -244,7 +248,7 @@ function timestampLabel(value: string) {
 }
 watch(() => props.tab, () => { filtersOpen.value = false; notice.value = ''; cancelRemoval(); removedOpportunityId.value = null; });
 watch(() => props.userId, () => { filtersOpen.value = false; editingId.value = null; selectedOpportunityId.value = null; cancelRemoval(); removedOpportunityId.value = null; visitedOpportunityVersions.value = new Map(); });
-watch(() => props.active, active => { if (active === false) filtersOpen.value = false; });
+watch(() => props.active, active => { if (!active) filtersOpen.value = false; });
 function closeFilters(event: KeyboardEvent) {
   if (!filtersOpen.value) return;
   event.preventDefault();
@@ -415,7 +419,7 @@ async function navigateDetail(direction: -1 | 1) {
   try {
     if (kind === 'opportunities') commitPendingTextareas();
     const saved = await (kind === 'opportunities' ? flushComment() : flushApplicationTextareas());
-    if (!saved || props.userId !== owner || props.tab !== kind || props.active === false
+    if (!saved || props.userId !== owner || props.tab !== kind || !props.active
       || currentId !== (kind === 'opportunities' ? selectedOpportunityId.value : editingId.value)) return;
     if (kind === 'opportunities') openOpportunity(nextId, true);
     else {
@@ -428,12 +432,12 @@ async function navigateDetail(direction: -1 | 1) {
   } finally { detailNavigationPending = false; }
 }
 const swipe = createJobSwipe({
-  enabled: () => props.active !== false && showingDetail.value && !blockingSave.value && !startingApplication.value && !removingId.value
+  enabled: () => props.active && showingDetail.value && !blockingSave.value && !startingApplication.value && !removingId.value
     && window.matchMedia('(max-width: 760px)').matches,
   onSwipe: direction => { void navigateDetail(direction); },
 });
 const cardSwipe = createJobCardSwipe({
-  enabled: () => props.active !== false && !showingDetail.value && !filtersOpen.value
+  enabled: () => props.active && !showingDetail.value && !filtersOpen.value
     && window.matchMedia('(max-width: 760px)').matches,
   root: () => tableScroll.value,
 });
@@ -458,8 +462,7 @@ async function startApplication(item: Opportunity) {
   const kind = props.tab;
   const selectedId = selectedOpportunityId.value;
   const request = listNavigationRequest;
-  const stillCurrent = () => props.userId === owner && props.tab === kind && props.active !== false
-    && selectedOpportunityId.value === selectedId && listNavigationRequest === request;
+  const stillCurrent = () => props.userId === owner && props.tab === kind && props.active && selectedOpportunityId.value === selectedId && listNavigationRequest === request;
   notice.value = '';
   try {
     commitPendingTextareas();
@@ -471,7 +474,7 @@ async function startApplication(item: Opportunity) {
     emit('navigate', 'applications');
     await nextTick();
     // The parent may still be flushing editors before activating Applications.
-    if (props.userId !== owner || props.active === false || listNavigationRequest !== request) return;
+    if (props.userId !== owner || !props.active || listNavigationRequest !== request) return;
     applicationDeadlineFilter.value = isOpportunityDeadlinePassed(application.context_json, now.value) ? 'past' : 'current';
     openApplication(application);
     notice.value = existing ? '' : text('Application created with all opportunity context. Assign a career variant in the CV tab when ready.', 'Bewerbung mit allen Stellendaten angelegt. Weise im CV-Tab eine Karrierevariante zu, sobald du bereit bist.');
@@ -587,7 +590,7 @@ useToastWatch(() => notice.value, () => {
           <tr v-if="group.title" class="jobs-group-row" :data-opportunity-group="group.key"><th scope="rowgroup" colspan="5">{{ group.title }} <span>{{ group.items.length }}</span></th></tr>
           <template v-for="item in group.items" :key="item.id">
           <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'jobs-opportunity--new': recencyById.get(item.id) === 'new', 'jobs-opportunity--updated': recencyById.get(item.id) === 'updated', 'jobs-opportunity--unseen-new': unseenById.get(item.id) === 'new', 'jobs-opportunity--unseen-updated': unseenById.get(item.id) === 'updated' }" @click="openOpportunity(item.id)">
-            <td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :aria-label="`${text('Open opportunity:', 'Stelle öffnen:')} ${item.title}`" @click.stop="openOpportunity(item.id)"><strong>{{ item.title }}</strong></button><span class="jobs-subline">{{ item.university || '—' }}</span><div v-if="recencyById.get(item.id) || (item.particularly_suitable && fitScoreById.get(item.id) !== undefined)" class="jobs-opportunity-badges"><span v-if="recencyById.get(item.id)" class="jobs-badge" :class="`jobs-badge--${recencyById.get(item.id)}`" :title="recencyById.get(item.id) === 'new' ? text('Added within the last 24 hours', 'In den letzten 24 Stunden hinzugefügt') : text('Updated within the last 24 hours', 'In den letzten 24 Stunden aktualisiert')">{{ recencyById.get(item.id) === 'new' ? text('New · 24h', 'Neu · 24 Std.') : text('Updated · 24h', 'Aktualisiert · 24 Std.') }}</span><span v-if="item.particularly_suitable && fitScoreById.get(item.id) !== undefined" class="jobs-badge jobs-fit-score" :class="fitTone(fitScoreById.get(item.id)) && `jobs-fit-score--${fitTone(fitScoreById.get(item.id))}`" :aria-label="`${text('Personal fit', 'Persönliche Passung')}: ${fitLabel(fitScoreById.get(item.id))}`" :title="text('Personal fit score', 'Bewertung der persönlichen Passung')">{{ fitLabel(fitScoreById.get(item.id)) }}</span></div></td>
+            <td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :aria-label="`${text('Open opportunity:', 'Stelle öffnen:')} ${item.title}`" @click.stop="openOpportunity(item.id)"><strong>{{ item.title }}</strong></button><span class="jobs-subline">{{ item.university || '—' }}</span><div v-if="recencyById.get(item.id) || (showPersonalFitBadge(item))" class="jobs-opportunity-badges"><span v-if="recencyById.get(item.id)" class="jobs-badge" :class="`jobs-badge--${recencyById.get(item.id)}`" :title="recencyById.get(item.id) === 'new' ? text('Added within the last 24 hours', 'In den letzten 24 Stunden hinzugefügt') : text('Updated within the last 24 hours', 'In den letzten 24 Stunden aktualisiert')">{{ recencyById.get(item.id) === 'new' ? text('New · 24h', 'Neu · 24 Std.') : text('Updated · 24h', 'Aktualisiert · 24 Std.') }}</span><span v-if="showPersonalFitBadge(item)" class="jobs-badge jobs-fit-score" :class="fitTone(fitScoreById.get(item.id)) && `jobs-fit-score--${fitTone(fitScoreById.get(item.id))}`" :aria-label="`${text('Personal fit', 'Persönliche Passung')}: ${fitLabel(fitScoreById.get(item.id))}`" :title="text('Personal fit score', 'Bewertung der persönlichen Passung')">{{ fitLabel(fitScoreById.get(item.id)) }}</span></div></td>
             <td v-if="researchSummary(item)" class="jobs-card-summary jobs-cell-wide"><p>{{ researchSummary(item) }}</p></td>
             <td class="jobs-topics jobs-cell-wide" :data-label="text('Topics', 'Themen')">{{ item.topics.join(' · ') || '—' }}</td>
             <td class="jobs-card-location" :data-label="text('Country', 'Land')" :data-mobile-label="text('Location', 'Ort')"><span class="jobs-card-country">{{ item.country || '—' }}</span><span class="jobs-card-location-text">{{ opportunityLocation(item) }}</span></td><td class="jobs-card-deadline" :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.details, now) }">{{ formatOpportunityDeadline(item.details, lang) }}</span></td>
@@ -619,7 +622,7 @@ useToastWatch(() => notice.value, () => {
         <template #metadata>
           <span v-if="selectedOpportunity.country" class="opportunity-detail__country" :title="selectedOpportunity.country">{{ selectedOpportunity.country }}</span>
           <span class="opportunity-detail__deadline" :class="{ 'jobs-expired': isOpportunityDeadlinePassed(selectedOpportunity.details, now) }" :title="`${text('Deadline', 'Frist')}: ${formatOpportunityDeadline(selectedOpportunity.details, lang)}`" :aria-label="`${text('Deadline', 'Frist')}: ${formatOpportunityDeadline(selectedOpportunity.details, lang)}`"><span class="opportunity-detail__deadline-label">{{ text('Deadline', 'Frist') }}: </span>{{ formatOpportunityDeadline(selectedOpportunity.details, lang) }}</span>
-          <span v-if="selectedOpportunity.particularly_suitable && fitScoreById.get(selectedOpportunity.id) !== undefined" class="jobs-badge jobs-fit-score opportunity-detail__fit" :class="fitTone(fitScoreById.get(selectedOpportunity.id)) && `jobs-fit-score--${fitTone(fitScoreById.get(selectedOpportunity.id))}`" :aria-label="`${text('Personal fit', 'Persönliche Passung')}: ${fitLabel(fitScoreById.get(selectedOpportunity.id))}`" :title="text('Personal fit score', 'Bewertung der persönlichen Passung')">{{ fitLabel(fitScoreById.get(selectedOpportunity.id)) }}</span>
+          <span v-if="showPersonalFitBadge(selectedOpportunity)" class="jobs-badge jobs-fit-score opportunity-detail__fit" :class="fitTone(fitScoreById.get(selectedOpportunity.id)) && `jobs-fit-score--${fitTone(fitScoreById.get(selectedOpportunity.id))}`" :aria-label="`${text('Personal fit', 'Persönliche Passung')}: ${fitLabel(fitScoreById.get(selectedOpportunity.id))}`" :title="text('Personal fit score', 'Bewertung der persönlichen Passung')">{{ fitLabel(fitScoreById.get(selectedOpportunity.id)) }}</span>
         </template>
         <template v-if="applicationByOpportunity.has(selectedOpportunity.id)" #secondary-actions>
           <ApplicationIdentifier :application="applicationByOpportunity.get(selectedOpportunity.id)!" :lang="lang" />

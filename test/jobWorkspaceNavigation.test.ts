@@ -153,6 +153,7 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
     opportunityComment: string; commentStatus: string; commentError: string; flushComment(): Promise<boolean>;
     recencyById: Map<string, 'new' | 'updated' | null>; unseenById: Map<string, 'new' | 'updated' | null>;
     fitScoreById: Map<string, number | undefined>; fitTone(score: number | undefined): string | undefined; fitLabel(score: number | undefined): string;
+    showPersonalFitBadge(item: Opportunity): boolean;
     filteredOpportunities: Opportunity[]; filteredApplications: Application[]; selectedOpportunity?: Opportunity; showingDetail: boolean; editingApplication?: Application;
     opportunityGroups: { key: string; title: string; items: Opportunity[] }[];
     applicationGroups: { key: string; title: string; items: Application[] }[];
@@ -1176,6 +1177,24 @@ test('strong-fit scores use the requested color boundaries without fabricating m
   props.lang = 'de';
   await nextTick();
   assert.equal(setup.fitLabel(9.6), '9,6');
+});
+
+test('personal-fit badges show only scores above 9 regardless of the legacy suitability flag', (t) => {
+  const { setup, opportunities } = mount(t);
+  for (const particularly_suitable of [true, false, null, undefined]) {
+    for (const [score, visible] of [[9.01, true], ['9.05', true], [9.1, true], ['9.5', true], [9.6, true], [10, true],
+      [9, false], ['9.0', false], [8.8, false], [0, false], [undefined, false], [11, false], [NaN, false], ['high', false]] as const) {
+      const item = normalizeOpportunity({ id: 'fit-badge', particularly_suitable, personal_fit: { score } });
+      opportunities.value = [item];
+      assert.equal(setup.showPersonalFitBadge(item), visible, `${particularly_suitable}: ${score}`);
+    }
+  }
+  const nested = normalizeOpportunity({ id: 'nested-fit-badge', personal_fit: null, data: { personal_fit: { score: '9.8' } } });
+  opportunities.value = [nested];
+  assert.equal(setup.showPersonalFitBadge(nested), true, 'nested research uses the same score as sorting and detail');
+  const unknown = normalizeOpportunity({ id: 'unknown', particularly_suitable: true, personal_fit: { score: 'high' } });
+  opportunities.value = [unknown];
+  assert.equal(setup.showPersonalFitBadge(unknown), false, 'the legacy flag cannot invent a numeric score');
 });
 
 test('only unseen additions and updates from the last 24 hours form a separate group', async (t) => {
