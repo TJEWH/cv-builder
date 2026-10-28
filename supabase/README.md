@@ -6,6 +6,10 @@ refinement](REFINEMENT.md). Local CV editing and PDF export work without an acco
 Deploy to **phd-workflow** (`ehkfzvjgesomteqpwrwa`) with the matching GitHub Pages environment.
 The user authorized deletion of the unused **Test** project (`vhkfrseocgiqxshrbevd`). Deletion awaits browser login; the project still exists.
 
+## Opportunity merge protocol
+
+[`opportunity_canonical_v5.sql`](opportunity_canonical_v5.sql) was installed in **phd-workflow** on **2026-10-28** as migration `20261028221555`, after v4 (`20261028210636`) and its audit index (`20261028210937`). The owner authorized a one-time conversion of all 186 opportunity payloads and confirmed their existing ratings use 0–10. Original rows are privately archived; all rating numbers, IDs/timestamps, 186 reviews and 29 applications were preserved. Future intake and storage enforce [one closed canonical schema](opportunity_schema_v5.json); legacy conversion and generic JSON union helpers have been removed. The active protocol is `opportunity-search-v1-canonical-5`. See [the contract, installed-function verification and isolated rollback tests](../docs/opportunity-merge.md).
+
 ## Storage and workflow boundaries
 
 **CV Studio** maintains CV variants, letter templates and attachments. Applications have Preparation, Refinement, Attachments and
@@ -29,7 +33,7 @@ local. There is no Storage bucket or cloud application-attachment table. To expo
    or `service_role` key. Restart Vite after changes. You can also use the existing `NEXT_PUBLIC_*`
    equivalents. Configure the same values in the deployment environment.
 2. For a **new database**, apply [`schema.sql`](schema.sql) once. It contains the
-   current schema and excludes retired standalone drafting APIs. Never replay it over an existing workspace.
+   current table baseline and excludes retired standalone drafting APIs. Search protocol functions/settings require their separate protocol installation, followed by the reviewed v4 and canonical v5 upgrades. Never replay this setup over an existing workspace.
 3. For an **existing database**, inspect its applied migrations and deployed
    definitions before applying missing changes. Follow the schema maintenance guidance below.
    The document-scoped history UI requires [`refinement_scoped_history.sql`](refinement_scoped_history.sql)
@@ -51,6 +55,9 @@ local. There is no Storage bucket or cloud application-attachment table. To expo
    [`refinement_title_typos.sql`](refinement_title_typos.sql) adds spelling-only
    ranges for visible titles and section headings. Apply it after the typo-fix
    upgrade and before the matching client; existing range shapes remain valid.
+   Meta-research autosave requires [`opportunity_meta_search_autosave.sql`](opportunity_meta_search_autosave.sql)
+   on the existing search-protocol installation. It adds the complete prompt JSONB and an owner-only atomic save RPC.
+   Schedule replacement reads the saved prompt once and uses ChatGPT task tools; it does not create a research run.
 4. Provision existing email/password users through Supabase Authentication. The
    app has no signup or recovery flow. For this restricted workspace, keep public
    signup disabled and configure recovery, rate limits and password protection.

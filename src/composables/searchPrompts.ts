@@ -14,7 +14,7 @@ export function searchProfileLetterContext(input: SearchTemplate, profileId?: st
   };
 }
 
-export function isSearchTemplatePublished(input: SearchTemplate) {
+export function isSearchTemplateSaved(input: SearchTemplate) {
   const template = readSearchTemplate(input);
   return Boolean(template.cloud && template.cloud.contentKey === searchTemplateContentKey(template));
 }
@@ -23,7 +23,7 @@ export interface SearchPromptOptions { projectId?: string }
 function executionBinding(template: SearchTemplate, options: SearchPromptOptions = {}) {
   const projectId = options.projectId || OPPORTUNITY_SEARCH_PROJECT_ID;
   if (!/^[a-z0-9]{20}$/.test(projectId)) throw new Error('The connected Supabase project reference is invalid.');
-  if (!isSearchTemplatePublished(template)) return `EXECUTION NOT READY: This local meta search is unpublished or has unpublished changes. Publish the current template in CV Harness before executing the installed research workflow. Then copy a fresh prompt containing its exact saved search UUID. The intended Supabase project is ${projectId}; a project reference alone does not identify a search. Do not guess a UUID, use another search, directly write catalogue tables, create a task or execute the stale saved definition from this prompt.`;
+  if (!isSearchTemplateSaved(template)) return `EXECUTION NOT READY: Save the current meta search to Supabase before executing the research workflow. Then read its saved prompt using the exact search UUID in project ${projectId}. Do not guess a UUID, use another search or directly write catalogue tables.`;
   return `EXECUTION BINDING: Supabase project ${projectId}; exact saved search UUID ${template.cloud!.id}. Generate one fresh run UUID, preserve it for retries, and execute SELECT private.begin_opportunity_search('${template.cloud!.id}'::uuid, '<fresh-run-uuid>'::uuid) through that project's currently exposed Supabase execute_sql connector. Replace only the run placeholder with that generated UUID. Require bootstrap_version=1 and compatible=true, then follow the complete returned protocol_text and result_schema and the current run.definition.criteria. The current saved definition is authoritative over the explanatory local snapshot below. Never guess another search identity, switch projects, write catalogue tables directly or execute without this bootstrap. This execution binding supplies no standalone instruction to create or change a scheduled task; follow a separate explicit scheduling request and the installed task lifecycle when provided.`;
 }
 
@@ -54,25 +54,22 @@ export function buildSearchUserPrompt(input: SearchTemplate, options: SearchProm
   ].join('\n\n');
 }
 
-export type DailySearchPromptOptions = SearchPromptOptions;
-/** Copy only after explicit publication; every recurrence reads current saved intent. */
-export function buildDailySearchPrompt(input: SearchTemplate, options: DailySearchPromptOptions = {}): string {
+/** The saved recurring task uses the installed protocol only when the schedule actually runs. */
+export function buildRecurringSearchPrompt(input: SearchTemplate, options: SearchPromptOptions = {}): string {
   const template = readSearchTemplate(input);
-  if (!template.profiles.some(profile => profile.enabled)) throw new Error('Enable at least one professional profile before scheduling this meta search.');
-  if (!isSearchTemplatePublished(template)) throw new Error('Publish the current meta search before copying its daily scheduling prompt.');
+  if (!template.profiles.some(profile => profile.enabled)) return 'This CV Harness meta search has no enabled professional profiles. Do not run a search or send a notification.';
+  return [
+    'Run the saved CV Harness meta search now. This is a scheduled research execution, not a request to create or change a scheduled task.',
+    buildSearchSystemPrompt(template, options),
+    'Read current search intent from run.definition.criteria. Match any enabled professional profile, preserve the installed research protocol, and keep successful runs without new or materially changed strong matches quiet.',
+  ].join('\n\n');
+}
+
+/** One read supplies the complete stored prompt; replacement never starts a research run. */
+export function buildReplaceSearchPrompt(input: SearchTemplate, options: SearchPromptOptions = {}): string {
+  const template = readSearchTemplate(input);
+  if (!isSearchTemplateSaved(template)) throw new Error('Save the current meta search to Supabase before copying its replacement instruction.');
   const projectId = options.projectId || OPPORTUNITY_SEARCH_PROJECT_ID;
   if (!/^[a-z0-9]{20}$/.test(projectId)) throw new Error('The connected Supabase project reference is invalid.');
-  const searchId = template.cloud!.id;
-  const recurring = [
-    `Run this CV Harness meta search in the Supabase project ${projectId} (phd-workflow). Exact search UUID: ${searchId}. Never write to Test or another project.`,
-    `At the start of every run, generate one new run UUID, preserve it for retries, and execute SELECT private.begin_opportunity_search('${searchId}'::uuid, '<fresh-run-uuid>'::uuid) using the currently exposed Supabase execute_sql connector. Replace the placeholder with that generated UUID. Read the latest saved definition, full protocol and result_schema from this bootstrap. Stop on an incompatible bootstrap. Do not discover schema, apply migrations or use obsolete tool namespaces.`,
-    buildSearchSystemPrompt(template, { projectId }),
-    'The current user prompt and enabled profile context are stored in run.definition.criteria. Use those values from the bootstrap instead of a static copy of this template. Respect the current saved schedule; after a verified run, update the existing task if its cadence changed, preserving its task identity. Keep recurring instructions dynamic: never include a previous run UUID, result evidence or the one-time setup steps.',
-  ].join('\n\n');
-  return [
-    `Set up a daily opportunity search for “${template.name}” at ${template.dailyTime} in ${template.timezone}, using the exact saved search below. This request authorizes setting up this one recurring search in ChatGPT; copying it from CV Harness has not created a schedule.`,
-    'ONE-TIME SETUP: Bootstrap and perform the initial search using the instructions below. Finish and separately verify its terminal run status, generated queries and all saved receipts before scheduling. Read schedule_binding from the bootstrap. If a binding exists, locate and update that exact task; never create a replacement or duplicate silently. If no binding exists, call private.claim_opportunity_search_schedule(search_uuid,run_uuid) after successful completion. Create a task only when claimed=true. If another run owns the claim, stop and report that setup is already in progress. Use the current run.definition.schedule for the actual task timing. Confirm only a real tool-returned task ID and schedule using private.confirm_opportunity_search_schedule(search_uuid,run_uuid,task_id,run.definition.schedule), then separately read back the run/binding. If task creation, identification, update or confirmation fails, report the exact blocker and verified search progress. Never claim scheduling from a requested time alone.',
-    'RECURRING INSTRUCTIONS (save only this block as the recurring task prompt):',
-    recurring,
-  ].join('\n\n');
+  return `Replace my existing CV Harness meta-research scheduled task. In Supabase project ${projectId}, make this single read:\nSELECT s.id, s.schedule, s.meta_search - 'editor' AS meta_search, b.task_id FROM public.opportunity_search_templates s LEFT JOIN public.opportunity_search_schedule_bindings b ON b.search_id=s.id AND b.user_id=s.user_id WHERE s.id='${template.cloud!.id}'::uuid;\nRequire version=1 and a recurringPrompt; otherwise stop. Use that prompt and schedule to update the bound task, or find my existing meta-research task by purpose, including older search prompts for this workspace. Keep one active task; disable superseded meta-research tasks, preserving unrelated schedules. Create only if none exists. If active=false, disable the task instead. Do not run a search, start setup runs or make further Supabase requests for this replacement. Confirm only after the ChatGPT task tool succeeds.`;
 }

@@ -23,7 +23,7 @@ Open the URL printed by Vite (default: [localhost:5173/cv-builder/](http://local
 | **Opportunities** | Review research, record interest, create applications, and prepare a reusable meta-search prompt. Requires Supabase. |
 | **Applications** | Prepare application documents, review refinements, assemble PDF packages, and track progress. Requires Supabase. |
 
-The **Meta research** sidebar tab combines alternative research interests, professional profiles and regional priorities into English system and user prompts. Publish the search template explicitly, then copy its daily prompt for ChatGPT. Each run loads the current search protocol and published criteria, verifies writes to the existing opportunity catalogue and reports only new or materially changed strong matches. New recommendations require at least 72 hours before the official deadline. Copying a prompt does not create a schedule. See [meta-search behavior and protocol](docs/opportunity-meta-searches.md).
+The **Meta research** sidebar tab combines alternative research interests, professional profiles and regional priorities into English system and user prompts. Committed edits autosave to Supabase. Use **Copy replace prompt** and paste the short instruction into ChatGPT to read the saved definition once and replace the existing meta-search scheduled task. Each scheduled run loads the current search protocol and saved criteria, verifies writes to the existing opportunity catalogue and reports only new or materially changed strong matches. New recommendations require at least 72 hours before the official deadline. Copying a prompt does not create a schedule. See [meta-search behavior and protocol](docs/opportunity-meta-searches.md).
 
 Application Preparation can reuse a search profile's professional context and research interests for motivation letters. Each letter keeps its own saved copy, with the existing privacy preview before sharing.
 
@@ -58,7 +58,7 @@ Package export requires both document approvals and the files for all included a
 
 CV and letter PDFs contain selectable text, clickable links, and vector graphics. Adjust sections, fonts, margins, and page breaks in CV Studio. Add supporting PDF, PNG, or JPEG files through **Local attachments**; convert office documents to PDF before attaching them.
 
-Full working CVs, letters, letter templates, and private refinement data stay in browser storage. Supporting files and package archives use IndexedDB. Signing in does not upload a CV. The meta search saves locally; **Publish search** explicitly shares its strategy, shared context, enabled profiles and daily time with the connected Supabase workspace.
+Full working CVs, letters, letter templates, and private refinement data stay in browser storage. Supporting files and package archives use IndexedDB. Signing in does not upload a CV. The meta search autosaves committed strategy, professional context, profiles and daily time to the signed-in owner’s Supabase workspace, with local draft recovery. Copying its replacement instruction waits for pending saves; application approvals and submissions remain separate.
 
 Refinement publication sends privacy-filtered sources and feedback to Supabase. Review the outgoing content: masking known fields cannot remove identifying details from all prose. Saving an attachment's metadata while signed in shares its name, description, and identifiers; its file contents stay on the device.
 
@@ -66,7 +66,6 @@ Keep separate backups before changing devices or clearing browser data:
 
 - **CV Studio → Variants**: export content and configuration JSON. Enable **Bypass privacy proxy** for a complete private CV backup; default content exports apply privacy settings.
 - **CV Studio → Letter templates**: export the template library.
-- **Opportunities → Meta research → Saved search & backup**: export the single meta search, including its private context.
 - **CV Studio → Local attachments → Back up files & packages**: export supporting files, package arrangements, and archived PDFs.
 
 Cloud history cannot restore private working originals or local files. See [JSON formats and import behavior](docs/json-format.md) before editing or restoring a backup.

@@ -711,3 +711,24 @@ test('annotation reviews preserve validation errors and retain retry identity', 
   assert.equal(backend.queries[0].params?.p_id, backend.queries[1].params?.p_id);
   await assert.rejects(repository.saveReview(APP, null, 'annotation', payload), /proposal request ID/);
 });
+
+test('motivation-letter context retains canonical research and every checklist entry but omits storage identities', async () => {
+  const { canonicalOpportunityFixture } = await import('./fixtures/canonicalOpportunity');
+  const opportunity = canonicalOpportunityFixture();
+  const original = structuredClone(opportunity);
+  const prepared = local({ opportunity });
+  const shared = prepared.request.cv.opportunity;
+  const wire = JSON.stringify(shared);
+  assert.equal(prepared.request.scope, 'letter');
+  for (const value of ['INTERNAL-', opportunity.id, 'entity_id', 'source_id', 'researcher_id', 'opportunity_key', 'metadata_schema_version']) assert.equal(wire.includes(value), false, value);
+  assert.deepEqual(shared.requirements, opportunity.requirements.map(({ entity_id, ...entry }) => entry));
+  assert.deepEqual(shared.required_documents, opportunity.required_documents.map(({ entity_id, ...entry }) => entry));
+  assert.equal((shared.contacts as any[]).length, 1);
+  assert.equal((shared.contacts as any[])[0].email, 'alex@example.invalid');
+  assert.deepEqual((shared.contacts as any[])[0].roles, ['Scientific contact', 'Programme contact']);
+  assert.equal(shared.vacancy_id, opportunity.vacancy_id);
+  assert.ok(wire.includes('0000-0002-1825-0097') && wire.includes('10.1234/example'));
+  assert.ok(wire.includes('https://example.invalid/canonical/job'));
+  assert.deepEqual(shared.data, opportunity.data);
+  assert.deepEqual(opportunity, original, 'Frozen application context is never rewritten by sharing');
+});

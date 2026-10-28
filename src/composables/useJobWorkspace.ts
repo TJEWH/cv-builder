@@ -9,36 +9,37 @@ import { createCloudCvSnapshot } from './cloudCvPrivacy';
 import { isRecord, readCvConfig, readCvContent } from './cvStateValidation';
 import { hasReviewedOpportunity } from './opportunityRecency';
 import { normalizeApplication } from './applicationTracking';
+import { isOpportunityInternalFact, isOpportunityInternalField } from './opportunityPresentation';
 
 const PAGE_SIZE = 500;
 const CV_SUMMARY_FIELDS = 'id,user_id,name,cv_version,revision,created_at';
 
 function displayText(value: unknown): string | null {
+  if (isOpportunityInternalFact(value)) return null;
   if (typeof value === 'string') return value;
   if (value === null || value === undefined) return null;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (Array.isArray(value)) return value.map(displayText).filter(Boolean).join('; ') || null;
-  if (isRecord(value)) return Object.entries(value).map(([key, item]) => `${key.replaceAll('_', ' ')}: ${displayText(item) ?? ''}`).join('; ') || null;
+  if (isRecord(value)) return Object.entries(value).filter(([key]) => !isOpportunityInternalField(key)).map(([key, item]) => `${key.replaceAll('_', ' ')}: ${displayText(item) ?? ''}`).join('; ') || null;
   return null;
 }
 
-/** Imported research datasets use richer JSON values and slightly different column names. */
+/** Project canonical catalogue columns into display strings; archived application snapshots render separately. */
 export function normalizeOpportunity(value: unknown): Opportunity {
   if (!isRecord(value) || typeof value.id !== 'string') throw new Error('The opportunities table returned an invalid record.');
   return {
     id: value.id, opportunity_key: displayText(value.opportunity_key) ?? value.id,
     vacancy_id: displayText(value.vacancy_id), title: displayText(value.title) ?? 'Untitled opportunity',
-    university: displayText(value.university ?? value.institution), country: displayText(value.country),
-    deadline: displayText(value.deadline), supervisor: displayText(value.supervisor ?? value.supervisors),
+    university: displayText(value.institution), country: displayText(value.country),
+    deadline: displayText(value.deadline), supervisor: displayText(value.supervisors),
     supervisor_reputation: displayText(value.supervisor_reputation),
     supervisor_research_focus: isRecord(value.supervisor_research_focus) ? value.supervisor_research_focus : {},
     supervisor_top_papers: Array.isArray(value.supervisor_top_papers) ? value.supervisor_top_papers : [],
-    contact: value.contact ?? value.contacts ?? [],
+    contact: value.contacts ?? [],
     topics: Array.isArray(value.topics) ? value.topics.map(displayText).filter((topic): topic is string => topic !== null) : [],
-    duration_months: typeof value.duration_months === 'number' ? value.duration_months : null,
-    salary_text: displayText(value.salary_text ?? value.salary),
+    salary_text: displayText(value.salary),
     research_career_potential: displayText(value.research_career_potential), rd_career_potential: displayText(value.rd_career_potential),
-    hardware_software_profile: displayText(value.hardware_software_profile), personal_fit: displayText(value.personal_fit),
+    hardware_software_profile: displayText(value.hardware_software_balance), personal_fit: displayText(value.personal_fit),
     particularly_suitable: typeof value.particularly_suitable === 'boolean' ? value.particularly_suitable : null,
     special_features: displayText(value.special_features), requirements: value.requirements ?? [], required_documents: value.required_documents ?? [],
     official_url: displayText(value.official_url), availability: displayText(value.availability), verification_level: displayText(value.verification_level),

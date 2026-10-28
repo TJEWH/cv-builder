@@ -7,6 +7,7 @@ import { redactKnownIdentityText } from './identityRedaction';
 import { redactFieldOriginals } from './refinementPrivacy';
 import { isProxyFieldEnabled, selectedProxyFieldValues } from './fieldPrivacy';
 import { getFieldPrivacyOverride } from './privacyOverrides';
+import { isOpportunityInternalFact, isOpportunityInternalField } from './opportunityPresentation';
 
 const UUID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
 const MAX_JSON_LENGTH = 1048576;
@@ -118,8 +119,8 @@ export function prepareCvAdjustment(input: {
   const cleanContext = (value: unknown, depth = 0): unknown => {
     if (depth > 12) throw new Error('Opportunity context is too deeply nested.');
     if (typeof value === 'string') return redactKnownIdentityText(redactFieldOriginals(value, state), [state.contact, SAMPLE_CONTACT]);
-    if (Array.isArray(value)) return value.map((entry) => cleanContext(entry, depth + 1));
-    if (record(value)) return Object.fromEntries(Object.entries(value).filter(([key]) => !RESERVED.has(key)).map(([key, entry]) => [
+    if (Array.isArray(value)) return value.filter(entry => !isOpportunityInternalFact(entry)).map((entry) => cleanContext(entry, depth + 1));
+    if (record(value)) return Object.fromEntries(Object.entries(value).filter(([key, entry]) => !RESERVED.has(key) && !isOpportunityInternalField(key) && !isOpportunityInternalFact(entry)).map(([key, entry]) => [
       String(cleanContext(key, depth + 1)), cleanContext(entry, depth + 1),
     ]));
     if (value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) return value;

@@ -67,7 +67,7 @@ function review(opportunityId = 'opportunity-1', state: OpportunityReview['state
   return { user_id: 'account-a', opportunity_id: opportunityId, state, reviewed_updated_at: null, created_at: '2026-09-19T16:00:00.000Z', updated_at: '2026-09-19T16:00:00.000Z' };
 }
 
-test('opportunity normalization preserves shared catalogue research and aliases JSON values', () => {
+test('opportunity projection preserves canonical catalogue research', () => {
   const contacts = [{ name: 'Professor Example', email: 'employer@example.org' }];
   const row = { id: 'job', title: 'Researcher', institution: 'Institute', contacts, supervisors: [{ name: 'Professor Example' }],
     salary: { amount: 50000, currency: 'EUR' }, requirements: ['Degree'], topics: ['Robotics'], extra_research: 'Preserved',
@@ -80,6 +80,11 @@ test('opportunity normalization preserves shared catalogue research and aliases 
   assert.deepEqual(result.supervisor_research_focus, row.supervisor_research_focus);
   assert.deepEqual(result.supervisor_top_papers, row.supervisor_top_papers);
   assert.deepEqual(result.details, row);
+});
+
+test('current catalogue projection does not accept retired storage aliases', () => {
+  const r=normalizeOpportunity({id:'canonical',institution:'Current institute',university:'Retired alias',contacts:[],contact:[{name:'Retired'}],salary:{amount:3000},salary_text:'Retired salary',supervisors:[],supervisor:'Retired supervisor'});
+  assert.equal(r.university,'Current institute');assert.deepEqual(r.contact,[]);assert.equal(r.salary_text,'amount: 3000');assert.equal(r.supervisor,null);
 });
 
 test('standalone mode performs no cloud calls and pagination loads all shared opportunities', async () => {
@@ -1161,4 +1166,18 @@ test('disposed workspaces discard queued writes and reject new writes', async ()
   writing.resolve({ data: { ...application(), workflow_stage: 'review', status: 'attachments' }, error: null });
   assert.deepEqual(await Promise.all([stage, pendingNote]), [null, null]);
   assert.equal(queries.filter(query => query.operation !== 'select').length, 1);
+});
+
+test('canonical catalogue display strings omit internal identities while retaining the untouched research snapshot', async () => {
+  const { canonicalOpportunityFixture } = await import('./fixtures/canonicalOpportunity');
+  const row = canonicalOpportunityFixture();
+  const projected = normalizeOpportunity(row);
+  for (const value of [projected.supervisor, projected.salary_text, projected.personal_fit, projected.supervisor_reputation]) {
+    assert.ok(!value?.includes('INTERNAL-'));
+  }
+  assert.ok(projected.supervisor?.includes('Prof. Morgan Example'));
+  assert.deepEqual(projected.requirements, row.requirements);
+  assert.deepEqual(projected.required_documents, row.required_documents);
+  assert.deepEqual(projected.contact, row.contacts);
+  assert.deepEqual(projected.details, row);
 });

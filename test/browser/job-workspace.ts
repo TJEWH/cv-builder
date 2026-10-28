@@ -27,6 +27,7 @@ import { createSampleDocument } from '../../src/composables/builtinConfiguration
 import { createLetterRepository, DEFAULT_LETTER_TEMPLATES } from '../../src/composables/motivationLetters';
 import { createRefinementFixture, REFINEMENT_TABLES } from '../refinementFixture';
 import { livingStandardFixture } from '../fixtures/livingStandard';
+import { canonicalOpportunityFixture } from '../fixtures/canonicalOpportunity';
 import '../../src/assets/cv.css';
 
 if (!import.meta.env.DEV) throw new Error('The browser fixture is available only on the development server.');
@@ -34,7 +35,7 @@ if (!import.meta.env.DEV) throw new Error('The browser fixture is available only
 type Row = Record<string, unknown>;
 const account = '90000000-0000-4000-8000-000000000001';
 const fixtureFlow = new URLSearchParams(location.search).get('flow');
-if (['job-navigation', 'application-groups'].includes(fixtureFlow || '')) {
+if (['job-navigation', 'application-groups', 'canonical-data'].includes(fixtureFlow || '')) {
   for (const key of ['CV_SELECTED_OPPORTUNITY', 'CV_SELECTED_APPLICATION']) sessionStorage.removeItem(`${key}:${account}`);
 }
 const now = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
@@ -42,41 +43,41 @@ const recent = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
 const database: Record<string, Row[]> = {
   opportunities: [
     { id: '10000000-0000-4000-8000-000000000001', opportunity_key: 'robotics-phd',
-      title: 'PhD in Human-Centred Robotics', university: 'Northbridge Technical University', country: 'Netherlands',
+      title: 'PhD in Human-Centred Robotics', institution: 'Northbridge Technical University', country: 'Netherlands',
       deadline: '2026-10-30T23:59:00Z', topics: ['Robotics', 'Human–robot interaction', 'Machine learning'],
-      contact: [{ name: 'Prof. Alex Example', email: 'robotics@example.org' }], particularly_suitable: true,
-      salary_text: '€3,100–€3,900 / month', duration_months: 48, supervisor: 'Prof. Alex Example',
+      contacts: [{ entity_id: 'robotics-contact', name: 'Prof. Alex Example', email: 'robotics@example.org', roles: ['Scientific contact'] }], particularly_suitable: true,
+      salary: { min: 3100, max: 3900, currency: 'EUR', period: 'month' }, supervisors: [{ entity_id: 'robotics-advisor', name: 'Prof. Alex Example', roles: ['Supervisor'] }],
       duration_details: 'Four-year funded doctoral contract.',
       research_summary: 'Study how robots can learn safe collaboration from human demonstrations, combining learning algorithms with physical experiments.',
       personal_fit: { score: 8.8, summary: 'Strong alignment with robotics experience', gaps: ['Develop experimental design skills'] },
       research_career_potential: { score: 9, summary: 'Publish research in human–robot interaction' },
       rd_career_potential: { score: 8, summary: 'Transfer safe learning methods to industrial R&D' },
       particularly_suitable_reason: 'Combines robot learning with practical experiments.',
-      hardware_software_balance: 'Software development with hands-on robot experiments.',
-      supervisor_research_focus: { supervisor: 'Prof. Alex Example', summary: 'Learning safe human–robot collaboration from demonstrations.', keywords: ['Robot learning', 'Safety'], evidence: [{ label: 'Lab research', url: 'https://example.org/lab' }] },
-      supervisor_top_papers: [{ title: 'Example paper on learning from human feedback', year: 2025, why_relevant: 'Connects interactive learning with safe robotics.', url: 'https://example.org/paper' }],
+      hardware_software_balance: { summary: 'Software development with hands-on robot experiments.' },
+      supervisor_research_focus: { profiles: [{ entity_id: 'robotics-focus', name: 'Prof. Alex Example', summary: 'Learning safe human–robot collaboration from demonstrations.', topics: ['Robot learning', 'Safety'], source_urls: ['https://example.org/lab'] }] },
+      supervisor_top_papers: [{ title: 'Example paper on learning from human feedback', year: 2025, entity_id: 'robotics-paper', relevance: 'Connects interactive learning with safe robotics.', url: 'https://example.org/paper' }],
       requirements: [
-        { item: 'MSc in robotics or computer science', category: 'required' },
-        { requirement: 'Background in wireless communications, robotics, optimization and ML/AI', importance: 'plus' },
+        { entity_id: 'robotics-degree', text: 'MSc in robotics or computer science', status: 'required', stage: 'recruitment' },
+        { entity_id: 'robotics-background', text: 'Background in wireless communications, robotics, optimization and ML/AI', status: 'advantageous', stage: 'recruitment' },
       ],
-      required_documents: ['CV', 'Motivation letter (maximum 400 words)', 'Transcript of records', { item: 'Portfolio', importance: 'plus' }],
+      required_documents: [{ entity_id: 'robotics-cv', text: 'CV', status: 'required', stage: 'recruitment' }, { entity_id: 'robotics-letter', text: 'Motivation letter (maximum 400 words)', max_words: 400, status: 'required', stage: 'recruitment' }, { entity_id: 'robotics-transcript', text: 'Transcript of records', status: 'required', stage: 'recruitment' }, { entity_id: 'robotics-portfolio', text: 'Portfolio', status: 'advantageous', stage: 'recruitment' }],
       official_url: 'https://example.org/opportunities/robotics', verification_level: 'official listing',
-      source_url: 'https://example.org/opportunities/robotics', original_search: 'Robotics',
+      source_url: 'https://example.org/opportunities/robotics', source_context: 'Robotics',
       sources: [
-        { url: 'https://example.org/opportunities/robotics', supports: ['Salary', 'Duration'], checked_at: '2026-09-20' },
-        { url: 'https://example.org/opportunities/robotics', supports: ['Requirements', 'Salary'], notes: 'Official listing' },
+        { source_id: 'robotics-listing', url: 'https://example.org/opportunities/robotics', kind: 'official', supports: ['salary', 'duration_details'], checked_at: '2026-09-20', precision: 'date' },
+        { source_id: 'robotics-requirements', url: 'https://example.org/opportunities/robotics', kind: 'official', supports: ['requirements'], checked_at: null, precision: 'unknown' },
       ],
-      data: { work_pattern: 'Hybrid', funding: 'Fully funded', living_standard: livingStandardFixture }, created_at: recent, updated_at: recent },
+      data: { funding: [{ label: 'Funding', text: 'Fully funded' }], notes: [{ label: 'Work pattern', text: 'Hybrid' }], living_standard: livingStandardFixture }, created_at: recent, updated_at: recent },
     { id: '10000000-0000-4000-8000-000000000002', opportunity_key: 'research-engineer',
-      title: 'Research Engineer — Embedded AI Systems', university: 'Institute for Responsible Computing', country: 'Germany',
+      title: 'Research Engineer — Embedded AI Systems', institution: 'Institute for Responsible Computing', country: 'Germany',
       deadline: '2026-11-15T17:00:00Z', topics: ['Embedded systems', 'Efficient AI'],
-      contact: [{ name: 'Dr. Robin Example', email: 'careers@example.org' }], particularly_suitable: true,
+      contacts: [{ entity_id: 'embedded-contact', name: 'Dr. Robin Example', email: 'careers@example.org', roles: ['Contact'] }], particularly_suitable: true,
       personal_fit: { score: 9.6, summary: 'Strong embedded systems fit' },
-      salary_text: 'TV-L E13', duration_months: 36, requirements: ['Embedded software experience'],
+      salary: { model: 'TV-L E13' }, duration_details: 'Three-year contract', requirements: [{ entity_id: 'embedded-experience', text: 'Embedded software experience', status: 'required', stage: 'recruitment' }],
       data: { living_standard: { ...livingStandardFixture, factors: { ...livingStandardFixture.factors, affordability: { score: 9, reason: 'Synthetic example: a larger buffer after essentials.' } } } },
-      required_documents: ['CV', 'Portfolio'], official_url: 'https://example.org/opportunities/embedded-ai',
+      required_documents: [{ entity_id: 'embedded-cv', text: 'CV', status: 'required', stage: 'recruitment' }, { entity_id: 'embedded-portfolio', text: 'Portfolio', status: 'required', stage: 'recruitment' }], official_url: 'https://example.org/opportunities/embedded-ai',
       availability: 'open', created_at: now, updated_at: recent },
-    { id: '10000000-0000-4000-8000-000000000003', opportunity_key: 'past-opportunity', title: 'Archived research position', institution: 'Example Institute', deadline: '2025-01-01', topics: ['Materials discovery'], contacts: [], personal_fit: { score: 6.4 }, original_search: 'Materials discovery', created_at: now, updated_at: now },
+    { id: '10000000-0000-4000-8000-000000000003', opportunity_key: 'past-opportunity', title: 'Archived research position', institution: 'Example Institute', deadline: '2025-01-01', topics: ['Materials discovery'], contacts: [], personal_fit: { score: 6.4 }, source_context: 'Materials discovery', created_at: now, updated_at: now },
     { id: '10000000-0000-4000-8000-000000000004', opportunity_key: 'open-deadline', title: 'Rolling research fellowship', institution: 'Example Institute', deadline: null, topics: ['Research'], contacts: [], particularly_suitable: true, personal_fit: { score: 10 }, created_at: now, updated_at: now },
     { id: '10000000-0000-4000-8000-000000000005', opportunity_key: 'recent-learning', title: 'Learning Systems PhD', institution: 'Synthetic Science University', country: 'Sweden', deadline: null, topics: ['Learning'], particularly_suitable: true, personal_fit: { score: 9.1 }, created_at: recent, updated_at: recent },
     { id: '10000000-0000-4000-8000-000000000006', opportunity_key: 'older-unseen', title: 'Applied Robotics Fellowship', institution: 'Example Institute', country: 'Denmark', deadline: null, topics: ['Robotics'], particularly_suitable: true, personal_fit: { score: 9.5 }, created_at: now, updated_at: now },
@@ -89,6 +90,7 @@ const database: Record<string, Row[]> = {
   applications: [],
   cv_variants: [],
   local_attachment_metadata: [],
+  opportunity_search_templates: [],
   opportunity_reviews: [
     { user_id: account, opportunity_id: '10000000-0000-4000-8000-000000000003', state: 'strong_interest', reviewed_updated_at: now, created_at: now, updated_at: now },
     { user_id: account, opportunity_id: '10000000-0000-4000-8000-000000000002', state: 'unreviewed', reviewed_updated_at: now, created_at: now, updated_at: now },
@@ -96,6 +98,10 @@ const database: Record<string, Row[]> = {
     { user_id: account, opportunity_id: '10000000-0000-4000-8000-000000000008', state: 'interested', reviewed_updated_at: recent, created_at: now, updated_at: recent },
   ],
 };
+if (fixtureFlow === 'canonical-data') {
+  database.opportunities = [canonicalOpportunityFixture()];
+  database.opportunity_reviews = [];
+}
 if (fixtureFlow === 'application-groups') {
   const deadline = (daysFromNow: number) => new Date(Date.now() + daysFromNow * 24 * 60 * 60 * 1000).toISOString();
   const future = deadline(7);
@@ -183,6 +189,15 @@ const client = {
     const execute = () => {
       if (signal?.aborted) return { data: null, error: new Error('Aborted') };
       if (['save_refinement_state', 'publish_refinement_request', 'save_refinement_review'].includes(name)) return refinement.rpc(name, parameters);
+      if (name === 'save_opportunity_meta_search') {
+        const existing = database.opportunity_search_templates.find(row => row.id === parameters.p_id);
+        if (Number(existing?.revision || 0) !== parameters.p_expected_revision) return { data: null, error: new Error('Search changed elsewhere.') };
+        const saved = { id: parameters.p_id, user_id: account, name: parameters.p_name, criteria: parameters.p_criteria,
+          schedule: parameters.p_schedule, meta_search: parameters.p_meta_search, revision: Number(existing?.revision || 0) + 1,
+          created_at: existing?.created_at || new Date().toISOString(), updated_at: new Date().toISOString() };
+        if (existing) Object.assign(existing, saved); else database.opportunity_search_templates.push(saved);
+        return { data: structuredClone(saved), error: null };
+      }
       const snapshot = {
         id: parameters.p_cv_variant_id, user_id: account, name: parameters.p_cv_name,
         content_json: parameters.p_content_json, config_json: parameters.p_config_json,
@@ -206,7 +221,7 @@ const client = {
         if (existing) return { data: existing.id, error: null };
         const opportunity = database.opportunities.find((row) => row.id === parameters.p_opportunity_id);
         database.applications.push({ id: parameters.p_application_id, user_id: account,
-          application_code: opportunity?.id === '10000000-0000-4000-8000-000000000001' ? 'APP-7K4M9Q' : null,
+          application_code: fixtureFlow === 'canonical-data' ? 'APP-C4N0N1C4L0' : opportunity?.id === '10000000-0000-4000-8000-000000000001' ? 'APP-7K4M9Q' : null,
           opportunity_id: parameters.p_opportunity_id, cv_variant_id: null,
           contact_email: null, context_json: structuredClone(opportunity), context_captured_at: new Date().toISOString(), status: 'preparation', workflow_stage: 'preparation', tracking_started: false,
           status_history: [{ status: 'preparation', changedAt: new Date().toISOString() }], completed_checklist_keys: [], notes: null,
@@ -836,7 +851,7 @@ const Fixture = defineComponent({
         h('button', { class: 'btn', onClick: () => returnRefinementProposal(true) }, 'Return over-limit proposal'),
         draftStatus.value ? h('span', { role: 'status', style: 'font-size:12px' }, draftStatus.value) : null,
       ]),
-      h(JobWorkspace, { ref: workspace, key: workspaceKey.value, client, userId: account, tab: tab.value, lang: lang.value, projectId: 'fixture',
+      h(JobWorkspace, { ref: workspace, key: workspaceKey.value, client, userId: account, tab: tab.value, lang: lang.value, projectId: fixtureFlow === 'meta-research' ? 'fixtureproject000000' : 'fixture',
         configurations: fixtureVariants.value, selectedId: 'sample-cv',
         readVersion: (id: string) => fixtureStates.has(id) ? structuredClone(fixtureStates.get(id)!) : null,
         createVariant: (name: string, state: CvState) => {

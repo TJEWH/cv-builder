@@ -15,6 +15,8 @@ function progress(nodes: OpportunityContextNode[]) {
 function requirementStatusLabel(status: OpportunityContextNode['requirementStatus']) {
   const labels = {
     required: ['Required', 'Erforderlich'], optional: ['Optional', 'Optional'], beneficial: ['Beneficial', 'Von Vorteil'],
+    conditional: ['Conditional', 'Bedingt erforderlich'],
+    unspecified: ['Not specified', 'Nicht angegeben'],
     preferred: ['Preferred', 'Bevorzugt'], recommended: ['Recommended', 'Empfohlen'], desired: ['Desired', 'Gewünscht'],
   };
   return status ? labels[status][props.lang === 'de' ? 1 : 0] : props.lang === 'de' ? 'Nicht angegeben' : 'Not specified';

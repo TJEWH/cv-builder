@@ -12,7 +12,7 @@ export interface SearchProfessionalProfile {
 export interface SearchTemplateCloudBinding {
   id: string;
   revision: number;
-  /** Exact local content that the owner explicitly published. */
+  /** Exact committed content acknowledged by Supabase. */
   contentKey: string;
 }
 
@@ -50,4 +50,14 @@ export interface SearchCloudTemplate {
   schedule: SearchCloudSchedule;
   created_at: string;
   updated_at: string;
+  meta_search?: SearchMetaSearchDocument | null;
+}
+
+export interface SearchMetaSearchDocument {
+  version: 1;
+  active: boolean;
+  editor: SearchTemplate;
+  systemPrompt: string;
+  userPrompt: string;
+  recurringPrompt: string;
 }

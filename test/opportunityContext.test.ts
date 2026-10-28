@@ -321,3 +321,37 @@ test('personal fit scores reject malformed values without using prose, nested fi
     assert.equal(personalFitScore({ score: value }), undefined, `Unexpected structured score for ${String(value)}`);
   }
 });
+
+test('canonical checklists preserve conditions and stages without exposing storage identities', () => {
+  const context = {
+    requirements: [{ entity_id: 'degree', text: 'Language certificate', status: 'conditional', stage: 'doctoral_admission', conditions: ['Only when requested'], source_urls: ['https://example.org/admission'] }],
+    contacts: [{ entity_id: 'person', name: 'Dr. Example', roles: ['Supervisor'], source_urls: ['https://example.org/lab'] }],
+    sources: [{ source_id: 'observation', url: 'https://example.org/job', kind: 'official', precision: 'date', checked_at: '2026-09-20', supports: ['requirements'] }],
+  };
+  const groups = buildOpportunityGroups(context, 'en');
+  const [row] = groups.find(group => group.id === 'requirements')!.items.flatMap(requirementTableRows);
+  assert.equal(row.label, 'Language certificate');
+  assert.equal(row.requirementStatus, 'conditional');
+  const markdown = opportunityContextMarkdown(context, 'en');
+  assert.ok(markdown.includes('Only when requested'));
+  assert.ok(markdown.includes('Doctoral admission'));
+  assert.ok(!markdown.includes('Entity ID') && !markdown.includes('Source ID'));
+  assert.deepEqual(context.requirements[0].entity_id, 'degree');
+});
+
+test('canonical unspecified status overrides document-group defaults and process notes are not checklist tasks', async () => {
+  const { canonicalOpportunityFixture, canonicalChecklistStatuses } = await import('./fixtures/canonicalOpportunity');
+  const fixture = canonicalOpportunityFixture();
+  const before = structuredClone(fixture);
+  const groups = buildOpportunityGroups(fixture, 'en');
+  const documents = groups.find(group => group.id === 'documents')!;
+  const rows = documents.items.flatMap(requirementTableRows).filter(row => row.checklistKey);
+  assert.deepEqual(rows.map(row => row.requirementStatus), canonicalChecklistStatuses.map(status => status === 'advantageous' ? 'beneficial' : status));
+  assert.equal(checklistKeys(groups.flatMap(group => group.items)).length, 16);
+  const markdown = opportunityContextMarkdown(fixture, 'en');
+  assert.equal(markdown.match(/Dr\. Alex Example/g)?.length, 1);
+  assert.ok(markdown.includes('Programme contact') && markdown.includes('https://example.invalid/canonical/team'));
+  assert.ok(markdown.includes('Only if the graduate school requests it'));
+  assert.ok(!markdown.includes('INTERNAL-') && !markdown.includes(fixture.id));
+  assert.deepEqual(fixture, before);
+});

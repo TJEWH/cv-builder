@@ -3,12 +3,11 @@ import { computed, onBeforeUnmount, ref, useId, watch } from 'vue';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseConfiguration } from '../lib/supabase';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faAlignLeft, faChevronDown, faClock, faCopy, faDownload, faGlobe, faPlus, faSliders, faUpload, faUser } from '@fortawesome/free-solid-svg-icons';
-import type { SearchTemplate } from '../searchTypes';
-import { createSearchTemplateRepository, createSearchProfile } from '../composables/useSearchTemplates';
-import { buildDailySearchPrompt, buildSearchSystemPrompt, buildSearchUserPrompt } from '../composables/searchPrompts';
-import { listCloudSearchTemplates, importCloudSearchTemplate, publishSearchTemplate, isSearchTemplatePublished } from '../composables/searchTemplateCloud';
-import type { SearchCloudTemplate } from '../composables/searchTemplateCloud';
+import { faAlignLeft, faChevronDown, faClock, faCopy, faGlobe, faPlus, faSliders, faUser } from '@fortawesome/free-solid-svg-icons';
+import type { SearchTemplate, SearchTemplateCloudBinding } from '../searchTypes';
+import { createSearchTemplateRepository, createSearchProfile, readSearchTemplate, searchTemplateContentKey } from '../composables/useSearchTemplates';
+import { buildReplaceSearchPrompt, buildSearchSystemPrompt, buildSearchUserPrompt, isSearchTemplateSaved } from '../composables/searchPrompts';
+import { listCloudSearchTemplates, importCloudSearchTemplate, saveSearchTemplate } from '../composables/searchTemplateCloud';
 import { commitPendingTextareas } from '../composables/textareaCommit';
 import { copyPreparedText } from '../composables/preparedClipboard';
 import { clearSearchDraft, recoverSearchDraft, retainSearchDraft } from '../composables/searchTemplateRecovery';
@@ -19,197 +18,211 @@ import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
 import InfoHint from './InfoHint.vue';
 
 const props = withDefaults(defineProps<{ userId: string; lang?: string; sidebarActive?: boolean; projectId?: string; client?: SupabaseClient | null }>(), { sidebarActive: true });
+const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const controlsId = useId();
 const desktopSidebar = useDesktopSidebar();
 const connectedProjectId = computed(() => props.projectId || (supabaseConfiguration.status === 'ready' ? new URL(supabaseConfiguration.url).hostname.split('.')[0] : undefined));
 const form = ref<SearchTemplate | null>(null);
-const selectedId = ref('');
 const profileId = ref('');
 const profile = computed(() => form.value?.profiles.find(item => item.id === profileId.value));
 const enabledCount = computed(() => form.value?.profiles.filter(item => item.enabled).length || 0);
 const status = ref<'saved' | 'unsaved' | 'saving' | 'error'>('saved');
 const error = ref('');
 const notice = ref('');
+const loadingCloud = ref(false);
+const loadError = ref(false);
+const copying = ref(false);
+const copiedFallback = ref('');
 useToastWatch(() => error.value, { tone: 'error' });
 useToastWatch(() => notice.value, { tone: 'success' });
-const copying = ref(false);
-const importing = ref(false);
-const publishing = ref(false);
-const loadingCloud = ref(false);
-const published = computed(() => !!form.value && !dirty && isSearchTemplatePublished(form.value));
-const importInput = ref<HTMLInputElement | null>(null);
-const copiedFallback = ref('');
 let editingOwner = props.userId;
 let baseline: SearchTemplate | null = null;
+let binding: SearchTemplateCloudBinding | undefined;
 let dirty = false;
 let replacing = false;
 let disposed = false;
-let importGeneration = 0;
 let ownerGeneration = 0;
-let publication: Promise<boolean> | null = null;
+let typingVersion = 0;
+let modelVersion = 0;
+let committedTypingVersion = 0;
+let navigationRequest = 0;
+let ready: Promise<void> = Promise.resolve();
+let queue: Promise<unknown> = Promise.resolve();
+let pending: Promise<boolean> | null = null;
+let pendingKey: string | null = null;
+let failedWrite: SearchTemplate | null = null;
 const repository = () => createSearchTemplateRepository(localStorage, editingOwner);
 function replace(value: SearchTemplate | null) {
-  replacing = true;
-  form.value = value ? JSON.parse(JSON.stringify(value)) : null;
-  baseline = value ? JSON.parse(JSON.stringify(value)) : null;
-  dirty = false; replacing = false; status.value = 'saved';
+  replacing = true; form.value = value ? clone(value) : null; baseline = value ? clone(value) : null;
+  dirty = false; replacing = false; committedTypingVersion = typingVersion;
   if (!value?.profiles.some(item => item.id === profileId.value)) profileId.value = value?.profiles[0]?.id || '';
 }
-function reload() {
-  const selected = repository().listTemplates()[0] || null;
-  selectedId.value = selected?.id || ''; replace(selected);
+function onDraftInput() { typingVersion++; status.value = 'unsaved'; notice.value = ''; copiedFallback.value = ''; }
+function patchBinding(value: SearchTemplateCloudBinding) {
+  binding = clone(value);
+  replacing = true;
+  if (form.value) form.value.cloud = clone(value);
+  if (baseline) baseline.cloud = clone(value);
+  replacing = false;
 }
-function retryLoad() {
-  try { reload(); error.value = ''; } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); }
-}
-function save(): boolean {
-  if (!dirty || !form.value) return true;
-  status.value = 'saving';
+async function initialize(owner: string, token: number) {
+  const client = props.client;
+  if (!client) throw new Error(text('Connect Supabase to save the meta search.', 'Verbinde Supabase, um die Metasuche zu speichern.'));
+  const version = typingVersion; const initialModelVersion = modelVersion;
+  const initial = form.value;
+  const hasLocal = !!localStorage.getItem(`cv.search-templates.v1:${encodeURIComponent(owner || 'local')}`);
+  const localPending = !!recoverSearchDraft(owner) || !!initial && (initial.cloud ? !isSearchTemplateSaved(initial) : hasLocal);
+  loadingCloud.value = true;
   try {
-    const saved = repository().saveTemplate(form.value, baseline);
-    clearSearchDraft(editingOwner, saved.id);
-    selectedId.value = saved.id; replace(saved);
-    error.value = ''; copiedFallback.value = '';
-    window.dispatchEvent(new Event('cv-search-templates-updated'));
-    return true;
-  } catch (cause) {
-    retainSearchDraft(editingOwner, form.value, baseline);
-    status.value = 'error'; error.value = cause instanceof Error ? cause.message : String(cause);
-    return false;
-  }
+    const rows = await listCloudSearchTemplates(client, owner);
+    if (disposed || token !== ownerGeneration) return;
+    const row = initial?.cloud ? rows.find(item => item.id === initial.cloud!.id) : rows.find(item => item.meta_search?.version === 1) || rows[0];
+    if (initial?.cloud && !row) throw new Error('The saved meta search is unavailable. Your local draft is retained.');
+    if (row) {
+      const saved = importCloudSearchTemplate(row);
+      binding = saved.cloud;
+      if (!localPending && !dirty && typingVersion === version && modelVersion === initialModelVersion) {
+        replace(saved);
+        const stored = repository().saveTemplate(saved, null);
+        baseline = clone(stored);
+        replacing = true; form.value = clone(stored); replacing = false;
+      } else if (saved.cloud) patchBinding({ ...saved.cloud, contentKey: initial?.cloud?.contentKey || '' });
+    }
+    status.value = form.value && isSearchTemplateSaved(form.value) && typingVersion === committedTypingVersion ? 'saved' : 'unsaved';
+  } finally { if (token === ownerGeneration) loadingCloud.value = false; }
 }
-function flushSave() { commitPendingTextareas(); return save(); }
+function commitSnapshot(): Promise<boolean> {
+  if (!form.value) return Promise.resolve(false);
+  const owner = editingOwner; const token = ownerGeneration; const inputVersion = typingVersion;
+  let snapshot: SearchTemplate;
+  try {
+    snapshot = repository().saveTemplate(readSearchTemplate(form.value), baseline);
+    baseline = clone(snapshot);
+    replacing = true; form.value = clone(snapshot); replacing = false;
+    dirty = false; committedTypingVersion = inputVersion;
+  } catch (cause) {
+    retainSearchDraft(owner, form.value, baseline);
+    error.value = cause instanceof Error ? cause.message : String(cause); status.value = 'error';
+    return Promise.resolve(false);
+  }
+  const key = searchTemplateContentKey(snapshot);
+  if (pending && pendingKey === key) return pending;
+  if (!pending && !failedWrite && isSearchTemplateSaved(snapshot)) { status.value = 'saved'; return Promise.resolve(true); }
+  retainSearchDraft(owner, snapshot, baseline);
+  const client = props.client;
+  const options = { projectId: connectedProjectId.value };
+  const initialization = ready;
+  status.value = 'saving'; error.value = '';
+  const current = () => !disposed && token === ownerGeneration && owner === editingOwner;
+  const operation = queue.then(async () => {
+    try {
+      await initialization;
+      if (!current() || !client) return false;
+      status.value = 'saving';
+      let result: SearchTemplate;
+      if (failedWrite) {
+        result = await saveSearchTemplate(client, owner, failedWrite, options);
+        if (!current()) return false;
+        patchBinding(result.cloud!); failedWrite = null;
+        if (searchTemplateContentKey(result) !== key) {
+          failedWrite = { ...snapshot, cloud: binding }; result = await saveSearchTemplate(client, owner, failedWrite, options);
+        }
+      } else {
+        failedWrite = { ...snapshot, cloud: binding || snapshot.cloud };
+        result = await saveSearchTemplate(client, owner, failedWrite, options);
+      }
+      if (!current()) return false;
+      failedWrite = null; patchBinding(result.cloud!);
+      // Store only the acknowledgment on the newest local version, preserving newer edits.
+      const latest = repository().listTemplates()[0]!;
+      if (latest.id === snapshot.id) {
+        const stored = repository().saveTemplate({ ...latest, cloud: result.cloud }, latest);
+        if (baseline) { baseline.cloud = clone(result.cloud); baseline.revision = stored.revision; baseline.updatedAt = stored.updatedAt; }
+      }
+      clearSearchDraft(owner, snapshot.id, key);
+      const unchanged = !!form.value && searchTemplateContentKey(form.value) === key && typingVersion === inputVersion;
+      status.value = unchanged ? 'saved' : 'unsaved'; error.value = '';
+      return unchanged;
+    } catch (cause) {
+      if (current()) { error.value = cause instanceof Error ? cause.message : String(cause); status.value = 'error'; }
+      return false;
+    }
+  }).finally(() => { if (current() && pending === operation) { pending = null; pendingKey = null; } });
+  pending = operation; pendingKey = key; queue = operation;
+  return operation;
+}
+function flushSave(): Promise<boolean> {
+  commitPendingTextareas();
+  if (loadingCloud.value && !dirty) return ready.then(() => commitSnapshot(), () => false);
+  return commitSnapshot();
+}
 async function flushTextareas() {
-  if (publication && !await publication) return false;
-  return flushSave();
+  const result = await flushSave();
+  return result && typingVersion === committedTypingVersion;
 }
 defineExpose({ flushSave, flushTextareas });
-function selectProfile(id: string) { if (!publishing.value && flushSave()) profileId.value = id; }
-function addProfile() {
-  if (publishing.value || !flushSave() || !form.value) return;
-  const added = createSearchProfile();
-  form.value.profiles.push(added); profileId.value = added.id; save();
+async function selectProfile(id: string) {
+  const request = ++navigationRequest; const token = ownerGeneration;
+  if (await flushTextareas() && request === navigationRequest && token === ownerGeneration) profileId.value = id;
 }
-function removeProfile() {
-  if (publishing.value || !flushSave() || !form.value || !profile.value) return;
-  form.value.profiles = form.value.profiles.filter(item => item.id !== profileId.value);
-  profileId.value = form.value.profiles[0]?.id || ''; save();
+async function addProfile() {
+  const token = ownerGeneration;
+  if (!await flushTextareas() || token !== ownerGeneration || !form.value) return;
+  const added = createSearchProfile(); form.value.profiles.push(added); profileId.value = added.id;
+  await flushSave();
+}
+async function removeProfile() {
+  const token = ownerGeneration; const id = profileId.value;
+  if (!await flushTextareas() || token !== ownerGeneration || !form.value || profileId.value !== id) return;
+  form.value.profiles = form.value.profiles.filter(item => item.id !== id); profileId.value = form.value.profiles[0]?.id || '';
+  await flushSave();
 }
 watch(form, () => {
-  if (replacing) return;
+  if (replacing || !form.value) return;
+  modelVersion++;
   dirty = true; status.value = 'unsaved'; notice.value = ''; copiedFallback.value = '';
 }, { deep: true, flush: 'sync' });
 watch(() => props.userId, id => {
-  flushSave(); editingOwner = id; selectedId.value = ''; profileId.value = ''; importGeneration++; importing.value = false;
-  ownerGeneration++; publication = null; copying.value = false;
-  loadingCloud.value = false; publishing.value = false;
-  notice.value = ''; error.value = ''; replace(null);
+  if (form.value && (dirty || !isSearchTemplateSaved(form.value))) retainSearchDraft(editingOwner, form.value, baseline);
+  ownerGeneration++; editingOwner = id; profileId.value = ''; copying.value = false; navigationRequest++;
+  pending = null; pendingKey = null; failedWrite = null; binding = undefined; queue = Promise.resolve();
+  error.value = ''; notice.value = ''; loadError.value = false; replace(null);
   try {
-    reload();
-    const recovered = recoverSearchDraft(editingOwner);
-    if (recovered) {
-      replace(recovered.form); baseline = recovered.baseline; selectedId.value = recovered.form.id;
-      dirty = true; status.value = 'unsaved';
-      notice.value = text('Your unsaved search draft was recovered. Review it and retry saving.', 'Dein ungespeicherter Suchentwurf wurde wiederhergestellt. Prüfe ihn und speichere erneut.');
-    }
-  } catch (cause) { error.value = String(cause); status.value = 'error'; }
+    const local = repository().listTemplates()[0]!; const recovered = recoverSearchDraft(id);
+    replace(recovered?.form || local); baseline = recovered?.baseline || clone(local); binding = local.cloud;
+    const token = ownerGeneration;
+    ready = initialize(id, token).catch(cause => {
+      if (!disposed && token === ownerGeneration) { loadError.value = true; error.value = cause instanceof Error ? cause.message : String(cause); status.value = 'error'; }
+      throw cause;
+    });
+    void ready.catch(() => {});
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); status.value = 'error'; }
 }, { immediate: true });
-function prompt(kind: 'system' | 'user' | 'daily') {
-  if (!form.value) return '';
-  const options = { projectId: connectedProjectId.value };
-  if (kind === 'system') return buildSearchSystemPrompt(form.value, options);
-  if (kind === 'user') return buildSearchUserPrompt(form.value, options);
-  return buildDailySearchPrompt(form.value, options);
-}
-async function loadCloud() {
-  if (!props.client || loadingCloud.value || !flushSave()) return;
-  const token = ownerGeneration; loadingCloud.value = true;
-  try {
-    const rows = await listCloudSearchTemplates(props.client, props.userId);
-    if (disposed || token !== ownerGeneration) return;
-    const row = form.value?.cloud ? rows.find(item => item.id === form.value?.cloud?.id) : rows[0];
-    if (row) useCloud(row);
-    else notice.value = text('No saved search found in this workspace.', 'Keine gespeicherte Suche in diesem Arbeitsbereich gefunden.');
-  } catch (cause) { if (token === ownerGeneration && !disposed) error.value = String(cause); }
-  finally { if (token === ownerGeneration) loadingCloud.value = false; }
-}
-function useCloud(row: SearchCloudTemplate) {
-  if (publishing.value || !flushSave()) return;
-  try {
-    const imported = importCloudSearchTemplate(row);
-    replace(imported); selectedId.value = imported.id; baseline = null; dirty = true;
-    if (save()) notice.value = text('Search loaded. Review the daily time and enabled profiles before publishing.', 'Suche geladen. Prüfe tägliche Uhrzeit und aktivierte Profile vor dem Veröffentlichen.');
-  } catch (cause) { error.value = String(cause); }
-}
-function publish() {
-  if (!props.client || publishing.value || !flushSave() || !form.value) return;
-  const owner = props.userId;
+async function retryLoad() {
   const token = ownerGeneration;
-  const client = props.client;
-  const snapshot = JSON.parse(JSON.stringify(form.value)) as SearchTemplate;
-  publishing.value = true; error.value = ''; notice.value = '';
-  const operation = (async () => { try {
-    if (!snapshot.cloud) {
-      const rows = await listCloudSearchTemplates(client, owner);
-      if (disposed || token !== ownerGeneration) return false;
-      const existing = rows[0];
-      if (existing) snapshot.cloud = { id: existing.id, revision: existing.revision, contentKey: '' };
-    }
-    const result = await publishSearchTemplate(client, owner, snapshot);
-    if (disposed || token !== ownerGeneration) return false;
-    // Preserve any typing or selection changes while the publication was in flight.
-    if (form.value?.id === snapshot.id) {
-      form.value.cloud = result.cloud;
-      if (!flushSave()) return false;
-    }
-    notice.value = text('Search published and verified. Copy the daily prompt to create or update your ChatGPT schedule.', 'Suche veröffentlicht und geprüft. Kopiere den täglichen Prompt, um deinen ChatGPT-Zeitplan zu erstellen oder zu aktualisieren.');
-    return true;
-  } catch (cause) { if (token === ownerGeneration && !disposed) error.value = cause instanceof Error ? cause.message : String(cause); return false; }
-  finally { if (token === ownerGeneration) { publishing.value = false; publication = null; } }
-  })();
-  publication = operation;
-  return operation;
+  ready = initialize(editingOwner, token);
+  try { await ready; loadError.value = false; error.value = ''; await flushSave(); } catch (cause) { loadError.value = true; error.value = cause instanceof Error ? cause.message : String(cause); status.value = 'error'; }
 }
-const systemPreview = computed(() => { try { return prompt('system'); } catch { return ''; } });
-const userPreview = computed(() => { try { return prompt('user'); } catch { return ''; } });
-async function copy(kind: 'system' | 'user' | 'daily') {
+function retrySave() { return loadError.value ? retryLoad() : flushSave(); }
+const systemPreview = computed(() => { try { return form.value ? buildSearchSystemPrompt(form.value, { projectId: connectedProjectId.value }) : ''; } catch { return ''; } });
+const userPreview = computed(() => { try { return form.value ? buildSearchUserPrompt(form.value, { projectId: connectedProjectId.value }) : ''; } catch { return ''; } });
+async function copy() {
   if (copying.value) return;
-  copying.value = true; notice.value = ''; error.value = '';
-  const token = ownerGeneration;
+  const token = ownerGeneration; copying.value = true; notice.value = '';
   try {
-    const result = await copyPreparedText(async () => flushSave() ? prompt(kind) : null);
+    const result = await copyPreparedText(async () => {
+      if (!await flushTextareas() || !form.value || token !== ownerGeneration || disposed) return null;
+      return buildReplaceSearchPrompt(form.value, { projectId: connectedProjectId.value });
+    });
     if (!result || disposed || token !== ownerGeneration) return;
-    if (result.copied) notice.value = text('Prompt copied. Use it in your ChatGPT search schedule.', 'Prompt kopiert. Verwende ihn in deinem ChatGPT-Suchzeitplan.');
-    else { copiedFallback.value = result.value; notice.value = text('Clipboard unavailable. Select and copy the prompt below.', 'Zwischenablage nicht verfügbar. Markiere und kopiere den Prompt unten.'); }
-  } catch (cause) { if (token === ownerGeneration && !disposed) error.value = cause instanceof Error ? cause.message : String(cause); }
+    if (result.copied) notice.value = text('Replacement instruction copied. Paste it into ChatGPT to replace the meta-search schedule.', 'Ersetzungsanweisung kopiert. In ChatGPT einfügen, um den Metasuch-Zeitplan zu ersetzen.');
+    else { copiedFallback.value = result.value; notice.value = text('Select and copy the instruction below.', 'Die Anweisung unten markieren und kopieren.'); }
+  } catch (cause) { if (!disposed && token === ownerGeneration) error.value = cause instanceof Error ? cause.message : String(cause); }
   finally { if (token === ownerGeneration) copying.value = false; }
 }
-function download() {
-  if (!flushSave()) return;
-  try {
-    const url = URL.createObjectURL(new Blob([repository().exportTemplates()], { type: 'application/json' }));
-    const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'meta-search.json'; anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  } catch (cause) { error.value = String(cause); }
-}
-async function importLibrary(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0]; input.value = '';
-  if (!file || importing.value || publishing.value || !flushSave()) return;
-  importing.value = true;
-  const token = ++importGeneration;
-  try {
-    const raw = await file.text();
-    if (disposed || token !== importGeneration || publishing.value || !flushSave()) return;
-    repository().importTemplates(raw); reload(); window.dispatchEvent(new Event('cv-search-templates-updated'));
-    notice.value = text('Meta search restored from backup.', 'Metasuche aus der Sicherung wiederhergestellt.');
-  } catch (cause) { if (!disposed && token === importGeneration) error.value = String(cause); }
-  finally { if (token === importGeneration) importing.value = false; }
-}
-onBeforeUnmount(() => { flushSave(); disposed = true; importGeneration++; ownerGeneration++; });
+onBeforeUnmount(() => { if (form.value && status.value !== 'saved') retainSearchDraft(editingOwner, form.value, baseline); disposed = true; ownerGeneration++; });
 </script>
-
 <template>
   <section class="search-templates">
     <header class="search-heading">
@@ -220,26 +233,13 @@ onBeforeUnmount(() => { flushSave(); disposed = true; importGeneration++; ownerG
       <DesktopSidebarPortal area="major" :active="sidebarActive">
         <aside class="search-library" :aria-label="text('Meta research actions', 'Metasuchaktionen')">
           <div class="search-action-row">
-            <button class="search-primary" type="button" :disabled="!client || publishing || !enabledCount || published" @click="publish">{{ publishing ? text('Publishing…', 'Veröffentlichen…') : published ? text('Published and up to date', 'Veröffentlicht und aktuell') : text('Publish search', 'Suche veröffentlichen') }}</button>
-            <InfoHint :lang="lang" :label="text('Publish search', 'Suche veröffentlichen')" :text="text('Shares the strategy, shared context, enabled profiles and daily time with your private Supabase search. Changes stay local until publication. An existing saved search is reused.', 'Teilt Strategie, gemeinsamen Kontext, aktivierte Profile und tägliche Uhrzeit mit deiner privaten Supabase-Suche. Änderungen bleiben bis zur Veröffentlichung lokal. Eine vorhandene Suche wird weiterverwendet.')" />
+            <button class="search-primary" type="button" :disabled="copying || loadingCloud || !client" @click="copy"><FontAwesomeIcon :icon="faCopy" aria-hidden="true" />{{ copying ? text('Preparing…', 'Vorbereiten…') : text('Copy replace prompt', 'Ersetzungsanweisung kopieren') }}</button>
+            <InfoHint :lang="lang" :label="text('Replace meta search', 'Metasuche ersetzen')" :text="text('Edits save to Supabase on blur or Enter. Copy this short instruction and paste it into ChatGPT to read the saved prompt and replace the existing meta-search scheduled task. Copying itself does not change the schedule.', 'Änderungen werden beim Verlassen des Felds oder mit Enter in Supabase gespeichert. Die kurze Anweisung kopieren und in ChatGPT einfügen, um den gespeicherten Prompt zu lesen und die bestehende geplante Metasuche zu ersetzen. Kopieren selbst ändert den Zeitplan nicht.')" />
           </div>
-          <div class="search-action-row">
-            <button type="button" :disabled="copying || !enabledCount || !published" @click="copy('daily')"><FontAwesomeIcon :icon="faCopy" aria-hidden="true" />{{ text('Copy daily search prompt', 'Täglichen Suchprompt kopieren') }}</button>
-            <InfoHint :lang="lang" :label="text('Daily search prompt', 'Täglicher Suchprompt')" :text="text('Paste the prompt into ChatGPT to set up or update the daily search. Each run loads the published search and current protocol. Copying does not create a schedule.', 'Den Prompt in ChatGPT einfügen, um die tägliche Suche einzurichten oder zu aktualisieren. Jeder Lauf lädt die veröffentlichte Suche und das aktuelle Protokoll. Kopieren erstellt keinen Zeitplan.')" />
-          </div>
-          <details class="search-files">
-            <summary>{{ text('Saved search & backup', 'Gespeicherte Suche & Sicherung') }}<InfoHint :lang="lang" :label="text('Saved search & backup', 'Gespeicherte Suche & Sicherung')" :text="text('Loading replaces the local editor with the published search. Import restores this one search from a JSON backup; it never creates another instance or imports another account’s schedule binding. Backups include private context.', 'Laden ersetzt den lokalen Editor durch die veröffentlichte Suche. Import stellt diese eine Suche aus einer JSON-Sicherung wieder her und erstellt keine weitere Instanz. Zeitplanverknüpfungen anderer Konten werden nicht übernommen. Sicherungen enthalten privaten Kontext.')" /></summary>
-            <div class="search-file-actions">
-              <button type="button" :disabled="!client || loadingCloud || publishing" @click="loadCloud">{{ loadingCloud ? text('Loading…', 'Lädt…') : text('Load published search', 'Veröffentlichte Suche laden') }}</button>
-              <button type="button" @click="download"><FontAwesomeIcon :icon="faDownload" aria-hidden="true" />{{ text('Export search', 'Suche exportieren') }}</button>
-              <button type="button" :disabled="importing || publishing" @click="importInput?.click()"><FontAwesomeIcon :icon="faUpload" aria-hidden="true" />{{ importing ? text('Importing…', 'Importieren…') : text('Import search', 'Suche importieren') }}</button>
-            </div>
-          </details>
-          <input ref="importInput" hidden type="file" accept=".json,application/json" @change="importLibrary" />
         </aside>
       </DesktopSidebarPortal>
-      <form v-if="form" class="search-form" @submit.prevent="flushSave" @focusout="flushSave">
-        <div v-if="status !== 'saved'" class="search-save-state" aria-live="polite"><span>{{ status === 'error' ? text('Could not save changes', 'Änderungen konnten nicht gespeichert werden') : status === 'unsaved' ? text('Unsaved changes', 'Ungespeicherte Änderungen') : text('Saving…', 'Speichert…') }}</span><button v-if="status === 'error'" type="button" @click="flushSave">{{ text('Retry save', 'Speichern wiederholen') }}</button></div>
+      <form v-if="form" class="search-form" @submit.prevent="flushSave" @focusout="flushSave" @input.capture="onDraftInput">
+        <div v-if="status !== 'saved' || loadingCloud" class="search-save-state" aria-live="polite"><span>{{ loadingCloud ? text('Loading meta search…', 'Metasuche wird geladen…') : status === 'error' ? text('Could not save changes', 'Änderungen konnten nicht gespeichert werden') : status === 'unsaved' ? text('Unsaved changes', 'Ungespeicherte Änderungen') : text('Saving…', 'Speichert…') }}</span><button v-if="status === 'error'" type="button" @click="retrySave">{{ text('Retry save', 'Speichern wiederholen') }}</button></div>
         <p v-if="error" class="search-error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
         <details class="search-section" open>
           <summary><FontAwesomeIcon :icon="faAlignLeft" aria-hidden="true" /><span>{{ text('Shared search strategy', 'Gemeinsame Suchstrategie') }}</span><InfoHint :lang="lang" :label="text('Shared search strategy', 'Gemeinsame Suchstrategie')" :text="text('Edit the user prompt in English. The system prompt adds verification, deduplication, scoring and the 72-hour recommendation deadline rule. Matching one or more research interests can qualify.', 'Den Nutzerprompt auf Englisch bearbeiten. Der Systemprompt ergänzt Verifikation, Deduplizierung, Bewertungen und die 72-Stunden-Fristregel für Empfehlungen. Eine Passung zu einem oder mehreren Forschungsinteressen kann ausreichen.')" /><FontAwesomeIcon :icon="faChevronDown" class="search-chevron" aria-hidden="true" /></summary>
@@ -252,13 +252,13 @@ onBeforeUnmount(() => { flushSave(); disposed = true; importGeneration++; ownerG
         <details class="search-section" open>
           <summary><FontAwesomeIcon :icon="faUser" aria-hidden="true" /><span>{{ text('Professional profiles', 'Berufliche Profile') }}</span><span class="search-profile-count">{{ enabledCount }} {{ text('enabled', 'aktiv') }}</span><InfoHint :lang="lang" :label="text('Professional profiles', 'Berufliche Profile')" :text="text('All enabled profiles contribute alternative directions to this one daily search. Their professional context and interests can also be selected in application preparation.', 'Alle aktivierten Profile ergänzen alternative Richtungen dieser einen täglichen Suche. Beruflicher Kontext und Interessen können auch in der Bewerbungsvorbereitung ausgewählt werden.')" /><FontAwesomeIcon :icon="faChevronDown" class="search-chevron" aria-hidden="true" /></summary>
           <div class="search-fields">
-            <div class="search-profile-tabs" :aria-label="text('Choose professional profile', 'Berufliches Profil wählen')"><button v-for="item in form.profiles" :key="item.id" type="button" :disabled="publishing" :aria-pressed="profileId === item.id" @click="selectProfile(item.id)">{{ item.name }}<span v-if="!item.enabled"> · {{ text('off', 'aus') }}</span></button><button type="button" :disabled="publishing" @click="addProfile"><FontAwesomeIcon :icon="faPlus" aria-hidden="true" />{{ text('Add profile', 'Profil hinzufügen') }}</button></div>
+            <div class="search-profile-tabs" :aria-label="text('Choose professional profile', 'Berufliches Profil wählen')"><button v-for="item in form.profiles" :key="item.id" type="button"  :aria-pressed="profileId === item.id" @click="selectProfile(item.id)">{{ item.name }}<span v-if="!item.enabled"> · {{ text('off', 'aus') }}</span></button><button type="button"  @click="addProfile"><FontAwesomeIcon :icon="faPlus" aria-hidden="true" />{{ text('Add profile', 'Profil hinzufügen') }}</button></div>
             <template v-if="profile">
               <div class="search-profile-heading"><label>{{ text('Profile name', 'Profilname') }}<input v-model="profile.name" required maxlength="120" /></label><label class="search-enabled"><input v-model="profile.enabled" type="checkbox" @change="flushSave" />{{ text('Include in daily search', 'In tägliche Suche aufnehmen') }}</label></div>
               <label :for="`${controlsId}-profile-prompt`">{{ text('Profile user prompt · English', 'Profil-Nutzerprompt · Englisch') }}</label><AutosaveTextarea :key="`${profileId}-prompt`" :id="`${controlsId}-profile-prompt`" v-model.lazy="profile.userPrompt" lang="en" rows="5" maxlength="12000" @commit="flushSave" />
               <div class="hint-label-row"><label :for="`${controlsId}-profile-context`">{{ text('Professional background and goals · English', 'Beruflicher Hintergrund und Ziele · Englisch') }}</label><InfoHint :lang="lang" :label="text('Professional context', 'Beruflicher Kontext')" :text="text('Describe supported experience and goals. This context can be reused for motivation letters after selecting the profile for an application.', 'Belegte Erfahrungen und Ziele beschreiben. Dieser Kontext kann nach Auswahl des Profils für eine Bewerbung in Motivationsschreiben verwendet werden.')" /></div><AutosaveTextarea :key="`${profileId}-context`" :id="`${controlsId}-profile-context`" v-model.lazy="profile.professionalContext" lang="en" rows="5" maxlength="12000" @commit="flushSave" />
               <div class="hint-label-row"><label :for="`${controlsId}-profile-interests`">{{ text('Research interests · English', 'Forschungsinteressen · Englisch') }}</label><InfoHint :lang="lang" :label="text('Research interests', 'Forschungsinteressen')" :text="text('Interests are alternative directions: a role can fit one interest or a combination. Interests guide fit and motivation; they do not establish qualifications.', 'Interessen sind alternative Richtungen: Eine Stelle kann zu einem Interesse oder einer Kombination passen. Interessen begründen Passung und Motivation, belegen aber keine Qualifikationen.')" /></div><AutosaveTextarea :key="`${profileId}-interests`" :id="`${controlsId}-profile-interests`" v-model.lazy="profile.researchInterests" lang="en" rows="4" maxlength="12000" @commit="flushSave" />
-              <button class="search-remove" type="button" :disabled="publishing" @click="removeProfile">{{ text('Remove this profile', 'Dieses Profil entfernen') }}</button>
+              <button class="search-remove" type="button"  @click="removeProfile">{{ text('Remove this profile', 'Dieses Profil entfernen') }}</button>
             </template>
             <p v-else>{{ text('Add a professional profile to define your search.', 'Füge ein berufliches Profil für deine Suche hinzu.') }}</p>
           </div>
@@ -268,12 +268,12 @@ onBeforeUnmount(() => { flushSave(); disposed = true; importGeneration++; ownerG
           <div class="search-fields"><label :for="`${controlsId}-context`">{{ text('Professional background and goals · English', 'Beruflicher Hintergrund und Ziele · Englisch') }}</label><AutosaveTextarea :id="`${controlsId}-context`" v-model.lazy="form.professionalContext" lang="en" rows="5" maxlength="12000" @commit="flushSave" /><label :for="`${controlsId}-interests`">{{ text('Research interests · English', 'Forschungsinteressen · Englisch') }}</label><AutosaveTextarea :id="`${controlsId}-interests`" v-model.lazy="form.researchInterests" lang="en" rows="4" maxlength="12000" @commit="flushSave" /></div>
         </details>
         <details class="search-section">
-          <summary><FontAwesomeIcon :icon="faClock" aria-hidden="true" /><span>{{ text('Daily schedule', 'Täglicher Zeitplan') }}</span><InfoHint :lang="lang" :label="text('Daily schedule', 'Täglicher Zeitplan')" :text="text('Publish, then copy the daily prompt to ChatGPT to create or update the schedule. A time change must also reach the ChatGPT schedule. Successful runs without new or materially changed strong matches stay quiet.', 'Veröffentlichen und den täglichen Prompt in ChatGPT kopieren, um den Zeitplan zu erstellen oder zu aktualisieren. Eine geänderte Uhrzeit muss auch im ChatGPT-Zeitplan ankommen. Erfolgreiche Läufe ohne neue oder wesentlich geänderte starke Treffer bleiben still.')" /><FontAwesomeIcon :icon="faChevronDown" class="search-chevron" aria-hidden="true" /></summary>
+          <summary><FontAwesomeIcon :icon="faClock" aria-hidden="true" /><span>{{ text('Daily schedule', 'Täglicher Zeitplan') }}</span><InfoHint :lang="lang" :label="text('Daily schedule', 'Täglicher Zeitplan')" :text="text('Time and context save automatically. Copy the replacement instruction into ChatGPT to apply the saved schedule. Successful runs without new or materially changed strong matches stay quiet.', 'Uhrzeit und Kontext werden automatisch gespeichert. Die Ersetzungsanweisung in ChatGPT einfügen, um den gespeicherten Zeitplan anzuwenden. Erfolgreiche Läufe ohne neue oder wesentlich geänderte starke Treffer bleiben still.')" /><FontAwesomeIcon :icon="faChevronDown" class="search-chevron" aria-hidden="true" /></summary>
           <div class="search-fields"><div class="search-schedule"><label>{{ text('Daily time', 'Tägliche Uhrzeit') }}<input v-model="form.dailyTime" type="time" required @change="flushSave" /></label><label>{{ text('Time zone', 'Zeitzone') }}<input v-model="form.timezone" placeholder="Europe/Tirane" required @change="flushSave" /></label></div></div>
         </details>
         <details class="search-section">
-          <summary><FontAwesomeIcon :icon="faSliders" aria-hidden="true" /><span>{{ text('Generated prompts · English', 'Generierte Prompts · Englisch') }}</span><InfoHint :lang="lang" :label="text('Generated prompts', 'Generierte Prompts')" :text="text('Copied prompts include shared context and enabled profiles. Review the text before sharing with ChatGPT. A published search is required to execute the connected workflow.', 'Kopierte Prompts enthalten gemeinsamen Kontext und aktivierte Profile. Den Text vor dem Teilen mit ChatGPT prüfen. Die verknüpfte Suche muss vor ihrer Ausführung veröffentlicht werden.')" /><FontAwesomeIcon :icon="faChevronDown" class="search-chevron" aria-hidden="true" /></summary>
-          <div class="search-fields"><div class="search-prompt-title"><label :for="`${controlsId}-system`">System prompt</label><button type="button" :disabled="copying" @click="copy('system')">{{ text('Copy system prompt', 'Systemprompt kopieren') }}</button></div><AutosaveTextarea :id="`${controlsId}-system`" :model-value="systemPreview" readonly lang="en" rows="10" /><div class="search-prompt-title"><label :for="`${controlsId}-user`">User prompt</label><button type="button" :disabled="copying || !enabledCount" @click="copy('user')">{{ text('Copy user prompt', 'Nutzerprompt kopieren') }}</button></div><AutosaveTextarea :id="`${controlsId}-user`" :model-value="userPreview" readonly lang="en" rows="10" /></div>
+          <summary><FontAwesomeIcon :icon="faSliders" aria-hidden="true" /><span>{{ text('Generated prompts · English', 'Generierte Prompts · Englisch') }}</span><InfoHint :lang="lang" :label="text('Generated prompts', 'Generierte Prompts')" :text="text('These are the complete English prompts saved in Supabase. The short replacement instruction tells ChatGPT where to read them. Search execution keeps the existing research protocol.', 'Dies sind die vollständigen englischen Prompts in Supabase. Die kurze Ersetzungsanweisung zeigt ChatGPT, wo es sie lesen kann. Die Suchausführung verwendet weiterhin das bestehende Forschungsprotokoll.')" /><FontAwesomeIcon :icon="faChevronDown" class="search-chevron" aria-hidden="true" /></summary>
+          <div class="search-fields"><div class="search-prompt-title"><label :for="`${controlsId}-system`">System prompt</label></div><AutosaveTextarea :id="`${controlsId}-system`" :model-value="systemPreview" readonly lang="en" rows="10" /><div class="search-prompt-title"><label :for="`${controlsId}-user`">User prompt</label></div><AutosaveTextarea :id="`${controlsId}-user`" :model-value="userPreview" readonly lang="en" rows="10" /></div>
         </details>
         <div v-if="copiedFallback" class="search-fields"><label :for="`${controlsId}-fallback`">{{ text('Select and copy prompt', 'Prompt markieren und kopieren') }}</label><AutosaveTextarea :id="`${controlsId}-fallback`" :model-value="copiedFallback" readonly lang="en" rows="12" /></div>
       </form>

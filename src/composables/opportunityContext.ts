@@ -1,5 +1,6 @@
 import { safeEmailUrl, safeLinkUrl, safeWebUrl } from './safeUrl';
 import { livingStandardNode } from './livingStandard';
+import { isOpportunityInternalFact, isOpportunityInternalField } from './opportunityPresentation';
 
 export interface OpportunityContextNode {
   id: string;
@@ -8,10 +9,10 @@ export interface OpportunityContextNode {
   href?: string;
   children?: OpportunityContextNode[];
   missing?: boolean;
-  kind?: 'summary' | 'main-link' | 'fit' | 'living-standard';
+  kind?: 'summary' | 'main-link' | 'fit' | 'living-standard' | 'person';
   score?: number;
   checklistKey?: string;
-  requirementStatus?: 'required' | 'optional' | 'beneficial' | 'preferred' | 'recommended' | 'desired';
+  requirementStatus?: 'required' | 'optional' | 'conditional' | 'beneficial' | 'preferred' | 'recommended' | 'desired' | 'unspecified';
   requirementStatusFields?: string[];
 }
 
@@ -44,7 +45,7 @@ const FIELD_GROUPS: Record<OpportunityContextGroupId, string[]> = {
   salary: ['salary', 'salary_text', 'funding', 'compensation', 'stipend', 'scholarship', 'benefits',
     'duration_months', 'duration_details', 'duration', 'duration_years', 'contract_duration', 'contract_length', 'start_date'],
   requirements: ['requirements', 'eligibility', 'qualifications', 'required_skills', 'desired_skills', 'language_requirements'],
-  documents: ['required_documents', 'application_documents', 'documents', 'submission_documents'],
+  documents: ['required_documents', 'application_documents', 'documents', 'submission_documents', 'application_process'],
   metadata: ['topics', 'keywords', 'research_topics', 'research_areas', 'research_track'],
 };
 
@@ -88,6 +89,10 @@ const LABELS: Record<string, [string, string]> = {
   qualifications: ['Qualifications', 'Qualifikationen'], required_skills: ['Required skills', 'Erforderliche Kenntnisse'],
   desired_skills: ['Desired skills', 'Gewünschte Kenntnisse'], language_requirements: ['Language requirements', 'Sprachkenntnisse'],
   required: ['Required', 'Erforderlich'], optional: ['Optional', 'Optional'],
+  conditional: ['Conditional', 'Bedingt erforderlich'], advantageous: ['Beneficial', 'Von Vorteil'],
+  recruitment: ['Recruitment', 'Stellenbewerbung'], doctoral_admission: ['Doctoral admission', 'Promotionszulassung'],
+  after_selection: ['After selection', 'Nach der Auswahl'], interview: ['Interview', 'Gespräch'],
+  offer: ['Offer', 'Angebot'], enrolment: ['Enrolment', 'Einschreibung'], unspecified: ['Not specified', 'Nicht angegeben'],
   required_documents: ['Required documents', 'Erforderliche Unterlagen'], application_documents: ['Application documents', 'Bewerbungsunterlagen'],
   documents: ['Documents', 'Unterlagen'], submission_documents: ['Submission documents', 'Einzureichende Unterlagen'],
   institution: ['Institution', 'Einrichtung'], university: ['Institution', 'Einrichtung'], unit: ['Department / group', 'Fachbereich / Gruppe'],
@@ -110,12 +115,14 @@ const LABELS: Record<string, [string, string]> = {
 
 const ALIASES: Record<string, string> = { university: 'institution', supervisor: 'supervisors', contact: 'contacts',
   salary_text: 'salary', application_documents: 'required_documents', documents: 'required_documents' };
-const PRIVATE_KEYS = new Set(['id', 'user_id']);
+// Frozen application snapshots retain their historical field names; live catalogue
+// payloads use the canonical schema. Internal identities are never display copy.
+const PRIVATE_KEYS = new Set(['id', 'user_id', 'entity_id', 'source_id', 'researcher_id']);
 const FIT_FIELDS = new Set(['personal_fit', 'research_fit', 'research_career_potential', 'rd_career_potential']);
 const SUMMARY_FIELDS = new Set(['research_summary', 'project_summary', 'project_description']);
 const PRIMARY_LINK_FIELDS = ['official_url', 'application_url', 'source_url'];
-const SOURCE_METADATA_FIELDS = new Set(['type', 'supports', 'supported_fields', 'checked_at']);
-const ENUM_KEYS = new Set(['role', 'availability', 'verification_level', 'historical_match_status', 'period']);
+const SOURCE_METADATA_FIELDS = new Set(['kind', 'precision', 'type', 'supports', 'supported_fields', 'checked_at']);
+const ENUM_KEYS = new Set(['role', 'status', 'stage', 'availability', 'verification_level', 'historical_match_status', 'period']);
 
 function keyName(value: string) { return value.replace(/([a-z\d])([A-Z])/g, '$1_$2').toLowerCase().replace(/[ -]+/g, '_'); }
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -171,6 +178,7 @@ function safeHref(value: string, key: string): string | null {
 }
 
 function buildNode(value: unknown, key: string, id: string, lang: string, ancestors: Set<object>, label: string | null): OpportunityContextNode | null {
+  if (isOpportunityInternalFact(value)) return null;
   if (value === null || value === undefined || value === '' || (typeof value === 'number' && !Number.isFinite(value))) return null;
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
     const text = humanText(value, keyName(key), lang);
@@ -182,18 +190,21 @@ function buildNode(value: unknown, key: string, id: string, lang: string, ancest
   const nextAncestors = new Set(ancestors).add(value);
   const children = Array.isArray(value)
     ? value.map((item, index) => {
+      if (isOpportunityInternalFact(item)) return null;
       if (isRecord(item)) {
-        const headingKey = ['name', 'title', 'label', 'document', 'requirement', 'item'].find((candidate) => typeof item[candidate] === 'string' && String(item[candidate]).trim());
+        const headingKey = ['name', 'title', 'label', 'text', 'document', 'requirement', 'item'].find((candidate) => typeof item[candidate] === 'string' && String(item[candidate]).trim());
         if (headingKey) {
           const heading = String(item[headingKey]).trim();
           const detail = Object.fromEntries(Object.entries(item).filter(([childKey]) => childKey !== headingKey));
-          return buildNode(detail, key, `${id}.${index}`, lang, nextAncestors, heading)
+          const node = buildNode(detail, key, `${id}.${index}`, lang, nextAncestors, heading)
             || buildNode(heading, key, `${id}.${index}`, lang, nextAncestors, null);
+          if (node && ['contacts', 'supervisors'].includes(keyName(key)) && typeof item.entity_id === 'string' && Array.isArray(item.roles)) node.kind = 'person';
+          return node;
         }
       }
       return buildNode(item, key, `${id}.${index}`, lang, nextAncestors, null);
     }).filter((item): item is OpportunityContextNode => item !== null)
-    : Object.entries(value).filter(([childKey]) => !PRIVATE_KEYS.has(childKey))
+    : Object.entries(value).filter(([childKey]) => !isOpportunityInternalField(childKey))
       .map(([childKey, item]) => buildNode(item, childKey, `${id}.${childKey}`, lang, nextAncestors, opportunityFieldLabel(childKey, lang)))
       .filter((item): item is OpportunityContextNode => item !== null);
   return children.length ? { id, label, children } : null;
@@ -222,6 +233,8 @@ function requirementGroupStatus(key: string): OpportunityContextNode['requiremen
   const normalized = keyName(key);
   if (['required', 'mandatory', 'essential', 'required_skills', 'required_documents'].includes(normalized)) return 'required';
   if (normalized === 'optional') return 'optional';
+  if (normalized === 'conditional') return 'conditional';
+  if (normalized === 'unspecified') return 'unspecified';
   if (['beneficial', 'benefitial', 'advantageous'].includes(normalized)) return 'beneficial';
   if (normalized === 'preferred') return 'preferred';
   if (normalized === 'recommended') return 'recommended';
@@ -245,7 +258,7 @@ function attachChecklistKeys(node: OpportunityContextNode, value: unknown, path:
   if (status) node.requirementStatus = status;
   if (Array.isArray(value)) {
     for (const child of node.children || []) attachChecklistKeys(child, value[Number(child.id.split('.').at(-1))], path, true, status);
-  } else if (isRecord(value) && !arrayItem && !['name', 'title', 'label', 'document', 'requirement', 'item'].some((key) => typeof value[key] === 'string')) {
+  } else if (isRecord(value) && !arrayItem && !['name', 'title', 'label', 'text', 'document', 'requirement', 'item'].some((key) => typeof value[key] === 'string')) {
     for (const child of node.children || []) {
       const key = child.id.slice(node.id.length + 1);
       attachChecklistKeys(child, value[key], `${path}.${key}`, false, requirementGroupStatus(key) || status);
@@ -323,6 +336,9 @@ function consolidateSourceLinks(items: OpportunityContextNode[], lang: string): 
     });
   }
   function visit(node: OpportunityContextNode, parents: string[] = []): OpportunityContextNode | null {
+    // A canonical person stays one entry, with their email and evidence links
+    // nested inside it rather than becoming several apparent contacts.
+    if (node.kind === 'person') return node;
     const labels = labelsFor(node, parents);
     if (node.href) { register(node, labels, node.children || []); return null; }
     if (!node.children) return node;
@@ -351,7 +367,7 @@ export function buildOpportunityGroups(context: Record<string, unknown>, lang: s
   let livingStandard: unknown;
   const add = (rawKey: string, value: unknown, source: string) => {
     const key = keyName(rawKey);
-    if (PRIVATE_KEYS.has(key) || key === 'title') return;
+    if (isOpportunityInternalField(key) || key === 'title') return;
     if (key === 'living_standard') { livingStandard ??= value; return; }
     if ((key === 'data' || key === 'details') && isRecord(value)) {
       if (visitedWrappers.has(value)) return;
@@ -372,7 +388,7 @@ export function buildOpportunityGroups(context: Record<string, unknown>, lang: s
         node.score = score;
         node.text = `${humanText(score, 'score', lang)} / 10`;
         // Keep the rationale while avoiding a second, unformatted copy of the score.
-        node.children = node.children?.filter((child) => child.id !== `${node.id}.score`);
+        node.children = node.children?.filter((child) => !['score', 'scale_min', 'scale_max'].some(key => child.id === `${node.id}.${key}`));
       }
     }
     const canonicalKey = ALIASES[key] || key;
@@ -382,7 +398,7 @@ export function buildOpportunityGroups(context: Record<string, unknown>, lang: s
     if (previous.length) node.label += phrase(' (additional detail)', ' (ergänzende Angaben)', lang);
     seen.set(canonicalKey, [...previous, signature]);
     const group = fieldGroup(key);
-    if (group === 'requirements' || group === 'documents') attachChecklistKeys(node, value, `${group}:${canonicalKey}`, false, requirementGroupStatus(key));
+    if ((group === 'requirements' || group === 'documents') && key !== 'application_process') attachChecklistKeys(node, value, `${group}:${canonicalKey}`, false, requirementGroupStatus(key));
     byGroup.get(group)!.items.push(node);
   };
   // Put the two advisor context sections first and surface absent research explicitly.

@@ -5,31 +5,23 @@ import { createRequire } from 'node:module';
 import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive, type Component } from 'vue';
-import { createSearchProfile, createSearchTemplateRepository, searchTemplateContentKey } from '../src/composables/useSearchTemplates';
-import type { SearchTemplate } from '../src/searchTypes';
+import { createSearchProfile, createSearchTemplateRepository, DEFAULT_SEARCH_TEMPLATES, searchTemplateContentKey } from '../src/composables/useSearchTemplates';
+import { importCloudSearchTemplate, searchTemplateCloudCriteria, searchTemplateCloudSchedule } from '../src/composables/searchTemplateCloud';
+import { isSearchTemplateSaved } from '../src/composables/searchPrompts';
+import type { SearchCloudTemplate, SearchTemplate } from '../src/searchTypes';
 import * as textareaCommit from '../src/composables/textareaCommit';
-import { clearSearchDraft, recoverSearchDraft } from '../src/composables/searchTemplateRecovery';
+import { clearSearchDraft, recoverSearchDraft, retainSearchDraft } from '../src/composables/searchTemplateRecovery';
 
 interface Editor {
-  form: SearchTemplate;
-  selectedId: string;
-  profileId: string;
-  status: string;
-  error: string;
-  importing: boolean;
-  copiedFallback: string;
-  publishing: boolean;
-  published: boolean;
-  selectProfile(id: string): void;
-  addProfile(): void;
-  removeProfile(): void;
-  flushSave(): boolean;
-  flushTextareas(): Promise<boolean>;
-  copy(kind: 'system' | 'user' | 'daily'): Promise<void>;
-  publish(): Promise<boolean> | undefined;
-  importLibrary(event: Event): Promise<void>;
+  form: SearchTemplate; profileId: string; status: string; error: string; copiedFallback: string; loadingCloud: boolean;
+  selectProfile(id: string): Promise<void>; addProfile(): Promise<void>; removeProfile(): Promise<void>;
+  flushSave(): Promise<boolean>; flushTextareas(): Promise<boolean>; copy(): Promise<void>; retrySave(): Promise<unknown>;
+  onDraftInput(): void;
 }
-
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
+const ownerId = '90000000-0000-4000-8000-000000000001';
+const otherOwnerId = '90000000-0000-4000-8000-000000000002';
+const cloudId = 'a0000000-0000-4000-8000-000000000001';
 const filename = new URL('../src/components/SearchTemplates.vue', import.meta.url);
 const compiled = compileScript(parse(readFileSync(filename, 'utf8')).descriptor, { id: 'search-template-autosave' });
 const code = ts.transpileModule(compiled.content, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -38,325 +30,193 @@ const renderer = createRenderer<object, object>({
   createElement: () => ({}), createText: () => ({}), createComment: () => ({}),
   insert() {}, remove() {}, setText() {}, setElementText() {}, patchProp() {}, parentNode: () => null, nextSibling: () => null,
 });
-
-function fixture(t: TestContext) {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const data = new Map<string, string>();
-  const recoveryData = new Map<string, string>();
-  let failWrites = false;
-  const storage = {
-    getItem: (key: string) => data.get(key) ?? null,
-    setItem: (key: string, value: string) => { if (failWrites) throw new Error('Storage full'); data.set(key, value); },
-  };
+function gate() {
+  let release!: () => void;
+  const promise = new Promise<void>(finish => { release = finish; });
+  return { promise, release };
+}
+async function settle() { for (let i = 0; i < 12; i++) await nextTick(); }
+function cloudRow(template: SearchTemplate, revision = 3): SearchCloudTemplate {
+  return { id: cloudId, user_id: ownerId, name: template.name, revision, criteria: searchTemplateCloudCriteria(template), schedule: searchTemplateCloudSchedule(template),
+    created_at: template.updatedAt, updated_at: template.updatedAt,
+    meta_search: { version: 1, active: true, editor: clone(template), systemPrompt: 'System', userPrompt: 'User', recurringPrompt: 'Recurring' } };
+}
+async function fixture(t: TestContext, options: { linked?: boolean; readGate?: ReturnType<typeof gate>; rows?: SearchCloudTemplate[]; emptyLocal?: boolean } = {}) {
+  const data = new Map<string, string>(); const recoveryData = new Map<string, string>();
+  let failWrites = false; let failCloud = false; let failRead = false;
+  let saveGate: ReturnType<typeof gate> | null = null;
+  const storage = { getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => { if (failWrites) throw new Error('Storage full'); data.set(key, value); } };
   const restoreGlobals: (() => void)[] = [];
-  for (const account of ['owner', 'other']) {
-    const previous = recoverSearchDraft(account);
-    if (previous) clearSearchDraft(account, previous.form.id);
-  }
+  for (const account of [ownerId, otherOwnerId]) { const old = recoverSearchDraft(account); if (old) clearSearchDraft(account, old.form.id); }
   for (const [name, value] of Object.entries({ localStorage: storage, window: new EventTarget(), sessionStorage: {
     getItem: (key: string) => recoveryData.get(key) ?? null,
-    setItem: (key: string, value: string) => { recoveryData.set(key, value); },
-    removeItem: (key: string) => { recoveryData.delete(key); },
+    setItem: (key: string, value: string) => { recoveryData.set(key, value); }, removeItem: (key: string) => { recoveryData.delete(key); },
   } })) {
     const previous = Object.getOwnPropertyDescriptor(globalThis, name);
     Object.defineProperty(globalThis, name, { configurable: true, value });
     restoreGlobals.push(() => { if (previous) Object.defineProperty(globalThis, name, previous); else Reflect.deleteProperty(globalThis, name); });
   }
-  const owner = createSearchTemplateRepository(storage, 'owner');
-  const initial = owner.listTemplates()[0]!;
-  initial.profiles.push(createSearchProfile('Second profile'));
-  owner.saveTemplate(initial);
-  const copied: string[] = [];
-  const published: SearchTemplate[] = [];
-  const cloudSearches: Array<{ id: string; revision: number }> = [];
-  let publicationGate: Promise<void> | null = null;
-  const holdPublication = () => {
-    let release!: () => void;
-    publicationGate = new Promise<void>(resolve => { release = resolve; });
-    return release;
-  };
+  const owner = createSearchTemplateRepository(storage, ownerId);
+  const initial = owner.listTemplates()[0]!; initial.profiles.push(createSearchProfile('Second profile'));
+  const rows = options.rows || (options.linked ? [cloudRow(initial)] : []);
+  if (options.linked) initial.cloud = { id: cloudId, revision: 3, contentKey: searchTemplateContentKey(initial) };
+  if (!options.emptyLocal) owner.saveTemplate(initial);
+  const saves: SearchTemplate[] = []; const reads: string[] = []; const copied: string[] = [];
   const exports: { default?: Component } = {};
   new Function('require', 'exports', code)((path: string) => {
     if (path.endsWith('.vue')) return { default: {} };
+    if (path.endsWith('/useToasts')) return { useToastWatch: () => {} };
     if (path.endsWith('/textareaCommit')) return textareaCommit;
+    if (path.endsWith('/searchTemplateRecovery')) return { clearSearchDraft, recoverSearchDraft, retainSearchDraft };
     if (path.endsWith('/searchPrompts')) return {
-      buildSearchSystemPrompt: () => 'Fixed protocol',
-      buildSearchUserPrompt: (value: SearchTemplate) => JSON.stringify(value),
-      buildDailySearchPrompt: (value: SearchTemplate) => JSON.stringify(value),
+      isSearchTemplateSaved, buildSearchSystemPrompt: () => 'System', buildSearchUserPrompt: () => 'User',
+      buildReplaceSearchPrompt: (template: SearchTemplate) => `Read saved search ${template.cloud!.id} and replace its task`,
     };
     if (path.endsWith('/searchTemplateCloud')) return {
-      isSearchTemplatePublished: (value: SearchTemplate) => value.cloud?.contentKey === searchTemplateContentKey(value),
-      listCloudSearchTemplates: async () => cloudSearches,
-      importCloudSearchTemplate: () => { throw new Error('Cloud import was not requested'); },
-      publishSearchTemplate: async (_client: unknown, _owner: string, value: SearchTemplate) => {
-        published.push(JSON.parse(JSON.stringify(value)));
-        if (publicationGate) await publicationGate;
-        return { ...value, cloud: { id: 'a0000000-0000-4000-8000-000000000001', revision: 1, contentKey: searchTemplateContentKey(value) } };
+      importCloudSearchTemplate,
+      listCloudSearchTemplates: async (_client: unknown, owner: string) => {
+        reads.push(owner); if (options.readGate) await options.readGate.promise;
+        if (failRead) throw new Error('Read unavailable');
+        return owner === ownerId ? clone(rows) : [];
+      },
+      saveSearchTemplate: async (_client: unknown, _owner: string, value: SearchTemplate) => {
+        saves.push(clone(value)); if (saveGate) await saveGate.promise;
+        if (failCloud) throw new Error('Cloud save failed');
+        return { ...clone(value), cloud: { id: value.cloud?.id || cloudId, revision: (value.cloud?.revision || 0) + 1, contentKey: searchTemplateContentKey(value) } };
       },
     };
     if (path.endsWith('/preparedClipboard')) return {
       copyPreparedText: async (prepare: () => Promise<string | null>) => {
-        const value = await prepare();
-        if (value === null) return null;
+        const value = await prepare(); if (value === null) return null;
         copied.push(value); return { value, copied: true };
       },
     };
     return requireComponent(path);
   }, exports);
-  const rpcCalls: string[] = [];
-  const client = { rpc: async (name: string) => { rpcCalls.push(name); throw new Error('No cloud action expected'); } };
-  const props = reactive({ userId: 'owner', lang: 'en', client });
+  const props = reactive({ userId: ownerId, lang: 'en', client: {} });
   let instance: unknown;
   const component = { ...exports.default, render: () => null };
   const app = renderer.createApp({ render: () => h(component, { ...props, ref: (value: unknown) => { instance = value; } }) });
-  app.mount({});
-  let mounted = true;
+  app.mount({}); let mounted = true;
   const unmount = () => { if (mounted) { app.unmount(); mounted = false; } };
-  t.after(() => {
-    try {
-      unmount();
-      for (const account of ['owner', 'other']) {
-        const recovered = recoverSearchDraft(account);
-        if (recovered) clearSearchDraft(account, recovered.form.id);
-      }
-    } finally { restoreGlobals.forEach(restore => restore()); }
-  });
-  const editor = (instance as { $: { setupState: Editor } }).$.setupState;
-  return { editor, owner, data, props, copied, rpcCalls, published, cloudSearches, unmount, holdPublication, fail: (value: boolean) => { failWrites = value; } };
+  t.after(() => { try {
+    unmount(); for (const account of [ownerId, otherOwnerId]) { const old = recoverSearchDraft(account); if (old) clearSearchDraft(account, old.form.id); }
+  } finally { restoreGlobals.forEach(restore => restore()); } });
+  if (!options.readGate) await settle();
+  return { editor: (instance as { $: { setupState: Editor } }).$.setupState, owner, props, saves, reads, copied, unmount,
+    holdSave: () => { saveGate = gate(); return saveGate; },
+    failWrites: (value: boolean) => { failWrites = value; }, failCloud: (value: boolean) => { failCloud = value; }, failRead: (value: boolean) => { failRead = value; } };
 }
 
-function pendingImport() {
-  let resolve!: (value: string) => void;
-  const promise = new Promise<string>(finish => { resolve = finish; });
-  const input = { files: [{ text: () => promise }], value: 'searches.json' };
-  return { event: { target: input } as unknown as Event, input, resolve };
-}
-
-test('search prompt typing stays local until a commit and repeated commits do not create revisions', t => {
-  const { editor, owner, rpcCalls } = fixture(t);
-  const id = editor.selectedId;
-  const revision = editor.form.revision;
-  editor.form.userPrompt = 'Draft strategy while typing';
-  assert.equal(editor.status, 'unsaved');
-  t.mock.timers.tick(60000);
-  assert.notEqual(owner.listTemplates().find(item => item.id === id)?.userPrompt, editor.form.userPrompt);
-  assert.equal(editor.flushSave(), true);
+test('typing does not save; one commit autosaves to Supabase and repeated commits are deduplicated', async t => {
+  const { editor, saves, reads } = await fixture(t);
+  editor.form.userPrompt = 'Committed strategy'; editor.onDraftInput();
+  await settle(); assert.equal(saves.length, 0); assert.equal(editor.status, 'unsaved');
+  assert.equal(await editor.flushSave(), true);
+  assert.equal(saves.length, 1); assert.equal(saves[0]!.userPrompt, 'Committed strategy');
   assert.equal(editor.status, 'saved');
-  assert.equal(owner.listTemplates().find(item => item.id === id)?.userPrompt, 'Draft strategy while typing');
-  assert.equal(editor.form.revision, revision + 1);
-  assert.equal(editor.flushSave(), true);
-  assert.equal(editor.form.revision, revision + 1);
-  assert.deepEqual(rpcCalls, [], 'committing private drafts must not publish them');
+  assert.equal(await editor.flushSave(), true); assert.equal(saves.length, 1);
+  assert.equal(reads.length, 1, 'only initialization reads; each commit is one save');
 });
 
-test('profile switches publish pending textarea drafts before replacing editor models', t => {
-  const { editor, owner } = fixture(t);
-  const id = editor.selectedId;
-  const originalProfile = editor.profileId;
-  const nextProfile = editor.form.profiles.find(item => item.id !== originalProfile)!.id;
-  let pending = true;
+test('a clean server-backed editor performs no save when opened or flushed', async t => {
+  const { editor, saves, reads } = await fixture(t, { linked: true });
+  assert.equal(editor.status, 'saved'); assert.equal(await editor.flushSave(), true);
+  assert.equal(saves.length, 0); assert.equal(reads.length, 1);
+});
+
+test('commits are serialized, with each newer snapshot saved once and the latest revision reused', async t => {
+  const { editor, saves, holdSave } = await fixture(t); const hold = holdSave();
+  editor.form.userPrompt = 'First';
+  const first = editor.flushSave();
+  editor.form.userPrompt = 'Second';
+  const second = editor.flushSave(); const repeated = editor.flushSave();
+  assert.equal(second, repeated);
+  await settle(); assert.equal(saves.length, 1); hold.release();
+  assert.equal(await first, false); assert.equal(await second, true);
+  assert.equal(saves.length, 2);
+  assert.equal(saves[0]!.userPrompt, 'First'); assert.equal(saves[1]!.userPrompt, 'Second');
+  assert.equal(saves[1]!.cloud?.revision, 1); assert.equal(editor.form.cloud?.revision, 2);
+});
+
+test('newer typing during an active save remains unsaved until a subsequent commit', async t => {
+  const { editor, saves, holdSave } = await fixture(t); const hold = holdSave();
+  editor.form.userPrompt = 'Saved snapshot'; const saving = editor.flushSave(); await settle();
+  editor.form.userPrompt = 'New typing'; editor.onDraftInput();
+  hold.release(); assert.equal(await saving, false);
+  assert.equal(editor.form.userPrompt, 'New typing'); assert.equal(editor.status, 'unsaved');
+  await settle(); assert.equal(saves.length, 1);
+  assert.equal(await editor.flushSave(), true); assert.equal(saves.length, 2);
+});
+
+test('navigation and copying await committed drafts; the clipboard receives only the short replacement pointer', async t => {
+  const { editor, saves, copied, holdSave } = await fixture(t); const hold = holdSave();
+  let dirtyTextarea = true;
   const unregister = textareaCommit.registerTextareaCommit(() => {
-    if (!pending) return;
-    pending = false;
-    editor.form.profiles.find(item => item.id === originalProfile)!.professionalContext = 'Final pending professional background';
-    editor.flushSave();
+    if (!dirtyTextarea) return; dirtyTextarea = false; editor.form.professionalContext = 'Final pending background';
   });
   try {
-    editor.selectProfile(nextProfile);
-    assert.equal(editor.profileId, nextProfile);
-    assert.equal(owner.listTemplates().find(item => item.id === id)?.profiles.find(item => item.id === originalProfile)?.professionalContext, 'Final pending professional background');
+    let settled = false; const copying = editor.copy().then(() => { settled = true; }); await settle();
+    assert.equal(settled, false); assert.equal(copied.length, 0);
+    hold.release(); await copying;
+    assert.equal(saves[0]!.professionalContext, 'Final pending background');
+    assert.equal(copied.length, 1); assert.ok(copied[0]!.includes(cloudId)); assert.ok(!copied[0]!.includes('Final pending background'));
   } finally { unregister(); }
 });
 
-test('copy flushes pending profile drafts and includes the saved snapshot without publishing', async t => {
-  const { editor, owner, copied, rpcCalls, published } = fixture(t);
-  let pending = true;
-  const unregister = textareaCommit.registerTextareaCommit(() => {
-    if (!pending) return;
-    pending = false;
-    editor.form.researchInterests = 'Acoustic sensing from the pending textarea';
-  });
-  try {
-    await editor.copy('user');
-    assert.equal(copied.length, 1);
-    assert.equal(JSON.parse(copied[0]!).researchInterests, 'Acoustic sensing from the pending textarea');
-    assert.equal(owner.listTemplates().find(item => item.id === editor.selectedId)?.researchInterests, 'Acoustic sensing from the pending textarea');
-    assert.deepEqual(rpcCalls, []);
-    assert.equal(published.length, 0);
-  } finally { unregister(); }
+test('a newer uncommitted textarea input prevents pending navigation and clipboard publication', async t => {
+  const { editor, copied, holdSave } = await fixture(t); const hold = holdSave();
+  editor.form.userPrompt = 'Current commit'; const copying = editor.copy(); await settle();
+  editor.onDraftInput(); // The AutosaveTextarea still owns this newer text.
+  hold.release(); await copying;
+  assert.equal(copied.length, 0); assert.equal(editor.status, 'unsaved');
 });
 
-test('only explicit publication sends the committed private context to the cloud adapter', async t => {
-  const { editor, owner, published } = fixture(t);
-  editor.form.professionalContext = 'Private professional background';
-  assert.equal(editor.flushSave(), true);
-  assert.equal(published.length, 0);
-  editor.form.researchInterests = 'Interest added just before publication';
-  await editor.publish();
-  assert.equal(published.length, 1);
-  assert.equal(published[0]?.professionalContext, 'Private professional background');
-  assert.equal(published[0]?.researchInterests, 'Interest added just before publication');
-  assert.equal(editor.published, true);
-  assert.ok(owner.listTemplates().find(item => item.id === editor.selectedId)?.cloud);
-  editor.form.userPrompt = 'Changed strategy after publication';
-  assert.equal(editor.published, false);
-  assert.equal(editor.flushSave(), true);
-  assert.equal(published.length, 1, 'further commits do not republish changed context');
+test('save failures retain the draft and block profile navigation and copying; retry uses no read chain', async t => {
+  const { editor, saves, reads, copied, failCloud } = await fixture(t);
+  const profileId = editor.profileId; const next = editor.form.profiles.find(profile => profile.id !== profileId)!.id;
+  editor.form.userPrompt = 'Important draft'; failCloud(true);
+  assert.equal(await editor.flushSave(), false); assert.equal(editor.status, 'error');
+  await editor.selectProfile(next); assert.equal(editor.profileId, profileId);
+  await editor.copy(); assert.equal(copied.length, 0);
+  failCloud(false); assert.equal(await editor.retrySave(), true, editor.error);
+  assert.equal(reads.length, 1); assert.equal(editor.status, 'saved');
+  assert.equal(saves.at(-1)!.userPrompt, 'Important draft');
 });
 
-test('publication reuses the existing saved search for an unlinked local workspace', async t => {
-  const { editor, owner, published, cloudSearches } = fixture(t);
-  const id = editor.selectedId;
-  const existing = { id: 'b0000000-0000-4000-8000-000000000001', revision: 5 };
-  cloudSearches.push(existing);
-  assert.equal(await editor.publish(), true);
-  assert.equal(published.length, 1);
-  assert.equal(published[0]!.cloud?.id, existing.id);
-  assert.equal(published[0]!.cloud?.revision, existing.revision);
-  assert.equal(editor.selectedId, id);
-  assert.equal(owner.listTemplates().length, 1);
+test('local failures retain the editor without sending a cloud save', async t => {
+  const { editor, saves, failWrites } = await fixture(t);
+  editor.form.professionalContext = 'Private draft'; failWrites(true);
+  assert.equal(await editor.flushTextareas(), false);
+  assert.equal(saves.length, 0); assert.match(editor.error, /Storage full/);
+  assert.equal(recoverSearchDraft(ownerId)?.form.professionalContext, 'Private draft');
+  failWrites(false); assert.equal(await editor.flushSave(), true);
 });
 
-test('navigation flush waits for publication and saves newer typing without claiming it was published', async t => {
-  const { editor, owner, holdPublication } = fixture(t);
-  const release = holdPublication();
-  const publishing = editor.publish();
-  editor.form.userPrompt = 'New strategy typed while an older snapshot was publishing';
-  let settled = false;
-  const navigating = editor.flushTextareas().then(value => { settled = true; return value; });
-  await nextTick();
-  assert.equal(settled, false, 'navigation must wait for the active persistence layer');
-  release();
-  await publishing;
-  assert.equal(await navigating, true);
-  assert.equal(editor.published, false, 'the cloud reference belongs to the original snapshot');
-  assert.equal(owner.listTemplates().find(item => item.id === editor.selectedId)?.userPrompt, 'New strategy typed while an older snapshot was publishing');
+test('an old save response cannot overwrite a different account or revive after switching back', async t => {
+  const { editor, props, owner, holdSave } = await fixture(t); const hold = holdSave();
+  editor.form.userPrompt = 'Original account draft'; const saving = editor.flushSave(); await settle();
+  props.userId = otherOwnerId; await settle(); assert.notEqual(editor.form.userPrompt, 'Original account draft');
+  props.userId = ownerId; await settle(); hold.release(); await saving;
+  assert.equal(editor.form.userPrompt, 'Original account draft');
+  assert.equal(owner.listTemplates()[0]!.cloud, undefined, 'the stale response was not attached to the restored editor');
 });
 
-test('returning to an account cannot revive its stale publication response', async t => {
-  const { editor, owner, props, holdPublication } = fixture(t);
-  const id = editor.selectedId;
-  const release = holdPublication();
-  const publishing = editor.publish();
-  props.userId = 'other'; await nextTick();
-  props.userId = 'owner'; await nextTick();
-  release(); await publishing;
-  assert.equal(editor.selectedId, id);
-  assert.equal(editor.published, false);
-  assert.equal(owner.listTemplates().find(item => item.id === id)?.cloud, undefined);
+test('initial cloud hydration preserves edits entered while the initial read was pending', async t => {
+  const reading = gate(); const remote = clone(DEFAULT_SEARCH_TEMPLATES[0]!); remote.userPrompt = 'Remote strategy';
+  const { editor, saves } = await fixture(t, { readGate: reading, rows: [cloudRow(remote, 7)], emptyLocal: true });
+  editor.form.userPrompt = 'My new strategy'; editor.onDraftInput(); const saving = editor.flushSave();
+  reading.release(); assert.equal(await saving, true, editor.error);
+  assert.equal(editor.form.userPrompt, 'My new strategy');
+  assert.equal(saves[0]!.cloud?.id, cloudId); assert.equal(saves[0]!.cloud?.revision, 7);
 });
 
-test('publication retains its cloud binding when local persistence fails and blocks pending navigation', async t => {
-  const { editor, owner, holdPublication, fail } = fixture(t);
-  const release = holdPublication();
-  const publishing = editor.publish();
-  const navigating = editor.flushTextareas();
-  fail(true); release();
-  assert.equal(await publishing, false);
-  assert.equal(await navigating, false);
-  assert.equal(editor.status, 'error');
-  assert.ok(editor.form.cloud, 'a successful cloud write must retain its reference for local-save retry');
-  assert.equal(owner.listTemplates().find(item => item.id === editor.selectedId)?.cloud, undefined);
-  const cloudId = editor.form.cloud.id;
-  fail(false);
-  assert.equal(editor.flushSave(), true);
-  assert.equal(owner.listTemplates().find(item => item.id === editor.selectedId)?.cloud?.id, cloudId);
-});
-
-test('pending publication blocks replacing or removing profiles until its cloud binding is saved', async t => {
-  const { editor, owner, holdPublication } = fixture(t);
-  const id = editor.selectedId;
-  const profileId = editor.profileId;
-  const nextProfile = editor.form.profiles.find(item => item.id !== profileId)!.id;
-  const initialCount = editor.form.profiles.length;
-  const release = holdPublication();
-  const publishing = editor.publish();
-  editor.selectProfile(nextProfile); editor.addProfile(); editor.removeProfile();
-  assert.equal(editor.selectedId, id);
-  assert.equal(editor.profileId, profileId);
-  assert.equal(editor.form.profiles.length, initialCount);
-  release(); await publishing;
-  editor.selectProfile(nextProfile);
-  assert.equal(editor.profileId, nextProfile);
-  assert.ok(owner.listTemplates().find(item => item.id === id)?.cloud);
-});
-
-test('failed saves retain the draft and block profile changes and copying until retry', async t => {
-  const { editor, owner, copied, fail } = fixture(t);
-  const id = editor.selectedId;
-  const profileId = editor.profileId;
-  const nextProfile = editor.form.profiles.find(item => item.id !== profileId)!.id;
-  editor.form.userPrompt = 'Important unsaved search strategy';
-  fail(true);
-  assert.equal(editor.flushSave(), false);
-  assert.equal(editor.status, 'error');
-  assert.match(editor.error, /Storage full/);
-  editor.selectProfile(nextProfile);
-  assert.equal(editor.profileId, profileId);
-  assert.equal(editor.selectedId, id);
-  assert.equal(editor.form.userPrompt, 'Important unsaved search strategy');
-  await editor.copy('user');
-  assert.deepEqual(copied, [], 'failed persistence must leave the clipboard untouched');
-  assert.notEqual(owner.listTemplates().find(item => item.id === id)?.userPrompt, editor.form.userPrompt);
-  fail(false);
-  assert.equal(editor.flushSave(), true);
-  assert.equal(owner.listTemplates().find(item => item.id === id)?.userPrompt, 'Important unsaved search strategy');
-});
-
-test('conflicting edits from another tab keep the saved version and local draft intact', t => {
-  const { editor, owner } = fixture(t);
-  const original = owner.listTemplates().find(item => item.id === editor.selectedId)!;
-  owner.saveTemplate({ ...original, researchInterests: 'Interests saved in another tab' });
-  editor.form.researchInterests = 'Conflicting local interests';
-  assert.equal(editor.flushSave(), false);
-  assert.match(editor.error, /another tab/i);
-  editor.selectProfile(editor.form.profiles.find(item => item.id !== editor.profileId)!.id);
-  assert.equal(editor.selectedId, original.id);
-  assert.equal(editor.form.researchInterests, 'Conflicting local interests');
-  assert.equal(owner.listTemplates().find(item => item.id === original.id)?.researchInterests, 'Interests saved in another tab');
-});
-
-test('a failed private draft recovers only for its original account after switching away and back', async t => {
-  const { editor, owner, props, fail } = fixture(t);
-  const id = editor.selectedId;
-  editor.form.professionalContext = 'Private unsaved professional context';
-  fail(true);
-  assert.equal(editor.flushSave(), false);
-  props.userId = 'other'; await nextTick();
-  assert.notEqual(editor.form.professionalContext, 'Private unsaved professional context');
-  props.userId = 'owner'; await nextTick();
-  assert.equal(editor.selectedId, id);
-  assert.equal(editor.form.professionalContext, 'Private unsaved professional context');
-  assert.equal(editor.status, 'unsaved');
-  fail(false);
-  assert.equal(editor.flushSave(), true);
-  assert.equal(owner.listTemplates().find(item => item.id === id)?.professionalContext, 'Private unsaved professional context');
-  assert.equal(recoverSearchDraft('owner'), null, 'successful saving clears the recovered version');
-});
-
-test('switching accounts cancels a pending import and leaves imports available for the new account', async t => {
-  const { editor, owner, props } = fixture(t);
-  const library = owner.exportTemplates();
-  const pending = pendingImport();
-  const importing = editor.importLibrary(pending.event);
-  assert.equal(editor.importing, true);
-  props.userId = 'other'; await nextTick();
-  assert.equal(editor.importing, false, 'a cancelled account import must release its busy state');
-  pending.resolve(library); await importing;
-  assert.equal(createSearchTemplateRepository(localStorage, 'other').listTemplates().length, 1);
-  const retry = pendingImport();
-  const latest = editor.importLibrary(retry.event);
-  retry.resolve(library); await latest;
-  assert.equal(createSearchTemplateRepository(localStorage, 'other').listTemplates().length, 1);
-  assert.equal(editor.form.profiles.length, 2, 'import restores the single search rather than appending another instance');
-});
-
-test('closing the editor cancels a file read and cannot import into the old account afterward', async t => {
-  const { editor, owner, unmount } = fixture(t);
-  const library = owner.exportTemplates();
-  const count = owner.listTemplates().length;
-  const pending = pendingImport();
-  const importing = editor.importLibrary(pending.event);
-  unmount(); pending.resolve(library); await importing;
-  assert.equal(owner.listTemplates().length, count);
+test('profile switching waits for autosave and disabled profiles remain part of the saved editor', async t => {
+  const { editor, saves } = await fixture(t);
+  const next = editor.form.profiles.find(profile => profile.id !== editor.profileId)!.id;
+  editor.form.profiles[0]!.enabled = false;
+  await editor.selectProfile(next);
+  assert.equal(editor.profileId, next, editor.error); assert.equal(saves[0]!.profiles[0]!.enabled, false);
+  assert.equal(editor.status, 'saved');
 });

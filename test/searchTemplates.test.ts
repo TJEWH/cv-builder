@@ -3,8 +3,8 @@ import test from 'node:test';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { SearchCloudTemplate } from '../src/searchTypes';
 import { createSearchProfile, createSearchTemplate, createSearchTemplateRepository, DEFAULT_SEARCH_TEMPLATES, readSearchTemplate, searchTemplateContentKey } from '../src/composables/useSearchTemplates';
-import { buildDailySearchPrompt, buildSearchSystemPrompt, buildSearchUserPrompt, isSearchTemplatePublished, searchProfileLetterContext } from '../src/composables/searchPrompts';
-import { importCloudSearchTemplate, publishSearchTemplate, searchTemplateCloudCriteria, searchTemplateCloudSchedule } from '../src/composables/searchTemplateCloud';
+import { buildReplaceSearchPrompt, buildSearchSystemPrompt, buildSearchUserPrompt, isSearchTemplateSaved, searchProfileLetterContext } from '../src/composables/searchPrompts';
+import { importCloudSearchTemplate, saveSearchTemplate, searchTemplateCloudCriteria, searchTemplateCloudSchedule } from '../src/composables/searchTemplateCloud';
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 function memory() {
@@ -53,7 +53,7 @@ test('import restores the single search while preserving only its own existing s
   assert.equal(restored.length, 1); assert.equal(restored[0]!.id, original.id);
   assert.deepEqual(restored[0]!.cloud, original.cloud, 'an imported account or task reference must never replace the existing local binding');
   assert.equal(restored[0]!.name, 'Restored research direction');
-  assert.equal(isSearchTemplatePublished(restored[0]!), false);
+  assert.equal(isSearchTemplateSaved(restored[0]!), false);
   assert.equal(repository.listTemplates().length, 1);
 });
 
@@ -138,14 +138,14 @@ test('English editable user prompts include enabled profiles, excluding disabled
   assert.ok(user.includes('Acoustic and physical sensing')); assert.ok(user.includes('A match to any enabled profile'));
   assert.ok(!user.includes('PRIVATE DISABLED CONTEXT')); assert.ok(!JSON.stringify(criteria).includes('PRIVATE DISABLED CONTEXT'));
   original.profiles.forEach(profile => { profile.enabled = false; });
-  assert.throws(() => searchTemplateCloudCriteria(original), /Enable at least one/);
+  assert.ok(searchTemplateCloudCriteria(original).opportunityTypes.includes('No professional profiles are enabled'));
 });
 
-test('separately copied system and user prompts bind the exact published search or block execution', () => {
+test('stored system and user prompts bind the exact saved search or block execution', () => {
   const original = template();
   for (const prompt of [buildSearchSystemPrompt(original), buildSearchUserPrompt(original)]) {
     assert.ok(prompt.includes('EXECUTION NOT READY'));
-    assert.ok(prompt.includes('Publish the current template'));
+    assert.ok(prompt.includes('Save the current meta search'));
     assert.ok(prompt.includes('Do not guess a UUID'));
   }
   original.cloud = { id: cloudId, revision: 1, contentKey: searchTemplateContentKey(original) };
@@ -156,96 +156,103 @@ test('separately copied system and user prompts bind the exact published search 
     assert.ok(prompt.includes('current run.definition.criteria'));
     assert.ok(prompt.includes('Never guess another search identity'));
   }
-  original.userPrompt += ' Unpublished change.';
+  original.userPrompt += ' Unsaved change.';
   assert.ok(buildSearchUserPrompt(original).includes('EXECUTION NOT READY'));
   assert.ok(buildSearchSystemPrompt(original).includes('EXECUTION NOT READY'));
 });
 
-test('published criteria fit existing whitelist and preserve full context without silent truncation', () => {
+test('saved criteria fit existing whitelist and preserve full context without silent truncation', () => {
   const original = { ...template(), professionalContext: 'My confirmed projects.', researchInterests: 'Sensor fusion.' };
   const criteria = searchTemplateCloudCriteria(original);
   assert.deepEqual(Object.keys(criteria).sort(), ['opportunityTypes', 'topicsAndMethods', 'locationsAndLanguages', 'fundingAndConditions', 'fitAndExclusions', 'sourcesAndQueries', 'researchAndReporting'].sort());
   assert.ok(criteria.fitAndExclusions.includes('My confirmed projects.'));
   const oversized = { ...original, professionalContext: 'x'.repeat(12000), profiles: [{ ...original.profiles[0]!, professionalContext: 'x'.repeat(12000) }] };
-  assert.throws(() => searchTemplateCloudCriteria(oversized), /Shorten it before publishing/);
+  assert.throws(() => searchTemplateCloudCriteria(oversized), /Shorten it before saving/);
 });
 
-test('daily prompt requires current explicit publication and uses dynamic bootstrap for every recurrence', () => {
-  const original = template(); assert.throws(() => buildDailySearchPrompt(original), /Publish the current/);
+test('replacement instruction is short and reads the full saved prompt without search or setup chains', () => {
+  const original = template(); assert.throws(() => buildReplaceSearchPrompt(original), /Save the current/);
   original.cloud = { id: cloudId, revision: 1, contentKey: searchTemplateContentKey(original) };
-  assert.equal(isSearchTemplatePublished(original), true);
-  const prompt = buildDailySearchPrompt(original);
-  for (const required of [cloudId, '09:00', 'Europe/Tirane', 'claim_opportunity_search_schedule', 'confirm_opportunity_search_schedule', 'claimed=true', 'schedule_binding', 'existing task', 'current user prompt', 'without the corresponding successful tool receipt']) assert.ok(prompt.includes(required), required);
-  assert.ok(!prompt.includes(original.profiles[0]!.userPrompt), 'recurring tasks must read saved criteria rather than stale strategy snapshots');
-  original.userPrompt += ' New preference.'; assert.equal(isSearchTemplatePublished(original), false);
-  assert.throws(() => buildDailySearchPrompt(original), /Publish the current/);
+  const prompt = buildReplaceSearchPrompt(original);
+  assert.ok(prompt.length < 1400);
+  assert.equal((prompt.match(/SELECT /g) || []).length, 1);
+  for (const expected of [cloudId, 'ehkfzvjgesomteqpwrwa', "meta_search - 'editor'", 'recurringPrompt', 'update the bound task', 'disable superseded', 'preserving unrelated', 'If active=false']) assert.ok(prompt.includes(expected), expected);
+  for (const forbidden of ['begin_opportunity_search', 'claim_opportunity_search_schedule', 'confirm_opportunity_search_schedule', 'ONE-TIME SETUP', original.profiles[0]!.userPrompt]) assert.ok(!prompt.includes(forbidden), forbidden);
+  original.userPrompt += ' Unsaved change.';
+  assert.throws(() => buildReplaceSearchPrompt(original), /Save the current/);
 });
 
-test('cloud imports preserve profile context and flag legacy schedule conversion until explicit publication', () => {
+test('cloud imports preserve profile context and require a full prompt save for legacy records', () => {
   const original = template();
   const row: SearchCloudTemplate = { id: cloudId, user_id: owner, name: original.name, criteria: searchTemplateCloudCriteria(original), schedule: searchTemplateCloudSchedule(original), revision: 8, created_at: original.updatedAt, updated_at: original.updatedAt };
   const imported = importCloudSearchTemplate(row);
-  assert.deepEqual(imported.profiles, original.profiles); assert.equal(isSearchTemplatePublished(imported), true);
+  assert.deepEqual(imported.profiles, original.profiles); assert.equal(isSearchTemplateSaved(imported), false, 'legacy rows require a complete prompt save');
   const legacy = importCloudSearchTemplate({ ...row, criteria: { ...row.criteria, fitAndExclusions: 'Strong technical fit.' }, schedule: { ...row.schedule, frequency: 'weekly', weekdays: [1] } });
   assert.equal(legacy.dailyTime, row.schedule.time); assert.equal(legacy.timezone, row.schedule.timezone);
-  assert.ok(legacy.profiles[0]!.userPrompt.includes('Strong technical fit.')); assert.equal(isSearchTemplatePublished(legacy), false);
+  assert.ok(legacy.profiles[0]!.userPrompt.includes('Strong technical fit.')); assert.equal(isSearchTemplateSaved(legacy), false);
   const oldContract = importCloudSearchTemplate({ ...row, criteria: { ...row.criteria, fundingAndConditions: 'Report with 48 hours remaining.' } });
-  assert.equal(isSearchTemplatePublished(oldContract), false, 'an older fixed deadline rule requires explicit republication');
+  assert.equal(isSearchTemplateSaved(oldContract), false, 'an older fixed deadline rule requires explicit republication');
 });
 
-test('cloud publication verifies owner and separate read-back and uses a stable identity on retries', async () => {
-  const original = template(); const savedIds: string[] = []; let saved: SearchCloudTemplate | null = null;
+function saveClient(options: { loseFirstResponse?: boolean; wrongOwner?: boolean; conflict?: boolean } = {}) {
+  const calls: Array<Record<string, unknown>> = [];
+  let saved: SearchCloudTemplate | null = null;
   const client = {
-    rpc: async (_name: string, args: Record<string, unknown>) => {
-      savedIds.push(String(args.p_id));
-      saved = { id: String(args.p_id), user_id: owner, name: String(args.p_name), criteria: args.p_criteria as SearchCloudTemplate['criteria'], schedule: args.p_schedule as SearchCloudTemplate['schedule'], revision: 1, created_at: original.updatedAt, updated_at: original.updatedAt };
+    from: () => { throw new Error('Autosave must not issue a read or a verification chain'); },
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      assert.equal(name, 'save_opportunity_meta_search'); calls.push(structuredClone(args));
+      if (options.conflict) return { data: null, error: new Error('Search changed elsewhere. Reload before saving.') };
+      saved = { id: String(args.p_id), user_id: options.wrongOwner ? 'another-owner' : owner, name: String(args.p_name),
+        criteria: args.p_criteria as SearchCloudTemplate['criteria'], schedule: args.p_schedule as SearchCloudTemplate['schedule'],
+        meta_search: args.p_meta_search as SearchCloudTemplate['meta_search'], revision: Number(args.p_expected_revision) + 1,
+        created_at: template().updatedAt, updated_at: template().updatedAt };
+      if (options.loseFirstResponse && calls.length === 1) return { data: null, error: new Error('Response lost after commit') };
       return { data: saved, error: null };
     },
-    from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: saved, error: null }), single: async () => ({ data: saved, error: null }) }) }) }) }),
   } as unknown as SupabaseClient;
-  const first = await publishSearchTemplate(client, owner, original); const retry = await publishSearchTemplate(client, owner, original);
-  assert.equal(savedIds.length, 1, 'an exact next-revision retry recovers the verified saved row without writing again');
-  assert.equal(savedIds[0], retry.cloud!.id); assert.equal(isSearchTemplatePublished(first), true); assert.deepEqual(first.cloud, retry.cloud);
-});
+  return { client, calls, row: () => saved! };
+}
 
-test('cloud publication never marks an unverified or other-owner response as published', async () => {
+test('a single save RPC acknowledges the full prompt and preserves disabled profiles for editing', async () => {
   const original = template();
-  const invalidClient = { from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }) }),
-    rpc: async () => ({ data: { id: cloudId, user_id: 'other', revision: 1 }, error: null }) } as unknown as SupabaseClient;
-  await assert.rejects(publishSearchTemplate(invalidClient, owner, original), /signed-in owner/);
-  assert.equal(original.cloud, undefined);
+  original.profiles.push({ ...createSearchProfile('Disabled direction'), enabled: false, professionalContext: 'Private disabled profile' });
+  const fixture = saveClient(); const saved = await saveSearchTemplate(fixture.client, owner, original);
+  assert.equal(fixture.calls.length, 1);
+  assert.equal(isSearchTemplateSaved(saved), true);
+  const document = fixture.row().meta_search!;
+  assert.equal(document.version, 1);
+  assert.ok(document.systemPrompt.includes('72 hours'));
+  assert.ok(document.recurringPrompt.includes('begin_opportunity_search'));
+  assert.ok(!document.recurringPrompt.includes('claim_opportunity_search_schedule'));
+  assert.equal(document.editor.profiles.length, 2);
+  assert.ok(!document.userPrompt.includes('Private disabled profile'));
+  const restored = importCloudSearchTemplate(fixture.row());
+  assert.equal(restored.profiles[1]!.professionalContext, 'Private disabled profile');
+  assert.equal(isSearchTemplateSaved(restored), true);
 });
 
-test('cloud retries recover a successful write after failed verification without another save or revision', async () => {
-  const original = template(); let saved: SearchCloudTemplate | null = null; let writes = 0; let verificationFails = true;
-  const client = {
-    rpc: async (_name: string, args: Record<string, unknown>) => {
-      writes++;
-      saved = { id: String(args.p_id), user_id: owner, name: String(args.p_name), criteria: args.p_criteria as SearchCloudTemplate['criteria'], schedule: args.p_schedule as SearchCloudTemplate['schedule'], revision: 1, created_at: original.updatedAt, updated_at: original.updatedAt };
-      return { data: saved, error: null };
-    },
-    from: () => ({ select: () => ({ eq: () => ({ eq: () => ({
-      maybeSingle: async () => ({ data: saved, error: null }),
-      single: async () => ({ data: verificationFails ? null : saved, error: verificationFails ? new Error('Read-back connection lost') : null }),
-    }) }) }) }),
-  } as unknown as SupabaseClient;
-  await assert.rejects(publishSearchTemplate(client, owner, original), /connection lost/);
-  assert.equal(original.cloud, undefined);
-  verificationFails = false;
-  const recovered = await publishSearchTemplate(client, owner, original);
-  assert.equal(writes, 1); assert.equal(recovered.cloud!.revision, 1); assert.equal(isSearchTemplatePublished(recovered), true);
+test('lost-response retries use the same ID, expected revision and exact payload in one RPC each', async () => {
+  const fixture = saveClient({ loseFirstResponse: true }); const original = template();
+  await assert.rejects(saveSearchTemplate(fixture.client, owner, original), /Response lost/);
+  const saved = await saveSearchTemplate(fixture.client, owner, original);
+  assert.equal(fixture.calls.length, 2);
+  assert.deepEqual(fixture.calls[0], fixture.calls[1]);
+  assert.equal(saved.cloud!.revision, 1);
 });
 
-test('cloud retry recovery rejects different content and revisions beyond the exact intended next revision', async () => {
-  const original = template(); original.cloud = { id: cloudId, revision: 4, contentKey: '' };
-  let saved: SearchCloudTemplate = { id: cloudId, user_id: owner, name: original.name, criteria: searchTemplateCloudCriteria(original), schedule: searchTemplateCloudSchedule(original), revision: 6, created_at: original.updatedAt, updated_at: original.updatedAt };
-  let writes = 0;
-  const client = {
-    rpc: async () => { writes++; return { data: null, error: null }; },
-    from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: saved, error: null }) }) }) }) }),
-  } as unknown as SupabaseClient;
-  await assert.rejects(publishSearchTemplate(client, owner, original), /changed elsewhere/);
-  saved = { ...saved, revision: 5, criteria: { ...saved.criteria, researchAndReporting: 'Another tab’s strategy' } };
-  await assert.rejects(publishSearchTemplate(client, owner, original), /changed elsewhere/);
-  assert.equal(writes, 0); assert.equal(original.cloud.revision, 4);
+test('save rejects wrong-owner acknowledgments and surfaces revision conflicts without additional requests', async () => {
+  const original = template(); const wrong = saveClient({ wrongOwner: true });
+  await assert.rejects(saveSearchTemplate(wrong.client, owner, original), /signed-in owner/);
+  assert.equal(wrong.calls.length, 1);
+  const conflict = saveClient({ conflict: true });
+  await assert.rejects(saveSearchTemplate(conflict.client, owner, original), /changed elsewhere/);
+  assert.equal(conflict.calls.length, 1); assert.equal(original.cloud, undefined);
+});
+
+test('disabling every profile saves the inactive search and produces a replacement that disables its task', async () => {
+  const original = template(); original.profiles.forEach(profile => { profile.enabled = false; });
+  const fixture = saveClient(); const saved = await saveSearchTemplate(fixture.client, owner, original);
+  assert.equal(fixture.row().meta_search!.active, false);
+  assert.ok(fixture.row().meta_search!.recurringPrompt.includes('Do not run a search'));
+  assert.ok(buildReplaceSearchPrompt(saved).includes('disable the task instead'));
 });

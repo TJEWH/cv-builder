@@ -34,7 +34,6 @@ export interface Opportunity {
   supervisor_top_papers: unknown[];
   contact: unknown;
   topics: string[];
-  duration_months: number | null;
   salary_text: string | null;
   research_career_potential: string | null;
   rd_career_potential: string | null;

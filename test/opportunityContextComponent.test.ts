@@ -194,3 +194,29 @@ test('required/optional table rows keep their saved checkboxes when completion i
   assert.equal(inputs.filter(node => node.props.checked).length, 2);
   assert.ok(inputs.every(node => node.props.disabled));
 });
+
+test('canonical opportunity renders each person once, all checklist statuses, and no storage identities', async t => {
+  const { canonicalOpportunityFixture, canonicalChecklistStatuses } = await import('./fixtures/canonicalOpportunity');
+  const fixture = canonicalOpportunityFixture();
+  for (const lang of ['en', 'de']) {
+    const view = mountContext(undefined, { context: fixture, lang, checklist: true });
+    t.after(view.unmount);
+    const text = (node: HostNode): string => [node.text || '', ...node.children.map(text)].join(' ');
+    const tables = view.nodes.filter(node => node.tag === 'table');
+    const rows = tables.flatMap(node => node.children.filter(child => child.tag === 'tbody').flatMap(body => body.children));
+    for (const field of ['Qualification', 'Document']) for (const status of canonicalChecklistStatuses) {
+      assert.equal(rows.filter(row => text(row).includes(`${field} ${status}`)).length, 2, `${field} ${status} appears once per view`);
+    }
+    const unspecified = rows.filter(row => text(row).includes('Document unspecified'));
+    assert.ok(unspecified.every(row => text(row.children[1]).includes(lang === 'de' ? 'Nicht angegeben' : 'Not specified')));
+    const inputs = view.nodes.filter(node => node.tag === 'input');
+    assert.equal(inputs.length, 32, 'Only the 8 requirements and 8 documents become tasks in each of two views');
+    assert.ok(!inputs.some(node => String(node.props['aria-label']).includes('Portal submission')));
+    const names = view.nodes.filter(node => node.text === 'Dr. Alex Example: ');
+    assert.equal(names.length, 2, 'The contact is not repeated for their email and source URL');
+    assert.equal(view.nodes.filter(node => node.tag === 'a' && node.props.href === 'mailto:alex@example.invalid').length, 2);
+    const rendered = JSON.stringify(view.nodes.map(node => ({ text: node.text, props: node.props })));
+    for (const hidden of ['INTERNAL-', fixture.id, 'Entity ID', 'Source ID', 'Researcher ID', 'Record format version']) assert.ok(!rendered.includes(hidden), hidden);
+    assert.ok(rendered.includes('PUBLIC-VACANCY-2027'));
+  }
+});

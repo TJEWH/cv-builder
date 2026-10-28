@@ -1,5 +1,5 @@
 import type { SearchTemplate } from '../searchTypes';
-import { readSearchTemplate } from './useSearchTemplates';
+import { readSearchTemplate, searchTemplateContentKey } from './useSearchTemplates';
 
 interface Draft { form: SearchTemplate; baseline: SearchTemplate | null }
 const drafts = new Map<string, Draft>();
@@ -24,9 +24,10 @@ export function recoverSearchDraft(owner: string): Draft | null {
     return clone(draft);
   } catch { return null; }
 }
-export function clearSearchDraft(owner: string, id: string) {
+export function clearSearchDraft(owner: string, id: string, expectedKey?: string) {
   const draft = recoverSearchDraft(owner);
   if (draft?.form.id !== id) return;
+  if (expectedKey !== undefined && searchTemplateContentKey(draft.form) !== expectedKey) return;
   drafts.delete(owner);
   try { sessionStorage.removeItem(key(owner)); } catch { /* Optional recovery storage. */ }
 }
