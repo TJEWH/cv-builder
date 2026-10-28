@@ -42,6 +42,10 @@ import { useDesktopSidebar } from '../composables/desktopSidebar';
 import AutosaveTextarea from './AutosaveTextarea.vue';
 import { commitPendingTextareas } from '../composables/textareaCommit';
 import { copyPreparedText } from '../composables/preparedClipboard';
+import type { SearchTemplate } from '../searchTypes';
+import { createSearchTemplateRepository } from '../composables/useSearchTemplates';
+import { searchProfileLetterContext } from '../composables/searchPrompts';
+import { letterTemplateWithSearchProfile } from '../composables/searchLetterContext';
 
 const props = withDefaults(defineProps<{
   projectId?: string; active?: boolean; checklistSaving?: boolean;
@@ -68,6 +72,7 @@ const tab = ref<Stage>(applicationStage(props.application));
 const record = ref<ApplicationCvRecord | null>(null);
 const letter = ref<ApplicationLetter | null>(null);
 const templates = ref<LetterTemplate[]>([]);
+const searchTemplates = ref<SearchTemplate[]>([]);
 const approvals = ref<RefinementApprovals>({ cv: null, letter: null });
 const variantName = ref('');
 const savedVariant = ref<{ id: string; name: string; revision: string; previousIds?: string[] } | null>(null);
@@ -202,6 +207,7 @@ const letterPreview = ref<InstanceType<typeof MotivationLetterPreview> | null>(n
 const documentReadiness = ref({ included: 0, missing: 0 });
 const repository = createRefinementRepository(props.client, () => props.userId);
 const letterRepository = createLetterRepository(localStorage, props.userId);
+const searchRepository = createSearchTemplateRepository(localStorage, props.userId);
 let disposed = false;
 let loadingCloud: Promise<void> | null = null;
 let localReadError = '';
@@ -277,13 +283,26 @@ try {
 const selectedCvId = computed(() => record.value?.variantId || record.value?.baseId || '');
 const preparationVariants = computed(() => props.configurations.filter(isMainCvVariant));
 const selectedTemplate = computed(() => letter.value?.templateSnapshot || templates.value.find(item => item.id === letter.value?.templateId) || DEFAULT_LETTER_TEMPLATES[0]!);
+const effectiveLetterTemplate = computed(() => letterTemplateWithSearchProfile(selectedTemplate.value, letter.value?.searchProfile));
+const searchProfileOptions = computed(() => searchTemplates.value.flatMap(template => [
+  { id: JSON.stringify([template.id]), name: template.name + ' · ' + text('Shared context', 'Gemeinsamer Kontext'), template, profileId: undefined as string | undefined },
+  ...template.profiles.map(profile => ({
+    id: JSON.stringify([template.id, profile.id]), name: template.name + ' · ' + profile.name, template, profileId: profile.id as string | undefined,
+  })),
+]));
+const selectedSearchProfileId = computed(() => {
+  const snapshot = letter.value?.searchProfile;
+  if (!snapshot) return '';
+  return searchProfileOptions.value.find(option => option.template.id === snapshot.templateId && option.profileId === snapshot.profileId
+    && option.template.revision === snapshot.revision)?.id || 'saved';
+});
 const effectiveLetterFormatting = computed(() => resolveLetterFormatting(letter.value?.formatting, selectedTemplate.value.formatting));
 const missingLetterTemplate = computed(() => !!letter.value && !letter.value.templateSnapshot);
 const selectedTemplateId = computed(() => {
   const template = templates.value.find(item => item.id === letter.value?.templateId);
   return template && template.revision === letter.value?.templateSnapshot?.revision ? template.id : '';
 });
-const effectiveSettings = computed(() => resolveRefinementSettings(selectedTemplate.value, letter.value));
+const effectiveSettings = computed(() => resolveRefinementSettings(effectiveLetterTemplate.value, letter.value));
 const setup = computed(() => effectiveSettings.value.setup);
 const letterText = computed(() => serializeRefinementDraft(letter.value?.working).text);
 const letterCvState = computed(() => {
@@ -292,7 +311,7 @@ const letterCvState = computed(() => {
   const source = cv.letterHeaderSource?.sourceCvId === selectedCvId.value ? cv.letterHeaderSource : undefined;
   return resolveApplicationLetterState(cv.state, cv.baseState, source);
 });
-const context = computed(() => letterContextVersion(props.application, letterCvState.value, selectedTemplate.value, setup.value.language, letter.value?.instructions || '', setup.value.maxWords, letter.value?.formatting));
+const context = computed(() => letterContextVersion(props.application, letterCvState.value, effectiveLetterTemplate.value, setup.value.language, letter.value?.instructions || '', setup.value.maxWords, letter.value?.formatting));
 function documentSignature(scope: DocumentScope, cvState = record.value?.state) {
   return scope === 'cv'
     ? refinementSignature([cvState, record.value?.variantId || record.value?.baseId, props.application.context_json])
@@ -742,13 +761,17 @@ function refreshOnFocus() {
 watch(() => props.active, active => { if (active) void syncRefinement(true); });
 watch(tab, stage => { if (stage === 'refinement') refreshOnFocus(); });
 function reloadTemplates() { try { templates.value = letterRepository.listTemplates(); } catch (cause) { report(cause); } }
+function reloadSearchTemplates() { try { searchTemplates.value = searchRepository.listTemplates(); } catch (cause) { report(cause); } }
 onMounted(() => {
   if (!props.application.workflow_stage) emit('change-stage', tab.value);
   void syncRefinement(true);
   window.addEventListener('focus', refreshOnFocus);
   window.addEventListener('cv-letter-templates-updated', reloadTemplates);
+  reloadSearchTemplates();
+  window.addEventListener('cv-search-templates-updated', reloadSearchTemplates);
+  window.addEventListener('focus', reloadSearchTemplates);
 });
-onBeforeUnmount(() => { disposed = true; window.removeEventListener('focus', refreshOnFocus); window.removeEventListener('cv-letter-templates-updated', reloadTemplates); });
+onBeforeUnmount(() => { disposed = true; window.removeEventListener('focus', refreshOnFocus); window.removeEventListener('cv-letter-templates-updated', reloadTemplates); window.removeEventListener('cv-search-templates-updated', reloadSearchTemplates); window.removeEventListener('focus', reloadSearchTemplates); });
 
 async function publishCurrentCv() {
   if (!record.value) throw new Error(text('Select a CV template first.', 'Zuerst eine CV-Vorlage auswählen.'));
@@ -797,12 +820,41 @@ async function selectLetterTemplate(id: string) {
   await run(async () => {
     await refreshCloud();
     if (disposed || letterSelectionLocked.value) return;
+    letterTemplateWithSearchProfile(template, letter.value?.searchProfile);
     if (letter.value) letter.value = selectApplicationLetterTemplate(letter.value, template);
     else letter.value = createApplicationLetter(props.userId, props.application.id, template, context.value, template.language);
     approvals.value.letter = null; persist();
     if (record.value) await saveSetup();
     notice.value = text('Letter template selected for this application.', 'Briefvorlage für diese Bewerbung ausgewählt.');
   });
+}
+async function selectSearchProfile(id: string) {
+  if (!letter.value || missingLetterTemplate.value || preparationBusy.value || letterSelectionLocked.value || letterApproved.value || reviewActive.value || !await flushTextareas()) return;
+  const option = searchProfileOptions.value.find(item => item.id === id);
+  if (id && !option) return;
+  await run(async () => {
+    await refreshCloud();
+    if (disposed || !letter.value || missingLetterTemplate.value || letterSelectionLocked.value || letterApproved.value || reviewActive.value) return;
+    const profile = option && option.template.profiles.find(item => item.id === option.profileId);
+    const snapshot = option ? {
+      templateId: option.template.id, templateName: option.template.name, revision: option.template.revision,
+      ...(profile ? { profileId: profile.id, profileName: profile.name } : {}), capturedAt: new Date().toISOString(),
+      ...searchProfileLetterContext(option.template, option.profileId),
+    } : undefined;
+    letterTemplateWithSearchProfile(selectedTemplate.value, snapshot);
+    const next = { ...clone(letter.value), finalRevisionId: null, updatedAt: new Date().toISOString() };
+    if (snapshot) next.searchProfile = snapshot;
+    else delete next.searchProfile;
+    letter.value = next;
+    approvals.value.letter = null; persist();
+    if (saveError.value) throw new Error(saveError.value);
+    notice.value = text('Search-profile context saved locally for this letter. Review the privacy preview before publishing sources.', 'Suchprofil-Kontext lokal für diesen Brief gespeichert. Vor dem Veröffentlichen der Quellen die Datenschutzvorschau prüfen.');
+  });
+}
+async function selectSearchProfileFromInput(event: Event) {
+  const input = event.target as HTMLSelectElement;
+  await selectSearchProfile(input.value);
+  input.value = selectedSearchProfileId.value;
 }
 function updateLetter(value: string) { if (letter.value) letter.value = editLetter(letter.value, letterFromEditableText(value)); }
 function updateLetterFormatting(formatting?: LetterFormatting) {
@@ -1035,7 +1087,7 @@ function refreshUnrefinedSnapshots(opening: { cv: string; letter: string }) {
     const maxWords = previousTemplate && nextLetter.maxWords !== previousTemplate.maxWords ? nextLetter.maxWords : template.maxWords;
     nextLetter = { ...selectApplicationLetterTemplate(nextLetter, template), language, maxWords };
     const cv = nextRecord ? resolveApplicationLetterState(nextRecord.state, nextRecord.baseState, nextRecord.letterHeaderSource) : null;
-    nextLetter.workingContext = letterContextVersion(props.application, cv, template, language, nextLetter.instructions, maxWords, nextLetter.formatting);
+    nextLetter.workingContext = letterContextVersion(props.application, cv, letterTemplateWithSearchProfile(template, nextLetter.searchProfile), language, nextLetter.instructions, maxWords, nextLetter.formatting);
   }
   templates.value = latestTemplates;
   if (nextRecord === record.value && nextLetter === letter.value) return;
@@ -1248,7 +1300,7 @@ async function acceptSelectedChanges() {
     }
     let nextLetter = clone(letter.value!);
     if (local.request.scope === 'letter' && includeLetter && !letterApproved.value) {
-      const candidateContext = letterContextVersion(props.application, resolveApplicationLetterState(nextRecord.state, nextRecord.baseState, nextRecord.letterHeaderSource), selectedTemplate.value, setup.value.language, nextLetter.instructions, setup.value.maxWords, nextLetter.formatting);
+      const candidateContext = letterContextVersion(props.application, resolveApplicationLetterState(nextRecord.state, nextRecord.baseState, nextRecord.letterHeaderSource), effectiveLetterTemplate.value, setup.value.language, nextLetter.instructions, setup.value.maxWords, nextLetter.formatting);
       const incoming = addIncomingDraft(nextLetter, letterFromEditableText(result.letterText), candidateContext, { cloudDraftId: row.id, cloudContextId: row.request_id });
       const revision = incoming.revisions.find(item => item.cloudDraftId === row.id)!;
       if (refinementSignature(revision.content) !== refinementSignature(letterFromEditableText(result.letterText))) throw new Error('The saved incoming letter does not match this proposal. Restore its original local history before accepting.');
@@ -1375,8 +1427,9 @@ async function resetDocumentBeforeClearing(scope: DocumentScope) {
       } else template = templates.value.find(item => item.id === letter.value?.templateId);
     }
     if (!template) throw new Error(text('Restore the original letter template or its local refinement backup before clearing history.', 'Vor dem Löschen des Verlaufs die ursprüngliche Briefvorlage oder ihre lokale Überarbeitungssicherung wiederherstellen.'));
-    const templateContext = letterContextVersion(props.application, letterCvState.value, template, template.language, '', template.maxWords);
+    const templateContext = letterContextVersion(props.application, letterCvState.value, letterTemplateWithSearchProfile(template, letter.value.searchProfile), template.language, '', template.maxWords);
     nextLetter = createApplicationLetter(props.userId, props.application.id, template, templateContext);
+    if (letter.value.searchProfile) nextLetter.searchProfile = clone(letter.value.searchProfile);
     nextLetter.revisions = saveWorkingRevision(letter.value).revisions;
   }
   const previous = { record: record.value, letter: letter.value, approvals: approvals.value, parent: parentProposalIds.value[scope], selected: selectedProposalId.value, review: reviewActive.value, resetRequests: resetRequestIdsByScope.value[scope], pendingReset: pendingResetFeedback.value[scope], iterationSubmission: iterationFeedbackSubmission.value[scope], resetCvStateSignature: resetCvStateSignature.value };
@@ -1488,6 +1541,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
             <p v-if="!preparationVariants.length" class="app-hint hint">{{ text('Save a CV in CV Studio to select it here.', 'Einen CV im CV-Studio speichern, um ihn hier auszuwählen.') }}</p>
             <label>{{ text('Letter template', 'Briefvorlage') }}<select :value="selectedTemplateId" :aria-label="text('Letter template', 'Briefvorlage')" :disabled="preparationBusy || letterSelectionLocked" :aria-describedby="letterSelectionLocked ? `${application.id}-letter-selection-lock` : undefined" @change="selectLetterTemplate(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ letter && !missingLetterTemplate ? selectedTemplate.name + ' · ' + text('Saved revision', 'Gespeicherte Revision') + ' ' + selectedTemplate.revision : text('Choose a letter template…', 'Briefvorlage wählen…') }}</option><option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }}</option></select><small v-if="letterSelectionLocked" :id="`${application.id}-letter-selection-lock`" class="preparation-selection-hint">{{ text('Clear letter history in Refinement to choose another template.', 'Den Briefverlauf unter Überarbeitung löschen, um eine andere Vorlage zu wählen.') }}</small></label>
             <p v-if="missingLetterTemplate && !letterSelectionLocked" class="app-hint">{{ text('The original letter template is unavailable. Choose a template to continue; your existing letter is preserved.', 'Die ursprüngliche Briefvorlage ist nicht verfügbar. Zum Fortfahren eine Vorlage auswählen; der bestehende Brief bleibt erhalten.') }}</p>
+            <label v-if="letter">{{ text('Search profile for this letter', 'Suchprofil für diesen Brief') }}<select :value="selectedSearchProfileId" :disabled="missingLetterTemplate || preparationBusy || letterSelectionLocked || letterApproved || reviewActive" :aria-describedby="`${application.id}-search-profile-help`" @change="selectSearchProfileFromInput"><option value="">{{ text('No search profile', 'Kein Suchprofil') }}</option><option v-if="selectedSearchProfileId === 'saved'" value="saved" disabled>{{ letter.searchProfile?.templateName }}{{ letter.searchProfile?.profileName ? ' · ' + letter.searchProfile.profileName : '' }} · {{ text('Saved application copy', 'Gespeicherte Bewerbungskopie') }}</option><option v-for="option in searchProfileOptions" :key="option.id" :value="option.id">{{ option.name }}</option></select><small :id="`${application.id}-search-profile-help`" class="preparation-selection-hint">{{ text('Reuse professional context and research interests from a meta search. This letter keeps a local copy; select again to use later changes. Interests remain aspirations, not qualifications.', 'Beruflichen Kontext und Forschungsinteressen aus einer Metasuche wiederverwenden. Dieser Brief behält eine lokale Kopie; für spätere Änderungen erneut auswählen. Interessen bleiben Ziele, keine Qualifikationen.') }}</small></label>
           </div>
         </DesktopSidebarPortal>
         <DesktopSidebarPortal area="minor" :active="active && tab === 'preparation'">
@@ -1497,6 +1551,12 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
           </div>
         </DesktopSidebarPortal>
         <slot name="preparation-evaluation" />
+        <details v-if="letter?.searchProfile" class="disclosure-row preparation-profile-context">
+          <summary>{{ text('Saved search-profile context', 'Gespeicherter Suchprofil-Kontext') }}</summary>
+          <p>{{ letter.searchProfile.templateName }}{{ letter.searchProfile.profileName ? ' · ' + letter.searchProfile.profileName : '' }} · {{ text('Revision', 'Revision') }} {{ letter.searchProfile.revision }}</p>
+          <p v-if="letter.searchProfile.professionalContext" class="pre-wrap">{{ letter.searchProfile.professionalContext }}</p>
+          <p v-if="letter.searchProfile.researchInterests" class="pre-wrap">{{ letter.searchProfile.researchInterests }}</p>
+        </details>
         <OpportunityContext :context="application.context_json" :lang="lang" :default-open-groups="['overview', 'requirements', 'documents']" />
         <DesktopSidebarPortal v-if="$slots['preparation-actions']" area="minor" :active="active && tab === 'preparation'">
           <div class="preparation-actions" :class="{ 'preparation-actions--sidebar': desktopSidebar }"><slot name="preparation-actions" /></div>

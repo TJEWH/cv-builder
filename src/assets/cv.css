@@ -34,6 +34,23 @@ body{margin:0;font:11pt/1.35 var(--font-body);color:var(--ink);background:#0b0f1
 .btn:hover:not(:disabled){background:var(--ui-surface-hover)}
 .btn:focus-visible,.mini:focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}
 .btn:disabled,.mini:disabled{opacity:.5;cursor:not-allowed}
+/* CV Studio and Opportunities share the same workspace tab treatment. */
+.workspace-subtabs{display:flex;flex-wrap:wrap;gap:8px;min-width:0;margin-top:14px}
+.workspace-subtabs .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.workspace-subtabs .svg-inline--fa{flex:none}
+.workspace-subtabs .is-active{border-color:var(--ui-accent-border);background:var(--ui-active);color:var(--ui-accent)}
+@media(min-width:761px){
+  .desktop-sidebar .workspace-subtabs{display:flex;flex-direction:column;gap:5px;margin:0}
+  .desktop-sidebar .workspace-subtabs .btn{justify-content:flex-start}
+}
+@media(max-width:760px){
+  .workspace-subtabs{flex:1;flex-wrap:nowrap;gap:0;height:44px;margin:0;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none}
+  .workspace-subtabs::-webkit-scrollbar{display:none}
+  .workspace-subtabs .btn{flex:1 0 auto;min-width:44px;min-height:44px;padding:6px 8px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--ui-muted);font-size:12px;line-height:1.2;white-space:nowrap}
+  .workspace-subtabs .btn.is-active{border-bottom-color:var(--ui-accent);background:var(--ui-active);color:var(--ui-text)}
+  .workspace-subtabs .svg-inline--fa{display:none}
+  .workspace-subtabs .btn:focus-visible{outline:2px solid var(--ui-accent);outline-offset:-2px}
+}
 /* Keep native controls and browser affordances in the workspace palette. */
 :where(.builder-shell,.jobs-workspace,.desktop-sidebar){color-scheme:dark;scrollbar-color:var(--ui-scrollbar) transparent}
 :where(.builder-shell,.jobs-workspace,.desktop-sidebar) ::selection{background:var(--ui-accent);color:var(--ui-control)}

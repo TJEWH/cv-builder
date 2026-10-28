@@ -753,7 +753,7 @@ function selectBuilderGroup(group: string) {
 
       <DesktopSidebarPortal area="subtabs" :active="!isCloudTab">
       <div v-show="!isCloudTab" class="cv-studio-navigation">
-        <nav ref="studioNavigation" class="cv-studio-subtabs" :aria-label="lang === 'de' ? 'CV-Studio-Bereiche' : 'CV Studio sections'">
+        <nav ref="studioNavigation" class="cv-studio-subtabs workspace-subtabs" :aria-label="lang === 'de' ? 'CV-Studio-Bereiche' : 'CV Studio sections'">
           <button v-for="group in builderGroups" :key="group.key" class="btn" :class="{ 'is-active': activeBuilderGroup === group.key }" :aria-pressed="activeBuilderGroup === group.key" :disabled="groupDisabled(group.key)" type="button" @click="selectBuilderGroup(group.key)"><font-awesome-icon :icon="['fas', group.icon]" aria-hidden="true" /><span>{{ isMobile && group.key === 'templates' ? (lang === 'de' ? 'Vorlagen' : 'Templates') : group.label }}</span></button>
         </nav>
         <button v-if="isMobile && studioHasPreview" class="btn cv-studio-open-preview" type="button" :aria-label="t('openPreview')" :title="t('openPreview')" :disabled="isEmptyDocument" @click="openFullPreview"><font-awesome-icon :icon="['fas', 'eye']" aria-hidden="true" /></button>
@@ -904,10 +904,6 @@ body,
 .builder-shell > .builder-topbar, .cv-studio-navigation { flex: 0 0 auto; }
 .builder-topbar { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; }
 .cv-studio-navigation { display: block; }
-.cv-studio-subtabs { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; margin-top: 14px;}
-.cv-studio-subtabs .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
-.cv-studio-subtabs .svg-inline--fa { flex: none; }
-.cv-studio-subtabs .is-active { border-color: var(--ui-accent-border); background: var(--ui-active); color: var(--ui-accent); }
 .cv-studio-open-preview { flex: 0 0 auto; white-space: nowrap; }
 .workspace-sign-in { padding: 30px; border: 1px solid #24504e; border-radius: 12px; color: #cbe5da; background: #06141f; }
 
@@ -1067,11 +1063,6 @@ body,
   .builder-layout__controls .backup-manager__actions .btn { flex-shrink: 0; }
   .cv-builder-app.is-preview-mode { overflow: hidden; }
   .cv-studio-navigation { position: fixed; inset: auto 0 var(--mobile-tabs-height); z-index: 35; display: flex; align-items: center; gap: 8px; height: var(--mobile-context-row-height); padding: 4px max(8px, env(safe-area-inset-right, 0px)) 4px max(8px, env(safe-area-inset-left, 0px)); border-top: 1px solid #2b424b; background: #101c24; }
-  .cv-studio-subtabs { flex: 1; flex-wrap: nowrap; gap: 0; height: 44px; margin: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
-  .cv-studio-subtabs::-webkit-scrollbar { display: none; }
-  .cv-studio-subtabs .btn { flex: 1 0 auto; min-width: 44px; min-height: 44px; padding: 6px 8px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--ui-muted); font-size: 12px; line-height: 1.2; white-space: nowrap; }
-  .cv-studio-subtabs .btn.is-active { border-bottom-color: var(--ui-accent); background: var(--ui-active); color: var(--ui-text); }
-  .cv-studio-subtabs .svg-inline--fa { display: none; }
   .cv-studio-navigation .cv-studio-open-preview { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; padding: 0; border: 0; border-left: 1px solid #2b424b; border-radius: 0; background: transparent; color: var(--ui-text); font-size: 20px; }
   .cv-studio-navigation .btn:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
   .builder-shell { grid-template-rows: auto minmax(0, 1fr); gap: 10px; }
@@ -1114,8 +1105,6 @@ body,
   .builder-layout:not(.builder-layout--library) { grid-template-columns: minmax(0, 1fr) minmax(280px, 34%); grid-template-rows: minmax(0, 1fr); gap: var(--workspace-gap); }
   .builder-layout__controls .builder-group-panel { padding: 0; }
   .builder-layout > .studio-inline-preview { width: 100%; min-width: 0; max-width: none; margin: 0; }
-  .desktop-sidebar .cv-studio-subtabs { display: flex; flex-direction: column; gap: 5px; margin: 0; }
-  .desktop-sidebar .cv-studio-subtabs .btn { justify-content: flex-start; }
   .workspace-sign-in { margin: 20px 16px; align-self: start; }
 }
 @media (min-width: 761px) and (max-height: 600px) {

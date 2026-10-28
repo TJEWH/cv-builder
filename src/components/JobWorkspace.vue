@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import InfoHint from './InfoHint.vue';
 import { computed, nextTick, onBeforeUnmount, reactive, ref, shallowReactive, shallowRef, watch } from 'vue';
-import { faFilter } from '@fortawesome/free-solid-svg-icons';
+import { faFilter, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CvState, SavedConfiguration } from '../types';
 import type { Application, Opportunity, OpportunityReviewState } from '../cloudTypes';
@@ -17,6 +17,7 @@ import { useApplicationNotesAutosave } from '../composables/useApplicationNotesA
 import AutosaveTextarea from './AutosaveTextarea.vue';
 import OpportunityContext from './OpportunityContext.vue';
 import ApplicationWorkspace from './ApplicationWorkspace.vue';
+import SearchTemplates from './SearchTemplates.vue';
 import ApplicationIdentifier from './ApplicationIdentifier.vue';
 import ApplicationDeadlineCalendar from './ApplicationDeadlineCalendar.vue';
 import WorkspaceDetailHeader from './WorkspaceDetailHeader.vue';
@@ -77,6 +78,13 @@ const tableScroll = ref<HTMLElement | null>(null);
 const workspaceElement = ref<HTMLElement | null>(null);
 const opportunityDetail = ref<HTMLElement | null>(null);
 const applicationWorkspace = ref<InstanceType<typeof ApplicationWorkspace> | null>(null);
+const searchTemplates = ref<InstanceType<typeof SearchTemplates> | null>(null);
+const opportunityView = ref<'catalogue' | 'searches'>('catalogue');
+const showingSearchTemplates = computed(() => props.tab === 'opportunities' && opportunityView.value === 'searches');
+async function selectOpportunityView(view: 'catalogue' | 'searches') {
+  if (!await flushTextareas()) return;
+  opportunityView.value = view;
+}
 const opportunityNavigationIds = ref<string[]>([]);
 const applicationNavigationIds = ref<string[]>([]);
 let detailNavigationPending = false;
@@ -375,6 +383,7 @@ async function flushApplicationTextareas() {
 }
 async function flushTextareas() {
   commitPendingTextareas();
+  if (searchTemplates.value && !await searchTemplates.value.flushTextareas()) return false;
   return await flushComment() && await flushApplicationTextareas();
 }
 defineExpose({ openList, flushTextareas });
@@ -432,12 +441,12 @@ async function navigateDetail(direction: -1 | 1) {
   } finally { detailNavigationPending = false; }
 }
 const swipe = createJobSwipe({
-  enabled: () => props.active && showingDetail.value && !blockingSave.value && !startingApplication.value && !removingId.value
+  enabled: () => props.active && !showingSearchTemplates.value && showingDetail.value && !blockingSave.value && !startingApplication.value && !removingId.value
     && window.matchMedia('(max-width: 760px)').matches,
   onSwipe: direction => { void navigateDetail(direction); },
 });
 const cardSwipe = createJobCardSwipe({
-  enabled: () => props.active && !showingDetail.value && !filtersOpen.value
+  enabled: () => props.active && !showingSearchTemplates.value && !showingDetail.value && !filtersOpen.value
     && window.matchMedia('(max-width: 760px)').matches,
   root: () => tableScroll.value,
 });
@@ -553,6 +562,16 @@ useToastWatch(() => notice.value, () => {
 <template>
   <section :id="`builder-group-${tab}`" ref="workspaceElement" class="jobs-workspace" :aria-label="tab === 'opportunities' ? text('Opportunities', 'Stellenangebote') : text('Applications', 'Bewerbungen')"
     @touchstart.passive="swipe.onTouchStart" @touchmove="swipe.onTouchMove" @touchend.passive="swipe.onTouchEnd" @touchcancel.passive="swipe.cancel" @click.capture="swipe.onClickCapture">
+    <DesktopSidebarPortal area="subtabs" :active="props.active && tab === 'opportunities' && (!showingDetail || showingSearchTemplates)">
+      <div v-if="tab === 'opportunities' && (!showingDetail || showingSearchTemplates)" class="opportunity-navigation">
+        <nav class="opportunity-subtabs workspace-subtabs" :aria-label="text('Opportunity sections', 'Bereiche für Stellenangebote')">
+          <button class="btn" :class="{ 'is-active': opportunityView === 'catalogue' }" type="button" :aria-pressed="opportunityView === 'catalogue'" @click="selectOpportunityView('catalogue')"><font-awesome-icon :icon="['fas', 'briefcase']" aria-hidden="true" /><span>{{ text('Results', 'Ergebnisse') }}</span></button>
+          <button class="btn" :class="{ 'is-active': opportunityView === 'searches' }" type="button" :aria-pressed="opportunityView === 'searches'" @click="selectOpportunityView('searches')"><font-awesome-icon :icon="faMagnifyingGlass" aria-hidden="true" /><span>{{ text('Meta research', 'Metasuche') }}</span></button>
+        </nav>
+      </div>
+    </DesktopSidebarPortal>
+    <SearchTemplates v-if="showingSearchTemplates" ref="searchTemplates" :client="client" :user-id="userId" :lang="lang" :sidebar-active="props.active" :project-id="projectId" />
+    <template v-else>
     <DesktopSidebarPortal area="major" :active="props.active !== false && !showingDetail">
     <div v-show="!showingDetail" class="jobs-toolbar jobs-sidebar-controls" :class="{ 'jobs-toolbar--sidebar': sidebarActive }" @keydown.esc="closeFilters">
       <label class="jobs-search"><span>{{ text('Search', 'Suchen') }}</span><input v-model="query" type="search" :placeholder="tab === 'applications' ? text('Title, institution or application ID…', 'Titel, Einrichtung oder Bewerbungs-ID…') : text('Title, institution or country…', 'Titel, Einrichtung oder Land…')" /></label>
@@ -688,14 +707,17 @@ useToastWatch(() => notice.value, () => {
         <div class="jobs-row-actions"><button class="btn" type="button" autofocus :disabled="saving" @click="cancelRemoval">{{ text('Cancel', 'Abbrechen') }}</button><button class="btn btn--danger" type="button" :disabled="saving" @click="confirmRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button></div>
       </div>
     </dialog>
+    </template>
   </section>
 </template>
 
 <style scoped>
 .jobs-workspace { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; color: var(--ui-text); scrollbar-width: thin; }
+.jobs-workspace > .search-templates { flex: 1 1 auto; min-height: 0; }
+.opportunity-navigation { flex: 0 0 auto; }
 
 .jobs-workspace > :not(.jobs-table-scroll) { flex-shrink: 0; }
-.jobs-workspace > .application-workspace, .jobs-workspace > .opportunity-detail { flex: 1 1 auto; min-height: 0; }
+.jobs-workspace > .search-templates, .jobs-workspace > .application-workspace, .jobs-workspace > .opportunity-detail { flex: 1 1 auto; min-height: 0; }
 .jobs-workspace > .application-workspace:focus, .opportunity-detail:focus { outline: none; }
 .opportunity-detail { display: flex; flex-direction: column; min-width: 0; padding: 32px; overflow: hidden;}
 .opportunity-detail__body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-gutter: stable; }

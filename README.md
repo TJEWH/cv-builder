@@ -20,10 +20,12 @@ Open the URL printed by Vite (default: [localhost:5173/cv-builder/](http://local
 | Workspace | Use it to |
 | --- | --- |
 | **CV Studio** | Edit CV variants, customize layout and typography, manage letter templates, set privacy replacements, and store supporting files. |
-| **Opportunities** | Review the shared research catalogue, filter results, record interest, and create applications. Requires Supabase. |
+| **Opportunities** | Review research, record interest, create applications, and prepare a reusable meta-search prompt. Requires Supabase. |
 | **Applications** | Prepare application documents, review refinements, assemble PDF packages, and track progress. Requires Supabase. |
 
-The opportunity catalogue comes from outside the app. Use the app to review existing research; conduct new searches through your research tools.
+The **Meta research** sidebar tab combines alternative research interests, professional profiles and regional priorities into English system and user prompts. Publish the search template explicitly, then copy its daily prompt for ChatGPT. Each run loads the current search protocol and published criteria, verifies writes to the existing opportunity catalogue and reports only new or materially changed strong matches. New recommendations require at least 72 hours before the official deadline. Copying a prompt does not create a schedule. See [meta-search behavior and protocol](docs/opportunity-meta-searches.md).
+
+Application Preparation can reuse a search profile's professional context and research interests for motivation letters. Each letter keeps its own saved copy, with the existing privacy preview before sharing.
 
 Salary & funding includes a sourced 0–10.0 living-standard assessment when available, assuming a private room in a shared flat, with a separate salary verdict and a breakdown for affordability, room search, culture, nature, student life and climate. Research uses the university/campus city when the city field is empty, averages stated pay ranges or progression, and identifies provisional institutional funding benchmarks. Company roles without published pay or an applicable scale remain unscored. See the [scoring rubric and research contract](docs/living-standard.md).
 
@@ -56,7 +58,7 @@ Package export requires both document approvals and the files for all included a
 
 CV and letter PDFs contain selectable text, clickable links, and vector graphics. Adjust sections, fonts, margins, and page breaks in CV Studio. Add supporting PDF, PNG, or JPEG files through **Local attachments**; convert office documents to PDF before attaching them.
 
-Full working CVs, letters, templates, and private refinement data stay in browser storage. Supporting files and package archives use IndexedDB. Signing in does not upload a CV.
+Full working CVs, letters, letter templates, and private refinement data stay in browser storage. Supporting files and package archives use IndexedDB. Signing in does not upload a CV. The meta search saves locally; **Publish search** explicitly shares its strategy, shared context, enabled profiles and daily time with the connected Supabase workspace.
 
 Refinement publication sends privacy-filtered sources and feedback to Supabase. Review the outgoing content: masking known fields cannot remove identifying details from all prose. Saving an attachment's metadata while signed in shares its name, description, and identifiers; its file contents stay on the device.
 
@@ -64,6 +66,7 @@ Keep separate backups before changing devices or clearing browser data:
 
 - **CV Studio → Variants**: export content and configuration JSON. Enable **Bypass privacy proxy** for a complete private CV backup; default content exports apply privacy settings.
 - **CV Studio → Letter templates**: export the template library.
+- **Opportunities → Meta research → Saved search & backup**: export the single meta search, including its private context.
 - **CV Studio → Local attachments → Back up files & packages**: export supporting files, package arrangements, and archived PDFs.
 
 Cloud history cannot restore private working originals or local files. See [JSON formats and import behavior](docs/json-format.md) before editing or restoring a backup.

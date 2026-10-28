@@ -2,6 +2,7 @@ import type { Application } from '../cloudTypes';
 import type { Contact, CvState } from '../types';
 import type { ApplicationLetter, LetterContent, LetterContextVersion, LetterFormatting, LetterRevision, LetterTemplate } from '../letterTypes';
 import { DEFAULT_LETTER_FORMATTING, LETTER_LAYOUT_VERSION, readLetterFormatting, resolveLetterFormatting } from './letterFormatting';
+import { letterTemplateWithSearchProfile, readLetterSearchProfile } from './searchLetterContext';
 
 interface StorageAdapter { getItem(key: string): string | null; setItem(key: string, value: string): void }
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -111,9 +112,11 @@ function readRecord(value: unknown, userId: string, applicationId: string): Appl
       ...(typeof item.cloudContextId === 'string' ? { cloudContextId: item.cloudContextId } : {}) };
   });
   const templateSnapshot = value.templateSnapshot === undefined ? undefined : readLetterTemplate(value.templateSnapshot);
+  const searchProfile = value.searchProfile === undefined ? undefined : readLetterSearchProfile(value.searchProfile);
+  if (templateSnapshot && searchProfile) letterTemplateWithSearchProfile(templateSnapshot, searchProfile);
   const formatting = value.formatting === undefined ? undefined : readLetterFormatting(value.formatting);
   if (templateSnapshot && templateSnapshot.id !== value.templateId) throw new Error('The saved letter template does not match its snapshot.');
-  return { version: 1, applicationId, userId, templateId: value.templateId, ...(templateSnapshot ? { templateSnapshot } : {}), instructions: value.instructions, language: value.language,
+  return { version: 1, applicationId, userId, templateId: value.templateId, ...(templateSnapshot ? { templateSnapshot } : {}), ...(searchProfile ? { searchProfile } : {}), instructions: value.instructions, language: value.language,
     maxWords: Number(value.maxWords), working: readContent(value.working), workingContext: readVersion(value.workingContext), ...(formatting ? { formatting } : {}),
     publishedContexts: isObject(value.publishedContexts) ? Object.fromEntries(Object.entries(value.publishedContexts).map(([key, version]) => [key, readVersion(version)])) : {},
     finalRevisionId: value.finalRevisionId, revisions, updatedAt: value.updatedAt };

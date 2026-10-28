@@ -44,6 +44,17 @@ export interface LetterTemplate extends LetterTemplateGuidance {
 
 /** Content and design are tracked independently: a design change only needs layout review. */
 export interface LetterContextVersion { content: string; theme: string }
+/** Explicitly selected local source context; kept stable when its search template changes. */
+export interface LetterSearchProfile {
+  templateId: string;
+  templateName: string;
+  profileId?: string;
+  profileName?: string;
+  revision: number;
+  capturedAt: string;
+  professionalContext: string;
+  researchInterests: string;
+}
 export interface LetterRevision {
   id: string;
   kind: 'generated' | 'edited' | 'final';
@@ -61,6 +72,8 @@ export interface ApplicationLetter {
   templateId: string;
   /** Captured on selection; untouched applications can refresh it on open. */
   templateSnapshot?: LetterTemplate;
+  /** Private reusable context, included in the privacy preview before publication. */
+  searchProfile?: LetterSearchProfile;
   instructions: string;
   language: string;
   maxWords: number;
