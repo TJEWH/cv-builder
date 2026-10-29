@@ -1,0 +1,291 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { compileAdaptiveFeedbackSnapshot } from '../src/composables/adaptiveFeedbackSnapshots';
+import { DEFAULT_ADAPTIVE_SEARCH_POLICY } from '../src/composables/adaptiveSearchPlanner';
+import { adaptiveDashboardRunState, createAdaptiveSearchDashboardController, readAdaptiveSearchDashboard, validateAdaptiveSettingsPatch, validateAdaptiveSourcePatch } from '../src/composables/adaptiveSearchDashboard';
+
+const id = (index: number) => `81000000-0000-4000-8000-${index.toString(16).padStart(12,'0')}`;
+const scope = { ownerId: id(1), searchId: id(2), projectRef: 'abcdefghijklmnopqrst' };
+const now = '2026-10-29T12:00:00Z';
+const clone = <T>(value: T): T => structuredClone(value);
+async function fixture() {
+  const feedback = await compileAdaptiveFeedbackSnapshot({ user_id: scope.ownerId, search_id: scope.searchId,
+    structured_feedback_enabled: false, consent_revision: 0, feedback_revision: 0, examples: [] });
+  return { dashboard_version: 1, user_id: scope.ownerId, search_id: scope.searchId, project_ref: scope.projectRef,
+    settings: { structured_feedback_enabled: false, adaptation_enabled: false, adaptation_paused: false, successful_source_reuse_enabled: false,
+      reuse_check_interval_hours: 168, consent_revision: 0, adaptation_revision: 0, source_reuse_revision: 0, feedback_revision: 0, preference_revision: 0, query_plan_revision: 1, query_plan_dirty: false },
+    policy: { ...DEFAULT_ADAPTIVE_SEARCH_POLICY },
+    readiness: { setup_contract_version: 1, user_id: scope.ownerId, search_id: scope.searchId, project_ref: scope.projectRef,
+      revision: 0, mode: 'legacy', migration_requested: false, ready: false, readiness_code: 'owner_not_authorized', setup_id: null, binding: null },
+    runner_authorization: { enabled: false, authorization_revision: 0, project_ref: null as string | null }, feedback_preview: feedback,
+    preferences: { revision: 0, approved_rules: [], suggestions: [{ suggestion_id: id(5), rule: { rule_id: id(6), kind: 'emphasis', category: 'topic', polarity: 'positive', target: 'Acoustic sensing', evidence_refs: [id(7)] }, origin: 'runner', state: 'pending', created_at: now, decided_at: null }], proposals: [] },
+    sources: [{ registry_id: id(3), listing_url: 'https://example.invalid/Jobs?topic=BCI' as string | null, vacancy_url: null, kind: 'university', institution: 'Synthetic Institute', topics: ['BCI'], priority: 50,
+      enabled: true, pinned: false, mandatory: true, check_interval_hours: 168, last_attempted_at: now, last_successful_at: null, status: 'blocked', owner_disabled: false,
+      provenance: 'explicit', listing_verified_at: null, source_revision: 1, coverage: { last_status: 'blocked', last_attempted_at: now, last_failure_reason: 'access_denied' },
+      outcomes: { sample_size: 1, reviewed: 1, with_interest: 1, mean_interest: 0, explicit_high_interest: 0, confirmed_submissions: 0 } }],
+    queries: { plan: { id: id(10), revision: 1, plan_hash: 'a'.repeat(64), created_at: now,
+      basis: { base_revision: 1, feedback_revision: 0, preference_revision: 0, protocol_version: 'opportunity-search-v1-canonical-5' }, planning_policy: null,
+      queries: [{ query_id: id(11), query: 'site:https://example.invalid/Jobs?topic=BCI acoustic sensing PhD' as string | null, text_hash: 'b'.repeat(64), role: 'core', manual: true, source_registry_id: id(3), withheld: false,
+        outcomes: { sample_size: 1, reviewed: 1, with_interest: 1, mean_interest: 0, explicit_high_interest: 0, confirmed_submissions: 0 } }] },
+      executions: [{ run_id: id(12), check_id: id(13), kind: 'source', query_id: null, text_hash: null, source_registry_id: id(3), attempted_at: now, status: 'blocked', results_count: null, failure_reason: 'access_denied' }] },
+    runs: [{ run_id: id(12), status: 'failed', started_at: now, completed_at: now, basis: { base_revision: 1, feedback_revision: null, preference_revision: null, protocol_version: 'opportunity-search-v1-canonical-5' },
+      query_plan_id: null, adaptive_contract_version: null, execution_report_status: 'unreported', backlog_candidates: null as number | null, backlog_omitted: null as number | null, backlog_overflow: null as boolean | null,
+      counts: { new: 0, updated: 0, unchanged: 0, verified: 0, unresolved: null as number | null, incomplete_sources: 1, failed_checks: 1 },
+      deadline: { late_discoveries: 0, possible_late_discoveries: 1, unknown: 1, exact_lead_time_hours: null, lower_lead_time_hours: 60, upper_lead_time_hours: 84, uncertain: true }, delivery_status: 'unknown' }],
+    omitted: { sources: 0, preference_suggestions: 0, proposals: 0, queries: 0, executions: 0, runs: 0, withheld_fields: 0 },
+    bounds: { maximum_dashboard_bytes: 262144, maximum_feedback_bytes: 65536, maximum_sources: 64, maximum_queries: 30, maximum_executions: 64, maximum_runs: 10, maximum_suggestions: 64, maximum_proposals: 32 } };
+}
+type Fixture = Awaited<ReturnType<typeof fixture>>;
+function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
+const tick = async () => { for (let index=0;index<15;index++) await Promise.resolve(); };
+type Reply = { data: unknown; error: null | { code: string; message?: string } };
+function mock(data: Fixture) {
+  const calls: { name: string; args: Record<string,any> }[] = [], receipts = new Map<string,unknown>();
+  const hooks: { afterWrite?: (name: string, args: Record<string,any>, reply: Reply) => Promise<Reply> | Reply } = {};
+  const client = { rpc: async (name: string, args: Record<string,any>): Promise<Reply> => {
+    calls.push({ name,args: clone(args) });
+    if (name === 'read_opportunity_search_dashboard') return { data: clone(data),error: null };
+    const operation = args.p_action_id ?? args.p_operation_id;
+    let result = receipts.get(operation);
+    if (!result) {
+      if (name === 'patch_opportunity_search_settings') {
+        Object.assign(data.settings,args.p_patch);
+        for (const key of Object.keys(args.p_expected_revisions)) data.settings[key as keyof Fixture['settings']] = args.p_expected_revisions[key]+1 as never;
+        if (Object.hasOwn(args.p_patch,'structured_feedback_enabled')) data.feedback_preview.consent_revision = data.settings.consent_revision;
+        result = { dashboard_version: 1,action_id: args.p_action_id,search_id: data.search_id,kind: 'settings',settings: clone(data.settings) };
+      } else if (name === 'patch_opportunity_search_source') {
+        const source = data.sources.find(row => row.registry_id === args.p_registry_id)!;
+        Object.assign(source,args.p_patch); source.source_revision++;
+        const { coverage: _coverage,outcomes: _outcomes,...saved } = source;
+        result = { dashboard_version: 1,action_id: args.p_action_id,search_id: data.search_id,kind: 'source',source: clone(saved) };
+      } else if (name === 'decide_opportunity_search_preference') {
+        data.preferences.revision++; data.preferences.suggestions[0]!.state = args.p_action === 'approve' ? 'approved' : args.p_action === 'reject' ? 'rejected' : 'undone';
+        result = { operation_id: args.p_operation_id,suggestion_id: args.p_suggestion_id,action: args.p_action,preference_revision: data.preferences.revision,approved_rules: [] };
+      } else if (name === 'set_opportunity_search_runner_authorization') {
+        data.runner_authorization = { enabled: args.p_enabled,authorization_revision: data.runner_authorization.authorization_revision+1,project_ref: data.project_ref };
+        result = { search_id: data.search_id,...data.runner_authorization };
+      } else throw new Error(`Unexpected synthetic RPC: ${name}`);
+      if (operation) receipts.set(operation,clone(result));
+    }
+    const reply: Reply = { data: clone(result),error: null };
+    return hooks.afterWrite ? hooks.afterWrite(name,args,reply) : reply;
+  } } as unknown as Pick<SupabaseClient,'rpc'>;
+  let sequence=100;
+  return { client,calls,hooks,randomId: () => id(sequence++) };
+}
+
+test('AF-10 owner dashboard retains exact outgoing packet, honest unknowns and safe public URL queries', async () => {
+  const raw = await fixture();
+  const result = await readAdaptiveSearchDashboard(raw,scope.ownerId,scope.searchId,scope.projectRef);
+  assert.deepEqual(result.feedback_preview,raw.feedback_preview);
+  assert.equal(result.sources[0]!.outcomes.mean_interest,0);
+  assert.equal(result.runs[0]!.counts.unresolved,null);
+  assert.equal(result.runs[0]!.deadline.exact_lead_time_hours,null);
+  assert.equal(result.queries.plan!.queries[0]!.query,raw.queries.plan.queries[0]!.query);
+  assert.equal(result.queries.executions[0]!.results_count,null);
+  assert.equal(result.queries.plan!.queries[0]!.outcomes.mean_interest,0);
+  assert.equal(result.runs[0]!.backlog_candidates,null);
+  const poisoned = Object.assign(clone(raw),{ contacts: [{ email: 'private@example.invalid' }],applications: [{ context_json: 'PRIVATE_CONTEXT' }] });
+  Object.assign(poisoned.sources[0]!,{ private_comment: 'PRIVATE_COMMENT',contacts: [{ name: 'Private Person' }] });
+  const projected = await readAdaptiveSearchDashboard(poisoned,scope);
+  assert.doesNotMatch(JSON.stringify(projected),/private@example|PRIVATE_CONTEXT|PRIVATE_COMMENT|Private Person|contacts|context_json/);
+});
+
+test('AF-10 exact packet validation rejects hidden extra/private fields and malformed or foreign scope', async () => {
+  const raw = await fixture();
+  for (const patch of [{ user_id: id(99) },{ search_id: id(99) },{ project_ref: 'zyxwvutsrqponmlkjihg' },{ dashboard_version: 2 }]) {
+    await assert.rejects(readAdaptiveSearchDashboard({ ...raw,...patch },scope));
+  }
+  await assert.rejects(readAdaptiveSearchDashboard({ ...raw,feedback_preview: { ...raw.feedback_preview,private_comment: 'PRIVATE' } },scope));
+  const invalid = clone(raw); invalid.queries.plan.queries[0]!.query = 'site:https://example.invalid/Jobs?next=https%3A%2F%2Fexample.invalid%2Fgo%3Faccess_token%3Dsecret robotics';
+  await assert.rejects(readAdaptiveSearchDashboard(invalid,scope));
+  invalid.queries.plan.queries[0]!.query = 'person@example.invalid robotics';
+  await assert.rejects(readAdaptiveSearchDashboard(invalid,scope));
+  await assert.rejects(readAdaptiveSearchDashboard({ ...raw,runs: Array(11).fill(raw.runs[0]) },scope));
+});
+
+test('AF-10 display-only source flags and withheld query text never fabricate execution eligibility or text', async () => {
+  const raw = await fixture(); raw.sources[0]!.listing_url = null; raw.queries.plan.queries[0]!.query = null; raw.queries.plan.queries[0]!.withheld = true;
+  raw.omitted.withheld_fields = 2;
+  const result = await readAdaptiveSearchDashboard(raw,scope);
+  assert.equal(result.sources[0]!.enabled,true); assert.equal(result.sources[0]!.listing_url,null);
+  assert.equal(result.sources[0]!.status,'blocked'); assert.equal(result.queries.plan!.queries[0]!.query,null);
+  assert.equal(result.omitted.withheld_fields,2);
+});
+
+test('AF-10 structured patches are closed and cannot mutate base intent or implicitly approve preferences', () => {
+  for (const value of [{ meta_search: {} },{ researchInterests: 'Rewrite letters' },{ adaptation_enabled: 'true' },{ reuse_check_interval_hours: 23 },{}]) assert.throws(() => validateAdaptiveSettingsPatch(value));
+  for (const value of [{ source_revision: 1 },{ check_interval_hours: 721 },{ listing_url: 'https://example.invalid/Jobs' },{ mandatory: false },{ enabled: 'true' }]) assert.throws(() => validateAdaptiveSourcePatch(value));
+  assert.deepEqual(validateAdaptiveSourcePatch({ pinned: false,check_interval_hours: 24 }),{ pinned: false,check_interval_hours: 24 });
+});
+
+test('AF-10 malformed outcome denominators are rejected instead of presenting fabricated quality', async () => {
+  const raw = await fixture(); raw.queries.plan.queries[0]!.outcomes.explicit_high_interest = 2;
+  await assert.rejects(readAdaptiveSearchDashboard(raw,scope));
+});
+
+test('AF-10 run labels preserve incomplete/unknown coverage despite a complete lifecycle and keep resolved retries successful', async () => {
+  const parsed = await readAdaptiveSearchDashboard(await fixture(),scope), original = parsed.runs[0]!;
+  assert.equal(adaptiveDashboardRunState(original),'failed');
+  const complete = { ...original,status: 'complete' as const,execution_report_status: 'complete' as const,backlog_candidates: 0,backlog_omitted: 0,backlog_overflow: false,
+    counts: { ...original.counts,incomplete_sources: 0,unresolved: 0,failed_checks: 2 } };
+  assert.equal(adaptiveDashboardRunState(complete),'empty','past failures may have a successful retry');
+  assert.equal(adaptiveDashboardRunState({ ...complete,counts: { ...complete.counts,incomplete_sources: 1 } }),'incomplete');
+  assert.equal(adaptiveDashboardRunState({ ...complete,counts: { ...complete.counts,unresolved: 1 } }),'incomplete');
+  assert.equal(adaptiveDashboardRunState({ ...complete,counts: { ...complete.counts,new: 1,verified: 0 } }),'incomplete');
+  assert.equal(adaptiveDashboardRunState({ ...complete,backlog_candidates: 1 }),'incomplete');
+  assert.equal(adaptiveDashboardRunState({ ...complete,backlog_omitted: 1 }),'incomplete');
+  assert.equal(adaptiveDashboardRunState({ ...complete,backlog_overflow: true }),'incomplete');
+  assert.equal(adaptiveDashboardRunState({ ...complete,counts: { ...complete.counts,unresolved: null } }),'unknown');
+  assert.equal(adaptiveDashboardRunState({ ...complete,backlog_candidates: null }),'unknown');
+  assert.equal(adaptiveDashboardRunState({ ...complete,execution_report_status: 'unreported' }),'unknown');
+  assert.equal(adaptiveDashboardRunState({ ...complete,counts: { ...complete.counts,new: 1,verified: 1 } }),'complete');
+});
+
+test('AF-10 enabling or explicitly resuming adaptation needs consent, including atomic opt-in patches', async () => {
+  const raw = await fixture(), service = mock(raw), controller = createAdaptiveSearchDashboardController(service.client,scope,service); await controller.load();
+  assert.equal(await controller.patchSettings({ adaptation_paused: false }),false);
+  assert.equal(controller.state.error,'consent_required');
+  assert.equal(service.calls.filter(call=>call.name.startsWith('patch_')).length,0);
+  assert.equal(await controller.patchSettings({ structured_feedback_enabled: true,adaptation_paused: false }),true);
+  assert.deepEqual(service.calls.find(call=>call.name.startsWith('patch_'))!.args.p_expected_revisions,{ consent_revision: 0,adaptation_revision: 0 });
+  controller.dispose();
+});
+
+test('AF-10 sequential independent settings use only touched axes and acknowledged current revisions', async () => {
+  const raw = await fixture(), service = mock(raw), controller = createAdaptiveSearchDashboardController(service.client,scope,service);
+  assert.equal(await controller.load(),true);
+  const first = controller.patchSettings({ structured_feedback_enabled: true });
+  const second = controller.patchSettings({ adaptation_enabled: true });
+  assert.deepEqual(await Promise.all([first,second]),[true,true]);
+  const writes = service.calls.filter(call => call.name.startsWith('patch_'));
+  assert.equal(writes.length,2);
+  assert.deepEqual(writes[0]!.args.p_expected_revisions,{ consent_revision: 0 });
+  assert.deepEqual(writes[1]!.args.p_expected_revisions,{ adaptation_revision: 0 });
+  assert.deepEqual(writes[1]!.args.p_patch,{ adaptation_enabled: true });
+  assert.equal(controller.state.data!.settings.structured_feedback_enabled,true);
+  assert.equal(service.calls.some(call => /meta_search|schedule|request_adaptive/.test(call.name)),false);
+  controller.dispose();
+});
+
+test('AF-10 lost source response retries the exact identity/body and retains newer drafts until their own commit', async () => {
+  const raw = await fixture(), service = mock(raw), firstWrite = deferred<Reply>(); let writes=0;
+  service.hooks.afterWrite = async (_name,_args,reply) => ++writes===1 ? firstWrite.promise : reply;
+  const controller = createAdaptiveSearchDashboardController(service.client,scope,service); await controller.load();
+  controller.sourceDraft(id(3),{ pinned: true }); const saving = controller.saveSource(id(3)); await tick();
+  controller.sourceDraft(id(3),{ check_interval_hours: 24 });
+  firstWrite.resolve({ data: null,error: { code: 'NETWORK' } });
+  assert.equal(await saving,false); assert.equal(controller.state.retryable,true);
+  assert.equal(await controller.flush(),false);
+  assert.equal(await controller.retry(),true);
+  const retries = service.calls.filter(call => call.name==='patch_opportunity_search_source');
+  assert.deepEqual(retries[1]!.args,retries[0]!.args);
+  assert.deepEqual(controller.state.drafts[id(3)],{ pinned: true,check_interval_hours: 24 });
+  assert.equal(await controller.flush(),true);
+  assert.equal(controller.state.data!.sources[0]!.check_interval_hours,24);
+  assert.equal(Object.keys(controller.state.drafts).length,0); controller.dispose();
+});
+
+test('AF-10 a historical source receipt cannot silently overwrite a newer current source after reload', async () => {
+  const raw = await fixture(), isolated = { ...scope,searchId: id(500) };
+  raw.search_id = isolated.searchId; raw.readiness.search_id = isolated.searchId;
+  const service = mock(raw); let writes=0;
+  service.hooks.afterWrite = async (_name,_args,reply) => {
+    if (++writes===1) return { data: null,error: { code: 'NETWORK' } };
+    raw.sources[0]!.check_interval_hours = 72; raw.sources[0]!.source_revision++;
+    return reply;
+  };
+  const controller = createAdaptiveSearchDashboardController(service.client,isolated,service); await controller.load();
+  controller.sourceDraft(id(3),{ check_interval_hours: 48 });
+  assert.equal(await controller.saveSource(id(3)),false);
+  controller.sourceDraft(id(3),{ pinned: true });
+  assert.equal(await controller.retry(),false,'a historical exact acknowledgment is not current-value confirmation');
+  assert.equal(controller.state.errorKind,'conflict');
+  assert.equal(controller.state.data!.sources[0]!.check_interval_hours,72);
+  assert.deepEqual(controller.state.drafts[id(3)],{ check_interval_hours: 48,pinned: true });
+  const sent = service.calls.length;
+  assert.equal(await controller.retry(),false); assert.equal(await controller.flush(),false);
+  assert.equal(service.calls.length,sent,'no automatic corrective overwrite after the conflict');
+  const writesSent = service.calls.filter(call=>call.name==='patch_opportunity_search_source');
+  assert.deepEqual(writesSent[0]!.args,writesSent[1]!.args,'historical receipt retry remains exact');
+  assert.equal(controller.discardSourceDraft(id(3)),true); assert.equal(await controller.flush(),true); controller.dispose();
+});
+
+test('AF-10 conflicts/permission denials block writes without automatic retries or alternate transports', async () => {
+  for (const code of ['40001','42501']) {
+    const raw = await fixture(), isolated = { ...scope,searchId: id(code === '40001' ? 401 : 402) };
+    raw.search_id = isolated.searchId; raw.readiness.search_id = isolated.searchId;
+    const service = mock(raw);
+    service.hooks.afterWrite = async () => ({ data: null,error: { code,message: 'PRIVATE_DATABASE_DETAIL' } });
+    const controller = createAdaptiveSearchDashboardController(service.client,isolated,service); await controller.load();
+    controller.sourceDraft(id(3),{ pinned: false }); assert.equal(await controller.saveSource(id(3)),false);
+    assert.equal(await controller.retry(),false); assert.equal(await controller.flush(),false);
+    assert.equal(await controller.patchSettings({ adaptation_paused: true }),false);
+    assert.equal(service.calls.filter(call=>call.name.startsWith('patch_')).length,1);
+    assert.doesNotMatch(controller.state.error,/PRIVATE_DATABASE_DETAIL/); controller.dispose();
+  }
+});
+
+test('AF-10 owner switches cancel stale reads and queued writes before applying data or authorization callbacks', async () => {
+  const raw = await fixture(), pending = deferred<Reply>(), calls: string[]=[]; let authorizations=0;
+  const client = { rpc: async (name: string) => { calls.push(name); return pending.promise; } } as unknown as Pick<SupabaseClient,'rpc'>;
+  const controller = createAdaptiveSearchDashboardController(client,scope,{ randomId: () => id(100),onRunnerChanged: () => authorizations++ });
+  const read = controller.load(); controller.setScope({ ...scope,ownerId: id(20),searchId: id(21) });
+  pending.resolve({ data: raw,error: null }); assert.equal(await read,false); assert.equal(controller.state.data,null);
+  assert.equal(authorizations,0); assert.deepEqual(calls,['read_opportunity_search_dashboard']); controller.dispose();
+  const service = mock(await fixture()), queued = createAdaptiveSearchDashboardController(service.client,scope,service); await queued.load();
+  const write = queued.patchSettings({ adaptation_paused: true }); queued.setScope({ ...scope,ownerId: id(20),searchId: id(21) });
+  assert.equal(await write,false); assert.equal(service.calls.filter(call=>call.name.startsWith('patch_')).length,0); queued.dispose();
+});
+
+test('AF-10 source recovery is isolated by owner/search and a missing read-only deployment never blocks base navigation', async () => {
+  const raw = await fixture(), service = mock(raw), storage = new Map<string,string>();
+  const persistence = { getItem: (key: string) => storage.get(key) ?? null,setItem: (key: string,value: string) => { storage.set(key,value); },removeItem: (key: string) => { storage.delete(key); } };
+  const first = createAdaptiveSearchDashboardController(service.client,scope,{ ...service,storage: persistence });
+  await first.load(); first.sourceDraft(id(3),{ check_interval_hours: 48 }); first.dispose();
+  const restored = createAdaptiveSearchDashboardController(service.client,scope,{ ...service,storage: persistence });
+  assert.deepEqual(restored.state.drafts[id(3)],{ check_interval_hours: 48 });
+  const other = createAdaptiveSearchDashboardController(service.client,{ ...scope,ownerId: id(91) },{ ...service,storage: persistence });
+  assert.deepEqual(other.state.drafts,{}); other.dispose();
+  await restored.load(); assert.equal(await restored.flush(),true); restored.dispose();
+  const missingClient = { rpc: async () => ({ data: null,error: { code: 'PGRST202' } }) } as unknown as Pick<SupabaseClient,'rpc'>;
+  const unavailable = createAdaptiveSearchDashboardController(missingClient,{ ...scope,searchId: id(92) });
+  assert.equal(await unavailable.load(),false); assert.equal(await unavailable.flush(),true); unavailable.dispose();
+});
+
+test('AF-10 rule decisions and runner authorization occur only as explicit actions with exact CAS identities', async () => {
+  const raw = await fixture(), service = mock(raw); let runnerChanges=0;
+  const controller = createAdaptiveSearchDashboardController(service.client,scope,{ ...service,onRunnerChanged: () => runnerChanges++ }); await controller.load();
+  assert.equal(await controller.flush(),true); assert.equal(service.calls.length,1);
+  assert.equal(await controller.decide(id(5),'approve'),true);
+  const approval = service.calls.find(call=>call.name==='decide_opportunity_search_preference')!;
+  assert.equal(approval.args.p_expected_revision,0); assert.equal(typeof approval.args.p_operation_id,'string');
+  assert.equal(await controller.authorize(true),true); assert.equal(runnerChanges,1);
+  assert.equal(service.calls.find(call=>call.name==='set_opportunity_search_runner_authorization')!.args.p_expected_revision,0);
+  assert.equal(controller.state.data!.runner_authorization.enabled,true); controller.dispose();
+});
+
+test('AF-10 an explicit orphan-draft discard is local, chosen-only and cannot cancel queued or saving requests', async () => {
+  const raw = await fixture(), service = mock(raw), response = deferred<Reply>();
+  const controller = createAdaptiveSearchDashboardController(service.client,scope,service); await controller.load();
+  controller.sourceDraft(id(99),{ check_interval_hours: 48 });
+  assert.equal(await controller.flush(),false); assert.equal(controller.state.error,'source_unavailable');
+  const beforeMissingDiscard = service.calls.length;
+  assert.equal(controller.discardSourceDraft(id(99)),true);
+  assert.equal(service.calls.length,beforeMissingDiscard); assert.equal(await controller.flush(),true);
+  service.hooks.afterWrite = async () => response.promise;
+  controller.sourceDraft(id(3),{ pinned: true }); const saving = controller.saveSource(id(3));
+  assert.equal(controller.discardSourceDraft(id(3)),false,'queued writes cannot be locally canceled as though they were never sent');
+  await tick(); assert.equal(controller.discardSourceDraft(id(3)),false,'in-flight writes remain blocked');
+  response.resolve({ data: null,error: { code: 'NETWORK' } }); assert.equal(await saving,false);
+  controller.state.data!.sources = [];
+  controller.sourceDraft(id(98),{ pinned: false });
+  const callsBeforeDiscard = service.calls.length, dataBeforeDiscard = JSON.stringify(controller.state.data);
+  assert.equal(controller.discardSourceDraft(id(98)),true);
+  assert.equal(await controller.flush(),false,'discarding another draft does not clear the failed source request');
+  assert.equal(controller.discardSourceDraft(id(3)),true);
+  assert.equal(await controller.flush(),true); assert.equal(Object.keys(controller.state.drafts).length,0);
+  assert.equal(JSON.stringify(controller.state.data),dataBeforeDiscard,'a local discard makes no remote success claim or state replacement');
+  assert.equal(service.calls.length,callsBeforeDiscard,'discard must issue no RPC'); controller.dispose();
+});

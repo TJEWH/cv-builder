@@ -233,6 +233,9 @@ async function feedback(value: unknown, owner: string, search: string): Promise<
   return result;
 }
 
+/** Reuse the runner's closed privacy projection for the owner's outgoing preview. */
+export { feedback as readAdaptiveSearchFeedbackPacket };
+
 function sources(value: unknown): readonly AdaptiveStartupSource[] {
   if (!Array.isArray(value) || value.length > ADAPTIVE_STARTUP_MAX_SOURCES) fail('scope_oversized');
   const seen = new Set<string>();

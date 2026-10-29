@@ -6,9 +6,13 @@ import { buildRecurringSearchPrompt, buildSearchSystemPrompt, buildSearchUserPro
 import { searchTemplateCloudCriteria, searchTemplateCloudSchedule } from '../../src/composables/searchTemplateCloud';
 import type { SearchCloudTemplate } from '../../src/searchTypes';
 import type { AdaptiveSearchRunnerState } from '../../src/composables/adaptiveSearchTask';
+import type { AdaptiveSearchDashboardData } from '../../src/composables/adaptiveSearchDashboard';
+import dashboardFixture from './adaptive-dashboard.fixture.json';
 import '../../src/assets/cv.css';
 
-const owner = '11111111-1111-4111-8111-111111111111', search = '22222222-2222-4222-8222-222222222222', project = 'abcdefghijklmnopqrst';
+// Captured only from the isolated synthetic AF-10 SQL fixture, never production.
+const dashboard = structuredClone(dashboardFixture) as unknown as AdaptiveSearchDashboardData;
+const owner = dashboard.user_id, search = dashboard.search_id, project = dashboard.project_ref;
 const template = structuredClone(DEFAULT_SEARCH_TEMPLATES[0]!);
 template.name = 'Synthetic adaptive search'; template.researchInterests = 'BCI; acoustic sensing';
 template.cloud = { id: search, revision: 1, contentKey: searchTemplateContentKey(template) };
@@ -21,6 +25,9 @@ let state: AdaptiveSearchRunnerState = { setup_contract_version: 1, user_id: own
   binding: { task_id: 'synthetic-existing-task', schedule: row.schedule, runner_capability: null } };
 const calls: { name: string; args: Record<string, unknown> }[] = [];
 const copied = ref(''), saveCount = ref(0), requestCount = ref(0);
+const lang = ref('en');
+const actionReceipts = new Map<string, unknown>();
+let loseSourceResponse = false;
 let holdRequest = false, releaseRequest: (() => void) | null = null, failSave = false;
 let failReadiness = new URLSearchParams(location.search).has('readinessFailure');
 const client = { from: (name: string) => {
@@ -28,6 +35,42 @@ const client = { from: (name: string) => {
   return { select: () => ({ eq: () => ({ order: async () => ({ data: [structuredClone(row)], error: null }) }) }) };
 }, rpc: async (name: string, args: Record<string, unknown>) => {
   calls.push({ name, args: structuredClone(args) });
+  if (name === 'read_opportunity_search_dashboard') return { data: { ...structuredClone(dashboard), readiness: structuredClone(state) }, error: null };
+  if (name === 'patch_opportunity_search_settings') {
+    const id = String(args.p_action_id);
+    if (actionReceipts.has(id)) return { data: structuredClone(actionReceipts.get(id)), error: null };
+    const patch = args.p_patch as Record<string, unknown>;
+    Object.assign(dashboard.settings, patch);
+    if ('structured_feedback_enabled' in patch) dashboard.settings.consent_revision++;
+    if ('adaptation_enabled' in patch || 'adaptation_paused' in patch) dashboard.settings.adaptation_revision++;
+    if ('successful_source_reuse_enabled' in patch || 'reuse_check_interval_hours' in patch) dashboard.settings.source_reuse_revision++;
+    if (!dashboard.settings.structured_feedback_enabled && dashboard.settings.adaptation_enabled) { dashboard.settings.adaptation_enabled = false; dashboard.settings.adaptation_revision++; }
+    const receipt = { dashboard_version: 1, action_id: id, search_id: search, kind: 'settings', settings: structuredClone(dashboard.settings) };
+    actionReceipts.set(id, receipt); return { data: receipt, error: null };
+  }
+  if (name === 'patch_opportunity_search_source') {
+    const id = String(args.p_action_id);
+    if (actionReceipts.has(id)) return { data: structuredClone(actionReceipts.get(id)), error: null };
+    const source = dashboard.sources.find(source => source.registry_id === args.p_registry_id)!;
+    Object.assign(source, args.p_patch); source.source_revision++;
+    if (Object.hasOwn(args.p_patch as object, 'enabled')) source.owner_disabled = !source.enabled;
+    const receipt = { dashboard_version: 1, action_id: id, search_id: search, kind: 'source', source: structuredClone(source) };
+    actionReceipts.set(id, receipt);
+    if (loseSourceResponse) { loseSourceResponse = false; return { data: null, error: { code: 'NETWORK', message: 'Synthetic source response lost after commit' } }; }
+    return { data: receipt, error: null };
+  }
+  if (name === 'decide_opportunity_search_preference') {
+    const suggestion = dashboard.preferences.suggestions.find(value => value.suggestion_id === args.p_suggestion_id)!;
+    suggestion.state = args.p_action === 'approve' ? 'approved' : args.p_action === 'reject' ? 'rejected' : 'undone';
+    dashboard.preferences.revision++; dashboard.settings.preference_revision = dashboard.preferences.revision;
+    dashboard.preferences.approved_rules = suggestion.state === 'approved' ? [suggestion.rule] : [];
+    return { data: { operation_id: args.p_operation_id, suggestion_id: args.p_suggestion_id, action: args.p_action,
+      preference_revision: dashboard.preferences.revision, approved_rules: structuredClone(dashboard.preferences.approved_rules) }, error: null };
+  }
+  if (name === 'set_opportunity_search_runner_authorization') {
+    dashboard.runner_authorization = { enabled: Boolean(args.p_enabled), project_ref: project, authorization_revision: dashboard.runner_authorization.authorization_revision + 1 };
+    return { data: { search_id: search, ...dashboard.runner_authorization }, error: null };
+  }
   if (name === 'read_adaptive_search_readiness') return failReadiness
     ? { data: null, error: { code: 'NETWORK', message: 'Synthetic readiness unavailable' } } : { data: structuredClone(state), error: null };
   if (name === 'request_adaptive_search_migration') {
@@ -50,10 +93,12 @@ Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { wri
 Object.assign(window, { adaptiveFixture: {
   holdRequest: () => { holdRequest = true; }, releaseRequest: () => { holdRequest = false; releaseRequest?.(); },
   failSave: () => { failSave = true; }, failReadiness: (value: boolean) => { failReadiness = value; },
-  snapshot: () => structuredClone({ row, state, calls, copied: copied.value }),
+  loseSourceResponse: () => { loseSourceResponse = true; },
+  snapshot: () => structuredClone({ row, state, dashboard, calls, copied: copied.value }),
 } });
 createApp({ setup() { return () => h('main', { style: 'height:100vh;display:flex;flex-direction:column' }, [
-  h('p', { style: 'padding:8px' }, 'Synthetic fixture — no production connection or scheduled task operations.'),
-  h('output', { 'data-testid': 'fixture-events', style: 'padding:8px' }, `Saves: ${saveCount.value}; requests: ${requestCount.value}`),
-  h(SearchTemplates, { userId: owner, projectId: project, client, lang: 'en', sidebarActive: false, style: 'flex:1;min-height:0' }),
+  h('p', { style: 'padding:8px;color:var(--ui-muted);font:13px system-ui' }, 'Synthetic fixture — no production connection or scheduled task operations.'),
+  h('output', { 'data-testid': 'fixture-events', style: 'padding:8px;color:var(--ui-muted);font:13px system-ui' }, `Saves: ${saveCount.value}; requests: ${requestCount.value}`),
+  h('button', { type: 'button', onClick: () => { lang.value = lang.value === 'en' ? 'de' : 'en'; } }, 'English / Deutsch'),
+  h(SearchTemplates, { userId: owner, projectId: project, client, lang: lang.value, sidebarActive: false, style: 'flex:1;min-height:0' }),
 ]); } }).mount('#app');

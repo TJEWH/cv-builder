@@ -18,6 +18,7 @@ import AutosaveTextarea from './AutosaveTextarea.vue';
 import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
 import InfoHint from './InfoHint.vue';
 import AdaptiveSearchPolicyHint from './AdaptiveSearchPolicyHint.vue';
+import AdaptiveSearchDashboard from './AdaptiveSearchDashboard.vue';
 
 const props = withDefaults(defineProps<{ userId: string; lang?: string; sidebarActive?: boolean; projectId?: string; client?: SupabaseClient | null }>(), { sidebarActive: true });
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -36,6 +37,7 @@ const copiedFallback = ref('');
 const runner = ref<AdaptiveSearchRunnerState | null>(null);
 const preparingRunner = ref(false);
 const runnerError = ref('');
+const adaptiveDashboard = ref<InstanceType<typeof AdaptiveSearchDashboard> | null>(null);
 let requestedSetupId: string | null = null;
 useToastWatch(() => error.value, { tone: 'error' });
 useToastWatch(() => notice.value, { tone: 'success' });
@@ -166,8 +168,11 @@ function flushSave(): Promise<boolean> {
   return commitSnapshot();
 }
 async function flushTextareas() {
+  const token = ownerGeneration;
   const result = await flushSave();
-  return result && typingVersion === committedTypingVersion;
+  if (!result || disposed || token !== ownerGeneration || typingVersion !== committedTypingVersion) return false;
+  if (adaptiveDashboard.value && !await adaptiveDashboard.value.flush()) return false;
+  return !disposed && token === ownerGeneration && typingVersion === committedTypingVersion;
 }
 defineExpose({ flushSave, flushTextareas });
 watch(form, () => {
@@ -207,6 +212,15 @@ async function retryLoad() {
 function retrySave() { return loadError.value ? retryLoad() : flushSave(); }
 const systemPreview = computed(() => { try { return form.value ? buildSearchSystemPrompt(form.value, { projectId: connectedProjectId.value, runner: runner.value }) : ''; } catch { return ''; } });
 const userPreview = computed(() => { try { return form.value ? buildSearchUserPrompt(form.value, { projectId: connectedProjectId.value, runner: runner.value }) : ''; } catch { return ''; } });
+async function refreshRunnerState() {
+  const token = ownerGeneration, owner = editingOwner, search = form.value?.cloud?.id, project = connectedProjectId.value, client = props.client;
+  if (!search || !project || !client) return;
+  try {
+    const loaded = await loadAdaptiveSearchRunnerState(client, owner, search, project);
+    if (disposed || token !== ownerGeneration) return;
+    runner.value = loaded; runnerError.value = '';
+  } catch (cause) { if (!disposed && token === ownerGeneration) runnerError.value = cause instanceof Error ? cause.message : String(cause); }
+}
 async function prepareRunner() {
   if (preparingRunner.value) return;
   const token = ownerGeneration; preparingRunner.value = true; runnerError.value = '';
@@ -258,7 +272,8 @@ onBeforeUnmount(() => { if (form.value && status.value !== 'saved') retainSearch
           <AdaptiveSearchPolicyHint :lang="lang" />
         </aside>
       </DesktopSidebarPortal>
-      <form v-if="form" class="search-form" @submit.prevent="flushSave" @focusout="flushSave" @input.capture="onDraftInput">
+      <div v-if="form" class="search-editor">
+      <form class="search-form" @submit.prevent="flushSave" @focusout="flushSave" @input.capture="onDraftInput">
         <div v-if="status !== 'saved' || loadingCloud" class="search-save-state" aria-live="polite"><span>{{ loadingCloud ? text('Loading meta search…', 'Metasuche wird geladen…') : status === 'error' ? text('Could not save changes', 'Änderungen konnten nicht gespeichert werden') : status === 'unsaved' ? text('Unsaved changes', 'Ungespeicherte Änderungen') : text('Saving…', 'Speichert…') }}</span><button v-if="status === 'error'" type="button" @click="retrySave">{{ text('Retry save', 'Speichern wiederholen') }}</button></div>
         <p v-if="error" class="search-error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
         <details class="search-section" open>
@@ -298,6 +313,8 @@ onBeforeUnmount(() => { if (form.value && status.value !== 'saved') retainSearch
         </details>
         <div v-if="copiedFallback" class="search-fields"><label :for="`${controlsId}-fallback`">{{ text('Select and copy prompt', 'Prompt markieren und kopieren') }}</label><AutosaveTextarea :id="`${controlsId}-fallback`" :model-value="copiedFallback" readonly lang="en" rows="12" /></div>
       </form>
+      <AdaptiveSearchDashboard v-if="client && form.cloud?.id && connectedProjectId" ref="adaptiveDashboard" :owner-id="userId" :search-id="form.cloud.id" :project-ref="connectedProjectId" :client="client" :lang="lang" @runner-changed="refreshRunnerState" />
+      </div>
       <p v-else>{{ text('Your saved search could not be opened. Recover its backup before importing another file.', 'Deine gespeicherte Suche konnte nicht geöffnet werden. Stelle ihre Sicherung wieder her, bevor du eine weitere Datei importierst.') }}</p>
     </div>
   </section>
@@ -314,7 +331,8 @@ onBeforeUnmount(() => { if (form.value && status.value !== 'saved') retainSearch
 .search-layout { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 24px; min-width: 0; min-height: 0; flex: 1 1 0; overflow: hidden; }
 .search-layout--sidebar { grid-template-columns: minmax(0, 1fr); }
 .search-library { display: grid; align-content: start; gap: 16px; min-width: 0; }
-.search-form { min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; overscroll-behavior: contain; }
+.search-editor { min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; overscroll-behavior: contain; }
+.search-form { min-width: 0; min-height: 0; }
 .search-action-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .search-action-row > button { flex: 1; min-width: 0; }
 .search-templates :is(button, input, select, textarea), .search-library :is(button, input, select) { box-sizing: border-box; min-width: 0; border: 1px solid var(--ui-border); border-radius: 7px; background: var(--ui-control); color: var(--ui-text); padding: 10px 12px; font: 400 14px/1.5 var(--font-ui); }
@@ -348,7 +366,7 @@ onBeforeUnmount(() => { if (form.value && status.value !== 'saved') retainSearch
   .search-templates { padding: 20px 12px; overflow: auto; overscroll-behavior: contain; }
   .search-heading { margin-bottom: 20px; }
   .search-layout { display: flex; flex-direction: column; flex: 0 0 auto; overflow: visible; }
-  .search-form { overflow: visible; }
+  .search-editor { overflow: visible; }
   .search-schedule { grid-template-columns: minmax(0, 1fr); }
   .search-templates :is(input,select,textarea), .search-library select { font-size: 16px; }
   .search-templates button:not(.info-hint__button), .search-library button:not(.info-hint__button) { min-height: 44px; }
