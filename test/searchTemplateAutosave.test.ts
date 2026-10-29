@@ -7,7 +7,8 @@ import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive, type Component } from 'vue';
 import { createSearchTemplateRepository, DEFAULT_SEARCH_TEMPLATES, searchTemplateContentKey } from '../src/composables/useSearchTemplates';
 import { importCloudSearchTemplate, searchTemplateCloudCriteria, searchTemplateCloudSchedule } from '../src/composables/searchTemplateCloud';
-import { isSearchTemplateSaved } from '../src/composables/searchPrompts';
+import { isSearchTemplateSaved, type SearchPromptOptions } from '../src/composables/searchPrompts';
+import type { AdaptiveSearchRunnerState } from '../src/composables/adaptiveSearchTask';
 import type { SearchCloudTemplate, SearchTemplate } from '../src/searchTypes';
 import * as textareaCommit from '../src/composables/textareaCommit';
 import { clearSearchDraft, recoverSearchDraft, retainSearchDraft } from '../src/composables/searchTemplateRecovery';
@@ -41,11 +42,20 @@ function cloudRow(template: SearchTemplate, revision = 3): SearchCloudTemplate {
     created_at: template.updatedAt, updated_at: template.updatedAt,
     meta_search: { version: 1, active: template.active, editor: clone(template), systemPrompt: 'System', userPrompt: 'User', recurringPrompt: 'Recurring' } };
 }
+function legacyRunner(patch: Partial<AdaptiveSearchRunnerState> = {}): AdaptiveSearchRunnerState {
+  return { setup_contract_version: 1, user_id: ownerId, search_id: cloudId, project_ref: projectRef,
+    revision: 0, mode: 'legacy', migration_requested: false, ready: false, readiness_code: 'release_disabled',
+    setup_id: null, binding: null, ...patch };
+}
 async function fixture(t: TestContext, options: { linked?: boolean; readGate?: ReturnType<typeof gate>; rows?: SearchCloudTemplate[]; emptyLocal?: boolean;
-  readinessError?: { code: string; message: string } } = {}) {
+  readiness?: AdaptiveSearchRunnerState; readinessError?: { code: string; message: string } } = {}) {
   const data = new Map<string, string>(); const recoveryData = new Map<string, string>();
   let failWrites = false; let failCloud = false; let failRead = false;
   let saveGate: ReturnType<typeof gate> | null = null;
+  let readinessGate: ReturnType<typeof gate> | null = null;
+  let readinessState = options.readiness ?? null;
+  let readinessError: { code: string; message: string } | null = options.readinessError
+    ?? (options.readiness ? null : { code: 'PGRST202', message: 'Synthetic workspace has no additive readiness helper.' });
   const storage = { getItem: (key: string) => data.get(key) ?? null,
     setItem: (key: string, value: string) => { if (failWrites) throw new Error('Storage full'); data.set(key, value); } };
   const restoreGlobals: (() => void)[] = [];
@@ -65,6 +75,7 @@ async function fixture(t: TestContext, options: { linked?: boolean; readGate?: R
   if (!options.emptyLocal) owner.saveTemplate(initial);
   const saves: SearchTemplate[] = []; const reads: string[] = []; const copied: string[] = [];
   const readinessCalls: { name: string; args: Record<string,unknown> }[] = [];
+  const copyPrompts: SearchPromptOptions[] = [];
   const exports: { default?: Component } = {};
   new Function('require', 'exports', code)((path: string) => {
     if (path.endsWith('.vue')) return { default: {} };
@@ -73,7 +84,10 @@ async function fixture(t: TestContext, options: { linked?: boolean; readGate?: R
     if (path.endsWith('/searchTemplateRecovery')) return { clearSearchDraft, recoverSearchDraft, retainSearchDraft };
     if (path.endsWith('/searchPrompts')) return {
       isSearchTemplateSaved, buildSearchSystemPrompt: () => 'System', buildSearchUserPrompt: () => 'User',
-      buildReplaceSearchPrompt: (template: SearchTemplate) => `Read saved search ${template.cloud!.id} and replace its task`,
+      buildReplaceSearchPrompt: (template: SearchTemplate, options: SearchPromptOptions = {}) => {
+        copyPrompts.push(clone(options));
+        return `Read saved search ${template.cloud!.id} and replace its task using setup ${options.setupId || 'legacy'}`;
+      },
     };
     if (path.endsWith('/searchTemplateCloud')) return {
       importCloudSearchTemplate,
@@ -100,7 +114,8 @@ async function fixture(t: TestContext, options: { linked?: boolean; readGate?: R
     rpc: async (name: string, args: Record<string,unknown>) => {
       assert.equal(name,'read_adaptive_search_readiness','the autosave harness permits only the additive readiness read');
       readinessCalls.push({ name,args: clone(args) });
-      return { data: null,error: options.readinessError ?? { code: 'PGRST202',message: 'Synthetic workspace has no additive readiness helper.' } };
+      if (readinessGate) await readinessGate.promise;
+      return { data: readinessState && clone(readinessState),error: readinessError };
     },
   } });
   let instance: unknown;
@@ -112,8 +127,10 @@ async function fixture(t: TestContext, options: { linked?: boolean; readGate?: R
     unmount(); for (const account of [ownerId, otherOwnerId]) { const old = recoverSearchDraft(account); if (old) clearSearchDraft(account, old.form.id); }
   } finally { restoreGlobals.forEach(restore => restore()); } });
   if (!options.readGate) await settle();
-  return { editor: (instance as { $: { setupState: Editor } }).$.setupState, owner, props, saves, reads, copied, readinessCalls, unmount,
+  return { editor: (instance as { $: { setupState: Editor } }).$.setupState, owner, props, saves, reads, copied, copyPrompts, readinessCalls, unmount,
     holdSave: () => { saveGate = gate(); return saveGate; },
+    holdReadiness: () => { readinessGate = gate(); return readinessGate; },
+    setReadiness: (value: AdaptiveSearchRunnerState | null, error: { code: string; message: string } | null = null) => { readinessState = value; readinessError = error; },
     failWrites: (value: boolean) => { failWrites = value; }, failCloud: (value: boolean) => { failCloud = value; }, failRead: (value: boolean) => { failRead = value; } };
 }
 
@@ -141,7 +158,64 @@ test('a missing additive readiness helper keeps legacy copy/navigation usable wi
   await editor.copy();
   assert.equal(editor.error,''); assert.equal(editor.status,'saved');
   assert.equal(copied.length,1); assert.ok(copied[0]!.includes(cloudId));
-  assert.equal(saves.length,0); assert.equal(readinessCalls.length,1);
+  assert.equal(saves.length,0); assert.equal(readinessCalls.length,2);
+});
+
+test('copy refreshes a cached unbound runner and resumes the server setup claim', async t => {
+  const { editor, copied, copyPrompts, saves, setReadiness, readinessCalls } = await fixture(t, { linked: true, readiness: legacyRunner() });
+  const setupId = 'a0000000-0000-4000-8000-000000000002';
+  setReadiness(legacyRunner({ setup_id: setupId }));
+  await editor.copy();
+  assert.equal(copied.length, 1); assert.ok(copied[0]!.includes(setupId));
+  assert.equal(copyPrompts[0]!.runner!.setup_id, setupId);
+  assert.equal(copyPrompts[0]!.setupId, setupId);
+  assert.equal(readinessCalls.length, 2); assert.equal(saves.length, 0);
+});
+
+test('repeat copies pin a setup UUID until the server reports its own pending identity', async t => {
+  const { editor, copyPrompts, setReadiness } = await fixture(t, { linked: true, readiness: legacyRunner() });
+  await editor.copy(); await editor.copy();
+  const fresh = copyPrompts[0]!.setupId;
+  assert.match(fresh!, /^[0-9a-f-]{36}$/u); assert.equal(copyPrompts[1]!.setupId, fresh);
+  const serverSetup = 'a0000000-0000-4000-8000-000000000003';
+  setReadiness(legacyRunner({ migration_requested: true, ready: true, readiness_code: 'ready', setup_id: serverSetup }));
+  await editor.copy();
+  assert.equal(copyPrompts[2]!.setupId, serverSetup);
+});
+
+test('unknown or denied copy-time readiness blocks clipboard publication', async t => {
+  const { editor, copied, setReadiness, saves } = await fixture(t, { linked: true, readiness: legacyRunner() });
+  for (const code of ['NETWORK_ERROR', '42501', 'PGRST202']) {
+    setReadiness(null, { code, message: 'Synthetic readiness refresh failed.' });
+    await editor.copy();
+    assert.equal(copied.length, 0); assert.notEqual(editor.error, '');
+  }
+  assert.equal(saves.length, 0);
+});
+
+test('newer textarea typing during the readiness refresh prevents clipboard publication', async t => {
+  const { editor, copied, holdReadiness, saves, readinessCalls } = await fixture(t, { linked: true, readiness: legacyRunner() });
+  const hold = holdReadiness(); const copying = editor.copy(); await settle();
+  assert.equal(readinessCalls.length, 2);
+  editor.onDraftInput(); hold.release(); await copying;
+  assert.equal(copied.length, 0); assert.equal(editor.status, 'unsaved'); assert.equal(saves.length, 0);
+});
+
+test('a newer committed model during the readiness refresh prevents clipboard publication', async t => {
+  const { editor, copied, holdReadiness } = await fixture(t, { linked: true, readiness: legacyRunner() });
+  const hold = holdReadiness(); const copying = editor.copy(); await settle();
+  editor.form.userPrompt = 'New committed model while setup refreshes';
+  assert.equal(await editor.flushSave(), true);
+  hold.release(); await copying;
+  assert.equal(copied.length, 0);
+});
+
+test('switching accounts during the readiness refresh cancels the old copy', async t => {
+  const { editor, props, copied, holdReadiness, readinessCalls } = await fixture(t, { linked: true, readiness: legacyRunner() });
+  const hold = holdReadiness(); const copying = editor.copy(); await settle();
+  assert.equal(readinessCalls.length, 2);
+  props.userId = otherOwnerId; await settle(); hold.release(); await copying;
+  assert.equal(copied.length, 0);
 });
 
 test('missing readiness for a saved adaptive runner blocks copying rather than inventing a legacy fallback', async t => {

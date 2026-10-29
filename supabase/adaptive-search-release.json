@@ -338,7 +338,7 @@
     },
     {
       "path": "src/components/SearchTemplates.vue",
-      "sha256": "68d42f9b7728a230bc52b59133fb3fb2fdb65ed811434f28c1bf7a6b5b341c6b"
+      "sha256": "45530a76577589ed0cb4cb3069faf196c710c58c1e7fd6493520daf159eeea80"
     },
     {
       "path": "src/components/JobWorkspace.vue",

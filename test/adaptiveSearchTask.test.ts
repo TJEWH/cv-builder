@@ -5,7 +5,7 @@ import { reactive } from 'vue';
 import { ADAPTIVE_BATCH_CAPABILITIES } from '../src/composables/adaptiveSearchProtocol';
 import { buildAdaptiveRecurringSearchPrompt, loadAdaptiveSearchRunnerState, readAdaptiveSearchRunnerState, requestAdaptiveSearchRunner,
   usesAdaptiveSearchRunner, type AdaptiveSearchRunnerState } from '../src/composables/adaptiveSearchTask';
-import { buildRecurringSearchPrompt, buildReplaceSearchPrompt, buildSearchSystemPrompt, buildSearchUserPrompt } from '../src/composables/searchPrompts';
+import { buildRecurringSearchPrompt, buildReplaceSearchPrompt, buildSearchSetupReadSql, buildSearchSystemPrompt, buildSearchUserPrompt } from '../src/composables/searchPrompts';
 import { saveSearchTemplate, searchTemplateCloudCriteria, searchTemplateCloudSchedule } from '../src/composables/searchTemplateCloud';
 import { DEFAULT_SEARCH_TEMPLATES, searchTemplateContentKey } from '../src/composables/useSearchTemplates';
 
@@ -65,8 +65,19 @@ test('AF09 setup has one bounded read followed only by receipt acknowledgement a
   assert.equal((value.match(/SELECT /gu) || []).length, 2, 'one handoff read plus one explicitly setup-only acknowledgement');
   assert.ok(value.includes('private.ack_adaptive_search_setup') && value.includes('actual returned task ID and schedule'));
   assert.ok(value.includes("handoff's reviewed recurringPrompt"));
+  assert.ok(value.includes(buildSearchSetupReadSql(search, setup, project)));
+  for (const required of ['Decode the received connector response locally', 'standalone boundary lines', 'exactly one SQL row',
+    'one additional identical handoff read', 'Do not retry an invalid contract', 'target.kind=selection_required']) assert.ok(value.includes(required), required);
   for (const required of ['explicit setup approval', 'exact bound task ID', 'real successful task-tool receipt', 'separately approved exact superseded IDs', 'leave unrelated tasks untouched', 'at most once']) assert.ok(value.includes(required), required);
   for (const forbidden of ['begin_opportunity_search(', 'begin_adaptive_opportunity_search(', 'meta_search -', 'update and enable the bound task, or find', 'create only if none exists']) assert.ok(!value.includes(forbidden), forbidden);
+});
+
+test('setup recovery keeps the independently loaded pending claim ahead of a new clipboard identity', () => {
+  const state = runner({ migration_requested: false, ready: false, readiness_code: 'release_disabled', binding: null });
+  const value = buildReplaceSearchPrompt(template(), { projectId: project, runner: state, setupId: owner });
+  assert.ok(value.includes(buildSearchSetupReadSql(search, setup, project)));
+  assert.ok(!value.includes(`'${owner}'::uuid`));
+  assert.throws(() => buildSearchSetupReadSql(search, "not-a-uuid'", project), /exact saved search UUID/);
 });
 
 test('AF09 independently loaded runner state validates owner, scope, schedule and finite revisions', () => {

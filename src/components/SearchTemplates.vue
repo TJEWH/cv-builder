@@ -46,6 +46,7 @@ const preparingRunner = ref(false);
 const runnerError = ref('');
 const adaptiveDashboard = ref<InstanceType<typeof AdaptiveSearchDashboard> | null>(null);
 let requestedSetupId: string | null = null;
+let copiedSetup: { key: string; id: string } | null = null;
 useToastWatch(() => error.value, { tone: 'error' });
 useToastWatch(() => notice.value, { tone: 'success' });
 let editingOwner = props.userId;
@@ -191,7 +192,7 @@ watch(() => props.userId, id => {
   if (form.value && (dirty || !isSearchTemplateSaved(form.value))) retainSearchDraft(editingOwner, form.value, baseline);
   ownerGeneration++; editingOwner = id; copying.value = false;
   pending = null; pendingKey = null; failedWrite = null; binding = undefined; queue = Promise.resolve();
-  runner.value = null; runnerError.value = ''; preparingRunner.value = false; requestedSetupId = null;
+  runner.value = null; runnerError.value = ''; preparingRunner.value = false; requestedSetupId = null; copiedSetup = null;
   error.value = ''; notice.value = ''; loadError.value = false; replace(null);
   try {
     const local = repository().listTemplates()[0]!; const recovered = recoverSearchDraft(id);
@@ -253,7 +254,25 @@ async function copy() {
   try {
     const result = await copyPreparedText(async () => {
       if (!await flushTextareas() || !form.value || token !== ownerGeneration || disposed) return null;
-      return buildReplaceSearchPrompt(form.value, { projectId: connectedProjectId.value, runner: runner.value });
+      const owner = editingOwner, search = form.value.cloud?.id, project = connectedProjectId.value, client = props.client;
+      const inputVersion = typingVersion, draftVersion = modelVersion;
+      if (!search || !project || !client) throw new Error(text('Connect the saved search to Supabase before copying its setup.', 'Die gespeicherte Suche vor dem Kopieren ihrer Einrichtung mit Supabase verbinden.'));
+      // A previous ChatGPT read may have claimed setup since the editor loaded.
+      // Refresh on this explicit action and retain its identity for reconciliation.
+      const loaded = await loadAdaptiveSearchRunnerState(client, owner, search, project);
+      if (disposed || token !== ownerGeneration || editingOwner !== owner || props.client !== client || connectedProjectId.value !== project
+        || form.value?.cloud?.id !== search || typingVersion !== inputVersion || modelVersion !== draftVersion
+        || typingVersion !== committedTypingVersion || status.value !== 'saved') return null;
+      if (!loaded && runner.value) throw new Error(text('The setup readiness helper is unavailable. Reload before copying task instructions.', 'Die Bereitschaftsfunktion ist nicht verfügbar. Vor dem Kopieren der Aufgabenanweisung neu laden.'));
+      runner.value = loaded; runnerError.value = '';
+      let setupId: string | undefined;
+      if (loaded) {
+        const key = `${project}:${search}:${form.value.cloud!.revision}:${loaded.revision}:${loaded.binding?.task_id || ''}`;
+        if (loaded.setup_id) copiedSetup = { key, id: loaded.setup_id };
+        else if (copiedSetup?.key !== key) copiedSetup = { key, id: crypto.randomUUID() };
+        setupId = copiedSetup!.id;
+      }
+      return buildReplaceSearchPrompt(form.value, { projectId: project, runner: loaded, setupId });
     });
     if (!result || disposed || token !== ownerGeneration) return;
     if (result.copied) notice.value = text('Replacement instruction copied. Paste it into ChatGPT to replace the meta-search schedule.', 'Ersetzungsanweisung kopiert. In ChatGPT einfügen, um den Metasuch-Zeitplan zu ersetzen.');
