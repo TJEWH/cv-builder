@@ -14,6 +14,7 @@
     "test:opportunity-feedback-sharing": "tsx --test test/opportunityFeedback/sharing.test.ts",
     "test:adaptive-feedback-snapshots": "tsx --test test/opportunityFeedback/snapshots.test.ts",
     "test:adaptive-search-plans": "tsx --test test/opportunityFeedback/plans.test.ts",
+    "test:adaptive-search-attribution": "tsx --test test/opportunityFeedback/attribution.test.ts",
     "test:refinement": "tsx --test test/*Refinement*.test.ts test/refinement*.test.ts test/cloudCvPrivacy.test.ts test/useDocumentPdfPreview.test.ts",
     "refinement:prompts": "tsx test/refinementProtocol/generate.ts",
     "refinement:prompts:check": "tsx test/refinementProtocol/generate.ts --check",

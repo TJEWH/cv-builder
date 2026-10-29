@@ -303,6 +303,46 @@ test('historical prediction timing and submission ordering preserve PostgreSQL m
   'an independently verified prediction may use another representation of the exact microsecond instant');
 });
 
+test('AF-05 independently verified discovery assessments provide a frozen baseline without changing v1 interest conventions', () => {
+  const baseline = prediction({ source_kind: 'discovery_assessment', source_ref: 'opportunity-discovery-assessment:00000000-0000-4000-8000-000000000005' });
+  const sample = input({ review: review({ interest_rating: 0, feedback_updated_at: feedbackTime, prediction_baseline: baseline }),
+    verified_prediction: baseline });
+  const result = deriveOpportunityFeedback(sample);
+  assert.equal(result.interest_score, 0);
+  assert.equal(result.interest_origin, 'explicit_rating');
+  assert.equal(result.interest_gap, -7);
+  assert.equal(result.baseline_status, 'available');
+  assert.equal(result.metric_version, OPPORTUNITY_INTEREST_METRIC_VERSION);
+  assert.equal(deriveOpportunityFeedback({ ...sample, verified_prediction: null }).interest_gap, null, 'a structured assertion is still not provenance');
+  assert.deepEqual(sample.review!.prediction_baseline, baseline);
+  for (const bad of [
+    prediction({ source_kind: 'discovery_assessment' }),
+    prediction({ source_ref: baseline.source_ref }),
+    { ...baseline, user_id: 'another-owner' },
+    { ...baseline, opportunity_id: 'another-opportunity' },
+    { ...baseline, predicted_at: '2026-10-02T09:00:00.000001Z' },
+    { ...baseline, scale_max: 100 as 10 },
+  ]) {
+    assert.equal(deriveOpportunityFeedback({ ...sample, review: { ...sample.review!, prediction_baseline: bad }, verified_prediction: bad }).interest_gap, null);
+  }
+});
+
+test('AF-05 a known submission can match a genuine ex-ante assessment without rebasing unchanged explicit feedback', () => {
+  const baseline = prediction({ source_kind: 'discovery_assessment', source_ref: 'opportunity-discovery-assessment:00000000-0000-4000-8000-000000000005' });
+  const sample = input({ review: review(), applications: [application({ status: 'rejected', submitted_at: feedbackTime })],
+    verified_prediction: baseline });
+  const result = deriveOpportunityFeedback(sample);
+  assert.equal(result.interest_origin, 'confirmed_submission');
+  assert.equal(result.interest_score, 9);
+  assert.equal(result.interest_gap, 2);
+  assert.equal(sample.review!.prediction_baseline, null, 'fallback derivation does not write an invented review event');
+  assert.equal(deriveOpportunityFeedback({ ...sample, review: review({ state: 'interested', feedback_updated_at: feedbackTime }) }).interest_gap, null,
+    'an unchanged explicit review still needs its frozen stored baseline');
+  assert.equal(deriveOpportunityFeedback({ ...sample, applications: [application({ status: 'submitted', submitted_at: null })] }).interest_gap, null,
+    'unknown submission time cannot establish ex-ante ordering');
+  assert.equal(deriveOpportunityFeedback({ ...sample, verified_prediction: { ...baseline, predicted_at: '2026-10-02T09:00:00.000001Z' } }).interest_gap, null);
+});
+
 test('metric conventions are versioned and configurable only under an explicit different version', () => {
   assert.equal(Object.isFrozen(DEFAULT_OPPORTUNITY_INTEREST_POLICY), true);
   assert.equal(Object.isFrozen(DEFAULT_OPPORTUNITY_INTEREST_POLICY.review_scores), true);

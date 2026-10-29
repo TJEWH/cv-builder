@@ -54,7 +54,7 @@ export interface OpportunityFeedbackInput {
   applications?: readonly OpportunitySubmissionEvidence[];
   /**
    * Independent trusted evidence, verified server-side against the exact owner-scoped receipt
-   * and non-rolled-back immutable historical snapshot. Never populate from a client assertion,
+   * and non-rolled-back immutable assessment or historical snapshot. Never populate from a client assertion,
    * current catalogue assessment, display string, or application context. Without it no gap exists.
    */
   verified_prediction?: OpportunityPredictionBaseline | null;
@@ -172,10 +172,13 @@ function validatePolicy(policy: OpportunityInterestMetricPolicy): void {
 function validBaseline(value: unknown, userId: string, opportunityId: string): value is OpportunityPredictionBaseline {
   if (!isRecord(value) || Object.keys(value).sort().join(',')
     !== 'opportunity_id,predicted_at,scale_max,scale_min,score,source_kind,source_ref,user_id') return false;
+  const referenceMatches = typeof value.source_ref === 'string' && (value.source_kind === 'historical_snapshot'
+    ? /^opportunity-search-receipt:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(value.source_ref)
+    : value.source_kind === 'discovery_assessment'
+      && /^opportunity-discovery-assessment:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(value.source_ref));
   return value.user_id === userId && value.opportunity_id === opportunityId && isOpportunityInterestRating(value.score)
     && value.scale_min === 0 && value.scale_max === 10 && timestamp(value.predicted_at) !== null
-    && value.source_kind === 'historical_snapshot' && typeof value.source_ref === 'string'
-    && /^opportunity-search-receipt:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(value.source_ref);
+    && referenceMatches;
 }
 
 /** Deterministic current outcome; never inspect catalogue scores or mutate the supplied records. */
@@ -220,12 +223,16 @@ export function deriveOpportunityFeedback(
     result.interest_score = policy.submitted_score;
     result.interest_origin = 'confirmed_submission';
   }
-  const baseline = review?.prediction_baseline;
   const verified = input.verified_prediction;
+  // Submission is a current derived fallback, not an explicit feedback revision.
+  // Its real, known time can match an independently verified ex-ante prediction.
+  // Explicit ratings/categories never gain a retrospective baseline this way.
+  const baseline = review?.prediction_baseline ?? (result.interest_origin === 'confirmed_submission' ? verified : null);
   const observedAt = result.interest_origin === 'confirmed_submission' ? timestamp(result.submission_at) : feedbackAt;
   if (result.interest_score !== null && observedAt !== null
     && validBaseline(baseline, input.user_id, input.opportunity_id) && validBaseline(verified, input.user_id, input.opportunity_id)
-    && baseline.score === verified.score && timestamp(baseline.predicted_at) === timestamp(verified.predicted_at) && baseline.source_ref === verified.source_ref
+    && baseline.score === verified.score && baseline.source_kind === verified.source_kind
+    && timestamp(baseline.predicted_at) === timestamp(verified.predicted_at) && baseline.source_ref === verified.source_ref
     && timestamp(baseline.predicted_at)! <= observedAt) {
     result.baseline_status = 'available';
     result.interest_gap = result.interest_score - baseline.score;

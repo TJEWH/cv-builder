@@ -253,3 +253,15 @@ test('example lists remain bounded without clipping approved text or private val
   assert.equal(Array.from(result.example!.search_feedback_summary!).length, 600);
   assert.ok(result.withheld.some(item => item.field === 'topics' && item.reason === 'limit'));
 });
+
+test('AF-05 outgoing prediction metadata preserves discovery provenance without exposing assessment or application blobs', async () => {
+  const baseline = { user_id: owner, opportunity_id: opportunity, score: 7, scale_min: 0 as const, scale_max: 10 as const,
+    predicted_at: '2026-10-28T12:00:00Z', source_kind: 'discovery_assessment' as const,
+    source_ref: `opportunity-discovery-assessment:${other}` };
+  const sample = input({ review: review({ prediction_baseline: baseline }), verified_prediction: baseline });
+  sample.opportunity.assessment = { private: privateComment };
+  const result = await projectOpportunityFeedback(sample);
+  assert.deepEqual(result.example?.original_prediction, baseline);
+  assert.equal(result.example?.interest_gap, -7);
+  assert.doesNotMatch(JSON.stringify(result), /Rowan|rowan@|execute_sql|"assessment"/u);
+});

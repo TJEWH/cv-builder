@@ -184,7 +184,7 @@ export async function projectOpportunityFeedback(input: OpportunityFeedbackProje
   if (outcome.baseline_status === 'available' && input.verified_prediction) {
     const prediction = input.verified_prediction;
     example.original_prediction = { user_id: input.user_id, opportunity_id: id, score: prediction.score,
-      scale_min: 0, scale_max: 10, predicted_at: prediction.predicted_at, source_kind: 'historical_snapshot', source_ref: prediction.source_ref };
+      scale_min: 0, scale_max: 10, predicted_at: prediction.predicted_at, source_kind: prediction.source_kind, source_ref: prediction.source_ref };
   }
   const publicTextFields = { opportunity_key: 200, title: 240, institution: 200, research_summary: 1000 } as const;
   for (const [field, limit] of Object.entries(publicTextFields) as [keyof typeof publicTextFields, number][]) {

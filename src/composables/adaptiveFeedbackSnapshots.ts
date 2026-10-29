@@ -99,15 +99,22 @@ function statistics(values: readonly number[]): { scored: number; score_sum: num
   return { scored: values.length, score_sum: scoreSum, mean_interest: Number(rounded) / 1_000_000 };
 }
 
+/** Shared exact-decimal score statistics for owner-scoped feedback/quality reports. */
+export { statistics as adaptiveFeedbackScoreStatistics };
+
 function originalPrediction(value: unknown, owner: string, id: string): OpportunityPredictionBaseline | undefined {
   if (!record(value) || typeof value.user_id !== 'string' || value.user_id.toLowerCase() !== owner
     || typeof value.opportunity_id !== 'string' || value.opportunity_id.toLowerCase() !== id || !isOpportunityInterestRating(value.score)
-    || value.scale_min !== 0 || value.scale_max !== 10 || !timestamp(value.predicted_at) || value.source_kind !== 'historical_snapshot'
+    || value.scale_min !== 0 || value.scale_max !== 10 || !timestamp(value.predicted_at)
     || typeof value.source_ref !== 'string') return undefined;
   const reference = value.source_ref.split(':');
-  if (reference.length !== 3 || reference[0] !== 'opportunity-search-receipt' || !uuid.test(reference[1]!) || !uuid.test(reference[2]!)) return undefined;
+  if (value.source_kind === 'historical_snapshot') {
+    if (reference.length !== 3 || reference[0] !== 'opportunity-search-receipt' || !uuid.test(reference[1]!) || !uuid.test(reference[2]!)) return undefined;
+  } else if (value.source_kind === 'discovery_assessment') {
+    if (reference.length !== 2 || reference[0] !== 'opportunity-discovery-assessment' || !uuid.test(reference[1]!)) return undefined;
+  } else return undefined;
   return { user_id: owner, opportunity_id: id, score: value.score, scale_min: 0, scale_max: 10,
-    predicted_at: value.predicted_at as string, source_kind: 'historical_snapshot', source_ref: `opportunity-search-receipt:${reference[1]!.toLowerCase()}:${reference[2]!.toLowerCase()}` };
+    predicted_at: value.predicted_at as string, source_kind: value.source_kind, source_ref: `${reference[0]}:${reference.slice(1).map(part => part.toLowerCase()).join(':')}` };
 }
 
 /** Reconstruct the AF-02 allowlist even when callers attach arbitrary extra properties. */

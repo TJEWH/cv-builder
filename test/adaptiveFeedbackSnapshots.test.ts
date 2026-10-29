@@ -167,6 +167,22 @@ test('AF-03 only valid, timely owner-matched original predictions survive; curre
   assert.equal(result.examples.find(item => item.opportunity_id === id(2))!.baseline_status, 'unavailable');
 });
 
+test('AF-05 feedback packets preserve valid discovery assessment provenance and reject mismatched reference kinds', async () => {
+  const valid = discrepancy(1, 2, 8);
+  valid.original_prediction!.source_kind = 'discovery_assessment';
+  valid.original_prediction!.source_ref = `opportunity-discovery-assessment:${id(990)}`;
+  const wrongPrefix = discrepancy(2, 2, 8); wrongPrefix.original_prediction!.source_kind = 'discovery_assessment';
+  const wrongKind = discrepancy(3, 2, 8); wrongKind.original_prediction!.source_ref = `opportunity-discovery-assessment:${id(991)}`;
+  const result = await compileAdaptiveFeedbackSnapshot(input([valid, wrongPrefix, wrongKind]));
+  assert.equal(result.counts.baseline_available, 1);
+  assert.deepEqual(result.examples.find(item => item.opportunity_id === id(1))!.original_prediction, valid.original_prediction);
+  for (const item of result.examples.filter(item => item.opportunity_id !== id(1))) {
+    assert.equal(item.baseline_status, 'unavailable');
+    assert.equal(item.interest_gap, null);
+    assert.equal(item.original_prediction, undefined);
+  }
+});
+
 test('AF-03 byte bounds omit complete examples without truncating text or biasing whole-set statistics', async () => {
   const research = '🔬'.repeat(1000);
   const topics = Array.from({ length: 16 }, (_, index) => `${'🔬'.repeat(119)}${String.fromCharCode(65 + index)}`);

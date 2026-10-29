@@ -25,7 +25,7 @@ export interface OpportunityPredictionBaseline {
   scale_min: 0;
   scale_max: 10;
   predicted_at: string;
-  source_kind: 'historical_snapshot';
+  source_kind: 'historical_snapshot' | 'discovery_assessment';
   source_ref: string;
 }
 
