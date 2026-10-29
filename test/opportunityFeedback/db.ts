@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 
 // No URL/env override: this destructive fixture runner can only use its labelled,
 // network-disabled disposable container. It never connects to Supabase.
@@ -44,7 +45,7 @@ export function sqlAsync(statement: string): Promise<string> {
   });
 }
 export function file(path: string): string { return readFileSync(new URL(path, import.meta.url), 'utf8'); }
-export function reset() {
+export function reset(options: { searchProtocol?: boolean } = {}) {
   if (sql('select current_database();') !== database) throw new Error('Unexpected fixture database.');
   sql(`drop schema if exists private cascade; drop schema if exists auth cascade; drop schema public cascade;
     create schema public; create schema auth;
@@ -63,5 +64,13 @@ export function reset() {
     grant usage on schema auth,public to anon,authenticated,service_role;
     grant execute on function auth.uid(),auth.jwt() to anon,authenticated,service_role;`);
   sql(file('../../supabase/schema.sql'));
-  sql(file('./fixtures/prerequisites.sql'));
+  if (options.searchProtocol) {
+    const bootstrap = file('./fixtures/legacy-search-bootstrap.sql');
+    const provenance = JSON.parse(file('./fixtures/legacy-search-bootstrap.json'));
+    if (createHash('sha256').update(bootstrap).digest('hex') !== provenance.sha256) throw new Error('The pinned legacy bootstrap fixture changed.');
+    sql(bootstrap);
+    sql(file('../../supabase/opportunity_merge_v4.sql'));
+    sql(file('../../supabase/opportunity_canonical_v5.sql'));
+    sql(file('../../supabase/opportunity_meta_search_autosave.sql'));
+  } else sql(file('./fixtures/prerequisites.sql'));
 }
