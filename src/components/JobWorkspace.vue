@@ -15,6 +15,7 @@ import { readLivingStandard } from '../composables/livingStandard';
 import { applicationStatusHistory, applicationStatusLabel, applicationStatusTone, applicationTrackingStarted, applicationWasSubmitted } from '../composables/applicationTracking';
 import { useApplicationNotesAutosave } from '../composables/useApplicationNotesAutosave';
 import AutosaveTextarea from './AutosaveTextarea.vue';
+import OpportunityFeedbackControls from './OpportunityFeedbackControls.vue';
 import OpportunityContext from './OpportunityContext.vue';
 import ApplicationWorkspace from './ApplicationWorkspace.vue';
 import SearchTemplates from './SearchTemplates.vue';
@@ -41,7 +42,8 @@ const desktopSidebar = useDesktopSidebar();
 const sidebarActive = computed(() => desktopSidebar.value && props.active);
 const emit = defineEmits<{ navigate: [tab: 'opportunities' | 'applications']; 'save-career-variant': [name: string, state: CvState]; 'edit-variant': [id: string] }>();
 const { opportunities, applications, reviews, loading, saving, savingReview, error, opportunityReviewError, opportunityCommentError, createApplication,
-  updateApplication, setApplicationStage, setApplicationChecklistItem, resetApplicationHistory, removeApplication, setOpportunityReview, setOpportunityComment, markOpportunityReviewed } = useJobWorkspace(props.client, () => props.userId);
+  updateApplication, setApplicationStage, setApplicationChecklistItem, resetApplicationHistory, removeApplication, setOpportunityReview, setOpportunityComment, markOpportunityReviewed,
+  saveOpportunityFeedback, approveOpportunityFeedbackSummary, revokeOpportunityFeedbackSummary, feedbackSharing, loadFeedbackSharing, setStructuredFeedbackSharing } = useJobWorkspace(props.client, () => props.userId);
 const blockingSave = computed(() => saving.value && !savingReview.value);
 const startingApplication = shallowRef<{ opportunityId: string } | null>(null);
 watch(() => props.userId, () => { startingApplication.value = null; }, { flush: 'sync' });
@@ -79,6 +81,8 @@ const workspaceElement = ref<HTMLElement | null>(null);
 const opportunityDetail = ref<HTMLElement | null>(null);
 const applicationWorkspace = ref<InstanceType<typeof ApplicationWorkspace> | null>(null);
 const searchTemplates = ref<InstanceType<typeof SearchTemplates> | null>(null);
+const opportunityFeedback = ref<{ flush(): Promise<boolean> } | null>(null);
+const applicationFeedback = ref<{ flush(): Promise<boolean> } | null>(null);
 const opportunityView = ref<'catalogue' | 'searches'>('catalogue');
 const showingSearchTemplates = computed(() => props.tab === 'opportunities' && opportunityView.value === 'searches');
 async function selectOpportunityView(view: 'catalogue' | 'searches') {
@@ -191,6 +195,10 @@ const selectedOpportunity = computed(() => opportunityById.value.get(selectedOpp
 // Both editors share one draft and recovery key for the underlying opportunity.
 const evaluationOpportunityId = computed(() => props.tab === 'applications'
   ? editingApplication.value?.opportunity_id : selectedOpportunity.value?.id);
+watch([evaluationOpportunityId, () => props.userId, () => props.active], ([id, _owner, active]) => {
+  if (id && active && typeof loadFeedbackSharing === 'function') void loadFeedbackSharing();
+}, { immediate: true });
+const saveSearchSummary = (id: string, summary: string) => saveOpportunityFeedback(id, { search_feedback_summary: summary });
 const { notes: opportunityComment, status: commentStatus, error: commentError, flush: flushComment } = useApplicationNotesAutosave({
   application: () => evaluationOpportunityId.value ? { id: evaluationOpportunityId.value, notes: reviewById.value.get(evaluationOpportunityId.value)?.comment } : null,
   save: async (id, comment) => Boolean(await setOpportunityComment(id, comment)),
@@ -304,7 +312,7 @@ watch([selectedOpportunity, () => props.tab], ([opportunity, tab]) => {
 async function closeOpportunity() {
   const id = selectedOpportunityId.value;
   commitPendingTextareas();
-  if ((commentStatus.value !== 'saved' && !await flushComment()) || selectedOpportunityId.value !== id) return;
+  if (((commentStatus.value !== 'saved' || opportunityFeedback.value || applicationFeedback.value) && !await flushEvaluation()) || selectedOpportunityId.value !== id) return;
   selectedOpportunityId.value = null;
   if (id) focusResult('opportunities', id);
 }
@@ -379,12 +387,19 @@ async function openList(kind: 'opportunities' | 'applications'): Promise<boolean
 async function flushApplicationTextareas() {
   commitPendingTextareas();
   if (applicationWorkspace.value && !await applicationWorkspace.value.flushTextareas()) return false;
+  if (applicationFeedback.value && !await applicationFeedback.value.flush()) return false;
   return flushNotes();
+}
+async function flushEvaluation() {
+  commitPendingTextareas();
+  if (!await flushComment()) return false;
+  if (opportunityFeedback.value && !await opportunityFeedback.value.flush()) return false;
+  return !applicationFeedback.value || await applicationFeedback.value.flush();
 }
 async function flushTextareas() {
   commitPendingTextareas();
   if (searchTemplates.value && !await searchTemplates.value.flushTextareas()) return false;
-  return await flushComment() && await flushApplicationTextareas();
+  return await flushEvaluation() && await flushApplicationTextareas();
 }
 defineExpose({ openList, flushTextareas });
 
@@ -427,7 +442,7 @@ async function navigateDetail(direction: -1 | 1) {
   detailNavigationPending = true;
   try {
     if (kind === 'opportunities') commitPendingTextareas();
-    const saved = await (kind === 'opportunities' ? flushComment() : flushApplicationTextareas());
+    const saved = await (kind === 'opportunities' ? flushEvaluation() : flushApplicationTextareas());
     if (!saved || props.userId !== owner || props.tab !== kind || !props.active
       || currentId !== (kind === 'opportunities' ? selectedOpportunityId.value : editingId.value)) return;
     if (kind === 'opportunities') openOpportunity(nextId, true);
@@ -475,7 +490,7 @@ async function startApplication(item: Opportunity) {
   notice.value = '';
   try {
     commitPendingTextareas();
-    if (selectedId === item.id && !await flushComment()) return;
+    if (selectedId === item.id && !await flushEvaluation()) return;
     if (!stillCurrent()) return;
     const existing = applicationByOpportunity.value.get(item.id);
     const application = existing || await createApplication({ opportunityId: item.id });
@@ -665,10 +680,15 @@ useToastWatch(() => notice.value, () => {
             <AutosaveTextarea id="opportunity-comment" v-model="opportunityComment" aria-labelledby="opportunity-evaluation-heading" rows="2" maxlength="5000" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @commit="flushComment" />
           </div>
         </details>
+        <OpportunityFeedbackControls v-if="tab === 'opportunities' && active" ref="opportunityFeedback" :owner-id="userId" :opportunity="selectedOpportunity" :review="reviewById.get(selectedOpportunity.id)"
+          :application="applicationByOpportunity.get(selectedOpportunity.id)" :lang="lang" :busy="saving"
+          :search-available="!!feedbackSharing?.search_id" :structured-sharing-enabled="!!feedbackSharing?.structured_feedback_enabled"
+          :save-feedback="saveOpportunityFeedback" :save-summary="saveSearchSummary" :approve-summary="approveOpportunityFeedbackSummary"
+          :revoke-summary="revokeOpportunityFeedbackSummary" :set-structured-sharing="setStructuredFeedbackSharing" :flush-private-comment="flushComment" />
         <OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity.details" :lang="lang" />
       </div>
     </section>
-    <ApplicationWorkspace ref="applicationWorkspace" tabindex="-1" :aria-label="editingApplication ? contextTitle(editingApplication) : undefined" v-if="editingApplication" v-show="tab === 'applications'" :active="props.active !== false && tab === 'applications'" :checklist-saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-variant="createVariant" :flush-evaluation="flushComment" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @change-stage="stage => setApplicationStage(editingApplication!.id, stage)" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
+    <ApplicationWorkspace ref="applicationWorkspace" tabindex="-1" :aria-label="editingApplication ? contextTitle(editingApplication) : undefined" v-if="editingApplication" v-show="tab === 'applications'" :active="props.active !== false && tab === 'applications'" :checklist-saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-variant="createVariant" :flush-evaluation="flushEvaluation" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @change-stage="stage => setApplicationStage(editingApplication!.id, stage)" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">
       <template #preparation-evaluation>
         <details class="application-evaluation personal-evaluation disclosure-row" open>
           <summary :id="`application-evaluation-${editingApplication.id}`">{{ text('Personal Evaluation', 'Persönliche Einschätzung') }}</summary>
@@ -676,6 +696,10 @@ useToastWatch(() => notice.value, () => {
             <AutosaveTextarea v-model="opportunityComment" :aria-labelledby="`application-evaluation-${editingApplication.id}`" rows="3" maxlength="5000" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @commit="flushComment" />
           </div>
         </details>
+        <OpportunityFeedbackControls v-if="tab === 'applications' && active && opportunityById.get(editingApplication.opportunity_id)" ref="applicationFeedback" :owner-id="userId" :opportunity="opportunityById.get(editingApplication.opportunity_id)!" :review="reviewById.get(editingApplication.opportunity_id)"
+          :application="editingApplication" :lang="lang" :busy="saving" :search-available="!!feedbackSharing?.search_id" :structured-sharing-enabled="!!feedbackSharing?.structured_feedback_enabled"
+          :save-feedback="saveOpportunityFeedback" :save-summary="saveSearchSummary" :approve-summary="approveOpportunityFeedbackSummary"
+          :revoke-summary="revokeOpportunityFeedbackSummary" :set-structured-sharing="setStructuredFeedbackSharing" :flush-private-comment="flushComment" />
       </template>
       <template #preparation-actions>
         <button class="btn btn--danger jobs-remove-application" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(editingApplication)}`" @click="requestDetailRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button>

@@ -11,6 +11,7 @@
     "test:opportunity-merge": "tsx --test test/opportunityMerge/merge.test.ts",
     "test:opportunity-canonical": "tsx --test test/opportunityCanonical/canonical.test.ts",
     "test:opportunity-feedback": "tsx --test test/opportunityFeedback/database.test.ts",
+    "test:opportunity-feedback-sharing": "tsx --test test/opportunityFeedback/sharing.test.ts",
     "test:refinement": "tsx --test test/*Refinement*.test.ts test/refinement*.test.ts test/cloudCvPrivacy.test.ts test/useDocumentPdfPreview.test.ts",
     "refinement:prompts": "tsx test/refinementProtocol/generate.ts",
     "refinement:prompts:check": "tsx test/refinementProtocol/generate.ts --check",

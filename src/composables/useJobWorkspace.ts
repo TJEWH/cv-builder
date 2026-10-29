@@ -1,7 +1,7 @@
 import { onScopeDispose, ref, toValue, watch } from 'vue';
 import type { MaybeRefOrGetter } from 'vue';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Application, ApplicationContext, ApplicationStage, CloudCvSnapshot, CloudCvVariant, CreateApplicationInput, Opportunity, OpportunityReview, OpportunityReviewState, UpdateApplicationInput } from '../cloudTypes';
+import type { Application, ApplicationContext, ApplicationStage, CloudCvSnapshot, CloudCvVariant, CreateApplicationInput, Opportunity, OpportunityReview, OpportunityReviewState, OpportunityFeedbackPatch, OpportunityFeedbackSettings, UpdateApplicationInput } from '../cloudTypes';
 import { APPLICATION_STAGES, APPLICATION_STATUSES, TRACKING_STATUSES, OPPORTUNITY_REVIEW_STATES } from '../cloudTypes';
 import { SAMPLE_CONTACT } from '../defaults';
 import { CV_STATE_VERSION } from '../types';
@@ -10,6 +10,7 @@ import { isRecord, readCvConfig, readCvContent } from './cvStateValidation';
 import { hasReviewedOpportunity } from './opportunityRecency';
 import { normalizeApplication } from './applicationTracking';
 import { isOpportunityInternalFact, isOpportunityInternalField } from './opportunityPresentation';
+import { parseOpportunityInterestRating, normalizeOpportunityInterestReasons } from './opportunityFeedback';
 
 const PAGE_SIZE = 500;
 const CV_SUMMARY_FIELDS = 'id,user_id,name,cv_version,revision,created_at';
@@ -98,8 +99,11 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   const error = ref('');
   const opportunityReviewError = ref('');
   const opportunityCommentError = ref('');
+  const opportunityFeedbackError = ref('');
+  const feedbackSharing = ref<OpportunityFeedbackSettings | null>(null);
   let epoch = 0;
   let loadSequence = 0;
+  let feedbackLoadSequence = 0;
   let loadController: AbortController | null = null;
   const controllers = new Set<AbortController>();
   const pendingReviews = new Set<string>();
@@ -112,13 +116,15 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   function reset() {
     epoch++;
     loadSequence++;
+    feedbackLoadSequence++;
     for (const controller of controllers) controller.abort();
     controllers.clear();
     pendingReviews.clear();
     loadController = null;
     opportunities.value = []; applications.value = []; cvVariants.value = []; reviews.value = [];
     loading.value = false; saving.value = false; savingReview.value = false;
-    error.value = ''; opportunityReviewError.value = ''; opportunityCommentError.value = '';
+    error.value = ''; opportunityReviewError.value = ''; opportunityCommentError.value = ''; opportunityFeedbackError.value = '';
+    feedbackSharing.value = null;
     pendingCreate = null; pendingAssignment = null;
     mutationTail = Promise.resolve();
   }
@@ -402,6 +408,82 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
     reviews.value = [saved, ...reviews.value.filter(({ opportunity_id }) => opportunity_id !== review.opportunity_id)];
   }
 
+  function feedbackReviewRpc(name: string, opportunityId: string, parameters: Record<string, unknown>): Promise<OpportunityReview | null> {
+    return runMutation(async (account, _generation, signal) => {
+      const { data, error: queryError } = await client!.rpc(name, { p_opportunity_id: opportunityId, ...parameters }).abortSignal(signal);
+      if (queryError) throw queryError;
+      if (!data || data.user_id !== account || data.opportunity_id !== opportunityId
+        || !OPPORTUNITY_REVIEW_STATES.includes(data.state)) throw new Error('The feedback could not be confirmed. Refresh and retry.');
+      return data as OpportunityReview;
+    }, review => rememberReview(review), 'Could not save feedback. Your draft is retained.', opportunityFeedbackError);
+  }
+
+  function saveOpportunityFeedback(opportunityId: string, patch: OpportunityFeedbackPatch): Promise<OpportunityReview | null> {
+    try {
+      if (!isRecord(patch) || Object.keys(patch).some(key => !['interest_rating', 'interest_reasons', 'feedback_excluded', 'search_feedback_summary'].includes(key))) {
+        throw new Error('Select only supported feedback fields.');
+      }
+      const clean = { ...patch };
+      if ('interest_rating' in patch) clean.interest_rating = parseOpportunityInterestRating(patch.interest_rating);
+      if ('interest_reasons' in patch) clean.interest_reasons = normalizeOpportunityInterestReasons(patch.interest_reasons);
+      if ('feedback_excluded' in patch && typeof patch.feedback_excluded !== 'boolean') throw new Error('Invalid feedback exclusion.');
+      if ('search_feedback_summary' in patch && patch.search_feedback_summary !== null
+        && (typeof patch.search_feedback_summary !== 'string' || Array.from(patch.search_feedback_summary).length > 600)) {
+        throw new Error('Search feedback summaries must be at most 600 characters.');
+      }
+      return feedbackReviewRpc('save_opportunity_feedback', opportunityId, { p_patch: clean });
+    } catch (reason) {
+      opportunityFeedbackError.value = errorMessage(reason, 'Invalid feedback.');
+      return Promise.resolve(null);
+    }
+  }
+
+  function approveOpportunityFeedbackSummary(opportunityId: string, summaryHash: string, sourceHash: string, summaryRevision: number) {
+    return feedbackReviewRpc('approve_opportunity_feedback_summary', opportunityId,
+      { p_summary_hash: summaryHash, p_source_hash: sourceHash, p_summary_revision: summaryRevision });
+  }
+  function revokeOpportunityFeedbackSummary(opportunityId: string) {
+    return feedbackReviewRpc('revoke_opportunity_feedback_summary', opportunityId, {});
+  }
+
+  function readFeedbackSettings(value: unknown, account: string): OpportunityFeedbackSettings {
+    if (!isRecord(value) || value.user_id !== account || !(value.search_id === null || typeof value.search_id === 'string')
+      || typeof value.structured_feedback_enabled !== 'boolean' || !Number.isSafeInteger(value.consent_revision)
+      || Number(value.consent_revision) < 0 || !(value.consent_updated_at === null || typeof value.consent_updated_at === 'string')) {
+      throw new Error('Feedback sharing settings could not be confirmed.');
+    }
+    return value as unknown as OpportunityFeedbackSettings;
+  }
+  async function loadFeedbackSharing(): Promise<OpportunityFeedbackSettings | null> {
+    const account = toValue(userId); const generation = epoch;
+    if (!client || !account || disposed) return null;
+    const sequence = ++feedbackLoadSequence;
+    const controller = new AbortController(); controllers.add(controller);
+    try {
+      const { data, error: queryError } = await client.rpc('read_opportunity_feedback_settings', { p_search_id: null }).abortSignal(controller.signal);
+      if (queryError) throw queryError;
+      const settings = readFeedbackSettings(data, account);
+      if (!current(account, generation) || sequence !== feedbackLoadSequence) return null;
+      feedbackSharing.value = settings;
+      return settings;
+    } catch (reason) {
+      if (current(account, generation)) opportunityFeedbackError.value = errorMessage(reason, 'Could not load feedback sharing settings.');
+      return null;
+    } finally { controllers.delete(controller); }
+  }
+  async function setStructuredFeedbackSharing(enabled: boolean): Promise<boolean> {
+    const searchId = feedbackSharing.value?.search_id;
+    if (!searchId) { opportunityFeedbackError.value = 'Save the shared meta search before enabling feedback.'; return false; }
+    const result = await runMutation(async (account, _generation, signal) => {
+      const { data, error: queryError } = await client!.rpc('set_opportunity_feedback_consent', { p_search_id: searchId, p_enabled: enabled }).abortSignal(signal);
+      if (queryError) throw queryError;
+      const settings = readFeedbackSettings(data, account);
+      if (settings.search_id !== searchId || settings.structured_feedback_enabled !== enabled) throw new Error('Feedback consent could not be confirmed.');
+      return settings;
+    }, settings => { feedbackLoadSequence++; feedbackSharing.value = settings; }, 'Could not save feedback consent.', opportunityFeedbackError);
+    return result !== null;
+  }
+
   function setOpportunityReview(opportunityId: string, state: OpportunityReviewState): Promise<OpportunityReview | null> {
     const opportunity = opportunities.value.find(({ id }) => id === opportunityId);
     const observedVersion = opportunity?.updated_at || opportunity?.created_at || null;
@@ -489,5 +571,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
 
   watch(() => toValue(userId), () => { reset(); void refresh(); }, { immediate: true, flush: 'sync' });
   onScopeDispose(() => { disposed = true; reset(); });
-  return { opportunities, applications, cvVariants, reviews, loading, saving, savingReview, error, opportunityReviewError, opportunityCommentError, refresh, createApplication, updateApplication, setApplicationStage, resetApplicationHistory, setApplicationChecklistItem, removeApplication, refreshApplicationContext, setOpportunityReview, setOpportunityComment, markOpportunityReviewed, getApplicationContext };
+  return { opportunities, applications, cvVariants, reviews, loading, saving, savingReview, error, opportunityReviewError, opportunityCommentError,
+    opportunityFeedbackError, feedbackSharing, saveOpportunityFeedback, approveOpportunityFeedbackSummary, revokeOpportunityFeedbackSummary,
+    loadFeedbackSharing, setStructuredFeedbackSharing, refresh, createApplication, updateApplication, setApplicationStage, resetApplicationHistory, setApplicationChecklistItem, removeApplication, refreshApplicationContext, setOpportunityReview, setOpportunityComment, markOpportunityReviewed, getApplicationContext };
 }

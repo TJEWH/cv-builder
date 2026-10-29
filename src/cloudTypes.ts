@@ -43,9 +43,32 @@ export interface OpportunityReview {
   feedback_updated_at?: string | null;
   /** Frozen for the explicit feedback revision, separate from the catalogue's AI fit. */
   prediction_baseline?: OpportunityPredictionBaseline | null;
+  /** Private summary draft. Only its exact explicit approval permits adaptive export. */
+  search_feedback_summary?: string | null;
+  search_feedback_revision?: number;
+  search_feedback_summary_hash?: string;
+  search_feedback_source_hash?: string;
+  search_feedback_approved_at?: string | null;
+  search_feedback_approved_summary_hash?: string | null;
+  search_feedback_approved_source_hash?: string | null;
   reviewed_updated_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface OpportunityFeedbackPatch {
+  interest_rating?: number | null;
+  interest_reasons?: OpportunityInterestReason[];
+  feedback_excluded?: boolean;
+  search_feedback_summary?: string | null;
+}
+
+export interface OpportunityFeedbackSettings {
+  user_id: string;
+  search_id: string | null;
+  structured_feedback_enabled: boolean;
+  consent_revision: number;
+  consent_updated_at: string | null;
 }
 
 /** A display projection supporting both the imported catalogue and portable schema. */

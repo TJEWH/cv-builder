@@ -1231,6 +1231,66 @@ test('disposed workspaces discard queued writes and reject new writes', async ()
   assert.equal(queries.filter(query => query.operation !== 'select').length, 1);
 });
 
+test('AF-02 feedback patches serialize with private comments and approval is a separate exact action', async () => {
+  let stored = { ...review(), comment: 'Synthetic private person person@example.invalid', search_feedback_summary: null as string | null,
+    search_feedback_revision: 0, search_feedback_summary_hash: 'hash-summary', search_feedback_source_hash: 'hash-source',
+    search_feedback_approved_at: null as string | null, search_feedback_approved_summary_hash: null as string | null,
+    search_feedback_approved_source_hash: null as string | null };
+  const { client, queries } = fakeClient(query => {
+    if (query.operation !== 'rpc') return { data: query.table === 'opportunity_reviews' ? [stored] : [], error: null };
+    if (query.table === 'save_opportunity_feedback') stored = { ...stored, ...query.payload?.p_patch as object,
+      search_feedback_revision: stored.search_feedback_revision + 1 };
+    if (query.table === 'approve_opportunity_feedback_summary') stored = { ...stored, search_feedback_approved_at: '2026-10-29T12:00:00Z',
+      search_feedback_approved_summary_hash: stored.search_feedback_summary_hash, search_feedback_approved_source_hash: stored.search_feedback_source_hash };
+    if (query.table === 'save_opportunity_comment') stored = { ...stored, comment: String(query.payload?.p_comment), search_feedback_approved_at: null };
+    return { data: stored, error: null };
+  });
+  const scope = effectScope(); const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  await workspace.saveOpportunityFeedback('opportunity-1', { interest_rating: 0 });
+  assert.equal(workspace.reviews.value[0].interest_rating, 0);
+  assert.equal(workspace.reviews.value[0].comment, stored.comment);
+  assert.equal(workspace.reviews.value[0].search_feedback_approved_at, null);
+  await workspace.saveOpportunityFeedback('opportunity-1', { search_feedback_summary: 'Prefer hardware experiments.' });
+  assert.equal(workspace.reviews.value[0].search_feedback_approved_at, null, 'saving a draft cannot approve it');
+  await workspace.approveOpportunityFeedbackSummary('opportunity-1', 'hash-summary', 'hash-source', 2);
+  assert.ok(workspace.reviews.value[0].search_feedback_approved_at);
+  await workspace.setOpportunityComment('opportunity-1', 'Changed private evaluation');
+  assert.equal(workspace.reviews.value[0].search_feedback_approved_at, null);
+  assert.deepEqual(queries.filter(query => query.operation === 'rpc').map(query => query.table),
+    ['save_opportunity_feedback', 'save_opportunity_feedback', 'approve_opportunity_feedback_summary', 'save_opportunity_comment']);
+  assert.deepEqual(queries.find(query => query.table === 'approve_opportunity_feedback_summary')?.payload,
+    { p_opportunity_id: 'opportunity-1', p_summary_hash: 'hash-summary', p_source_hash: 'hash-source', p_summary_revision: 2 });
+  for (const query of queries.filter(query => query.table !== 'save_opportunity_comment')) assert.ok(!JSON.stringify(query.payload ?? {}).includes('person@example.invalid'));
+  assert.equal(queries.some(query => query.table === 'set_opportunity_feedback_consent'), false);
+  scope.stop();
+});
+
+test('AF-02 invalid patches never reach storage; consent is explicit, scoped and protected from stale reads', async () => {
+  const initial = { user_id: 'account-a', search_id: 'search-a', structured_feedback_enabled: false, consent_revision: 0, consent_updated_at: null };
+  const pendingRead = deferred<Result>(); let delayed = false;
+  const { client, queries } = fakeClient(query => {
+    if (query.operation !== 'rpc') return { data: [], error: null };
+    if (query.table === 'read_opportunity_feedback_settings') return delayed ? pendingRead.promise : { data: initial, error: null };
+    return { data: { ...initial, structured_feedback_enabled: true, consent_revision: 1, consent_updated_at: '2026-10-29T12:00:00Z' }, error: null };
+  });
+  const scope = effectScope(); const account = ref('account-a'); const workspace = scope.run(() => useJobWorkspace(client, account))!;
+  await settleUntil(() => !workspace.loading.value);
+  for (const patch of [{ interest_rating: '2' }, { interest_rating: NaN }, { comment: 'not an allowed patch' }, { feedback_excluded: 'yes' }]) {
+    assert.equal(await workspace.saveOpportunityFeedback('opportunity-1', patch as never), null);
+  }
+  assert.equal(queries.some(query => query.operation === 'rpc'), false);
+  await workspace.loadFeedbackSharing(); delayed = true;
+  const stale = workspace.loadFeedbackSharing();
+  await workspace.setStructuredFeedbackSharing(true);
+  pendingRead.resolve({ data: initial, error: null }); await stale;
+  assert.equal(workspace.feedbackSharing.value?.structured_feedback_enabled, true);
+  account.value = 'account-b';
+  assert.equal(workspace.feedbackSharing.value, null);
+  assert.equal(await workspace.setStructuredFeedbackSharing(true), false);
+  scope.stop();
+});
+
 test('canonical catalogue display strings omit internal identities while retaining the untouched research snapshot', async () => {
   const { canonicalOpportunityFixture } = await import('./fixtures/canonicalOpportunity');
   const row = canonicalOpportunityFixture();

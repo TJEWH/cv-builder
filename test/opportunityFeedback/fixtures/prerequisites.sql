@@ -1,6 +1,22 @@
 -- Synthetic structure only. The actual workspace tables, RLS and RPCs are loaded
 -- from supabase/schema.sql. AF-01 reads just these existing search evidence fields.
 -- No historical captures, connection strings, production rows or search runner.
+create table public.opportunity_search_templates (
+  id uuid primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null default 'Synthetic search',
+  criteria jsonb not null default '{}',
+  schedule jsonb not null default '{}',
+  revision integer not null default 1,
+  meta_search jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.opportunity_search_templates enable row level security;
+grant select,insert,update,delete on public.opportunity_search_templates to authenticated;
+create policy owner_search_templates on public.opportunity_search_templates for all to authenticated
+  using (user_id=auth.uid() and not coalesce((auth.jwt()->>'is_anonymous')::boolean,false))
+  with check (user_id=auth.uid() and not coalesce((auth.jwt()->>'is_anonymous')::boolean,false));
 create table public.opportunity_search_runs (
   id uuid primary key,
   user_id uuid not null
