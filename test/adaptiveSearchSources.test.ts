@@ -15,7 +15,8 @@ const other = '30000000-0000-4000-8000-000000000004';
 const scope: AdaptiveSourceScope = { user_id: owner, search_id: search };
 const listing = 'https://example.invalid/Jobs?topic=BCI&location=Berlin';
 const now = '2026-10-29T12:00:00Z';
-const policy = { successful_source_reuse_enabled: true, reuse_check_interval_hours: 168 };
+const policy = { adaptation_enabled: true, adaptation_paused: false, structured_feedback_enabled: true,
+  successful_source_reuse_enabled: true, reuse_check_interval_hours: 168 };
 
 function source(patch: Partial<AdaptiveSearchSource> = {}): AdaptiveSearchSource {
   return { ...createAdaptiveSourceCandidate(scope, registry, { role: 'explicit_listing', url: listing,
@@ -177,6 +178,19 @@ test('SRC-05: reuse defaults off and a single verified high-interest listing bec
   assert.equal(candidate.enabled, false, 'input records remain immutable');
 });
 
+test('AF-06 automatic retention requires active adaptation and structured consent without deleting manual coverage', () => {
+  for (const [patch, reason] of [
+    [{ adaptation_enabled: false }, 'adaptation_disabled'],
+    [{ adaptation_paused: true }, 'adaptation_paused'],
+    [{ structured_feedback_enabled: false }, 'feedback_disabled'],
+  ] as const) {
+    const before = source({ pinned: true, mandatory: true, provenance: 'explicit' });
+    const result = retainSuccessfulAdaptiveSource(before, signal(), { ...policy, ...patch });
+    assert.equal(result.reason, reason); assert.equal(result.retained, false);
+    assert.deepEqual(result.source, before, 'pausing learning must preserve explicit source intent and coverage history');
+  }
+});
+
 test('reuse needs explicit high interest or genuine submission, while exclusions and weak proxies are not useful evidence', () => {
   for (const observation of [signal({ interest_origin: 'categorical_review', interest_score: 8 }),
     signal({ interest_origin: 'confirmed_submission', interest_score: 9, confirmed_submission: true }),
@@ -257,6 +271,7 @@ test('a shared application portal associates two vacancies with one discovery pa
 
 test('retention validates settings and feedback rather than coercing numeric strings or inventing timestamps', () => {
   for (const invalid of [{ ...policy, successful_source_reuse_enabled: 'true' }, { ...policy, reuse_check_interval_hours: 1 },
+    { ...policy, adaptation_enabled: 'true' }, { ...policy, adaptation_paused: 'false' }, { ...policy, structured_feedback_enabled: 'true' },
     { ...policy, reuse_check_interval_hours: 721 }, { ...policy, reuse_check_interval_hours: '168' }]) {
     assert.throws(() => retainSuccessfulAdaptiveSource(source(), signal(), invalid as unknown as typeof policy));
   }

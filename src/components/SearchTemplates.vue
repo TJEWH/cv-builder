@@ -16,6 +16,7 @@ import { useToastWatch } from '../composables/useToasts';
 import AutosaveTextarea from './AutosaveTextarea.vue';
 import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
 import InfoHint from './InfoHint.vue';
+import AdaptiveSearchPolicyHint from './AdaptiveSearchPolicyHint.vue';
 
 const props = withDefaults(defineProps<{ userId: string; lang?: string; sidebarActive?: boolean; projectId?: string; client?: SupabaseClient | null }>(), { sidebarActive: true });
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -215,6 +216,7 @@ onBeforeUnmount(() => { if (form.value && status.value !== 'saved') retainSearch
             <button class="search-primary" type="button" :disabled="copying || loadingCloud || !client" @click="copy"><FontAwesomeIcon :icon="faCopy" aria-hidden="true" />{{ copying ? text('Preparing…', 'Vorbereiten…') : text('Copy replace prompt', 'Ersetzungsanweisung kopieren') }}</button>
             <InfoHint :lang="lang" :label="text('Replace meta search', 'Metasuche ersetzen')" :text="text('Edits save to Supabase on blur or Enter. Copy this short instruction and paste it into ChatGPT to read the saved prompt and replace the existing meta-search scheduled task. Copying itself does not change the schedule.', 'Änderungen werden beim Verlassen des Felds oder mit Enter in Supabase gespeichert. Die kurze Anweisung kopieren und in ChatGPT einfügen, um den gespeicherten Prompt zu lesen und die bestehende geplante Metasuche zu ersetzen. Kopieren selbst ändert den Zeitplan nicht.')" />
           </div>
+          <AdaptiveSearchPolicyHint :lang="lang" />
         </aside>
       </DesktopSidebarPortal>
       <form v-if="form" class="search-form" @submit.prevent="flushSave" @focusout="flushSave" @input.capture="onDraftInput">
