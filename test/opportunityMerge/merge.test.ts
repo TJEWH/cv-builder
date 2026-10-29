@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
-import { file, insertOpportunity, json, literal, reset, run, owner, seedRun, sql, sqlAsync, submit, upgrade } from './db';
+import { insertOpportunity, json, literal, reset, run, owner, seedRun, sql, sqlAsync, submit, upgrade } from './db';
+import { syntheticContactEmail, syntheticLegacyMergeFixture } from './fixtures/synthetic-legacy';
 
-const fixture = JSON.parse(file('./fixtures/run-1602c633.json'));
+const fixture = syntheticLegacyMergeFixture();
 const t0 = '2026-01-01T09:00:00Z';
 const t1 = '2026-01-02T09:00:00Z';
 const t2 = '2026-01-03T09:00:00Z';
@@ -22,10 +23,10 @@ function canon(field: string, value: unknown): any {
 const decisions = (p: any, prefix: string) => (p.decisions || p.field_decisions).filter((d: any) => d.path === prefix || d.path.startsWith(`${prefix}/`));
 const assessment = (score: number) => ({ score, scale_min: 0, scale_max: 10, summary: `Evidence-based assessment ${score}` });
 
-test('installed baseline reproduces run 1602c633 and the three known failures', () => {
+test('synthetic legacy replay reproduces identity, checklist-shape and evidence timestamp failures', () => {
   reset(); seedRun(fixture.sourceRunId); insertOpportunity(fixture.before);
   const first = submit(fixture.submissions[0].payload, fixture.submissions[0].itemId, fixture.sourceRunId);
-  assert.equal(first.snapshot.contacts.filter((x: any) => x.email === 'lauri.juvela@aalto.fi').length, 2);
+  assert.equal(first.snapshot.contacts.filter((x: any) => x.email === syntheticContactEmail).length, 2);
   assert.deepEqual(first.snapshot.requirements, fixture.before.requirements, 'array/object mismatch silently retains old requirements');
   assert.deepEqual(first.snapshot.required_documents, fixture.before.required_documents);
   const second = submit(fixture.submissions[1].payload, fixture.submissions[1].itemId, fixture.sourceRunId);
@@ -33,13 +34,13 @@ test('installed baseline reproduces run 1602c633 and the three known failures', 
   assert.ok(second.conflicts.includes('required_documents'));
 });
 
-test('draft replay preserves admission stages/documents and merges people by identity', () => {
+test('upgraded synthetic replay preserves admission stages/documents and merges people by identity', () => {
   reset(); upgrade(); seedRun(); seedRun(fixture.sourceRunId); insertOpportunity({ ...fixture.before, data: { ...fixture.before.data, unrelated_context: { preserve: 'rich metadata' } } });
   const first = submit(fixture.submissions[0].payload, fixture.submissions[0].itemId, fixture.sourceRunId);
   const second = submit(fixture.submissions[1].payload, fixture.submissions[1].itemId, fixture.sourceRunId);
   for (const r of [first, second]) {
-    assert.equal(r.snapshot.contacts.filter((x: any) => x.email === 'lauri.juvela@aalto.fi').length, 1);
-    assert.equal(r.snapshot.supervisors.filter((x: any) => x.email === 'lauri.juvela@aalto.fi').length, 1);
+    assert.equal(r.snapshot.contacts.filter((x: any) => x.email === syntheticContactEmail).length, 1);
+    assert.equal(r.snapshot.supervisors.filter((x: any) => x.email === syntheticContactEmail).length, 1);
     assert.ok(r.snapshot.requirements.some((x: any) => x.stage === 'doctoral_admission'));
     assert.ok(r.snapshot.required_documents.some((x: any) => x.text.includes('Financing plan')));
     assert.ok(r.field_decisions.length > 0);

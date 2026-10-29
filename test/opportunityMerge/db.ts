@@ -1,9 +1,19 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 
-// Intentionally no connection-string option. This runner cannot connect to Supabase.
+// No connection URL, environment snapshot or remote database override. Both
+// suites reset only this labelled, network-disabled disposable Docker fixture.
 export const container = 'cv-opportunity-merge-test';
 export const database = 'opportunity_merge_test';
+const inspect = spawnSync('docker', ['inspect', container], { encoding: 'utf8' });
+if (inspect.status !== 0) throw new Error('Start the isolated opportunity merge fixture described in docs/opportunity-merge.md.');
+const configuration = JSON.parse(inspect.stdout)[0];
+if (configuration?.Config?.Labels?.['cv-builder.test-suite'] !== 'opportunity-merge'
+  || configuration?.HostConfig?.NetworkMode !== 'none'
+  || configuration?.Mounts?.some((mount: { Type: string }) => mount.Type === 'bind')
+  || configuration?.HostConfig?.PortBindings && Object.keys(configuration.HostConfig.PortBindings).length) {
+  throw new Error('Refusing to reset an unlabelled, networked, bind-mounted or port-published database.');
+}
 const args = ['exec', '-i', container, 'psql', '-X', '-qAt', '-U', 'postgres', '-d', database, '-v', 'ON_ERROR_STOP=1'];
 // A second test invocation must never reset a database while this suite uses it.
 const lock = '/tmp/cv-opportunity-merge-test.lock';
@@ -37,6 +47,7 @@ export const literal = (x: unknown) => `'${JSON.stringify(x).replaceAll("'", "''
 export function json<T = any>(query: string): T { return JSON.parse(sql(query)); }
 export function file(path: string): string { return readFileSync(new URL(path, import.meta.url), 'utf8'); }
 export function reset() {
+  if (sql('SELECT current_database();') !== database) throw new Error('Unexpected opportunity fixture database.');
   sql('DROP SCHEMA IF EXISTS private CASCADE; DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
   sql(file('./fixtures/installed-baseline.sql'));
 }

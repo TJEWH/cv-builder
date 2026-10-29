@@ -68,19 +68,19 @@ Verify in a separate `private.verify_opportunity_search_result` call before clai
 
 ## Isolated tests and reproduction
 
-The Docker-only runner has no Supabase connection-string option. It resets only container `cv-opportunity-merge-test`, database `opportunity_merge_test`. Suites share an exclusive local lock and must run sequentially.
+The Docker-only runner accepts only authored synthetic fixtures. It has no connection-string, external snapshot or production-capture override. It resets only labelled container `cv-opportunity-merge-test`, database `opportunity_merge_test`, and refuses network access, bind mounts or published ports. Suites share an exclusive local lock and must run sequentially.
 
 ```sh
-docker run --detach --name cv-opportunity-merge-test --env POSTGRES_PASSWORD=isolated-test-only postgres:17.6
+docker run --detach --name cv-opportunity-merge-test --label cv-builder.test-suite=opportunity-merge --network none --env POSTGRES_PASSWORD=isolated-test-only postgres:17.6
 docker exec cv-opportunity-merge-test createdb -U postgres opportunity_merge_test
 npm run test:opportunity-merge
 npm run test:opportunity-canonical
 docker rm --force --volumes cv-opportunity-merge-test
 ```
 
-The 76-test v4 suite reproduces run `1602c633-c859-4ca0-9d56-ad6e316aebc5` and covers every database field, entity/type failures, rejected provenance, same-time corrections, partial data, concurrency, receipts, private context, permission boundaries and run rollback. The historical system did not capture before-snapshots; its fixture uses the last available catalogue snapshot before the run and does not claim to reconstruct unrecorded intervening edits.
+The v4 suite uses a freshly authored synthetic replay of the contact identity, checklist array/object and rejected-provenance failures. It also covers every database field, same-time corrections, partial data, concurrency, receipts, synthetic private context, permission boundaries and run rollback. Its fixtures make no claim to reconstruct historical production records.
 
-The v5 suite converts legacy fixtures or a private full-catalogue capture (`OPPORTUNITY_CANONICAL_SNAPSHOT`), validates every converted record and score, rejects retired formats through writer/storage boundaries, verifies owner readiness and stable IDs, preserves URL path distinctions, and exercises both blocked and exact successful migration rollback. Private production captures stay outside the repository.
+The v5 suite converts an authored synthetic legacy catalogue containing duplicate contacts, grouped checklists, admission stages, optional/conditional documents, salary aliases, date-only sources, score endpoints, decimals and unrated values. It validates every converted record and score, rejects retired formats through writer/storage boundaries, verifies owner readiness and stable IDs, preserves URL path distinctions, and exercises blocked and exact successful migration rollback. Captured opportunity records are neither read nor accepted by these runners.
 
 ## Guarded rollback
 

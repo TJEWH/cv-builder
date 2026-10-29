@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { file, insertOpportunity, json, literal, reset, seedRun, sql, submit, upgrade, owner } from '../opportunityMerge/db';
+import { syntheticCanonicalMigrationRecords } from '../opportunityMerge/fixtures/synthetic-legacy';
 
-const snapshotPath = process.env.OPPORTUNITY_CANONICAL_SNAPSHOT;
-const snapshot = snapshotPath ? JSON.parse(readFileSync(snapshotPath,'utf8')) : null;
 const source = (time='2000-01-02T09:00:00Z') => ({url:'https://example.invalid/jobs/canonical',kind:'official',checked_at:time,precision:'instant',supports:['title','city','contacts','requirements','data','personal_fit']});
 let before: any[];
 let beforeReviews: string;
@@ -20,19 +18,10 @@ function prerequisites() {
   }
 }
 
-test('one-time conversion rehearses the entire captured catalogue and preserves private context', () => {
+test('one-time conversion preserves a fully synthetic legacy catalogue and private context', () => {
   reset(); upgrade();
   prerequisites();
-  if (snapshot) {
-    for (const r of snapshot.opportunities) insertOpportunity(r);
-  } else {
-    const old=JSON.parse(file('../opportunityMerge/fixtures/run-1602c633.json')).before;
-    insertOpportunity(old);
-    insertOpportunity({opportunity_key:'synthetic-canonical',title:'Synthetic research',contacts:[{name:'Person',email:'PERSON@example.invalid',role:'Contact'},{name:'Person',email:'person@example.invalid',role:'Supervisor',phone:'123'}],
-      requirements:{required:['MSc'],conditional:['Language proof']},required_documents:{required:['CV'],university_admission:['Research plan']},
-      salary:{amount:'3000',currency:'eur',period:'monthly',gross:true,holiday_allowance_pct:8},data:{methods:['DSP'],teaching_text:'Duties by agreement',custom_fact:{keep:'Research context'}},
-      personal_fit:{score:8.7,summary:'Existing rating'},sources:[{url:'https://example.invalid/jobs/canonical',type:'official_ad',checked_at:'2000-01-01',supports:['requirements','salary']}]});
-  }
+  for (const record of syntheticCanonicalMigrationRecords()) insertOpportunity(record);
   before=json('SELECT jsonb_agg(to_jsonb(o) ORDER BY id) FROM public.opportunities o;');
   sql(`INSERT INTO public.opportunity_reviews(user_id,opportunity_id,state,comment) VALUES('${owner}','${before[0].id}','interested','Preserve my review');`);
   const app={id:randomUUID(),user_id:owner,opportunity_id:before[0].id,application_code:'APP-1234567890',context_json:{snapshot:before[0],private_note:'Keep the frozen application'},context_captured_at:'2000-01-01T00:00:00Z',completed_checklist_keys:['old:content:key'],status_history:[{status:'preparation'}]};
@@ -55,6 +44,18 @@ test('one-time conversion rehearses the entire captured catalogue and preserves 
   assert.equal(json('SELECT count(*) FROM private.opportunity_payload_archive;'),before.length);
   assert.equal(json('SELECT count(*) FROM private.opportunity_search_merge_state;'),before.length);
   assert.equal(sql('SELECT bool_and(private.opportunity_payload_storage_valid(to_jsonb(o))) FROM public.opportunities o;'),'t');
+  const grouped = after.find(record => record.opportunity_key === 'synthetic-canonical-grouped');
+  assert.equal(grouped.contacts.length, 1, 'case-normalized contact identity is unique after migration');
+  assert.deepEqual(grouped.contacts[0].roles.map((role: string) => role.toLowerCase()).sort(), ['contact', 'supervisor']);
+  assert.ok(grouped.requirements.some((item: any) => item.status === 'conditional'));
+  assert.ok(grouped.required_documents.some((item: any) => item.stage === 'doctoral_admission'));
+  const endpoints = after.find(record => record.opportunity_key === 'synthetic-canonical-endpoints');
+  assert.equal(endpoints.personal_fit.score, 0);
+  assert.equal(endpoints.research_career_potential.score, 10);
+  assert.equal(endpoints.rd_career_potential.score, 4.25);
+  assert.ok(endpoints.requirements.some((item: any) => item.status === 'optional'));
+  assert.ok(endpoints.required_documents.some((item: any) => item.status === 'conditional' && item.conditions.includes('Only when requested')));
+  assert.ok(endpoints.sources.some((item: any) => item.precision === 'date' && item.checked_at === '2000-01-01'));
 });
 
 test('live schema and payloads have no compatibility keys or alias formats', () => {

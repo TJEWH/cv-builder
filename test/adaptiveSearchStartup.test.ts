@@ -5,6 +5,7 @@ import { compileAdaptiveFeedbackSnapshot, type AdaptiveFeedbackExample } from '.
 import { createAdaptiveSearchPlan } from '../src/composables/adaptiveSearchPlans';
 import { buildAdaptiveSearchPlanningContext, DEFAULT_ADAPTIVE_SEARCH_POLICY } from '../src/composables/adaptiveSearchPlanner';
 import { opportunityFeedbackTextHash } from '../src/composables/opportunityFeedbackPrivacy';
+import { ADAPTIVE_BATCH_CAPABILITIES, ADAPTIVE_BATCH_EXECUTION_CONTRACT, ADAPTIVE_BATCH_PROTOCOL_TEXT } from '../src/composables/adaptiveSearchProtocol';
 import {
   ADAPTIVE_STARTUP_CAPABILITIES, ADAPTIVE_STARTUP_EXECUTION_CONTRACT, ADAPTIVE_STARTUP_MAX_BYTES, ADAPTIVE_STARTUP_PROTOCOL_TEXT,
   DEFAULT_ADAPTIVE_RUNNER_ENABLED, projectAdaptiveSearchStartup,
@@ -307,4 +308,17 @@ test('AF-07 a source-targeted query has complete public metadata even when its s
   set(bundle, ['source_context'], bundle.source_context.filter(source => source.registry_id !== notDue.registry_id));
   const incomplete = await projectAdaptiveSearchStartup(bundle, context);
   assert.deepEqual(incomplete, { adaptive_contract_version: 1, compatible: false, error: { code: 'scope_unavailable', retryable: false } });
+});
+
+test('AF-08 staged startup and full batch contracts accept only their reviewed static helper set', async () => {
+  const { bundle, context } = await fixture();
+  set(bundle, ['capabilities'], structuredClone(ADAPTIVE_BATCH_CAPABILITIES));
+  set(bundle, ['execution_contract'], structuredClone(ADAPTIVE_BATCH_EXECUTION_CONTRACT));
+  set(bundle, ['protocol_text'], ADAPTIVE_BATCH_PROTOCOL_TEXT);
+  const result = await projectAdaptiveSearchStartup(bundle, context); success(result);
+  assert.deepEqual(result.capabilities, ADAPTIVE_BATCH_CAPABILITIES);
+  assert.deepEqual(result.execution_contract, ADAPTIVE_BATCH_EXECUTION_CONTRACT);
+  set(bundle, ['capabilities', 'allowed_helpers'], [...ADAPTIVE_BATCH_CAPABILITIES.allowed_helpers, 'private.read_applications(uuid)']);
+  assert.deepEqual(await projectAdaptiveSearchStartup(bundle, context), { adaptive_contract_version: 1, compatible: false,
+    error: { code: 'incompatible_release', retryable: false } });
 });
