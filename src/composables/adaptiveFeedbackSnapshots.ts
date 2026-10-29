@@ -169,6 +169,9 @@ async function safeExample(value: unknown, owner: string, search: string): Promi
   return result.interest_score !== null || result.reasons.length || result.search_feedback_summary ? result : null;
 }
 
+/** Shared fixed allowlist for complete startup DTOs; this never recomputes whole-set statistics from samples. */
+export { safeExample as projectSafeAdaptiveFeedbackExample };
+
 function preferences(values: readonly ApprovedAdaptivePreference[]): ApprovedAdaptivePreference[] {
   if (!Array.isArray(values) || values.length > 32) throw new TypeError('At most 32 approved structured preferences are supported.');
   const unique = new Map<string, ApprovedAdaptivePreference>();

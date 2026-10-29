@@ -34,10 +34,10 @@ export function sql(statement: string): string {
   if (result.status !== 0) throw new Error(result.stderr || result.error?.message || 'Isolated AF-01 SQL failed.');
   return result.stdout.trim();
 }
-export function sqlAsync(statement: string): Promise<string> {
+export function sqlAsync(statement: string, onOutput?: (chunk: string) => void): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn('docker', args); let output = ''; let error = '';
-    child.stdout.on('data', value => { output += value; });
+    child.stdout.on('data', value => { output += value; onOutput?.(String(value)); });
     child.stderr.on('data', value => { error += value; });
     child.on('error', reject);
     child.on('close', code => code === 0 ? resolve(output.trim()) : reject(new Error(error)));
