@@ -1304,3 +1304,25 @@ test('canonical catalogue display strings omit internal identities while retaini
   assert.deepEqual(projected.contact, row.contacts);
   assert.deepEqual(projected.details, row);
 });
+
+test('manual disposition saves one owner-scoped partial patch without changing interest or applications', async () => {
+  let stored = { ...review(), interest_rating: 8, manually_archived: false, technical_issue_category: null as string | null, technical_issue_note: null as string | null };
+  const { client, queries } = fakeClient(query => {
+    if (query.operation !== 'rpc') return { data: query.table === 'opportunity_reviews' ? [stored] : [], error: null };
+    if (query.table === 'save_opportunity_feedback') stored = { ...stored, ...query.payload?.p_patch as object };
+    return { data: stored, error: null };
+  });
+  const scope = effectScope(), workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  const saved = await workspace.saveOpportunityDisposition('opportunity-1', { manually_archived: true, technical_issue_category: 'requirements', technical_issue_note: 'Degree requirement not met.' });
+  assert.equal(saved?.manually_archived, true); assert.equal(saved?.interest_rating, 8);
+  assert.equal(saved?.state, stored.state);
+  const writes = queries.filter(query => query.operation === 'rpc');
+  assert.equal(writes.length, 1); assert.equal(writes[0]?.table, 'save_opportunity_feedback');
+  assert.deepEqual(writes[0]?.payload, { p_opportunity_id: 'opportunity-1', p_patch: { manually_archived: true, technical_issue_category: 'requirements', technical_issue_note: 'Degree requirement not met.' } });
+  for (const patch of [{ manually_archived: 'true' }, { technical_issue_category: 'dislike' }, { technical_issue_note: 'x'.repeat(1001) }, { interest_rating: 0 }]) {
+    assert.equal(await workspace.saveOpportunityDisposition('opportunity-1', patch as never), null);
+  }
+  assert.equal(queries.filter(query => query.operation === 'rpc').length, 1);
+  scope.stop();
+});

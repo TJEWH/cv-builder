@@ -66,17 +66,24 @@ begin
   perform public.patch_opportunity_search_source(search_a,registry,gen_random_uuid(),'{"listing_url":"https://example.invalid/ReusableResearch","enabled":true,"pinned":true}',0);
   execute 'reset role';
   packet:=private.compile_opportunity_feedback_snapshot(owner_a,search_a);
-  assert packet::text like '%Synthetic approved research preference.%' and packet::text!~'PRIVATE_CANARY|contact@example.invalid','Packet omitted approval or leaked private evidence';
+  assert packet::text not like '%Synthetic approved research preference.%' and packet::text!~'PRIVATE_CANARY|contact@example.invalid',
+    'Default inclusion bypassed full-source safety because of a historical approval';
+  execute 'set local role authenticated';
+  perform public.save_opportunity_comment(opportunity,'Synthetic physical prototype evaluation.');
+  execute 'reset role';
+  packet:=private.compile_opportunity_feedback_snapshot(owner_a,search_a);
+  assert packet::text like '%Synthetic approved research preference.%' and packet::text like '%summary_inclusion%'
+    and packet::text!~'PRIVATE_CANARY|contact@example.invalid','Default safe evaluation was omitted or leaked private evidence';
   update public.opportunity_search_adaptive_release set enabled=true,project_ref=project where singleton;
   execute 'set local role authenticated';perform public.set_opportunity_search_runner_authorization(search_a,project,true,0);execute 'reset role';
   result:=private.begin_adaptive_opportunity_search(search_a,new_run);
   assert result->'compatible'='true'::jsonb and result::text!~'CONTACT_PRIVATE_CANARY|COMMENT_PRIVATE_CANARY|contact@example.invalid','New caller leaked old caller contact payload';
-  -- Approval withdrawal eagerly redacts all old packets; a same-run retry
-  -- cannot restore formerly approved text from immutable snapshot metadata.
-  execute 'set local role authenticated';perform public.revoke_opportunity_feedback_summary(opportunity);execute 'reset role';
+  -- The shared per-opportunity exclusion eagerly redacts all old packets; a
+  -- same-run retry cannot restore formerly included text from snapshot metadata.
+  execute 'set local role authenticated';perform public.save_opportunity_feedback(opportunity,'{"feedback_excluded":true}');execute 'reset role';
   result:=private.begin_adaptive_opportunity_search(search_a,new_run);
-  assert result::text not like '%Synthetic approved research preference.%','Revoked approval survived same-run retry';
-  assert not exists(select 1 from public.opportunity_search_feedback_snapshots s where s.user_id=owner_a and s.packet::text like '%Synthetic approved research preference.%'),'Revoked summary survived direct cached packet read';
+  assert result::text not like '%Synthetic approved research preference.%','Excluded feedback survived same-run retry';
+  assert not exists(select 1 from public.opportunity_search_feedback_snapshots s where s.user_id=owner_a and s.packet::text like '%Synthetic approved research preference.%'),'Excluded feedback survived direct cached packet read';
 
   perform set_config('request.jwt.claims',jsonb_build_object('sub',owner_b,'is_anonymous',false)::text,true);execute 'set local role authenticated';
   foreach relation in array public_tables loop
@@ -99,6 +106,7 @@ begin
   execute 'reset role';
   delete from public.opportunity_search_templates t where t.user_id=owner_a and t.id=search_a;
   foreach relation in array public_tables loop
+    if relation in('opportunity_feedback_summary_approvals','opportunity_feedback_prediction_proofs') then continue;end if;
     execute format('select count(*) from public.%I where user_id=$1',relation) into scope_owner_count using owner_a;
     assert scope_owner_count=0,'Search/account scope cleanup retained adaptive rows: '||relation;
   end loop;
@@ -110,7 +118,8 @@ begin
   -- account-deletion path; authenticated is never granted auth.users DELETE.
   delete from auth.users where id=owner_a;
   assert not exists(select 1 from public.opportunity_reviews where user_id=owner_a)
-    and not exists(select 1 from public.opportunity_feedback_prediction_proofs where user_id=owner_a),'Account cleanup retained review/proof metadata';
+    and not exists(select 1 from public.opportunity_feedback_prediction_proofs where user_id=owner_a)
+    and not exists(select 1 from public.opportunity_feedback_summary_approvals where user_id=owner_a),'Account cleanup retained review/proof metadata';
 end;
 $$;
 rollback;

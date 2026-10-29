@@ -6,7 +6,7 @@ import {
   ADAPTIVE_FEEDBACK_MAX_BYTES, ADAPTIVE_FEEDBACK_SELECTION_POLICY_VERSION, projectSafeAdaptiveFeedbackExample,
   type AdaptiveFeedbackSnapshot, type AdaptiveFeedbackGroup, type ApprovedAdaptivePreference, type AdaptiveSummaryApproval,
 } from './adaptiveFeedbackSnapshots';
-import { opportunityFeedbackTextIsSafe, sanitizeOpportunityFeedbackUrl } from './opportunityFeedbackPrivacy';
+import { opportunityFeedbackTextIsSafe, sanitizeOpportunityFeedbackUrl, validateAdaptiveSummaryInclusion, type AdaptiveSummaryInclusion } from './opportunityFeedbackPrivacy';
 import { createAdaptiveSearchPlan, type AdaptiveSearchPlan, type AdaptiveSearchPlanBasis, type LegacySearchQuery } from './adaptiveSearchPlans';
 import {
   buildAdaptiveSearchPlanningContext, validateApprovedAdaptiveRules, type AdaptiveSearchPlanningContext,
@@ -43,6 +43,7 @@ export interface AdaptiveStartupPrivacy {
   privacy_scope_changed: boolean;
   excluded_opportunity_ids: readonly string[];
   approved_summaries: readonly ({ opportunity_id: string } & AdaptiveSummaryApproval)[];
+  included_summaries?: readonly ({ opportunity_id: string } & AdaptiveSummaryInclusion)[];
   /** Current owner-authorized subset of the pinned source obligations, when supplied by the server. */
   authorized_source_ids?: readonly string[];
 }
@@ -75,6 +76,7 @@ export interface AdaptiveSearchStartupBundle {
   due_sources: readonly AdaptiveStartupSource[];
   /** Complete safe metadata for query targets and due checks; presence alone gives no coverage credit. */
   source_context: readonly AdaptiveStartupSourceContext[];
+  source_retention?: { requested: number; retained: number; omitted: number };
   planning: AdaptiveSearchPlanningContext;
   refresh: { cold_start: boolean; adaptive_slice: boolean; privacy_scope_changed: boolean };
   lease: { expires_at: string; status: 'active' | 'expired' | 'complete' | 'failed' };
@@ -162,10 +164,16 @@ function privacy(value: AdaptiveStartupPrivacy): AdaptiveStartupPrivacy {
   if (!Array.isArray(raw.excluded_opportunity_ids) || raw.excluded_opportunity_ids.length > 5000
     || !Array.isArray(raw.approved_summaries) || raw.approved_summaries.length > 5000) fail('invalid_bundle');
   if (raw.authorized_source_ids !== undefined && (!Array.isArray(raw.authorized_source_ids) || raw.authorized_source_ids.length > 64)) fail('invalid_bundle');
+  if (raw.included_summaries !== undefined && (!Array.isArray(raw.included_summaries) || raw.included_summaries.length > 5000)) fail('invalid_bundle');
   return { structured_feedback_enabled: bool(raw.structured_feedback_enabled), adaptation_enabled: bool(raw.adaptation_enabled), adaptation_paused: bool(raw.adaptation_paused),
     successful_source_reuse_enabled: bool(raw.successful_source_reuse_enabled), consent_revision: integer(raw.consent_revision),
     privacy_scope_changed: bool(raw.privacy_scope_changed), excluded_opportunity_ids: raw.excluded_opportunity_ids.map(identity),
     ...(raw.authorized_source_ids === undefined ? {} : { authorized_source_ids: (raw.authorized_source_ids as unknown[]).map(identity) }),
+    ...(raw.included_summaries === undefined ? {} : { included_summaries: (raw.included_summaries as unknown[]).map(value => {
+      const row = object(value), { opportunity_id, ...fields } = row, proof = validateAdaptiveSummaryInclusion(fields);
+      if (!proof) fail('invalid_bundle');
+      return { opportunity_id: identity(opportunity_id), ...proof };
+    }) }),
     approved_summaries: raw.approved_summaries.map(value => {
       const row = object(value);
       return { opportunity_id: identity(row.opportunity_id), summary_hash: digest(row.summary_hash), source_hash: digest(row.source_hash),
@@ -306,7 +314,9 @@ function planning(value: unknown, owner: string, search: string): AdaptiveSearch
     const row = object(value);
     if (![...OPPORTUNITY_INTEREST_REASON_CATEGORIES, 'institution'].includes(row.category as string) || !opportunityFeedbackTextIsSafe(row.target, 200)
       || !['increase', 'decrease', 'unchanged', 'examples_only'].includes(row.direction as string) || !['approved', 'feedback'].includes(row.basis as string)
-      || !['approved_rule', 'supported_mean', 'sparse', 'contradictory', 'negative_requires_reason', 'untargeted_reason'].includes(row.reason as string)) fail('invalid_bundle');
+      || !['approved_rule', 'supported_mean', 'sparse', 'contradictory', 'negative_requires_reason', 'untargeted_reason', 'source_only'].includes(row.reason as string)) fail('invalid_bundle');
+    if (settings.policy_version === 'adaptive-query-v3' && row.category === 'institution'
+      && (row.direction !== 'examples_only' || row.reason !== 'source_only' || row.provisional !== true)) fail('invalid_bundle');
     return Object.freeze({ category: row.category, target: row.target, observations: integer(row.observations), mean_interest: nullableScore(row.mean_interest),
       direction: row.direction, provisional: bool(row.provisional), basis: row.basis, reason: row.reason }) as AdaptiveSearchPlanningContext['priorities'][number];
   });
@@ -320,6 +330,7 @@ function planning(value: unknown, owner: string, search: string): AdaptiveSearch
 }
 function redactFeedback(packet: AdaptiveStartupFeedback, current: AdaptiveStartupPrivacy): { packet: AdaptiveStartupFeedback; changed: boolean } {
   const blocked = new Set(current.excluded_opportunity_ids), proofs = new Map(current.approved_summaries.map(proof => [proof.opportunity_id, proof]));
+  const included = new Map((current.included_summaries ?? []).map(proof => [proof.opportunity_id, proof]));
   const adaptationActive = current.adaptation_enabled && !current.adaptation_paused && current.structured_feedback_enabled;
   const hadFeedback = packet.examples.length > 0 || packet.aggregates.groups.length > 0 || packet.aggregates.mean_interest !== null
     || packet.aggregates.score_sum !== 0 || packet.approved_preferences.length > 0 || countFields.some(field => packet.counts[field] > 0);
@@ -329,12 +340,17 @@ function redactFeedback(packet: AdaptiveStartupFeedback, current: AdaptiveStartu
     return true;
   }).map<AdaptiveStartupFeedback['examples'][number]>(example => {
     if (!example.search_feedback_summary) return example;
+    const currentInclusion = included.get(example.opportunity_id);
+    if (example.summary_inclusion && currentInclusion) {
+      const { opportunity_id: _id, ...proof } = currentInclusion;
+      if (same(example.summary_inclusion, proof)) return example;
+    }
     const proof = proofs.get(example.opportunity_id), saved = example.summary_approval;
     if (proof && saved && same(saved, { summary_hash: proof.summary_hash, source_hash: proof.source_hash,
       summary_revision: proof.summary_revision, approved_at: proof.approved_at })) return example;
     changed = true;
-    const { search_feedback_summary: withheldSummary, summary_approval: withheldProof, ...safe } = example;
-    void withheldSummary; void withheldProof;
+    const { search_feedback_summary: withheldSummary, summary_approval: withheldProof, summary_inclusion: withheldInclusion, ...safe } = example;
+    void withheldSummary; void withheldProof; void withheldInclusion;
     return safe;
   });
   // Whole-set aggregates cannot be safely subtracted using only 16 selected
@@ -447,6 +463,12 @@ export async function projectAdaptiveSearchStartup(value: unknown, context: {
       refresh: Object.freeze({ ...capturedRefresh, adaptive_slice: changed || sourceQuerySuppressed || capturedRefresh.adaptive_slice, privacy_scope_changed: changed }), lease: capturedLease,
       capabilities: expectedCapabilities, execution_contract: expectedExecution,
     };
+    if (raw.source_retention !== undefined) {
+      const retained = object(raw.source_retention);
+      const requested = integer(retained.requested,0,7), present = integer(retained.retained,0,7), omitted = integer(retained.omitted,0,7);
+      if (present + omitted !== requested) fail('invalid_bundle');
+      bundle.source_retention = Object.freeze({ requested, retained: present, omitted });
+    }
     if (bytes(bundle.feedback) > ADAPTIVE_FEEDBACK_MAX_BYTES || bytes(bundle) > ADAPTIVE_STARTUP_MAX_BYTES) fail('scope_oversized');
     return Object.freeze(bundle);
   } catch (error) {

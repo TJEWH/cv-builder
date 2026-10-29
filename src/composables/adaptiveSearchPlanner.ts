@@ -5,15 +5,17 @@ import type { AdaptiveFeedbackSnapshot, ApprovedAdaptivePreference } from './ada
 import { createAdaptiveSearchPlan, replaceAdaptiveSearchSlice, validateAdaptiveSearchPlanTransition, type AdaptiveSearchPlan, type AdaptiveSearchPlanBasis, type AdaptiveSearchQuery, type AdaptiveSearchQueryInput } from './adaptiveSearchPlans';
 import { opportunityFeedbackTextHash, opportunityFeedbackTextIsSafe, sanitizeOpportunityFeedbackUrl } from './opportunityFeedbackPrivacy';
 
-export const ADAPTIVE_SEARCH_POLICY_VERSION = 'adaptive-query-v2';
+export const ADAPTIVE_SEARCH_POLICY_VERSION = 'adaptive-query-v3';
 export interface AdaptiveSearchPolicy {
-  readonly policy_version: 'adaptive-query-v1' | typeof ADAPTIVE_SEARCH_POLICY_VERSION;
+  readonly policy_version: 'adaptive-query-v1' | 'adaptive-query-v2' | typeof ADAPTIVE_SEARCH_POLICY_VERSION;
   readonly minimum_observations: number;
   readonly exploration_ratio: number;
   readonly maximum_queries: number;
   readonly minimum_exploration_queries: number;
   readonly positive_interest_threshold: number;
   readonly exploration_guidance?: string;
+  readonly institution_policy?: 'source-only-v1';
+  readonly institution_guidance?: string;
 }
 export const LEGACY_ADAPTIVE_SEARCH_POLICY: Readonly<AdaptiveSearchPolicy> = Object.freeze({
   policy_version: 'adaptive-query-v1', minimum_observations: 3, exploration_ratio: 0.2,
@@ -26,12 +28,16 @@ const explorationGuidance = Object.freeze({
   adventurous: 'Prioritize plausible adjacent fields, unusual research combinations and role titles, and unfamiliar institutions or official sources. Each exploration query must connect clearly to at least one shared research interest or method. Research directions are alternatives. Preserve all hard criteria; interests do not establish qualifications.',
 });
 /** Structured owner preference only: this never changes consent or a scheduled task. */
-export function createSearchBreadthPolicy(percent = 20): Readonly<AdaptiveSearchPolicy> {
+export function createLegacySearchBreadthPolicy(percent = 20): Readonly<AdaptiveSearchPolicy> {
   if (!Number.isSafeInteger(percent) || percent < 0 || percent > 100 || percent % 5 !== 0) throw new TypeError('Search breadth must be a multiple of five from 0 to 100.');
   const level = percent === 0 ? 'off' : percent <= 20 ? 'focused' : percent <= 50 ? 'balanced' : 'adventurous';
-  return Object.freeze({ ...LEGACY_ADAPTIVE_SEARCH_POLICY, policy_version: ADAPTIVE_SEARCH_POLICY_VERSION,
+  return Object.freeze({ ...LEGACY_ADAPTIVE_SEARCH_POLICY, policy_version: 'adaptive-query-v2',
     exploration_ratio: percent / 100, minimum_exploration_queries: percent === 0 ? 0 : 1,
     exploration_guidance: explorationGuidance[level] });
+}
+export function createSearchBreadthPolicy(percent = 20): Readonly<AdaptiveSearchPolicy> {
+  return Object.freeze({ ...createLegacySearchBreadthPolicy(percent), policy_version: ADAPTIVE_SEARCH_POLICY_VERSION,
+    institution_policy: 'source-only-v1', institution_guidance: 'Retain institution listings as reusable sources only. Screen each project independently against the shared profile, funding, requirements and deadlines. Do not add an institution-wide fit bonus or infer qualifications from university-level outcomes.' });
 }
 export const DEFAULT_ADAPTIVE_SEARCH_POLICY = createSearchBreadthPolicy();
 
@@ -66,7 +72,7 @@ export interface AdaptivePriority {
   direction: 'increase' | 'decrease' | 'unchanged' | 'examples_only';
   provisional: boolean;
   basis: 'approved' | 'feedback';
-  reason: 'approved_rule' | 'supported_mean' | 'sparse' | 'contradictory' | 'negative_requires_reason' | 'untargeted_reason';
+  reason: 'approved_rule' | 'supported_mean' | 'sparse' | 'contradictory' | 'negative_requires_reason' | 'untargeted_reason' | 'source_only';
 }
 export interface AdaptivePlannerDueSource {
   registry_id: string;
@@ -153,16 +159,17 @@ export function validateApprovedAdaptiveRules(value: unknown): readonly Approved
 }
 
 export function validateAdaptiveSearchPolicy(value: Readonly<AdaptiveSearchPolicy>): Readonly<AdaptiveSearchPolicy> {
-  if (!record(value) || !['adaptive-query-v1', ADAPTIVE_SEARCH_POLICY_VERSION].includes(value.policy_version) || !integer(value.minimum_observations, 3, 100)
+  if (!record(value) || !['adaptive-query-v1', 'adaptive-query-v2', ADAPTIVE_SEARCH_POLICY_VERSION].includes(value.policy_version) || !integer(value.minimum_observations, 3, 100)
     || typeof value.exploration_ratio !== 'number' || !Number.isFinite(value.exploration_ratio) || value.exploration_ratio < 0 || value.exploration_ratio > 1
     || !integer(value.maximum_queries, 1, 30) || !integer(value.minimum_exploration_queries, value.policy_version === 'adaptive-query-v1' ? 1 : 0, 30)
     || typeof value.positive_interest_threshold !== 'number' || !Number.isFinite(value.positive_interest_threshold)
     || value.positive_interest_threshold < 0 || value.positive_interest_threshold > 10) throw new TypeError('Invalid versioned adaptive query policy.');
-  if (value.policy_version === ADAPTIVE_SEARCH_POLICY_VERSION) {
-    const expected = createSearchBreadthPolicy(Math.round(value.exploration_ratio * 100));
+  if (value.policy_version !== 'adaptive-query-v1') {
+    const expected = value.policy_version === 'adaptive-query-v2' ? createLegacySearchBreadthPolicy(Math.round(value.exploration_ratio * 100)) : createSearchBreadthPolicy(Math.round(value.exploration_ratio * 100));
     if (value.exploration_ratio !== expected.exploration_ratio || value.minimum_exploration_queries !== expected.minimum_exploration_queries
       || value.exploration_guidance !== expected.exploration_guidance || value.minimum_observations !== expected.minimum_observations
       || value.maximum_queries !== expected.maximum_queries || value.positive_interest_threshold !== expected.positive_interest_threshold
+      || value.institution_policy !== expected.institution_policy || value.institution_guidance !== expected.institution_guidance
       || Object.keys(value).some(field => !Object.hasOwn(expected, field))) throw new TypeError('Invalid versioned adaptive query policy.');
     return expected;
   }
@@ -238,7 +245,10 @@ export function buildAdaptiveSearchPlanningContext(input: AdaptiveSearchPlannerI
       const contradicts = !untargeted && (opposite || mean !== null && (Boolean(group.negative) && mean >= settings.positive_interest_threshold
         || Boolean(group.positive) && mean < settings.positive_interest_threshold));
       let direction: AdaptivePriority['direction'] = 'examples_only', reason: AdaptivePriority['reason'] = 'sparse', provisional = true;
-      if (untargeted) reason = 'untargeted_reason';
+      // A university is a reusable discovery source, not evidence that each
+      // project there fits. Keep diagnostics without rewarding or penalizing it.
+      if (settings.policy_version === 'adaptive-query-v3' && chosen.kind === 'institution') reason = 'source_only';
+      else if (untargeted) reason = 'untargeted_reason';
       else if (contradicts) { direction = 'unchanged'; reason = 'contradictory'; }
       else if (!untargeted && observations >= settings.minimum_observations && mean !== null) {
         if (mean >= settings.positive_interest_threshold) { direction = 'increase'; reason = 'supported_mean'; provisional = false; }
@@ -359,7 +369,7 @@ export async function recordGeneratedAdaptiveSearchPlan(input: AdaptiveSearchPla
   const exploration = captured.filter(query => query.role === 'exploration').length;
   const minimum = captured.length ? Math.min(captured.length, Math.max(context.policy.minimum_exploration_queries, Math.ceil(captured.length * context.policy.exploration_ratio))) : 0;
   if (!context.enabled && captured.length || context.enabled && context.allocation.discretionary > 0 && !captured.length
-    || exploration < minimum || context.policy.policy_version === ADAPTIVE_SEARCH_POLICY_VERSION && context.policy.exploration_ratio === 0 && exploration !== 0) throw new TypeError('The generated slice must preserve the active exploration policy.');
+    || exploration < minimum || context.policy.policy_version !== 'adaptive-query-v1' && context.policy.exploration_ratio === 0 && exploration !== 0) throw new TypeError('The generated slice must preserve the active exploration policy.');
   // Hash validation snapshots the exact core fields before yielding; never read
   // a mutable source plan again after asynchronous hashing has started.
   const core = input.core_queries.map(query => ({ ...query, ...(query.sources === undefined ? {} : { sources: [...query.sources] }) }));

@@ -1,6 +1,6 @@
 import { OPPORTUNITY_INTEREST_REASON_CATEGORIES, OPPORTUNITY_REVIEW_STATES, type OpportunityInterestReason, type OpportunityPredictionBaseline } from '../cloudTypes';
 import { OPPORTUNITY_INTEREST_METRIC_VERSION, isOpportunityInterestRating, normalizeOpportunityInterestReasons, opportunityFeedbackTimestamp } from './opportunityFeedback';
-import { opportunityFeedbackTextHash, opportunityFeedbackTextIsSafe, sanitizeOpportunityFeedbackUrl, type SafeOpportunityFeedbackExample } from './opportunityFeedbackPrivacy';
+import { opportunityFeedbackTextHash, opportunityFeedbackTextIsSafe, sanitizeOpportunityFeedbackUrl, validateAdaptiveSummaryInclusion, type SafeOpportunityFeedbackExample } from './opportunityFeedbackPrivacy';
 
 export const ADAPTIVE_FEEDBACK_SELECTION_POLICY_VERSION = 'opportunity-feedback-selection-v1';
 export const ADAPTIVE_FEEDBACK_FINGERPRINT_ENCODING = 'sha256-canonical-json-v1';
@@ -156,7 +156,11 @@ async function safeExample(value: unknown, owner: string, search: string): Promi
     result.original_prediction = prediction; result.baseline_status = 'available'; result.interest_gap = value.interest_gap;
   }
   const summary = value.search_feedback_summary, approval = value.summary_approval;
-  if (opportunityFeedbackTextIsSafe(summary) && record(approval) && typeof approval.summary_hash === 'string' && digest.test(approval.summary_hash)
+  const inclusion = validateAdaptiveSummaryInclusion(value.summary_inclusion);
+  if (opportunityFeedbackTextIsSafe(summary) && inclusion && Array.from(summary).length === Math.min(600,inclusion.source_length)
+    && await opportunityFeedbackTextHash(summary) === inclusion.summary_hash) {
+    result.search_feedback_summary = summary; result.summary_inclusion = inclusion;
+  } else if (opportunityFeedbackTextIsSafe(summary) && record(approval) && typeof approval.summary_hash === 'string' && digest.test(approval.summary_hash)
     && typeof approval.source_hash === 'string' && digest.test(approval.source_hash) && revision(approval.summary_revision) && timestamp(approval.approved_at)) {
     const proof: AdaptiveSummaryApproval = { summary_hash: approval.summary_hash, source_hash: approval.source_hash,
       summary_revision: approval.summary_revision, approved_at: approval.approved_at as string };
@@ -166,7 +170,9 @@ async function safeExample(value: unknown, owner: string, search: string): Promi
     }
   }
   // A view-only unreviewed row is not a preference observation or a sampling candidate.
-  return result.interest_score !== null || result.reasons.length || result.search_feedback_summary ? result : null;
+  if (value.manually_archived === true) result.manually_archived = true;
+  if (['closed','requirements','application_problem','other'].includes(value.technical_issue_category as string)) result.technical_issue_category = value.technical_issue_category as NonNullable<AdaptiveFeedbackExample['technical_issue_category']>;
+  return result.interest_score !== null || result.reasons.length || result.search_feedback_summary || result.manually_archived || result.technical_issue_category ? result : null;
 }
 
 /** Shared fixed allowlist for complete startup DTOs; this never recomputes whole-set statistics from samples. */

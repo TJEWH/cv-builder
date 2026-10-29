@@ -9,6 +9,13 @@ export const OPPORTUNITY_REVIEW_STATES = ['unreviewed', 'not_interested', 'inter
 export type OpportunityReviewState = typeof OPPORTUNITY_REVIEW_STATES[number];
 export const OPPORTUNITY_INTEREST_REASON_CATEGORIES = ['topic', 'method', 'hardware', 'location', 'funding', 'timing', 'other'] as const;
 export type OpportunityInterestReasonCategory = typeof OPPORTUNITY_INTEREST_REASON_CATEGORIES[number];
+export const OPPORTUNITY_TECHNICAL_ISSUES = ['closed', 'requirements', 'application_problem', 'other'] as const;
+export type OpportunityTechnicalIssue = typeof OPPORTUNITY_TECHNICAL_ISSUES[number];
+export interface OpportunityDispositionPatch {
+  manually_archived?: boolean;
+  technical_issue_category?: OpportunityTechnicalIssue | null;
+  technical_issue_note?: string | null;
+}
 
 export interface OpportunityInterestReason {
   category: OpportunityInterestReasonCategory;
@@ -41,6 +48,10 @@ export interface OpportunityReview {
   feedback_excluded?: boolean;
   feedback_revision?: number;
   feedback_updated_at?: string | null;
+  /** Owner-only list disposition; never a catalogue deadline or interest rating. */
+  manually_archived?: boolean;
+  technical_issue_category?: OpportunityTechnicalIssue | null;
+  technical_issue_note?: string | null;
   /** Frozen for the explicit feedback revision, separate from the catalogue's AI fit. */
   prediction_baseline?: OpportunityPredictionBaseline | null;
   /** Private summary draft. Only its exact explicit approval permits adaptive export. */
@@ -56,7 +67,7 @@ export interface OpportunityReview {
   updated_at: string;
 }
 
-export interface OpportunityFeedbackPatch {
+export interface OpportunityFeedbackPatch extends OpportunityDispositionPatch {
   interest_rating?: number | null;
   interest_reasons?: OpportunityInterestReason[];
   feedback_excluded?: boolean;

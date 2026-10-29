@@ -35,7 +35,7 @@ if (!import.meta.env.DEV) throw new Error('The browser fixture is available only
 type Row = Record<string, unknown>;
 const account = '90000000-0000-4000-8000-000000000001';
 const fixtureFlow = new URLSearchParams(location.search).get('flow');
-if (['job-navigation', 'application-groups', 'canonical-data'].includes(fixtureFlow || '')) {
+if (['job-navigation', 'application-groups', 'canonical-data', 'manual-past'].includes(fixtureFlow || '')) {
   for (const key of ['CV_SELECTED_OPPORTUNITY', 'CV_SELECTED_APPLICATION']) sessionStorage.removeItem(`${key}:${account}`);
 }
 const now = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
@@ -102,6 +102,21 @@ if (fixtureFlow === 'canonical-data') {
   database.opportunities = [canonicalOpportunityFixture()];
   database.opportunity_reviews = [];
 }
+if (fixtureFlow === 'manual-past') {
+  const opportunity = database.opportunities[0];
+  opportunity.deadline = '2099-01-01T23:59:00Z';
+  database.opportunities = [opportunity];
+  database.opportunity_reviews = [{ user_id: account, opportunity_id: opportunity.id, state: 'interested', interest_rating: 7.4,
+    interest_reasons: [], feedback_excluded: false, feedback_revision: 0, feedback_updated_at: null,
+    manually_archived: false, technical_issue_category: null, technical_issue_note: null,
+    comment: 'Screen each project on its own research tasks.', search_feedback_summary: 'Screen each project on its own research tasks.',
+    search_feedback_revision: 0, search_feedback_approved_at: null, reviewed_updated_at: opportunity.updated_at, created_at: now, updated_at: now }];
+  database.applications = [{ id: '20000000-0000-4000-8000-000000000099', user_id: account, opportunity_id: opportunity.id,
+    application_code: 'APP-MANUALPAST', cv_variant_id: null, contact_email: null, context_json: structuredClone(opportunity),
+    context_captured_at: new Date().toISOString(), completed_checklist_keys: [], status: 'preparation', workflow_stage: 'preparation',
+    tracking_started: false, status_history: [{ status: 'preparation', changedAt: now }], notes: null,
+    contacted_at: null, submitted_at: null, created_at: now, updated_at: now }];
+}
 if (fixtureFlow === 'application-groups') {
   const deadline = (daysFromNow: number) => new Date(Date.now() + daysFromNow * 24 * 60 * 60 * 1000).toISOString();
   const future = deadline(7);
@@ -130,6 +145,11 @@ const refinement = createRefinementFixture(database, account);
 // Hold writes explicitly so the interaction check does not depend on network timing.
 let holdReviewWrites = false;
 const reviewWrites: Array<{ name: string; release: (fail?: boolean) => void }> = [];
+const manualPastWrites: Array<{ name: string; parameters: Row }> = [];
+if (fixtureFlow === 'manual-past') Object.assign(window, { manualOpportunityPastFixture: {
+  snapshot: () => structuredClone({ opportunity: database.opportunities[0], review: database.opportunity_reviews[0],
+    application: database.applications[0], writes: manualPastWrites }),
+} });
 
 function from(table: string) {
   if (REFINEMENT_TABLES.includes(table as typeof REFINEMENT_TABLES[number])) return refinement.from(table);
@@ -188,6 +208,20 @@ const client = {
     let signal: AbortSignal | undefined;
     const execute = () => {
       if (signal?.aborted) return { data: null, error: new Error('Aborted') };
+      if (fixtureFlow === 'manual-past' && name === 'read_opportunity_feedback_settings') return { data: {
+        user_id: account, search_id: null, structured_feedback_enabled: false, consent_revision: 0, consent_updated_at: null,
+      }, error: null };
+      if (fixtureFlow === 'manual-past' && name === 'save_opportunity_feedback') {
+        const review = database.opportunity_reviews.find(row => row.user_id === account && row.opportunity_id === parameters.p_opportunity_id);
+        if (!review) return { data: null, error: new Error('Missing fixture review') };
+        const patch = parameters.p_patch as Row;
+        if (!patch || Object.keys(patch).some(key => !['manually_archived', 'technical_issue_category', 'technical_issue_note', 'search_feedback_summary'].includes(key))) {
+          return { data: null, error: new Error('Unexpected manual-Past fixture patch') };
+        }
+        manualPastWrites.push({ name, parameters: structuredClone(parameters) });
+        Object.assign(review, patch, { feedback_revision: Number(review.feedback_revision || 0) + 1, updated_at: new Date().toISOString() });
+        return { data: structuredClone(review), error: null };
+      }
       if (['save_refinement_state', 'publish_refinement_request', 'save_refinement_review'].includes(name)) return refinement.rpc(name, parameters);
       if (name === 'save_opportunity_meta_search') {
         const existing = database.opportunity_search_templates.find(row => row.id === parameters.p_id);
@@ -209,6 +243,7 @@ const client = {
         let review = database.opportunity_reviews.find((row) => row.opportunity_id === opportunity.id && row.user_id === account);
         if (!review) {
           review = { user_id: account, opportunity_id: opportunity.id, state: 'unreviewed', reviewed_updated_at: null, created_at: now, updated_at: now };
+          if (fixtureFlow === 'manual-past') Object.assign(review, { manually_archived: false, technical_issue_category: null, technical_issue_note: null, search_feedback_revision: 0 });
           database.opportunity_reviews.push(review);
         }
         if (parameters.p_state) review.state = parameters.p_state;

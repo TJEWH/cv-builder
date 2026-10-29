@@ -1,5 +1,5 @@
 {
-  "release_id": "adaptive-search-breadth-v1",
+  "release_id": "adaptive-search-inclusion-v1",
   "manifest_version": 1,
   "reviewed_package_commit": "f475d364fb16508b4ef8e1568b9d72fd80e3ddf2",
   "preceding_implementation_commit": "fbbe4c2a28a9a776e6040b92a9af2c28876efb21",
@@ -12,7 +12,8 @@
     "capability": "adaptive-batch-v1",
     "metric": "opportunity-interest-v1",
     "selection_policy": "opportunity-feedback-selection-v1",
-    "query_policy": "adaptive-query-v2",
+    "query_policy": "adaptive-query-v3",
+    "summary_inclusion": "included-unless-excluded-v1",
     "setup_contract": 1,
     "rollback_contract": 1
   },
@@ -211,6 +212,13 @@
       "sha256": "8c73f3b90dd8132c4ed11ec9817fe80b1fbb07458436e7e3a64c23b67529bec1",
       "migration_only": true,
       "scheduler_operations": false
+    },
+    {
+      "order": 20,
+      "path": "supabase/opportunity_feedback_inclusion.sql",
+      "sha256": "a428ec7c36679147226f4673a588b78e1a57c84d5acb1d5160f815d3e89f73cc",
+      "migration_only": true,
+      "scheduler_operations": false
     }
   ],
   "installed_definition_prerequisites": {
@@ -270,7 +278,7 @@
     },
     {
       "path": "src/composables/adaptiveSearchStartup.ts",
-      "sha256": "a08730c479a3af8c6cc4069900a3485e9e39349c7cd1a9e69fd2a9f6975f5f5c"
+      "sha256": "bcda54a2890f7d40c055cf8b3081bcb960baca87a611c51e8868f06672a65e33"
     },
     {
       "path": "src/composables/opportunityResultSchema.ts",
@@ -286,11 +294,11 @@
     },
     {
       "path": "src/composables/opportunityFeedbackPrivacy.ts",
-      "sha256": "c3ffba4d021d9b21ba31b6742cae75baeea916c173f8087f3602bb0b9a7f7e9e"
+      "sha256": "f64449435de12b2b7dcd2b247f5f5345cd221db98f4fbca805b16974975e9b68"
     },
     {
       "path": "src/composables/adaptiveFeedbackSnapshots.ts",
-      "sha256": "a9be0af4a03dc5566a0b6a8aa9960323016f9687348861eb9c53b4d3a182b611"
+      "sha256": "64afb5fe9bbf08ca9d308b7a1cb00c6d7c53a353b6479d86748a67a0e5bdb3b4"
     },
     {
       "path": "src/composables/adaptiveSearchPlans.ts",
@@ -298,11 +306,11 @@
     },
     {
       "path": "src/composables/adaptiveSearchPlanner.ts",
-      "sha256": "b90a7bddb70b59c0aa68bc1d8fafe5d66704fbeee4927fff73cbb1c6f907641d"
+      "sha256": "0f1abcd409c21853cc1aaea3a31767c0a0c61fe947c7e069d622d59addb731d9"
     },
     {
       "path": "src/composables/adaptiveSearchSources.ts",
-      "sha256": "291a8022b0a1989f35a68faa40f554cd0dfb237b97dcec198a09eecaf349bc7b"
+      "sha256": "07d2db728f243c8382ea1a65cf7dd643921345928d36faf2544a9fb47ffa6cfc"
     },
     {
       "path": "src/composables/adaptiveSearchQuality.ts",
@@ -310,7 +318,7 @@
     },
     {
       "path": "src/composables/adaptiveSearchDashboard.ts",
-      "sha256": "3554683e3901c5dc9227e41fe65030b306244482b945792106d754672ecd993b"
+      "sha256": "ae7284f72de96c05a2db53bd8ef8d0852874d828007333ef02d175f602fa1914"
     },
     {
       "path": "src/composables/searchTemplateCloud.ts",
@@ -322,15 +330,39 @@
     },
     {
       "path": "src/components/AdaptiveSearchDashboard.vue",
-      "sha256": "d7653ea585b1b4e0a93993c53609b5b00426a957cd818d7dc2cbbb732b6bcafe"
+      "sha256": "f2d95059a6b5e9134d6ea367be6934c0dba746b57423b5cdeb76b9aa26ef79f1"
     },
     {
       "path": "src/components/AdaptiveSearchPolicyHint.vue",
-      "sha256": "148748fd598693814ac9cc1445b91708b902e4682a6c79c4a4261fdc4aea15c4"
+      "sha256": "542c6db2bad672f4a22eb3262a51c4ba564b7f9894410a484248e093dd4c06a1"
     },
     {
       "path": "src/components/SearchTemplates.vue",
       "sha256": "68d42f9b7728a230bc52b59133fb3fb2fdb65ed811434f28c1bf7a6b5b341c6b"
+    },
+    {
+      "path": "src/components/JobWorkspace.vue",
+      "sha256": "2debf9325d04ea14bab7858aa1f5f74fa72cc30f33f0caa0933d530f9acf2af8"
+    },
+    {
+      "path": "src/components/OpportunityFeedbackControls.vue",
+      "sha256": "308bc3000bc389cc13a573bc9c8d5dd6696947edd402423c47802ee67c9d4036"
+    },
+    {
+      "path": "src/components/OpportunityDispositionControls.vue",
+      "sha256": "91cedc1490a5a5ca93e29efb64ec83eccc460043e3b3e140b22ff8158184c45e"
+    },
+    {
+      "path": "src/composables/opportunityDisposition.ts",
+      "sha256": "4c2d07725ba5cc5022434438530f2b199b117bdcf37a8dff554dc176013a9ea8"
+    },
+    {
+      "path": "src/composables/opportunityEvaluation.ts",
+      "sha256": "c20c222e4201e0f63332420e38974e2e16c48fec5413b387fb9102a8d42aeb9c"
+    },
+    {
+      "path": "src/composables/useApplicationNotesAutosave.ts",
+      "sha256": "b3e8f07b16c986c3fe4167558c703fa4bb743e3e861207821576bc3dc8fd68b7"
     }
   ],
   "release_gate": {

@@ -3,11 +3,12 @@ import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive, ref } from 'vue';
 import type { Component } from 'vue';
-import type { Application, ApplicationStage, Opportunity, OpportunityReview, OpportunityReviewState } from '../src/cloudTypes';
+import type { Application, ApplicationStage, Opportunity, OpportunityFeedbackPatch, OpportunityReview, OpportunityReviewState } from '../src/cloudTypes';
 import { normalizeOpportunity } from '../src/composables/useJobWorkspace';
 import { useToasts, useToastWatch } from '../src/composables/useToasts';
 import { commitPendingTextareas, registerTextareaCommit } from '../src/composables/textareaCommit';
@@ -33,6 +34,7 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   for (const [key, value] of Object.entries({
     window: { setInterval: () => 1, clearInterval() {}, matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }) },
     sessionStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
+    localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
   })) {
     const previous = Object.getOwnPropertyDescriptor(globalThis, key);
     Object.defineProperty(globalThis, key, { configurable: true, value });
@@ -53,6 +55,8 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   const removed: string[] = [];
   const applicationUpdates: { id: string; changes: Partial<Application> }[] = [];
   const commentUpdates: { id: string; comment: string }[] = [];
+  const feedbackUpdates: { id: string; patch: OpportunityFeedbackPatch }[] = [];
+  const evaluationWrites: ('comment' | 'feedback')[] = [];
   const stageUpdates: { id: string; stage: ApplicationStage }[] = [];
   const historyResets: { id: string; notes: string | null }[] = [];
   const reviewUpdates: { id: string; state: OpportunityReviewState }[] = [];
@@ -62,9 +66,11 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
     create?: () => Promise<Application | null>;
     review?: (id: string, state: OpportunityReviewState) => Promise<OpportunityReview | null>;
     comment?: (id: string, comment: string) => Promise<OpportunityReview | null>;
+    feedback?: (id: string, patch: OpportunityFeedbackPatch) => Promise<OpportunityReview | null>;
   } = {};
   let failNotes = false;
   let failComment = false;
+  let failFeedback = false;
   let failHistoryReset = false;
   const saveApplication = (id: string, changes: Partial<Application>) => {
     const current = applications.value.find(item => item.id === id);
@@ -72,6 +78,14 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
     const saved = { ...current, ...changes };
     applications.value = applications.value.map(item => item.id === id ? saved : item);
     return saved;
+  };
+  const feedbackMetadata = (current: OpportunityReview | undefined, saved: OpportunityReview): OpportunityReview => {
+    const changed = (current?.comment ?? null) !== (saved.comment ?? null)
+      || (current?.search_feedback_summary ?? null) !== (saved.search_feedback_summary ?? null);
+    return { ...saved, search_feedback_revision: (current?.search_feedback_revision ?? 0) + Number(changed),
+      search_feedback_summary_hash: createHash('sha256').update(saved.search_feedback_summary ?? '').digest('hex'),
+      search_feedback_source_hash: createHash('sha256').update(saved.comment ?? '').digest('hex'),
+      ...(changed ? { search_feedback_approved_at: null, search_feedback_approved_summary_hash: null, search_feedback_approved_source_hash: null } : {}) };
   };
   const workspace = {
     opportunities, applications, reviews,
@@ -106,13 +120,26 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
     setApplicationChecklistItem: async () => false,
     setOpportunityComment: async (id: string, comment: string) => {
       commentUpdates.push({ id, comment });
+      evaluationWrites.push('comment');
       if (handlers.comment) return handlers.comment(id, comment);
       if (failComment) { failComment = false; return null; }
       const current = reviews.value.find(item => item.opportunity_id === id);
-      const saved: OpportunityReview = { user_id: 'account-one', opportunity_id: id, state: 'unreviewed', reviewed_updated_at: null, created_at: '', updated_at: '', ...current, comment: comment.trim() || null };
+      if (Array.from(comment.trim()).length > 5000) return null;
+      const saved = feedbackMetadata(current, { user_id: props.userId, opportunity_id: id, state: 'unreviewed', reviewed_updated_at: null, created_at: '', updated_at: '', ...current, comment: comment.trim() || null });
       reviews.value = [...reviews.value.filter(item => item.opportunity_id !== id), saved];
       return saved;
     },
+    saveOpportunityFeedback: async (id: string, patch: OpportunityFeedbackPatch) => {
+      feedbackUpdates.push({ id, patch }); evaluationWrites.push('feedback');
+      if (handlers.feedback) return handlers.feedback(id, patch);
+      if (failFeedback) { failFeedback = false; return null; }
+      const current = reviews.value.find(item => item.opportunity_id === id);
+      const saved = feedbackMetadata(current, { user_id: props.userId, opportunity_id: id, state: 'unreviewed', reviewed_updated_at: null, created_at: '', updated_at: '', ...current, ...patch,
+        ...('search_feedback_summary' in patch ? { search_feedback_summary: patch.search_feedback_summary || null } : {}) });
+      reviews.value = [...reviews.value.filter(item => item.opportunity_id !== id), saved];
+      return saved;
+    },
+    saveOpportunityDisposition: async (id: string, patch: OpportunityFeedbackPatch) => workspace.saveOpportunityFeedback(id, patch),
     removeApplication: async (id: string) => { removed.push(id); applications.value = applications.value.filter((item) => item.id !== id); return true; },
     setOpportunityReview: async (id: string, state: OpportunityReviewState) => {
       const owner = props.userId;
@@ -150,6 +177,8 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
     startingApplication: object | null;
     notes: string; notesStatus: string; notesError: string; flushNotes(): Promise<boolean>;
     applicationWorkspace: { flushTextareas(): Promise<boolean> } | null; flushTextareas(): Promise<boolean>;
+    opportunityDisposition: { flush(): Promise<boolean> } | null;
+    applicationDisposition: { flush(): Promise<boolean> } | null;
     opportunityComment: string; commentStatus: string; commentError: string; flushComment(): Promise<boolean>;
     recencyById: Map<string, 'new' | 'updated' | null>; unseenById: Map<string, 'new' | 'updated' | null>;
     fitScoreById: Map<string, number | undefined>; fitTone(score: number | undefined): string | undefined; fitLabel(score: number | undefined): string;
@@ -166,7 +195,7 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
     requestDetailRemoval(item: Application): Promise<void>; cancelRemoval(): void; confirmRemoval(item: Application): Promise<void>;
   } } }).$.setupState;
   const componentProps = (mounted as { $props: { active: boolean } }).$props;
-  return { setup, props, componentProps, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, applicationUpdates, commentUpdates, stageUpdates, historyResets, reviewUpdates, saving, savingReview, handlers, failNextNotesSave: () => { failNotes = true; }, failNextCommentSave: () => { failComment = true; }, failNextHistoryReset: () => { failHistoryReset = true; }, created: () => created };
+  return { setup, props, componentProps, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, applicationUpdates, commentUpdates, feedbackUpdates, evaluationWrites, stageUpdates, historyResets, reviewUpdates, saving, savingReview, handlers, failNextNotesSave: () => { failNotes = true; }, failNextCommentSave: () => { failComment = true; }, failNextFeedbackSave: () => { failFeedback = true; }, failNextHistoryReset: () => { failHistoryReset = true; }, created: () => created };
 }
 
 function deferred<T>() {
@@ -557,6 +586,21 @@ test('late Apply completion cannot navigate after the account, tab, item, or lis
   });
 });
 
+test('evaluations still save on older workspaces without the feedback schema', async t => {
+  const f = mount(t);
+  f.setup.openOpportunity(f.opportunity.id);
+  f.handlers.comment = async (id, comment) => {
+    const saved: OpportunityReview = { user_id: f.props.userId, opportunity_id: id, state: 'unreviewed', comment,
+      reviewed_updated_at: null, created_at: '', updated_at: '' };
+    f.reviews.value = [saved];
+    return saved;
+  };
+  f.setup.opportunityComment = 'Evaluation in a legacy workspace';
+  assert.equal(await f.setup.flushComment(), true);
+  assert.equal(f.reviews.value[0]?.comment, 'Evaluation in a legacy workspace');
+  assert.equal(f.feedbackUpdates.length, 0);
+});
+
 test('application evaluations share opportunity drafts and block record navigation on save failure', async t => {
   const f = mount(t);
   const secondOpportunity = normalizeOpportunity({ id: 'opportunity-two', title: 'Second research role', deadline: null });
@@ -602,6 +646,150 @@ test('application evaluation remains available without its live opportunity and 
   await nextTick();
   assert.equal(f.setup.opportunityComment, '');
   assert.deepEqual(f.commentUpdates, [], 'changing accounts cannot send the previous owner’s draft');
+});
+
+test('unified evaluation opens both persisted texts without saving or duplicating contained feedback', async t => {
+  const f = mount(t);
+  f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'interested',
+    comment: 'Existing personal evaluation.', search_feedback_summary: 'Existing search feedback.',
+    reviewed_updated_at: null, created_at: '', updated_at: '' }];
+  f.setup.openOpportunity(f.opportunity.id);
+  assert.equal(f.setup.opportunityComment, 'Existing personal evaluation.\n\nExisting search feedback.');
+  assert.equal(f.setup.commentStatus, 'saved', 'both persisted sources already form a saved read projection');
+  await nextTick();
+  assert.deepEqual(f.commentUpdates, []); assert.deepEqual(f.feedbackUpdates, []);
+  assert.equal(await f.setup.flushComment(), true);
+  assert.deepEqual(f.evaluationWrites, [], 'an unchanged projection needs no migration write');
+  await f.setup.closeOpportunity();
+  f.reviews.value = [{ ...f.reviews.value[0], comment: 'Existing personal evaluation.\n\nExisting search feedback.' }];
+  f.setup.openOpportunity(f.opportunity.id);
+  assert.equal(f.setup.opportunityComment, 'Existing personal evaluation.\n\nExisting search feedback.');
+  assert.deepEqual(f.evaluationWrites, []);
+});
+
+test('unified evaluation commits the comment before the exact short feedback draft and preserves review context', async t => {
+  const f = mount(t);
+  f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'strong_interest',
+    comment: 'Existing evaluation.', search_feedback_summary: 'Separate legacy feedback.', interest_rating: 7.5,
+    search_feedback_approved_at: '2026-10-01T12:00:00Z', reviewed_updated_at: f.opportunity.updated_at, created_at: '', updated_at: '' }];
+  f.setup.openOpportunity(f.opportunity.id);
+  const edited = 'Prefer physical sensing experiments.';
+  f.setup.opportunityComment = edited;
+  await nextTick();
+  assert.deepEqual(f.evaluationWrites, []);
+  assert.equal(await f.setup.flushComment(), true);
+  assert.deepEqual(f.evaluationWrites, ['comment', 'feedback']);
+  assert.deepEqual(f.feedbackUpdates, [{ id: f.opportunity.id, patch: { search_feedback_summary: edited } }]);
+  const saved = f.reviews.value[0];
+  assert.equal(saved.comment, edited); assert.equal(saved.search_feedback_summary, edited);
+  assert.equal(saved.state, 'strong_interest'); assert.equal(saved.interest_rating, 7.5);
+  assert.equal(saved.reviewed_updated_at, f.opportunity.updated_at);
+  assert.equal(saved.search_feedback_approved_at, null, 'editing does not approve disclosure');
+  assert.equal(saved.search_feedback_summary_hash, saved.search_feedback_source_hash);
+  assert.equal(await f.setup.flushComment(), true);
+  assert.deepEqual(f.evaluationWrites, ['comment', 'feedback'], 'repeated commits deduplicate the saved value');
+  await f.setup.closeOpportunity(); f.setup.openOpportunity(f.opportunity.id);
+  assert.equal(f.setup.opportunityComment, edited, 'removed legacy feedback must not reappear');
+});
+
+test('long unified evaluations remain intact with an exact Unicode feedback excerpt', async t => {
+  const f = mount(t);
+  f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'interested',
+    comment: 'Existing evaluation.', search_feedback_summary: 'Old summary to remove.',
+    reviewed_updated_at: null, created_at: '', updated_at: '' }];
+  f.setup.openOpportunity(f.opportunity.id);
+  const edited = '🧪'.repeat(601);
+  f.setup.opportunityComment = edited;
+  assert.equal(await f.setup.flushComment(), true);
+  assert.equal(f.reviews.value[0].comment, edited);
+  assert.equal(f.reviews.value[0].search_feedback_summary, '🧪'.repeat(600));
+  assert.deepEqual(f.feedbackUpdates, [{ id: f.opportunity.id, patch: { search_feedback_summary: '🧪'.repeat(600) } }]);
+  await f.setup.closeOpportunity(); f.setup.openOpportunity(f.opportunity.id);
+  assert.equal(f.setup.opportunityComment, edited);
+});
+
+test('combined maximum-length legacy evaluation and summary load without truncation or writes', async t => {
+  const f = mount(t), comment = '🧪'.repeat(5000), summary = '🦻'.repeat(600);
+  f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'interested', comment,
+    search_feedback_summary: summary, reviewed_updated_at: null, created_at: '', updated_at: '' }];
+  f.setup.openOpportunity(f.opportunity.id);
+  assert.equal(f.setup.opportunityComment, `${comment}\n\n${summary}`);
+  assert.equal(Array.from(f.setup.opportunityComment).length, 5602);
+  assert.equal(await f.setup.flushComment(), true);
+  await nextTick(); assert.deepEqual(f.evaluationWrites, []);
+  await f.setup.closeOpportunity();
+  assert.equal(f.reviews.value[0].comment, comment); assert.equal(f.reviews.value[0].search_feedback_summary, summary);
+});
+
+test('feedback alignment failure retains the edited evaluation and blocks navigation until exact retry', async t => {
+  const f = mount(t);
+  f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'interested', comment: 'Before.',
+    search_feedback_summary: 'Legacy feedback deleted by the user.', reviewed_updated_at: null, created_at: '', updated_at: '' }];
+  f.setup.openOpportunity(f.opportunity.id);
+  f.setup.opportunityComment = 'Only this new evaluation.';
+  f.failNextFeedbackSave();
+  assert.equal(await f.setup.openList('opportunities'), false);
+  assert.equal(f.setup.selectedOpportunity?.id, f.opportunity.id);
+  assert.equal(f.setup.commentStatus, 'error');
+  assert.equal(f.setup.opportunityComment, 'Only this new evaluation.');
+  assert.equal(f.reviews.value[0].comment, 'Only this new evaluation.', 'the first write may already have succeeded');
+  assert.equal(f.reviews.value[0].search_feedback_summary, 'Legacy feedback deleted by the user.');
+  assert.equal(await f.setup.openList('opportunities'), true);
+  assert.equal(f.setup.showingDetail, false);
+  assert.deepEqual(f.evaluationWrites, ['comment', 'feedback', 'comment', 'feedback']);
+  assert.deepEqual(f.feedbackUpdates.map(update => update.patch), [
+    { search_feedback_summary: 'Only this new evaluation.' }, { search_feedback_summary: 'Only this new evaluation.' },
+  ]);
+  f.setup.openOpportunity(f.opportunity.id);
+  assert.equal(f.setup.opportunityComment, 'Only this new evaluation.');
+});
+
+test('an owner change during comment persistence cannot write the old feedback into the new account', async t => {
+  const f = mount(t), pending = deferred<OpportunityReview | null>();
+  f.setup.openOpportunity(f.opportunity.id);
+  f.setup.opportunityComment = 'Private original owner assessment.';
+  f.handlers.comment = () => pending.promise;
+  const flush = f.setup.flushComment();
+  await settleUntil(() => f.commentUpdates.length === 1);
+  f.props.userId = 'account-two'; await nextTick();
+  pending.resolve({ user_id: 'account-one', opportunity_id: f.opportunity.id, state: 'interested',
+    comment: 'Private original owner assessment.', reviewed_updated_at: null, created_at: '', updated_at: '' });
+  assert.equal(await flush, false);
+  assert.deepEqual(f.feedbackUpdates, []);
+  assert.equal(f.setup.opportunityComment, '');
+});
+
+test('legacy local feedback and private recovery merge without resurrecting replaced server evaluation text', async t => {
+  const f = mount(t), legacyKey = `CV_SEARCH_FEEDBACK_SUMMARY_DRAFT:account-one:${f.opportunity.id}`;
+  f.storage.set(`CV_OPPORTUNITY_COMMENT_DRAFT:account-one:${f.opportunity.id}`, JSON.stringify({ value: 'Recovered edited evaluation.' }));
+  f.storage.set(legacyKey, JSON.stringify({ value: 'Recovered feedback draft.' }));
+  f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'interested',
+    comment: 'Replaced server evaluation.', search_feedback_summary: 'Saved separate feedback.',
+    reviewed_updated_at: null, created_at: '', updated_at: '' }];
+  f.setup.openOpportunity(f.opportunity.id);
+  const merged = 'Recovered edited evaluation.\n\nSaved separate feedback.\n\nRecovered feedback draft.';
+  assert.equal(f.setup.opportunityComment, merged);
+  assert.equal(f.setup.commentStatus, 'unsaved');
+  await nextTick(); assert.deepEqual(f.evaluationWrites, []);
+  f.failNextFeedbackSave();
+  assert.equal(await f.setup.flushComment(), false);
+  assert.equal(f.setup.opportunityComment, merged);
+  assert.equal(JSON.parse(f.storage.get(legacyKey)!).value, 'Recovered feedback draft.');
+  assert.equal(await f.setup.flushComment(), true);
+  assert.equal(f.storage.has(legacyKey), false, 'clear only after both persistence steps succeed');
+  assert.equal(f.reviews.value[0].comment, merged); assert.equal(f.reviews.value[0].search_feedback_summary, merged);
+  assert.doesNotMatch(f.setup.opportunityComment, /Replaced server evaluation/u);
+});
+
+test('a newer legacy recovery from another tab survives the unified save', async t => {
+  const f = mount(t), legacyKey = `CV_SEARCH_FEEDBACK_SUMMARY_DRAFT:account-one:${f.opportunity.id}`;
+  f.storage.set(legacyKey, JSON.stringify({ value: 'Original recovered feedback.' }));
+  f.setup.openOpportunity(f.opportunity.id);
+  assert.equal(f.setup.opportunityComment, 'Original recovered feedback.');
+  f.storage.set(legacyKey, JSON.stringify({ value: 'Newer draft from another tab.' }));
+  assert.equal(await f.setup.flushComment(), true);
+  assert.equal(JSON.parse(f.storage.get(legacyKey)!).value, 'Newer draft from another tab.');
+  assert.equal(f.reviews.value[0].comment, 'Original recovered feedback.');
 });
 
 test('application navigation follows sorted filtered results and saves notes before changing the selection', async (t) => {
@@ -1374,4 +1562,41 @@ test('application detail removal requires confirmation and cancellation preserve
   assert.deepEqual(removed, [application.id]);
   assert.equal(dialogOpened, false);
   assert.equal(setup.editingApplication, undefined);
+});
+
+test('manual Past disposition filters opportunities and linked applications without changing their facts or outcomes', async t => {
+  const f = mount(t), facts = JSON.stringify(f.opportunity.details), outcome = f.application.status;
+  f.applications.value = [f.application]; f.setup.showWithApplications = true;
+  f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'strong_interest', manually_archived: true,
+    technical_issue_category: 'requirements', technical_issue_note: 'Required prior degree cannot be met.', reviewed_updated_at: null, created_at: '', updated_at: '' }];
+  assert.equal(f.setup.filteredOpportunities.length, 0);
+  assert.equal(f.setup.filteredApplications.length, 0);
+  f.setup.deadlineFilter = 'past'; f.setup.applicationDeadlineFilter = 'past';
+  assert.deepEqual(f.setup.filteredOpportunities.map((item: Opportunity) => item.id), [f.opportunity.id]);
+  assert.deepEqual(f.setup.filteredApplications.map((item: Application) => item.id), [f.application.id]);
+  assert.equal(JSON.stringify(f.opportunity.details), facts); assert.equal(f.application.status, outcome);
+  assert.equal(f.reviews.value[0]?.state, 'strong_interest');
+});
+
+test('manual Past changes keep the open opportunity and Back follows the confirmed list status', async t => {
+  const f = mount(t); f.setup.openOpportunity(f.opportunity.id);
+  f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'interested', manually_archived: true,
+    reviewed_updated_at: null, created_at: '', updated_at: '' }];
+  await nextTick(); assert.equal(f.setup.selectedOpportunity?.id, f.opportunity.id);
+  f.setup.opportunityDisposition = { flush: async () => true };
+  await f.setup.closeOpportunity(); assert.equal(f.setup.deadlineFilter, 'past'); assert.equal(f.setup.selectedOpportunity, undefined);
+  f.setup.openOpportunity(f.opportunity.id);
+  f.reviews.value = [{ ...f.reviews.value[0]!, manually_archived: false }]; await nextTick();
+  await f.setup.closeOpportunity(); assert.equal(f.setup.deadlineFilter, 'current');
+});
+
+test('failed disposition drafts block opportunity and application navigation', async t => {
+  const f = mount(t); f.setup.openOpportunity(f.opportunity.id);
+  let saved = false; f.setup.opportunityDisposition = { flush: async () => saved };
+  await f.setup.closeOpportunity(); assert.equal(f.setup.selectedOpportunity?.id, f.opportunity.id);
+  assert.equal(await f.setup.openList('opportunities'), false);
+  saved = true; assert.equal(await f.setup.openList('opportunities'), true);
+  f.props.tab = 'applications'; f.applications.value = [f.application]; await nextTick(); f.setup.openApplication(f.application);
+  f.setup.applicationDisposition = { flush: async () => false };
+  await f.setup.closeApplication(); assert.equal(f.setup.editingApplication?.id, f.application.id);
 });

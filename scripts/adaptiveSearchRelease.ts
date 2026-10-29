@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
-export const ADAPTIVE_RELEASE_ID = 'adaptive-search-breadth-v1';
+export const ADAPTIVE_RELEASE_ID = 'adaptive-search-inclusion-v1';
 export const ADAPTIVE_RELEASE_MANIFEST = 'supabase/adaptive-search-release.json';
 export const ADAPTIVE_RELEASE_MIGRATIONS = [
   'opportunity_feedback_signals.sql', 'opportunity_feedback_sharing.sql', 'opportunity_feedback_projection.sql',
@@ -14,6 +14,7 @@ export const ADAPTIVE_RELEASE_MIGRATIONS = [
   'opportunity_search_feedback_preview.sql', 'opportunity_search_dashboard.sql',
   'opportunity_search_adaptive_release_fixes.sql', 'opportunity_search_adaptive_rollback.sql',
   'opportunity_search_breadth.sql',
+  'opportunity_feedback_inclusion.sql',
 ] as const;
 export const ADAPTIVE_RELEASE_PREREQUISITES = [
   'supabase/schema.sql', 'test/opportunityFeedback/fixtures/legacy-search-bootstrap.sql',
@@ -45,7 +46,7 @@ export function buildAdaptiveSearchReleaseManifest() {
     preceding_implementation_commit: 'fbbe4c2a28a9a776e6040b92a9af2c28876efb21',
     versions: { canonical_schema: 5, canonical_protocol: 'opportunity-search-v1-canonical-5', legacy_bootstrap_contract: 1,
       meta_search: 1, adaptive_contract: 1, capability: 'adaptive-batch-v1', metric: 'opportunity-interest-v1',
-      selection_policy: 'opportunity-feedback-selection-v1', query_policy: 'adaptive-query-v2', setup_contract: 1, rollback_contract: 1 },
+      selection_policy: 'opportunity-feedback-selection-v1', query_policy: 'adaptive-query-v3', summary_inclusion: 'included-unless-excluded-v1', setup_contract: 1, rollback_contract: 1 },
     defaults: { adaptive_release_enabled: false, owner_runner_authorized: false, structured_feedback_enabled: false,
       adaptation_enabled: false, adaptation_paused: false, successful_source_reuse_enabled: false, search_breadth_percent: 20, scheduler_operations: false },
     execution_contract: { maximum_queries:30, maximum_sources:64, maximum_checks:128, maximum_backlog:64,
@@ -63,7 +64,10 @@ export function buildAdaptiveSearchReleaseManifest() {
       'src/composables/opportunityFeedback.ts','src/composables/opportunityFeedbackPrivacy.ts','src/composables/adaptiveFeedbackSnapshots.ts',
       'src/composables/adaptiveSearchPlans.ts','src/composables/adaptiveSearchPlanner.ts','src/composables/adaptiveSearchSources.ts',
       'src/composables/adaptiveSearchQuality.ts','src/composables/adaptiveSearchDashboard.ts','src/composables/searchTemplateCloud.ts',
-      'src/composables/searchLetterContext.ts','src/components/AdaptiveSearchDashboard.vue','src/components/AdaptiveSearchPolicyHint.vue','src/components/SearchTemplates.vue'].map(artifact),
+      'src/composables/searchLetterContext.ts','src/components/AdaptiveSearchDashboard.vue','src/components/AdaptiveSearchPolicyHint.vue','src/components/SearchTemplates.vue',
+      'src/components/JobWorkspace.vue','src/components/OpportunityFeedbackControls.vue','src/components/OpportunityDispositionControls.vue',
+      'src/composables/opportunityDisposition.ts',
+      'src/composables/opportunityEvaluation.ts','src/composables/useApplicationNotesAutosave.ts'].map(artifact),
     release_gate: { isolated_database_suite: 'test/opportunityFeedback/release.test.ts',
       container: 'cv-adaptive-feedback-test', database: 'adaptive_feedback_test', network: 'none',
       one_batch_calls: 3, batches_calls_formula: '2 + B', production_deployed: false, scheduled_smoke_tested: false },

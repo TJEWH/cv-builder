@@ -3,8 +3,8 @@ import test from 'node:test';
 import { createOpportunityResultSchema } from '../src/composables/opportunityResultSchema';
 import { compileAdaptiveFeedbackSnapshot, type AdaptiveFeedbackExample } from '../src/composables/adaptiveFeedbackSnapshots';
 import { createAdaptiveSearchPlan } from '../src/composables/adaptiveSearchPlans';
-import { buildAdaptiveSearchPlanningContext, DEFAULT_ADAPTIVE_SEARCH_POLICY, LEGACY_ADAPTIVE_SEARCH_POLICY, createSearchBreadthPolicy } from '../src/composables/adaptiveSearchPlanner';
-import { opportunityFeedbackTextHash } from '../src/composables/opportunityFeedbackPrivacy';
+import { buildAdaptiveSearchPlanningContext, DEFAULT_ADAPTIVE_SEARCH_POLICY, LEGACY_ADAPTIVE_SEARCH_POLICY, createSearchBreadthPolicy, createLegacySearchBreadthPolicy } from '../src/composables/adaptiveSearchPlanner';
+import { opportunityFeedbackTextHash, includedOpportunitySearchSummary } from '../src/composables/opportunityFeedbackPrivacy';
 import { ADAPTIVE_BATCH_CAPABILITIES, ADAPTIVE_BATCH_EXECUTION_CONTRACT, ADAPTIVE_BATCH_PROTOCOL_TEXT } from '../src/composables/adaptiveSearchProtocol';
 import {
   ADAPTIVE_STARTUP_CAPABILITIES, ADAPTIVE_STARTUP_EXECUTION_CONTRACT, ADAPTIVE_STARTUP_MAX_BYTES, ADAPTIVE_STARTUP_PROTOCOL_TEXT,
@@ -346,4 +346,38 @@ test('Search breadth startup carries canonical guidance, accepts pinned v1 histo
   set(bundle, ['planning', 'policy'], LEGACY_ADAPTIVE_SEARCH_POLICY);
   const historical = await projectAdaptiveSearchStartup(bundle, context); success(historical);
   assert.equal(historical.planning.policy.policy_version, 'adaptive-query-v1');
+});
+
+test('default-included excerpts require current inclusion proofs and are removed by the shared exclusion', async () => {
+  const { bundle, context } = await fixture();
+  const included = await includedOpportunitySearchSummary({ user_id: owner, opportunity_id: id(1), state: 'interested',
+    comment: 'Experimental sensing. '.repeat(40), search_feedback_summary: null, search_feedback_revision: 3,
+    reviewed_updated_at: null, created_at: now, updated_at: now });
+  assert(included); assert.equal(included.proof.truncated, true);
+  const row = bundle.feedback.examples[0]!;
+  row.search_feedback_summary = included.text; row.summary_inclusion = included.proof; delete row.summary_approval;
+  context.privacy.approved_summaries = [];
+  context.privacy.included_summaries = [{ opportunity_id: row.opportunity_id, ...included.proof }];
+  bundle.source_retention = { requested: 7, retained: 5, omitted: 2 };
+  const valid = await projectAdaptiveSearchStartup(bundle, context); success(valid);
+  assert.equal(valid.feedback.examples[0]!.search_feedback_summary, included.text);
+  assert.deepEqual(valid.source_retention, { requested: 7, retained: 5, omitted: 2 });
+  context.privacy.included_summaries = [{ opportunity_id: row.opportunity_id, ...included.proof, summary_revision: 4 }];
+  const edited = await projectAdaptiveSearchStartup(bundle, context); success(edited);
+  assert.equal(edited.feedback.examples[0]!.search_feedback_summary, undefined);
+  assert.equal(edited.feedback.examples[0]!.summary_inclusion, undefined);
+  context.privacy.included_summaries = [{ opportunity_id: row.opportunity_id, ...included.proof }];
+  context.privacy.excluded_opportunity_ids = [row.opportunity_id];
+  const excluded = await projectAdaptiveSearchStartup(bundle, context); success(excluded);
+  assert.deepEqual(excluded.feedback.examples, []);
+});
+
+test('v3 startup rejects a university-wide priority bonus while historical v2 pins remain readable', async () => {
+  const { bundle, context } = await fixture();
+  set(bundle, ['planning','priorities'], [{ category: 'institution', target: 'Synthetic university', observations: 5,
+    mean_interest: 9, direction: 'increase', provisional: false, basis: 'feedback', reason: 'supported_mean' }]);
+  assert.equal((await projectAdaptiveSearchStartup(bundle, context)).compatible, false);
+  set(bundle, ['planning','policy'], createLegacySearchBreadthPolicy());
+  const old = await projectAdaptiveSearchStartup(bundle, context); success(old);
+  assert.equal(old.planning.priorities[0]!.direction, 'increase');
 });

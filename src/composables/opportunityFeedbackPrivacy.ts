@@ -4,6 +4,7 @@ import {
   type OpportunityFeedbackOutcome, type OpportunitySubmissionEvidence,
 } from './opportunityFeedback';
 import { safeWebUrl } from './safeUrl';
+import { mergeOpportunityEvaluation } from './opportunityEvaluation';
 
 export const MAX_SEARCH_FEEDBACK_SUMMARY_LENGTH = 600;
 export const OPPORTUNITY_FEEDBACK_ALLOWLIST_VERSION = 'opportunity-feedback-safe-v1';
@@ -62,7 +63,7 @@ export function sanitizeOpportunityFeedbackUrl(value: unknown): string | null {
   return safe;
 }
 
-/** Conservative defense in depth; explicit approval is still required and this is not anonymization. */
+/** Conservative defense in depth. This does not establish anonymity. */
 export function opportunityFeedbackTextIsSafe(value: unknown, maxLength = MAX_SEARCH_FEEDBACK_SUMMARY_LENGTH): value is string {
   if (typeof value !== 'string' || !Number.isSafeInteger(maxLength) || maxLength < 1 || maxLength > 12000
     || !value.trim() || Array.from(value).length > maxLength || controls.test(value)
@@ -102,6 +103,35 @@ export async function approvedOpportunitySearchSummary(review: OpportunityReview
       || review.search_feedback_approved_summary_hash !== approvedSummaryHash || review.search_feedback_approved_source_hash !== approvedSourceHash) return null;
     return summary;
   } catch { return null; } // Missing local hashing support must omit text, not pause scheduled work.
+}
+
+export interface AdaptiveSummaryInclusion {
+  policy_version: 'included-unless-excluded-v1'; summary_hash: string; source_hash: string;
+  summary_revision: number; truncated: boolean; source_length: number;
+}
+export function validateAdaptiveSummaryInclusion(value: unknown): AdaptiveSummaryInclusion | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const proof = value as Record<string, unknown>;
+  if (Object.keys(proof).some(key => !['policy_version','summary_hash','source_hash','summary_revision','truncated','source_length'].includes(key))
+    || proof.policy_version !== 'included-unless-excluded-v1' || typeof proof.summary_hash !== 'string' || !/^[a-f0-9]{64}$/u.test(proof.summary_hash)
+    || typeof proof.source_hash !== 'string' || !/^[a-f0-9]{64}$/u.test(proof.source_hash)
+    || typeof proof.summary_revision !== 'number' || !Number.isSafeInteger(proof.summary_revision) || proof.summary_revision < 0
+    || typeof proof.source_length !== 'number' || !Number.isSafeInteger(proof.source_length) || proof.source_length < 1 || proof.source_length > 12000
+    || proof.truncated !== (proof.source_length > 600)) return null;
+  return { policy_version: 'included-unless-excluded-v1', summary_hash: proof.summary_hash, source_hash: proof.source_hash,
+    summary_revision: proof.summary_revision, truncated: proof.truncated as boolean, source_length: proof.source_length };
+}
+/** The saved evaluation is included by default; exclusions and content safeguards still apply. */
+export async function includedOpportunitySearchSummary(review: OpportunityReview | null | undefined): Promise<{ text: string; proof: AdaptiveSummaryInclusion } | null> {
+  if (!review || review.feedback_excluded || !Number.isSafeInteger(review.search_feedback_revision) || review.search_feedback_revision! < 0) return null;
+  const source = mergeOpportunityEvaluation(review.comment, review.search_feedback_summary), revision = review.search_feedback_revision!;
+  if (!opportunityFeedbackTextIsSafe(source, 12000)) return null;
+  const points = Array.from(source), summary = points.slice(0, MAX_SEARCH_FEEDBACK_SUMMARY_LENGTH).join('');
+  if (!opportunityFeedbackTextIsSafe(summary)) return null;
+  const [summaryHash, sourceHash] = await Promise.all([opportunityFeedbackTextHash(summary), opportunityFeedbackTextHash(source)]);
+  if (review.feedback_excluded || revision !== review.search_feedback_revision || source !== mergeOpportunityEvaluation(review.comment, review.search_feedback_summary)) return null;
+  return { text: summary, proof: { policy_version: 'included-unless-excluded-v1', summary_hash: summaryHash, source_hash: sourceHash,
+    summary_revision: revision, truncated: points.length > MAX_SEARCH_FEEDBACK_SUMMARY_LENGTH, source_length: points.length } };
 }
 
 export interface OpportunityFeedbackConsent {
@@ -144,6 +174,9 @@ export interface SafeOpportunityFeedbackExample {
   reasons: OpportunityInterestReason[];
   search_feedback_summary?: string;
   summary_approval?: { summary_hash: string; source_hash: string; summary_revision: number; approved_at: string };
+  summary_inclusion?: AdaptiveSummaryInclusion;
+  manually_archived?: boolean;
+  technical_issue_category?: 'closed' | 'requirements' | 'application_problem' | 'other';
 }
 
 export type FeedbackWithheldField = 'example' | 'opportunity_key' | 'title' | 'institution' | 'official_url' | 'source_url'
@@ -217,7 +250,7 @@ export async function projectOpportunityFeedback(input: OpportunityFeedbackProje
       else withhold('reasons', 'unsafe_value');
     }
   } catch { withhold('reasons', 'invalid_value'); }
-  const summary = await approvedOpportunitySearchSummary(input.review);
+  const summary = await includedOpportunitySearchSummary(input.review);
   if (input.user_id !== capturedOwner || input.search_id !== capturedSearch || input.opportunity.id !== id
     || input.review !== capturedReview || input.consent !== capturedConsent || !input.consent.structured_feedback_enabled
     || input.review && (input.review.user_id !== capturedOwner || input.review.opportunity_id !== id)
@@ -226,13 +259,13 @@ export async function projectOpportunityFeedback(input: OpportunityFeedbackProje
     withhold('example', 'not_authorized'); return result;
   }
   if (input.review?.feedback_excluded) { withhold('example', 'excluded'); return result; }
-  if (summary !== null && Number.isSafeInteger(input.review?.search_feedback_revision) && input.review!.search_feedback_revision! >= 0) {
-    example.search_feedback_summary = summary;
-    example.summary_approval = { summary_hash: input.review!.search_feedback_approved_summary_hash!,
-      source_hash: input.review!.search_feedback_approved_source_hash!, summary_revision: input.review!.search_feedback_revision!,
-      approved_at: input.review!.search_feedback_approved_at! };
+  if (input.review?.manually_archived) example.manually_archived = true;
+  if (['closed','requirements','application_problem','other'].includes(input.review?.technical_issue_category ?? '')) example.technical_issue_category = input.review!.technical_issue_category!;
+  if (summary !== null) {
+    example.search_feedback_summary = summary.text;
+    example.summary_inclusion = summary.proof;
   }
-  else if (input.review?.search_feedback_summary) withhold('search_feedback_summary', 'not_approved');
+  else if (input.review?.search_feedback_summary || input.review?.comment) withhold('search_feedback_summary', 'invalid_value');
   result.example = example;
   return result;
 }

@@ -158,7 +158,7 @@ test('historical v1 plan policy remains readable with current v2 settings', asyn
   const raw = await fixture();
   (raw.queries.plan as any).planning_policy = { ...LEGACY_ADAPTIVE_SEARCH_POLICY };
   const result = await readAdaptiveSearchDashboard(raw, scope);
-  assert.equal(result.policy.policy_version, 'adaptive-query-v2');
+  assert.equal(result.policy.policy_version, 'adaptive-query-v3');
   assert.equal(result.queries.plan!.planning_policy!.policy_version, 'adaptive-query-v1');
 });
 

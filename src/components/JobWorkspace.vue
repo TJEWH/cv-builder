@@ -14,8 +14,11 @@ import { personalFitScore, fitScoreTone as fitTone } from '../composables/opport
 import { readLivingStandard } from '../composables/livingStandard';
 import { applicationStatusHistory, applicationStatusLabel, applicationStatusTone, applicationTrackingStarted, applicationWasSubmitted } from '../composables/applicationTracking';
 import { useApplicationNotesAutosave } from '../composables/useApplicationNotesAutosave';
+import { mergeOpportunityEvaluation, readLegacyOpportunityFeedbackDraft, clearLegacyOpportunityFeedbackDraft } from '../composables/opportunityEvaluation';
 import AutosaveTextarea from './AutosaveTextarea.vue';
 import OpportunityFeedbackControls from './OpportunityFeedbackControls.vue';
+import OpportunityDispositionControls from './OpportunityDispositionControls.vue';
+import { isOpportunityInPast } from '../composables/opportunityDisposition';
 import OpportunityContext from './OpportunityContext.vue';
 import ApplicationWorkspace from './ApplicationWorkspace.vue';
 import SearchTemplates from './SearchTemplates.vue';
@@ -43,7 +46,7 @@ const sidebarActive = computed(() => desktopSidebar.value && props.active);
 const emit = defineEmits<{ navigate: [tab: 'opportunities' | 'applications']; 'save-career-variant': [name: string, state: CvState]; 'edit-variant': [id: string] }>();
 const { opportunities, applications, reviews, loading, saving, savingReview, error, opportunityReviewError, opportunityCommentError, createApplication,
   updateApplication, setApplicationStage, setApplicationChecklistItem, resetApplicationHistory, removeApplication, setOpportunityReview, setOpportunityComment, markOpportunityReviewed,
-  saveOpportunityFeedback, approveOpportunityFeedbackSummary, revokeOpportunityFeedbackSummary, feedbackSharing, loadFeedbackSharing, setStructuredFeedbackSharing } = useJobWorkspace(props.client, () => props.userId);
+  saveOpportunityFeedback, saveOpportunityDisposition, approveOpportunityFeedbackSummary, revokeOpportunityFeedbackSummary, feedbackSharing, loadFeedbackSharing, setStructuredFeedbackSharing } = useJobWorkspace(props.client, () => props.userId);
 const blockingSave = computed(() => saving.value && !savingReview.value);
 const startingApplication = shallowRef<{ opportunityId: string } | null>(null);
 watch(() => props.userId, () => { startingApplication.value = null; }, { flush: 'sync' });
@@ -83,6 +86,8 @@ const applicationWorkspace = ref<InstanceType<typeof ApplicationWorkspace> | nul
 const searchTemplates = ref<InstanceType<typeof SearchTemplates> | null>(null);
 const opportunityFeedback = ref<{ flush(): Promise<boolean> } | null>(null);
 const applicationFeedback = ref<{ flush(): Promise<boolean> } | null>(null);
+const opportunityDisposition = ref<{ flush(): Promise<boolean> } | null>(null);
+const applicationDisposition = ref<{ flush(): Promise<boolean> } | null>(null);
 const opportunityView = ref<'catalogue' | 'searches'>('catalogue');
 const showingSearchTemplates = computed(() => props.tab === 'opportunities' && opportunityView.value === 'searches');
 async function selectOpportunityView(view: 'catalogue' | 'searches') {
@@ -145,7 +150,7 @@ onBeforeUnmount(clearReviewSelections);
 const applicationByOpportunity = computed(() => new Map(applications.value.map((item) => [item.opportunity_id, item])));
 const filteredOpportunities = computed(() => {
   const needle = query.value.toLocaleLowerCase().trim();
-  return opportunities.value.filter((item) => (isOpportunityDeadlinePassed(item.details, now.value) === (deadlineFilter.value === 'past'))
+  return opportunities.value.filter((item) => (isOpportunityInPast(item.details, reviewById.value.get(item.id), now.value) === (deadlineFilter.value === 'past'))
     && (showWithApplications.value || !applicationByOpportunity.value.has(item.id))
     && (showLowInterest.value || reviewState(item.id) !== 'not_interested')
     && (reviewFilter.value === 'all' || reviewState(item.id) === reviewFilter.value)
@@ -168,7 +173,7 @@ const opportunityGroups = computed(() => {
   ].filter((group) => group.items.length);
 });
 const opportunityById = computed(() => new Map(opportunities.value.map((item) => [item.id, item])));
-const filteredApplications = computed(() => applications.value.filter((item) => (isOpportunityDeadlinePassed(item.context_json, now.value) === (applicationDeadlineFilter.value === 'past'))
+const filteredApplications = computed(() => applications.value.filter((item) => (isOpportunityInPast(item.context_json, reviewById.value.get(item.opportunity_id), now.value) === (applicationDeadlineFilter.value === 'past'))
   && (!statusFilter.value || item.status === statusFilter.value)
   && [item.application_code, item.id, item.context_json.title, item.context_json.institution, item.context_json.university].join(' ').toLocaleLowerCase().includes(query.value.toLocaleLowerCase().trim()))
   .toSorted((a, b) => applicationSortBy.value === 'title' ? contextTitle(a).localeCompare(contextTitle(b))
@@ -199,12 +204,35 @@ watch([evaluationOpportunityId, () => props.userId, () => props.active], ([id, _
   if (id && active && typeof loadFeedbackSharing === 'function') void loadFeedbackSharing();
 }, { immediate: true });
 const saveSearchSummary = (id: string, summary: string) => saveOpportunityFeedback(id, { search_feedback_summary: summary });
+const legacyFeedbackDrafts = new Map<string, string>();
 const { notes: opportunityComment, status: commentStatus, error: commentError, flush: flushComment } = useApplicationNotesAutosave({
-  application: () => evaluationOpportunityId.value ? { id: evaluationOpportunityId.value, notes: reviewById.value.get(evaluationOpportunityId.value)?.comment } : null,
-  save: async (id, comment) => Boolean(await setOpportunityComment(id, comment)),
+  // The saved read projection preserves both legacy fields without a mount-time write.
+  application: () => evaluationOpportunityId.value ? { id: evaluationOpportunityId.value,
+    notes: mergeOpportunityEvaluation(reviewById.value.get(evaluationOpportunityId.value)?.comment, reviewById.value.get(evaluationOpportunityId.value)?.search_feedback_summary) } : null,
+  save: async (id, comment) => {
+    const owner = props.userId;
+    const legacyKey = `${owner}:${id}`, legacyDraft = legacyFeedbackDrafts.get(legacyKey);
+    const saved = await setOpportunityComment(id, comment);
+    if (!saved || props.userId !== owner) return false;
+    // Older workspaces can still save evaluations before feedback is installed.
+    if (!Object.hasOwn(saved, 'search_feedback_revision')) return true;
+    // Keep the complete evaluation and its bounded feedback excerpt aligned.
+    if (!await saveSearchSummary(id, Array.from(comment).slice(0,600).join(''))) return false;
+    if (legacyDraft !== undefined) clearLegacyOpportunityFeedbackDraft(owner, id, legacyDraft);
+    legacyFeedbackDrafts.delete(legacyKey);
+    return true;
+  },
+  initialDraft: (saved, recovery) => {
+    const id = evaluationOpportunityId.value;
+    if (!id) return recovery ?? saved;
+    const legacy = readLegacyOpportunityFeedbackDraft(props.userId, id);
+    if (legacy !== undefined) legacyFeedbackDrafts.set(`${props.userId}:${id}`, legacy);
+    const priorFeedback = mergeOpportunityEvaluation(reviewById.value.get(id)?.search_feedback_summary, legacy);
+    return mergeOpportunityEvaluation(recovery ?? saved, priorFeedback);
+  },
   owner: () => props.userId,
   storagePrefix: 'CV_OPPORTUNITY_COMMENT_DRAFT',
-  maxLength: 5000,
+  maxLength: 12408,
   errorMessage: () => opportunityCommentError.value || text('Could not save your evaluation. Please retry.', 'Deine Einschätzung konnte nicht gespeichert werden. Bitte erneut versuchen.'),
 });
 const commentToasts = useToasts();
@@ -312,7 +340,9 @@ watch([selectedOpportunity, () => props.tab], ([opportunity, tab]) => {
 async function closeOpportunity() {
   const id = selectedOpportunityId.value;
   commitPendingTextareas();
-  if (((commentStatus.value !== 'saved' || opportunityFeedback.value || applicationFeedback.value) && !await flushEvaluation()) || selectedOpportunityId.value !== id) return;
+  if (((commentStatus.value !== 'saved' || opportunityFeedback.value || applicationFeedback.value || opportunityDisposition.value) && !await flushEvaluation()) || selectedOpportunityId.value !== id) return;
+  const opportunity = id ? opportunityById.value.get(id) : undefined;
+  if (opportunity) deadlineFilter.value = isOpportunityInPast(opportunity.details, reviewById.value.get(opportunity.id), now.value) ? 'past' : 'current';
   selectedOpportunityId.value = null;
   if (id) focusResult('opportunities', id);
 }
@@ -363,6 +393,8 @@ async function closeApplication() {
   formError.value = '';
   const id = editingId.value;
   if (!await flushApplicationTextareas() || editingId.value !== id) return;
+  const application = applications.value.find(item => item.id === id);
+  if (application) applicationDeadlineFilter.value = isOpportunityInPast(application.context_json, reviewById.value.get(application.opportunity_id), now.value) ? 'past' : 'current';
   editingId.value = null;
   if (id) focusResult('applications', id);
 }
@@ -378,6 +410,13 @@ async function openList(kind: 'opportunities' | 'applications'): Promise<boolean
   filtersOpen.value = false;
   cancelRemoval();
   notice.value = '';
+  if (kind === 'opportunities' && opportunityId) {
+    const opportunity = opportunityById.value.get(opportunityId);
+    if (opportunity) deadlineFilter.value = isOpportunityInPast(opportunity.details, reviewById.value.get(opportunity.id), now.value) ? 'past' : 'current';
+  } else if (kind === 'applications' && applicationId) {
+    const application = applications.value.find(item => item.id === applicationId);
+    if (application) applicationDeadlineFilter.value = isOpportunityInPast(application.context_json, reviewById.value.get(application.opportunity_id), now.value) ? 'past' : 'current';
+  }
   if (kind === 'opportunities') selectedOpportunityId.value = null;
   else editingId.value = null;
   const id = kind === 'opportunities' ? opportunityId : applicationId;
@@ -388,12 +427,15 @@ async function flushApplicationTextareas() {
   commitPendingTextareas();
   if (applicationWorkspace.value && !await applicationWorkspace.value.flushTextareas()) return false;
   if (applicationFeedback.value && !await applicationFeedback.value.flush()) return false;
+  if (applicationDisposition.value && !await applicationDisposition.value.flush()) return false;
   return flushNotes();
 }
 async function flushEvaluation() {
   commitPendingTextareas();
   if (!await flushComment()) return false;
   if (opportunityFeedback.value && !await opportunityFeedback.value.flush()) return false;
+  if (opportunityDisposition.value && !await opportunityDisposition.value.flush()) return false;
+  if (applicationDisposition.value && !await applicationDisposition.value.flush()) return false;
   return !applicationFeedback.value || await applicationFeedback.value.flush();
 }
 async function flushTextareas() {
@@ -499,7 +541,7 @@ async function startApplication(item: Opportunity) {
     await nextTick();
     // The parent may still be flushing editors before activating Applications.
     if (props.userId !== owner || !props.active || listNavigationRequest !== request) return;
-    applicationDeadlineFilter.value = isOpportunityDeadlinePassed(application.context_json, now.value) ? 'past' : 'current';
+    applicationDeadlineFilter.value = isOpportunityInPast(application.context_json, reviewById.value.get(application.opportunity_id), now.value) ? 'past' : 'current';
     openApplication(application);
     notice.value = existing ? '' : text('Application created with all opportunity context. Assign a career variant in the CV tab when ready.', 'Bewerbung mit allen Stellendaten angelegt. Weise im CV-Tab eine Karrierevariante zu, sobald du bereit bist.');
   } finally {
@@ -561,7 +603,7 @@ async function showRemovedOpportunity(id: string) {
   await nextTick();
   query.value = ''; reviewFilter.value = 'all'; showLowInterest.value = false;
   if (opportunity) {
-    deadlineFilter.value = isOpportunityDeadlinePassed(opportunity.details, now.value) ? 'past' : 'current';
+    deadlineFilter.value = isOpportunityInPast(opportunity.details, reviewById.value.get(opportunity.id), now.value) ? 'past' : 'current';
     openOpportunity(opportunity.id);
   }
 }
@@ -594,7 +636,7 @@ useToastWatch(() => notice.value, () => {
       <div :id="`jobs-${tab}-filters`" class="jobs-filters" :class="{ 'is-open': filtersOpen }">
         <template v-if="tab === 'opportunities'">
         <label>{{ text('Review state', 'Bewertung') }}<select v-model="reviewFilter"><option value="all">{{ text('All review states', 'Alle Bewertungen') }}</option><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select></label>
-        <label>{{ text('Opportunities', 'Stellenangebote') }}<select v-model="deadlineFilter"><option value="current">{{ text('Current opportunities', 'Aktuelle Stellenangebote') }}</option><option value="past">{{ text('Past opportunities', 'Abgelaufene Stellenangebote') }}</option></select></label>
+        <label>{{ text('Opportunities', 'Stellenangebote') }}<select v-model="deadlineFilter"><option value="current">{{ text('Current opportunities', 'Aktuelle Stellenangebote') }}</option><option value="past">{{ text('Past opportunities', 'Vergangene Stellenangebote') }}</option></select></label>
         <label>{{ text('Sort by', 'Sortieren nach') }}<select v-model="sortBy"><option value="deadline">{{ text('Deadline', 'Frist') }}</option><option value="title">{{ text('Title', 'Titel') }}</option><option value="institution">{{ text('Institution', 'Einrichtung') }}</option><option value="personal_fit">{{ text('Personal fit: high to low', 'Persönliche Passung: absteigend') }}</option><option value="salary_score">{{ text('Salary score: high to low', 'Gehaltsbewertung: absteigend') }}</option></select></label>
         <DesktopSidebarPortal area="minor" :active="props.active !== false && !showingDetail">
           <div class="jobs-filter-checks jobs-sidebar-controls"><label class="jobs-check"><input v-model="showWithApplications" type="checkbox" /> {{ text('Show opportunities with applications', 'Stellen mit Bewerbungen anzeigen') }}</label><label class="jobs-check"><input v-model="showLowInterest" type="checkbox" /> {{ text('Show low interest', 'Geringes Interesse anzeigen') }}</label></div>
@@ -676,15 +718,17 @@ useToastWatch(() => notice.value, () => {
         </div>
         <details :key="selectedOpportunity.id" class="opportunity-evaluation personal-evaluation disclosure-row" open>
           <summary id="opportunity-evaluation-heading">{{ text('Personal Evaluation', 'Persönliche Einschätzung') }}</summary>
-          <div class="opportunity-comment">
+          <OpportunityFeedbackControls v-if="tab === 'opportunities' && active" ref="opportunityFeedback" :owner-id="userId" :opportunity="selectedOpportunity" :review="reviewById.get(selectedOpportunity.id)"
+            v-model:evaluation-text="opportunityComment" :evaluation-status="commentStatus" :evaluation-error="commentError" evaluation-input-id="opportunity-comment" evaluation-labelledby="opportunity-evaluation-heading"
+            :application="applicationByOpportunity.get(selectedOpportunity.id)" :lang="lang" :busy="saving"
+            :search-available="!!feedbackSharing?.search_id" :structured-sharing-enabled="!!feedbackSharing?.structured_feedback_enabled"
+            :save-feedback="saveOpportunityFeedback" :save-summary="saveSearchSummary" :approve-summary="approveOpportunityFeedbackSummary"
+            :revoke-summary="revokeOpportunityFeedbackSummary" :set-structured-sharing="setStructuredFeedbackSharing" :flush-private-comment="flushComment" />
+          <div v-else class="opportunity-comment">
             <AutosaveTextarea id="opportunity-comment" v-model="opportunityComment" aria-labelledby="opportunity-evaluation-heading" rows="2" maxlength="5000" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @commit="flushComment" />
           </div>
+          <OpportunityDispositionControls v-if="tab === 'opportunities' && active" ref="opportunityDisposition" :owner-id="userId" :opportunity-id="selectedOpportunity.id" :review="reviewById.get(selectedOpportunity.id)" :save-disposition="saveOpportunityDisposition" :busy="saving" :lang="lang" />
         </details>
-        <OpportunityFeedbackControls v-if="tab === 'opportunities' && active" ref="opportunityFeedback" :owner-id="userId" :opportunity="selectedOpportunity" :review="reviewById.get(selectedOpportunity.id)"
-          :application="applicationByOpportunity.get(selectedOpportunity.id)" :lang="lang" :busy="saving"
-          :search-available="!!feedbackSharing?.search_id" :structured-sharing-enabled="!!feedbackSharing?.structured_feedback_enabled"
-          :save-feedback="saveOpportunityFeedback" :save-summary="saveSearchSummary" :approve-summary="approveOpportunityFeedbackSummary"
-          :revoke-summary="revokeOpportunityFeedbackSummary" :set-structured-sharing="setStructuredFeedbackSharing" :flush-private-comment="flushComment" />
         <OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity.details" :lang="lang" />
       </div>
     </section>
@@ -692,14 +736,16 @@ useToastWatch(() => notice.value, () => {
       <template #preparation-evaluation>
         <details class="application-evaluation personal-evaluation disclosure-row" open>
           <summary :id="`application-evaluation-${editingApplication.id}`">{{ text('Personal Evaluation', 'Persönliche Einschätzung') }}</summary>
-          <div class="opportunity-comment">
+          <OpportunityFeedbackControls v-if="tab === 'applications' && active && opportunityById.get(editingApplication.opportunity_id)" ref="applicationFeedback" :owner-id="userId" :opportunity="opportunityById.get(editingApplication.opportunity_id)!" :review="reviewById.get(editingApplication.opportunity_id)"
+            v-model:evaluation-text="opportunityComment" :evaluation-status="commentStatus" :evaluation-error="commentError" :evaluation-labelledby="`application-evaluation-${editingApplication.id}`"
+            :application="editingApplication" :lang="lang" :busy="saving" :search-available="!!feedbackSharing?.search_id" :structured-sharing-enabled="!!feedbackSharing?.structured_feedback_enabled"
+            :save-feedback="saveOpportunityFeedback" :save-summary="saveSearchSummary" :approve-summary="approveOpportunityFeedbackSummary"
+            :revoke-summary="revokeOpportunityFeedbackSummary" :set-structured-sharing="setStructuredFeedbackSharing" :flush-private-comment="flushComment" />
+          <div v-else class="opportunity-comment">
             <AutosaveTextarea v-model="opportunityComment" :aria-labelledby="`application-evaluation-${editingApplication.id}`" rows="3" maxlength="5000" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @commit="flushComment" />
           </div>
+          <OpportunityDispositionControls v-if="tab === 'applications' && active" ref="applicationDisposition" :owner-id="userId" :opportunity-id="editingApplication.opportunity_id" :review="reviewById.get(editingApplication.opportunity_id)" :save-disposition="saveOpportunityDisposition" :busy="saving" :lang="lang" />
         </details>
-        <OpportunityFeedbackControls v-if="tab === 'applications' && active && opportunityById.get(editingApplication.opportunity_id)" ref="applicationFeedback" :owner-id="userId" :opportunity="opportunityById.get(editingApplication.opportunity_id)!" :review="reviewById.get(editingApplication.opportunity_id)"
-          :application="editingApplication" :lang="lang" :busy="saving" :search-available="!!feedbackSharing?.search_id" :structured-sharing-enabled="!!feedbackSharing?.structured_feedback_enabled"
-          :save-feedback="saveOpportunityFeedback" :save-summary="saveSearchSummary" :approve-summary="approveOpportunityFeedbackSummary"
-          :revoke-summary="revokeOpportunityFeedbackSummary" :set-structured-sharing="setStructuredFeedbackSharing" :flush-private-comment="flushComment" />
       </template>
       <template #preparation-actions>
         <button class="btn btn--danger jobs-remove-application" type="button" :disabled="saving" :aria-label="`${text('Remove application for', 'Bewerbung entfernen für')} ${contextTitle(editingApplication)}`" @click="requestDetailRemoval(editingApplication)">{{ text('Remove application', 'Bewerbung entfernen') }}</button>

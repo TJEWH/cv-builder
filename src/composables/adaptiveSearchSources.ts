@@ -131,6 +131,38 @@ export function createAdaptiveSourceCandidate(scope: AdaptiveSourceScope, regist
     provenance: seed.role === 'explicit_listing' ? 'explicit' : seed.role === 'verified_listing' ? 'evidenced_listing' : 'candidate', listing_verified_at: verifiedAt }, scope);
 }
 
+export interface RetainedInstitutionListing { institution: string; listing_url: string }
+
+/**
+ * Prepare owner-selected discovery paths, never institutional fit rewards.
+ * Existing paths win, including disabled sources and their chosen cadence/pins.
+ * Keep the returned candidates for an action's exact retry; this does not save.
+ */
+export function prepareRetainedInstitutionSources(scope: AdaptiveSourceScope, configured: readonly RetainedInstitutionListing[],
+  existing: readonly AdaptiveSearchSource[], registryId: () => string = () => crypto.randomUUID()): AdaptiveSearchSource[] {
+  const owner = uuid(scope.user_id), search = uuid(scope.search_id);
+  if (!Array.isArray(configured) || configured.length > 64 || !Array.isArray(existing)) throw new TypeError('Use a bounded institution source selection.');
+  const existingSources = existing.filter(source => typeof source.user_id === 'string' && typeof source.search_id === 'string'
+    && source.user_id.toLowerCase() === owner && source.search_id.toLowerCase() === search)
+    .map(source => normalizeAdaptiveSearchSource(source, scope));
+  const paths = new Set(existingSources.flatMap(source => source.listing_url ? [source.listing_url] : []));
+  const ids = new Set(existingSources.map(source => source.registry_id));
+  const missing: AdaptiveSearchSource[] = [];
+  for (const entry of configured) {
+    if (!record(entry) || Object.keys(entry).some(key => !['institution', 'listing_url'].includes(key))
+      || !opportunityFeedbackTextIsSafe(entry.institution, 200)) throw new TypeError('Use an institution name and official listing URL.');
+    const listing = canonicalAdaptiveListingUrl(entry.listing_url);
+    if (!listing) throw new TypeError('Use a safe official listing URL.');
+    if (paths.has(listing)) continue;
+    const id = uuid(registryId());
+    if (ids.has(id)) throw new TypeError('Use a distinct source identity.');
+    ids.add(id); paths.add(listing);
+    missing.push(createAdaptiveSourceCandidate(scope, id, { role: 'explicit_listing', url: listing, kind: 'university', institution: entry.institution }));
+  }
+  if (existingSources.filter(source => source.enabled).length + missing.length > 64) throw new RangeError('Keep enabled reusable sources within the 64-source execution bound.');
+  return missing;
+}
+
 export function adaptiveSourceIsDue(source: AdaptiveSearchSource, now: string): boolean {
   const valid = normalizeAdaptiveSearchSource(source, source);
   const current = instant(now);

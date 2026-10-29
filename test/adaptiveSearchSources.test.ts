@@ -5,6 +5,7 @@ import {
   MAX_SOURCE_CHECK_INTERVAL_HOURS, MIN_SOURCE_CHECK_INTERVAL_HOURS, SUCCESSFUL_SOURCE_REUSE_VERSION,
   adaptiveSourceIsDue, applyAdaptiveSourceCoverage, canonicalAdaptiveListingUrl, createAdaptiveSourceCandidate,
   dueAdaptiveSearchSources, normalizeAdaptiveSearchSource, retainSuccessfulAdaptiveSource,
+  prepareRetainedInstitutionSources,
   type AdaptiveSearchSource, type AdaptiveSourceScope, type VerifiedReusableSourceSignal,
 } from '../src/composables/adaptiveSearchSources';
 
@@ -26,6 +27,44 @@ function signal(patch: Partial<VerifiedReusableSourceSignal> = {}): VerifiedReus
   return { role: 'verified_listing', listing_url: listing, verified_at: now, interest_origin: 'explicit_rating',
     interest_score: 9, confirmed_submission: false, ...patch };
 }
+
+test('owner-selected institution listings create only neutral missing paths without rewriting existing settings', () => {
+  const existing = source({ enabled: false, owner_disabled: true, pinned: true, priority: 82, check_interval_hours: 24, status: 'checked' });
+  const before = JSON.stringify(existing);
+  const foreign = { ...source({ listing_url: 'https://new.example.invalid/Jobs' }), user_id: other };
+  const prepared = prepareRetainedInstitutionSources(scope, [
+    { institution: 'Existing institution', listing_url: listing },
+    { institution: 'New institution', listing_url: 'https://NEW.example.invalid/Jobs' },
+    { institution: 'New institution alias', listing_url: 'https://new.example.invalid/Jobs' },
+  ], [existing, foreign], () => other);
+  assert.equal(prepared.length, 1);
+  assert.equal(prepared[0]!.registry_id, other);
+  assert.equal(prepared[0]!.user_id, owner); assert.equal(prepared[0]!.search_id, search);
+  assert.equal(prepared[0]!.listing_url, 'https://new.example.invalid/Jobs');
+  assert.equal(prepared[0]!.institution, 'New institution');
+  assert.equal(prepared[0]!.priority, 50); assert.equal(prepared[0]!.enabled, true);
+  assert.equal(prepared[0]!.pinned, false); assert.equal(prepared[0]!.mandatory, false);
+  assert.equal(prepared[0]!.check_interval_hours, 168); assert.equal(prepared[0]!.provenance, 'explicit');
+  assert.equal(prepared[0]!.listing_verified_at, null, 'explicit owner selection does not manufacture a verification timestamp');
+  assert.equal(JSON.stringify(existing), before);
+  assert.deepEqual(prepareRetainedInstitutionSources(scope, [
+    { institution: 'Existing institution', listing_url: listing },
+    { institution: 'New institution', listing_url: 'https://new.example.invalid/Jobs' },
+  ], [existing, ...prepared], () => { throw new Error('No new identity is needed'); }), []);
+});
+
+test('institution source preparation rejects unsafe inputs, duplicate identities and execution overflow', () => {
+  const valid = { institution: 'Synthetic institution', listing_url: 'https://new.example.invalid/Jobs' };
+  assert.throws(() => prepareRetainedInstitutionSources(scope, [{ ...valid, listing_url: 'http://localhost/private' }], [], () => other));
+  assert.throws(() => prepareRetainedInstitutionSources(scope, [{ ...valid, institution: 'private@example.invalid' }], [], () => other));
+  assert.throws(() => prepareRetainedInstitutionSources(scope, [{ ...valid, actual_fit: 10 } as typeof valid], [], () => other));
+  assert.throws(() => prepareRetainedInstitutionSources(scope, [valid], [source()], () => registry), /distinct/u);
+  assert.throws(() => prepareRetainedInstitutionSources(scope, [valid, { ...valid, listing_url: 'https://another.example.invalid/Jobs' }], [], () => other), /distinct/u);
+  assert.throws(() => prepareRetainedInstitutionSources(scope, Array.from({ length: 65 }, () => valid), [], () => other), /bounded/u);
+  const full = Array.from({ length: 64 }, (_, index) => source({ registry_id: `30000000-0000-4000-8000-${(index + 100).toString(16).padStart(12, '0')}`,
+    listing_url: `https://existing.example.invalid/Jobs?source=${index}` }));
+  assert.throws(() => prepareRetainedInstitutionSources(scope, [valid], full, () => other), /64-source/u);
+});
 
 test('source DTO matches owner/search scope and never carries people, private records or evidence source_id', () => {
   for (const kind of ADAPTIVE_SOURCE_KINDS) {
@@ -176,6 +215,22 @@ test('SRC-05: reuse defaults off and a single verified high-interest listing bec
   assert.equal(retained.source.last_successful_at, null, 'retention does not claim full coverage');
   assert.equal(retained.source.last_attempted_at, null);
   assert.equal(candidate.enabled, false, 'input records remain immutable');
+});
+
+test('retaining an institutional listing never rewards its priority or manufactures project fit', () => {
+  const candidate = source({ institution: 'Synthetic retained university', priority: 50 });
+  const retained = retainSuccessfulAdaptiveSource(candidate, signal({ interest_score: 10 }), policy);
+  assert.equal(retained.retained, true);
+  assert.equal(retained.source.priority, 50);
+  assert.equal(retained.source.institution, candidate.institution);
+  assert.equal(retained.source.pinned, false); assert.equal(retained.source.mandatory, false);
+  assert.equal(Object.hasOwn(retained.source, 'actual_fit'), false);
+  assert.equal(Object.hasOwn(retained.source, 'interest_score'), false);
+  assert.equal(Object.hasOwn(retained.source, 'personal_fit'), false);
+  const repeated = retainSuccessfulAdaptiveSource(retained.source, signal({ interest_score: 10 }), policy);
+  assert.equal(repeated.source.priority, 50, 'repeat positive outcomes retain the path without accumulating a university bonus');
+  const weak = retainSuccessfulAdaptiveSource(repeated.source, signal({ interest_score: 1 }), policy);
+  assert.equal(weak.retained, false); assert.deepEqual(weak.source, repeated.source, 'a weak individual project does not delete or penalize a retained institution');
 });
 
 test('AF-06 automatic retention requires active adaptation and structured consent without deleting manual coverage', () => {

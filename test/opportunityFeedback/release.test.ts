@@ -92,9 +92,14 @@ for (const batchCount of [1,2]) test(`AF-11 fully installed runner preserves ${2
     const startup=api(buildAdaptiveSearchSqlCall({action:'startup',scope}));
     assert.equal(startup.compatible,true,JSON.stringify(startup));
     assert.equal(startup.feedback.counts.submission_fallback,1);
+    assert.deepEqual(startup.source_retention,{requested:7,retained:7,omitted:0});
     assert.equal(startup.capabilities.capability_version,'adaptive-batch-v1');
     assert.deepEqual(startup.execution_contract,buildAdaptiveSearchReleaseManifest().execution_contract);
     const now=new Date().toISOString(),url=`https://example.invalid/Research/${run}`,listing=`https://example.invalid/Jobs?fixture=${run}`;
+    // Synthetic listing fixtures are empty: record one actual check input for
+    // every due source, rather than claiming complete coverage from queries alone.
+    const sourceChecks=startup.due_sources.map((source: {registry_id:string})=>({check_id:randomUUID(),kind:'source' as const,
+      source_registry_id:source.registry_id,attempted_at:now,status:'complete' as const,results_count:0}));
     const payload:AdaptiveBatchPayload={schema_version:1,query_plan:{schema_version:2,queries:[
       {query_id:core,query:'synthetic core acoustic research',role:'core',manual:false},
       {query_id:adaptive,query:'synthetic adaptive sensor research',role:'adaptive',manual:false},
@@ -104,7 +109,7 @@ for (const batchCount of [1,2]) test(`AF-11 fully installed runner preserves ${2
         sources:[{url,kind:'official',checked_at:now,precision:'instant',supports:['title','institution','topics','official_url','personal_fit']},
           {url:listing,kind:'official_listing',checked_at:now,precision:'instant',supports:['title']}]},
         attribution:{execution_refs:[checks[0]!],primary_check_id:checks[0]!,discovered_at:now,encountered_at:now},reusable_source:{listing_url:listing}}],
-      execution:{checks:[core,adaptive,exploration].map((query,index)=>({check_id:checks[index]!,kind:'query' as const,query_id:query,attempted_at:now,status:'complete' as const,results_count:index===0?1:0})),backlog:[],complete:true},
+      execution:{checks:[...[core,adaptive,exploration].map((query,index)=>({check_id:checks[index]!,kind:'query' as const,query_id:query,attempted_at:now,status:'complete' as const,results_count:index===0?1:0})),...sourceChecks],backlog:[],complete:true},
       preference_suggestions:[{suggestion_id:suggestion,rule:{rule_id:randomUUID(),kind:'emphasis',category:'topic',polarity:'positive',target:'Acoustics',evidence_refs:[evidence]}}]};
     let receipt=api(buildAdaptiveSearchSqlCall({action:'batch',scope,batch_id:batchIds[0]!,payload}));
     assert.equal(receipt.batch_schema_version,1,JSON.stringify(receipt));assert.equal(receipt.error,undefined);assert.equal(receipt.items[0].outcome,'saved',JSON.stringify(receipt));saved=true;
@@ -113,7 +118,7 @@ for (const batchCount of [1,2]) test(`AF-11 fully installed runner preserves ${2
     assert.equal(sql(`select verified_at is null from public.opportunity_search_receipts where run_id=${quote(run)} and item_id=${quote(item)};`),'t');
     assert.equal(sql(`select status||':'||reason from public.opportunity_search_adaptive_proposals where user_id=${quote(owner)} and suggestion_id=${quote(suggestion)};`),'deferred:needs_reviewed_evidence');
     assert.equal(sql(`select count(*) from public.opportunity_search_preference_suggestions where user_id=${quote(owner)} and suggestion_id=${quote(suggestion)};`),'0');
-    assert.equal(sql(`select count(*) from public.opportunity_search_sources where user_id=${quote(owner)} and search_id=${quote(search)};`),'0','A write receipt prematurely retained a source.');
+    assert.equal(Number(sql(`select count(*) from public.opportunity_search_sources where user_id=${quote(owner)} and search_id=${quote(search)};`)),sourceChecks.length,'A write receipt prematurely retained a discovered source.');
     // An explicit synthetic owner review is a UI action, outside runner calls.
     // It changes next-run feedback without rebasing this run's pinned plan.
     sql(`select set_config('request.jwt.claims',${quote(JSON.stringify({sub:owner,is_anonymous:false}))},false);set role authenticated;
@@ -123,7 +128,7 @@ for (const batchCount of [1,2]) test(`AF-11 fully installed runner preserves ${2
     assert.equal(finished.compatible,true,JSON.stringify(finished));assert.equal(finished.persisted_summary_read,true);
     assert.equal(finished.historical_summary.status,'complete',JSON.stringify(finished));assert.equal(finished.current_verification.verified_items,1);
     assert.equal(calls.length,2+batchCount);assert(calls.every(call=>/^SELECT private\.(begin_adaptive_opportunity_search|submit_adaptive_search_batch|verify_and_complete_adaptive_search)\(/u.test(call)));
-    assert.equal(sql(`select count(*) from public.opportunity_search_executions where run_id=${quote(run)} and status='complete';`),'3');
+    assert.equal(Number(sql(`select count(*) from public.opportunity_search_executions where run_id=${quote(run)} and status='complete';`)),3+sourceChecks.length);
     assert.equal(sql(`select count(*) from public.opportunity_search_sources where user_id=${quote(owner)} and search_id=${quote(search)}
       and listing_url=${quote(listing)} and provenance='evidenced_listing' and enabled and listing_verified_at is not null and last_successful_at is null;`),'1',
       'Verified useful listing was not retained, or a direct source check was invented.');

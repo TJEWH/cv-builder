@@ -11,6 +11,8 @@ interface NotesAutosaveOptions {
   storage?: NotesDraftStorage | null;
   storagePrefix?: string;
   maxLength?: number;
+  /** Optional one-time composition of existing saved and recoverable editor text. */
+  initialDraft?(saved: string, recovery: string | undefined): string;
 }
 interface NotesDraft {
   id: string;
@@ -130,7 +132,8 @@ export function useApplicationNotesAutosave(options: NotesAutosaveOptions) {
     let draft = drafts.get(id);
     if (!draft) {
       const recoveryKey = `${options.storagePrefix ?? 'CV_APPLICATION_NOTES_DRAFT'}:${encodeURIComponent(owner)}:${encodeURIComponent(id)}`;
-      const value = recoveryValue(recoveryKey) ?? saved;
+      const recovery = recoveryValue(recoveryKey);
+      const value = options.initialDraft?.(saved, recovery) ?? recovery ?? saved;
       draft = { id, recoveryKey, state: reactive({ value, saved, error: '', saving: false, cancelled: false }), pending: null, pendingValue: null };
       drafts.set(id, draft);
       if (value === saved) clearRecovery(draft, saved);

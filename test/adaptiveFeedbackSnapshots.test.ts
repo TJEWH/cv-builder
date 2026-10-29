@@ -31,6 +31,55 @@ async function summaryExample(index: number, summary = 'Prefer physical sensing 
     search_feedback_summary: summary, summary_approval: { summary_hash: await opportunityFeedbackTextHash(summary),
       source_hash: 'a'.repeat(64), summary_revision: 1, approved_at: now } });
 }
+async function includedExample(index: number, source = 'Prefer acoustic sensing prototypes.'): Promise<AdaptiveFeedbackExample> {
+  const text = Array.from(source).slice(0, 600).join('');
+  return example(index, { interest_score: null, interest_origin: 'none', feedback_updated_at: null,
+    search_feedback_summary: text, summary_inclusion: { policy_version: 'included-unless-excluded-v1',
+      summary_hash: await opportunityFeedbackTextHash(text), source_hash: await opportunityFeedbackTextHash(source),
+      summary_revision: 1, truncated: Array.from(source).length > 600, source_length: Array.from(source).length } });
+}
+
+test('default-included text is eligible without legacy approval and never invents interest', async () => {
+  const saved = await includedExample(1);
+  const result = await compileAdaptiveFeedbackSnapshot(input([saved]));
+  assert.equal(result.counts.eligible, 1); assert.equal(result.counts.scored, 0);
+  assert.equal(result.counts.approved_summaries, 1, 'the retained count includes both supported proof formats');
+  assert.equal(result.examples[0]!.summary_approval, undefined);
+  assert.deepEqual(result.examples[0]!.summary_inclusion, saved.summary_inclusion);
+  assert.equal(result.examples[0]!.interest_score, null); assert.equal(result.aggregates.mean_interest, null);
+});
+
+test('default excerpt proofs are length/hash/version checked and their source metadata changes the fingerprint', async () => {
+  const saved = await includedExample(1, '🔬'.repeat(620));
+  const first = await compileAdaptiveFeedbackSnapshot(input([saved]));
+  assert.equal(first.examples[0]!.search_feedback_summary, '🔬'.repeat(600));
+  assert.equal(first.examples[0]!.summary_inclusion!.source_length, 620);
+  assert.equal(first.examples[0]!.summary_inclusion!.truncated, true);
+  for (const patch of [{ policy_version: 'unsupported' }, { summary_hash: 'b'.repeat(64) }, { source_length: 599 },
+    { source_length: 0 }, { source_length: 12001 }, { truncated: false }, { extra: 'Never copied' }]) {
+    const invalid = { ...saved, summary_inclusion: { ...saved.summary_inclusion, ...patch } } as AdaptiveFeedbackExample;
+    const result = await compileAdaptiveFeedbackSnapshot(input([invalid]));
+    assert.equal(result.examples.length, 0, JSON.stringify(patch));
+  }
+  for (const patch of [{ source_hash: 'b'.repeat(64) }, { summary_revision: 2 }, { source_length: 621 }]) {
+    const changed = await compileAdaptiveFeedbackSnapshot(input([{ ...saved, summary_inclusion: { ...saved.summary_inclusion!, ...patch } }]));
+    assert.notEqual(changed.input_fingerprint, first.input_fingerprint);
+  }
+});
+
+test('technical past metadata survives without turning closure or requirements into dislike', async () => {
+  const archived = Object.assign(example(1, { interest_score: null, interest_origin: 'none', manually_archived: true,
+    technical_issue_category: 'requirements' }), { technical_issue_note: 'Private Person private@example.invalid', notes: 'Private note' });
+  const result = await compileAdaptiveFeedbackSnapshot(input([archived]));
+  assert.equal(result.counts.eligible, 1); assert.equal(result.counts.scored, 0);
+  assert.equal(result.aggregates.mean_interest, null);
+  assert.equal(result.examples[0]!.manually_archived, true);
+  assert.equal(result.examples[0]!.technical_issue_category, 'requirements');
+  assert.equal(result.examples[0]!.interest_score, null); assert.deepEqual(result.examples[0]!.reasons, []);
+  assert.doesNotMatch(JSON.stringify(result), /technical_issue_note|private@example|Private Person|"notes"/u);
+  const closed = await compileAdaptiveFeedbackSnapshot(input([{ ...archived, technical_issue_category: 'closed' }]));
+  assert.notEqual(closed.input_fingerprint, result.input_fingerprint);
+});
 
 test('AF-03 cold start and disabled consent produce a bounded, versioned empty packet without implicit zero', async () => {
   const cold = await compileAdaptiveFeedbackSnapshot(input());

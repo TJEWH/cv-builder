@@ -1,7 +1,7 @@
 import { onScopeDispose, ref, toValue, watch } from 'vue';
 import type { MaybeRefOrGetter } from 'vue';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Application, ApplicationContext, ApplicationStage, CloudCvSnapshot, CloudCvVariant, CreateApplicationInput, Opportunity, OpportunityReview, OpportunityReviewState, OpportunityFeedbackPatch, OpportunityFeedbackSettings, UpdateApplicationInput } from '../cloudTypes';
+import type { Application, ApplicationContext, ApplicationStage, CloudCvSnapshot, CloudCvVariant, CreateApplicationInput, Opportunity, OpportunityReview, OpportunityReviewState, OpportunityFeedbackPatch, OpportunityFeedbackSettings, OpportunityDispositionPatch, UpdateApplicationInput } from '../cloudTypes';
 import { APPLICATION_STAGES, APPLICATION_STATUSES, TRACKING_STATUSES, OPPORTUNITY_REVIEW_STATES } from '../cloudTypes';
 import { SAMPLE_CONTACT } from '../defaults';
 import { CV_STATE_VERSION } from '../types';
@@ -11,6 +11,7 @@ import { hasReviewedOpportunity } from './opportunityRecency';
 import { normalizeApplication } from './applicationTracking';
 import { isOpportunityInternalFact, isOpportunityInternalField } from './opportunityPresentation';
 import { parseOpportunityInterestRating, normalizeOpportunityInterestReasons } from './opportunityFeedback';
+import { normalizeOpportunityDispositionPatch, readOpportunityDisposition } from './opportunityDisposition';
 
 const PAGE_SIZE = 500;
 const CV_SUMMARY_FIELDS = 'id,user_id,name,cv_version,revision,created_at';
@@ -167,7 +168,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
       opportunities.value = opportunityRows.map(normalizeOpportunity);
       applications.value = (applicationRows as unknown as Application[]).map(normalizeApplication);
       cvVariants.value = cvRows as unknown as CloudCvVariant[];
-      reviews.value = reviewRows as unknown as OpportunityReview[];
+      reviews.value = reviewRows.map(row => { readOpportunityDisposition(row); return row as unknown as OpportunityReview; });
       return true;
     } catch (reason) {
       if (current(account, generation) && sequence === loadSequence) error.value = errorMessage(reason, 'Could not load the job workspace. Check your connection and retry.');
@@ -399,6 +400,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   }
 
   function rememberReview(review: OpportunityReview, receiptOnly = false) {
+    readOpportunityDisposition(review as unknown as Record<string, unknown>);
     const previous = reviews.value.find(({ opportunity_id }) => opportunity_id === review.opportunity_id);
     const saved = receiptOnly && previous ? { ...previous } : { ...previous, ...review };
     // Receipts can finish alongside state/comment saves. Preserve explicit edits and the newest viewed version.
@@ -420,10 +422,12 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
 
   function saveOpportunityFeedback(opportunityId: string, patch: OpportunityFeedbackPatch): Promise<OpportunityReview | null> {
     try {
-      if (!isRecord(patch) || Object.keys(patch).some(key => !['interest_rating', 'interest_reasons', 'feedback_excluded', 'search_feedback_summary'].includes(key))) {
+      if (!isRecord(patch) || Object.keys(patch).some(key => !['interest_rating', 'interest_reasons', 'feedback_excluded', 'search_feedback_summary', 'manually_archived', 'technical_issue_category', 'technical_issue_note'].includes(key))) {
         throw new Error('Select only supported feedback fields.');
       }
       const clean = { ...patch };
+      const disposition = Object.fromEntries(Object.entries(patch).filter(([key]) => ['manually_archived', 'technical_issue_category', 'technical_issue_note'].includes(key)));
+      if (Object.keys(disposition).length) Object.assign(clean, normalizeOpportunityDispositionPatch(disposition));
       if ('interest_rating' in patch) clean.interest_rating = parseOpportunityInterestRating(patch.interest_rating);
       if ('interest_reasons' in patch) clean.interest_reasons = normalizeOpportunityInterestReasons(patch.interest_reasons);
       if ('feedback_excluded' in patch && typeof patch.feedback_excluded !== 'boolean') throw new Error('Invalid feedback exclusion.');
@@ -436,6 +440,11 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
       opportunityFeedbackError.value = errorMessage(reason, 'Invalid feedback.');
       return Promise.resolve(null);
     }
+  }
+
+  function saveOpportunityDisposition(opportunityId: string, patch: OpportunityDispositionPatch): Promise<OpportunityReview | null> {
+    try { return saveOpportunityFeedback(opportunityId, normalizeOpportunityDispositionPatch(patch)); }
+    catch (reason) { opportunityFeedbackError.value = errorMessage(reason, 'Invalid opportunity disposition.'); return Promise.resolve(null); }
   }
 
   function approveOpportunityFeedbackSummary(opportunityId: string, summaryHash: string, sourceHash: string, summaryRevision: number) {
@@ -572,6 +581,6 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   watch(() => toValue(userId), () => { reset(); void refresh(); }, { immediate: true, flush: 'sync' });
   onScopeDispose(() => { disposed = true; reset(); });
   return { opportunities, applications, cvVariants, reviews, loading, saving, savingReview, error, opportunityReviewError, opportunityCommentError,
-    opportunityFeedbackError, feedbackSharing, saveOpportunityFeedback, approveOpportunityFeedbackSummary, revokeOpportunityFeedbackSummary,
+    opportunityFeedbackError, feedbackSharing, saveOpportunityFeedback, saveOpportunityDisposition, approveOpportunityFeedbackSummary, revokeOpportunityFeedbackSummary,
     loadFeedbackSharing, setStructuredFeedbackSharing, refresh, createApplication, updateApplication, setApplicationStage, resetApplicationHistory, setApplicationChecklistItem, removeApplication, refreshApplicationContext, setOpportunityReview, setOpportunityComment, markOpportunityReviewed, getApplicationContext };
 }

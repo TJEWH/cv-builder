@@ -13,6 +13,7 @@ export interface AdaptiveDashboardSettings {
   structured_feedback_enabled: boolean; adaptation_enabled: boolean; adaptation_paused: boolean;
   successful_source_reuse_enabled: boolean; reuse_check_interval_hours: number;
   search_breadth_percent: number | null; breadth_revision: number | null;
+  institution_sources_omitted: number | null;
   consent_revision: number; adaptation_revision: number; source_reuse_revision: number; feedback_revision: number;
   preference_revision: number; query_plan_revision: number; query_plan_dirty: boolean;
 }
@@ -115,6 +116,7 @@ function readSettings(value: unknown): AdaptiveDashboardSettings {
     adaptation_paused: bool(row.adaptation_paused), successful_source_reuse_enabled: bool(row.successful_source_reuse_enabled),
     reuse_check_interval_hours: integer(row.reuse_check_interval_hours, 24, 720), search_breadth_percent: breadth,
     breadth_revision: upgraded ? integer(row.breadth_revision) : null, consent_revision: integer(row.consent_revision),
+    institution_sources_omitted: row.institution_sources_omitted === undefined ? null : integer(row.institution_sources_omitted,0,7),
     adaptation_revision: integer(row.adaptation_revision), source_reuse_revision: integer(row.source_reuse_revision), feedback_revision: integer(row.feedback_revision),
     preference_revision: integer(row.preference_revision), query_plan_revision: integer(row.query_plan_revision), query_plan_dirty: bool(row.query_plan_dirty) };
 }
@@ -168,7 +170,7 @@ export async function readAdaptiveSearchDashboard(value: unknown, inputScope: Ad
   }
   const currentPolicy = readPolicy(raw.policy);
   const settings = readSettings(raw.settings);
-  if (currentPolicy.policy_version === 'adaptive-query-v2' && settings.search_breadth_percent !== null
+  if (currentPolicy.policy_version !== 'adaptive-query-v1' && settings.search_breadth_percent !== null
     && (currentPolicy.exploration_ratio !== settings.search_breadth_percent / 100
       || currentPolicy.minimum_exploration_queries !== (settings.search_breadth_percent === 0 ? 0 : 1))) fail();
   let capacity: AdaptiveSearchDashboardData['planning_capacity'] = null;
@@ -361,7 +363,7 @@ export function createAdaptiveSearchDashboardController(client: Pick<SupabaseCli
       if (Object.hasOwn(patch,'adaptation_enabled') || Object.hasOwn(patch,'adaptation_paused')) expected.adaptation_revision = settings.adaptation_revision;
       if (Object.hasOwn(patch,'successful_source_reuse_enabled') || Object.hasOwn(patch,'reuse_check_interval_hours')) expected.source_reuse_revision = settings.source_reuse_revision;
       if (Object.hasOwn(patch,'search_breadth_percent')) {
-        if (settings.breadth_revision === null || settings.search_breadth_percent === null || state.data?.policy.policy_version !== 'adaptive-query-v2') throw { code: 'BREADTH_UPGRADE_REQUIRED' };
+        if (settings.breadth_revision === null || settings.search_breadth_percent === null || state.data?.policy.policy_version === 'adaptive-query-v1') throw { code: 'BREADTH_UPGRADE_REQUIRED' };
         expected.breadth_revision = settings.breadth_revision;
       }
       return { name: 'patch_opportunity_search_settings', scope: { ...scope }, generation, args: {

@@ -14,7 +14,8 @@ The specification reference is commit `f475d364fb16508b4ef8e1568b9d72fd80e3ddf2`
 | Complete runner capability | `adaptive-batch-v1` |
 | Interest metric | `opportunity-interest-v1` |
 | Example selection | `opportunity-feedback-selection-v1` |
-| Query policy | `adaptive-query-v2` (historical v1 retained) |
+| Query policy | `adaptive-query-v3` (historical v1/v2 retained) |
+| Feedback text | `included-unless-excluded-v1` |
 | Technical setup and feature rollback | 1 |
 
 `npm run adaptive:release:check` checks the exact migration, runner and schema files against the manifest without connecting to a database. After reviewing an intentional source change, regenerate it with `node --import tsx scripts/adaptiveSearchRelease.ts --write`, inspect the diff, and rerun the gate. Regeneration is never a substitute for reviewing changed SQL.
@@ -44,7 +45,13 @@ For an authorized deployment, first compare the installed canonical v5 protocol,
 
 All new runtime functions use invoker permissions, owner checks and RLS. Management startup/intake/completion/setup/rollback helpers remain unavailable to browser and service roles. Existing private-schema usage is preserved; no private helper grant or definer workaround is added. The management connector still has administrative powers beyond this workflow and is not authenticated as a human owner by these helpers.
 
-The release flag, per-search runner authorization, structured feedback, adaptation and successful-source reuse default off. Installing capabilities does not enable a project or owner, approve a summary, create a task, modify a binding, or fabricate discovery/prediction history. Existing reviews become adaptive inputs only after the owner's opt-in.
+The release flag, per-search runner authorization, structured feedback, adaptation and successful-source reuse default off. Installing capabilities does not enable a project or owner, create a task, modify a binding, or fabricate discovery/prediction history. With structured feedback enabled, the current inclusion policy shares safe evaluation text by default unless the opportunity is excluded; legacy explicit approval proofs remain historical evidence. Existing reviews become adaptive inputs only after the owner's opt-in.
+
+## Default inclusion, personal Past status and institutional sources
+
+Append `opportunity_feedback_inclusion.sql` after all nineteen previous additive files. It adds owner-scoped manual Past/technical issue metadata, default text-inclusion proofs and v3 project-level screening guidance. No catalogue records, official deadlines, application statuses or scheduled tasks are rewritten. The seven institution listing defaults are retained only when a new, explicitly authorized run starts; historical retries do not seed them. Existing source settings and disabled paths are preserved. Capacity omissions are reported through `source_retention` and the dashboard.
+
+The one shared opportunity exclusion controls evaluation text and structured feedback. Text is bounded to the first 600 Unicode codepoints and includes source length and truncation metadata. Content safeguards inspect the full source before excerpting. Search-level consent, release and runner authorization remain required. No synthetic approval timestamp is generated, and no raw technical note is exported. Tests use only isolated synthetic rows.
 
 ## Local release gate
 
@@ -71,7 +78,7 @@ Only technical hashes, column names and signatures are written to `/tmp/cv-adapt
 
 Submission-only interest still scores 9 under AF-01. It supplies owner context for an inert suggestion but does not become substantive review evidence for approving a rule. Such a valid proposal is deferred as `needs_reviewed_evidence` while valid canonical results continue. Malformed proposals and cross-owner references still fail before writes.
 
-The focused ticket suites remain required: feedback metrics/sharing/snapshots, source/query plans, attribution/baselines, preferences, startup/concurrency, batch/completion, setup and dashboard. Browser gates cover explicit summary approval/revocation, source controls, failed-draft recovery, account-switch cancellation, keyboard/mobile operation and unchanged letter-interest linkage. Record the exact commands and results for the final reviewed revision. A successful build may retain the repository's existing bundle-size warning.
+The focused ticket suites remain required: feedback metrics/sharing/snapshots, source/query plans, attribution/baselines, preferences, startup/concurrency, batch/completion, setup and dashboard. Browser gates cover default text inclusion/exclusion, labelled excerpts, manual Past status and technical notes, source controls, failed-draft recovery, account-switch cancellation, keyboard/mobile operation and unchanged letter-interest linkage. Record the exact commands and results for the final reviewed revision. A successful build may retain the repository's existing bundle-size warning.
 
 ## Feature rollback
 
@@ -91,7 +98,7 @@ If a recovery archive makes technical republishing exceed the installed storage 
 
 | Data | Cleanup |
 | --- | --- |
-| Review feedback columns and summary approvals | Existing owner review/account cascade; approval revocation removes the proof and eagerly withholds cached summary text. Private comments remain private. |
+| Review feedback columns and text proofs | Existing owner review/account cascade; exclusion, consent withdrawal and source edits eagerly withhold stale cached text. Default inclusion uses exact source hashes/revisions and a labelled 600-character excerpt. Historical approvals stay readable. Technical notes remain private. |
 | Prediction proof cache | Owner-read-only technical metadata; receipt unverify/delete and audit rollback/delete invalidate proof. Owner deletion cascades it. No assessment prose or audit snapshots are cached. |
 | Adaptive settings, sources, plans, preferences/actions and dashboard control receipts | Owner/search foreign keys cascade on search/account deletion. Source opt-out remains authoritative; zero/blocked checks do not delete sources. |
 | Feedback snapshots | Search/settings cascade removes them. Consent/exclusion/approval withdrawal applies deterministic eager redaction; startup/retry rechecks current authorization. |

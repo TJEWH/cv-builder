@@ -6,7 +6,7 @@ import { createAdaptiveSearchPlan, type AdaptiveSearchPlanBasis, type AdaptiveSe
 import { opportunityFeedbackTextHash } from '../src/composables/opportunityFeedbackPrivacy';
 import {
   ADAPTIVE_SEARCH_POLICY_VERSION, ADAPTIVE_SEED_GENERATOR_VERSION, DEFAULT_ADAPTIVE_SEARCH_POLICY,
-  createSearchBreadthPolicy, validateAdaptiveSearchPolicy, LEGACY_ADAPTIVE_SEARCH_POLICY,
+  createSearchBreadthPolicy, createLegacySearchBreadthPolicy, validateAdaptiveSearchPolicy, LEGACY_ADAPTIVE_SEARCH_POLICY,
   buildAdaptiveSearchPlanningContext, createColdStartAdaptiveSearchPlan, recordGeneratedAdaptiveSearchPlan,
   validateApprovedAdaptiveRules, validatePendingAdaptiveRuleSuggestion, type AdaptiveSearchPlannerInput, type ApprovedAdaptiveRule,
 } from '../src/composables/adaptiveSearchPlanner';
@@ -44,7 +44,8 @@ const emphasis = (index: number, target = 'Robotics', polarity: 'positive' | 'ne
 test('AF-06 initial policy numbers are explicit, named and versioned', () => {
   assert.deepEqual(DEFAULT_ADAPTIVE_SEARCH_POLICY, { policy_version: ADAPTIVE_SEARCH_POLICY_VERSION, minimum_observations: 3,
     exploration_ratio: 0.2, maximum_queries: 30, minimum_exploration_queries: 1, positive_interest_threshold: 6,
-    exploration_guidance: createSearchBreadthPolicy(20).exploration_guidance });
+    exploration_guidance: createSearchBreadthPolicy(20).exploration_guidance,
+    institution_policy: 'source-only-v1', institution_guidance: createSearchBreadthPolicy(20).institution_guidance });
   assert.ok(Object.isFrozen(DEFAULT_ADAPTIVE_SEARCH_POLICY));
 });
 
@@ -163,6 +164,54 @@ test('AF-06 supported targeted negative and positive cohorts alter only their ow
   assert.equal(result.priorities.find(item => item.target === 'robotics')?.direction, 'decrease');
   assert.equal(result.priorities.find(item => item.target === 'acoustics')?.direction, 'increase');
   assert.equal(result.priorities.find(item => item.target === 'robotics')?.provisional, false);
+});
+
+test('institution cohorts are source-only for strong, weak and sparse outcomes without a university fit bonus', async () => {
+  for (const scores of [[9, 9, 9], [1, 1, 1], [9]]) {
+    const packet = await feedback(scores.map((interest_score, index) => example(index + 1, {
+      institution: 'Synthetic retained university', interest_score,
+    })));
+    const before = JSON.stringify(packet);
+    const institution = buildAdaptiveSearchPlanningContext(input({ feedback: packet })).priorities.find(item => item.category === 'institution')!;
+    assert.equal(institution.direction, 'examples_only');
+    assert.equal(institution.reason, 'source_only');
+    assert.equal(institution.provisional, true);
+    assert.equal(institution.observations, scores.length);
+    assert.equal(institution.mean_interest, scores.reduce((sum, value) => sum + value, 0) / scores.length);
+    assert.equal(JSON.stringify(packet), before, 'source-only planning cannot rewrite project evidence');
+  }
+});
+
+test('historical v1/v2 institution priorities retain their pinned semantics while v3 refreshes the slice', async () => {
+  const packet = await feedback(Array.from({ length: 3 }, (_, index) => example(index + 1, { institution: 'Synthetic University', interest_score: 9 })));
+  const original = await createAdaptiveSearchPlan(basis(), await cores(1));
+  for (const previousPolicy of [LEGACY_ADAPTIVE_SEARCH_POLICY, createLegacySearchBreadthPolicy(20)]) {
+    const historical = buildAdaptiveSearchPlanningContext(input({ feedback: packet, policy: previousPolicy }));
+    const institution = historical.priorities.find(item => item.category === 'institution')!;
+    assert.equal(institution.direction, 'increase'); assert.equal(institution.reason, 'supported_mean');
+    const current = buildAdaptiveSearchPlanningContext(input({ feedback: packet, previous_plan: original, previous_policy: previousPolicy }));
+    assert.equal(current.refresh_required, true, 'old institution-weighted queries must not remain current after the policy upgrade');
+    assert.equal(current.priorities.find(item => item.category === 'institution')?.direction, 'examples_only');
+  }
+  assert.match(DEFAULT_ADAPTIVE_SEARCH_POLICY.institution_guidance!, /Screen each project independently/u);
+  assert.match(DEFAULT_ADAPTIVE_SEARCH_POLICY.institution_guidance!, /Do not add an institution-wide fit bonus/u);
+  assert.throws(() => validateAdaptiveSearchPolicy({ ...DEFAULT_ADAPTIVE_SEARCH_POLICY, institution_guidance: 'Give every university project a fit bonus' }));
+});
+
+test('contrasting projects within one institution retain project-specific priorities while the institution stays neutral', async () => {
+  const samples = [
+    ...Array.from({ length: 3 }, (_, index) => example(index + 1, { institution: 'Synthetic University', interest_score: 9,
+      topics: ['Acoustics'], reasons: [{ category: 'topic', polarity: 'positive', target: 'Acoustics' }] })),
+    ...Array.from({ length: 3 }, (_, index) => example(index + 10, { institution: 'Synthetic University', interest_score: 1,
+      topics: ['Simulation'], reasons: [{ category: 'topic', polarity: 'negative', target: 'Simulation' }] })),
+  ];
+  const result = buildAdaptiveSearchPlanningContext(input({ feedback: await feedback(samples) }));
+  const institution = result.priorities.find(item => item.category === 'institution')!;
+  assert.equal(institution.target, 'synthetic university');
+  assert.equal(institution.observations, 6); assert.equal(institution.mean_interest, 5);
+  assert.equal(institution.direction, 'examples_only'); assert.equal(institution.reason, 'source_only');
+  assert.equal(result.priorities.find(item => item.category === 'topic' && item.target === 'acoustics')?.direction, 'increase');
+  assert.equal(result.priorities.find(item => item.category === 'topic' && item.target === 'simulation')?.direction, 'decrease');
 });
 
 test('AF-06 hardware-specific high-fit/low-interest evidence changes hardware emphasis, not unrelated topics', async () => {
