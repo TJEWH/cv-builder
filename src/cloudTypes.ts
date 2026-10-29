@@ -7,6 +7,27 @@ export const APPLICATION_STAGES = ['preparation', 'refinement', 'review', 'track
 export type ApplicationStage = typeof APPLICATION_STAGES[number];
 export const OPPORTUNITY_REVIEW_STATES = ['unreviewed', 'not_interested', 'interested', 'strong_interest'] as const;
 export type OpportunityReviewState = typeof OPPORTUNITY_REVIEW_STATES[number];
+export const OPPORTUNITY_INTEREST_REASON_CATEGORIES = ['topic', 'method', 'hardware', 'location', 'funding', 'timing', 'other'] as const;
+export type OpportunityInterestReasonCategory = typeof OPPORTUNITY_INTEREST_REASON_CATEGORIES[number];
+
+export interface OpportunityInterestReason {
+  category: OpportunityInterestReasonCategory;
+  polarity: 'positive' | 'negative';
+  /** An explicitly selected topic/method, never a target inferred from private prose. */
+  target?: string;
+}
+
+/** Reference to a structured original prediction; its source must be independently verified. */
+export interface OpportunityPredictionBaseline {
+  user_id: string;
+  opportunity_id: string;
+  score: number;
+  scale_min: 0;
+  scale_max: 10;
+  predicted_at: string;
+  source_kind: 'historical_snapshot';
+  source_ref: string;
+}
 
 export interface OpportunityReview {
   user_id: string;
@@ -14,6 +35,14 @@ export interface OpportunityReview {
   state: OpportunityReviewState;
   /** Private context for the user's interest; older workspaces may omit this field. */
   comment?: string | null;
+  /** AF-01 fields are optional while an installation is awaiting its additive migration. */
+  interest_rating?: number | null;
+  interest_reasons?: OpportunityInterestReason[];
+  feedback_excluded?: boolean;
+  feedback_revision?: number;
+  feedback_updated_at?: string | null;
+  /** Frozen for the explicit feedback revision, separate from the catalogue's AI fit. */
+  prediction_baseline?: OpportunityPredictionBaseline | null;
   reviewed_updated_at: string | null;
   created_at: string;
   updated_at: string;

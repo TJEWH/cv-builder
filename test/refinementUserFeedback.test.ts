@@ -40,10 +40,10 @@ test('next-iteration notes persist separately for CV and letter without changing
   assert.deepEqual(setup.iterationNotes.letter, letterNotes);
 });
 
-test('selected notes are privacy-filtered and published with resolved answers in one scoped feedback review', async t => {
+test('selected notes are privacy-filtered and published alongside resolved answers and pending questions', async t => {
   const fixture = mount(t, createPrivateRefinementCv());
   const setup = withFeedback(await prepare(fixture, 'base', { scope: 'letter' }));
-  fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Applied letter with evidence.' });
+  const proposal = fixture.cloud.seedProposal(setup.requests[0].id, { letterText: 'Applied letter with evidence.' });
   await setup.syncRefinement();
   assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'The research interest is reproducible sensing experiments.', null), true);
   const before = documentVersion(setup);
@@ -71,9 +71,18 @@ test('selected notes are privacy-filtered and published with resolved answers in
   assert.match(payload.text, /\{\{APPLICANT_NAME\}\}/);
   assert.match(payload.text, /\{\{APPLICANT_EMAIL\}\}/);
   const request = setup.requests[0].request_json;
-  assert.equal(request.feedback.length, 2, 'resolved question feedback and direct refinement requests are both included');
+  assert.equal(request.feedback.length, 3, 'Resolved answers, pending questions and direct refinement requests are all included');
   assert.ok(request.feedback.some(item => item.id === reviews[0].id && item.text === payload.text));
-  assert.ok(request.feedback.some(item => /reproducible sensing experiments/.test(item.text)));
+  const resolved = request.feedback.find(item => item.annotation?.annotationId === 'annotation-2');
+  assert.ok(resolved, 'The saved answer accompanies the direct notes');
+  assert.equal(resolved.annotation?.proposalId, proposal.id);
+  assert.match(resolved.text, /Status: resolved.*User response: The research interest is reproducible sensing experiments/s);
+  const pending = request.feedback.find(item => item.annotation?.annotationId === 'annotation-1');
+  assert.ok(pending, 'The unanswered question accompanies the direct notes');
+  assert.deepEqual(pending.annotation, { proposalId: proposal.id, annotationId: 'annotation-1', reviewId: null });
+  assert.match(pending.text, /Status: open.*No answer is approved/s);
+  assert.ok(request.feedback.every(item => item.scope === 'letter'));
+  assert.doesNotMatch(JSON.stringify(request.feedback), /E2E Omit Lab|E2E North Lab|rowan@example\.invalid|CV-only/);
   assert.deepEqual(setup.iterationNotes.letter, draft);
   assert.deepEqual(setup.iterationNotes.cv, otherDraft);
   assert.equal(documentVersion(setup), before);

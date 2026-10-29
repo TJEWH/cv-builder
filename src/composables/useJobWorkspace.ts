@@ -333,15 +333,38 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
 
   function removeApplication(id: string): Promise<string | null> {
     const opportunityId = applications.value.find((application) => application.id === id)?.opportunity_id;
-    return runMutation(async (_account, _generation, signal) => {
+    let removedReview: OpportunityReview | null = null;
+    let feedbackRefreshFailed = false;
+    return runMutation(async (account, generation, signal) => {
       if (!opportunityId) throw new Error('Refresh to load the application before removing it.');
       const { data, error: queryError } = await client!.rpc('remove_job_application', { p_application_id: id }).abortSignal(signal);
       if (queryError) throw queryError;
       if (data !== id) throw new Error('Removal could not be confirmed. Refresh and retry.');
+      if (!current(account, generation)) throw new Error('Session changed.');
+      const previous = reviews.value.find(review => review.opportunity_id === opportunityId);
+      // The existing removal RPC resets a negative category. Its AF-01 trigger
+      // owns the resulting revision/time; do not invent those in the cache.
+      if (previous?.state === 'not_interested' && previous.feedback_revision !== undefined) {
+        try {
+          const result = await client!.from('opportunity_reviews').select('*').eq('user_id', account)
+            .eq('opportunity_id', opportunityId).abortSignal(signal).single();
+          if (result.error || !result.data || result.data.user_id !== account
+            || result.data.opportunity_id !== opportunityId || !OPPORTUNITY_REVIEW_STATES.includes(result.data.state)) {
+            throw new Error('The updated feedback could not be confirmed.');
+          }
+          removedReview = result.data as OpportunityReview;
+        } catch { feedbackRefreshFailed = true; }
+      }
       return id;
     }, () => {
       applications.value = applications.value.filter((application) => application.id !== id);
-      reviews.value = reviews.value.map((review) => review.opportunity_id === opportunityId && review.state === 'not_interested'
+      if (removedReview) rememberReview(removedReview);
+      else if (feedbackRefreshFailed) {
+        // Removal succeeded. Withhold the stale cached outcome until refresh,
+        // rather than reporting deletion failure or exposing a stale preference.
+        reviews.value = reviews.value.filter(review => review.opportunity_id !== opportunityId);
+        error.value = 'Application removed. Refresh the workspace to load its updated feedback.';
+      } else reviews.value = reviews.value.map((review) => review.opportunity_id === opportunityId && review.state === 'not_interested'
         ? { ...review, state: 'unreviewed' } : review);
       if (pendingCreate?.applicationId === id) pendingCreate = null;
       if (pendingAssignment?.applicationId === id) pendingAssignment = null;

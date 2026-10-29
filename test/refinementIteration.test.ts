@@ -114,7 +114,7 @@ test('copying the next iteration closes comparison and publishes applied documen
   const fixture = mount(t), setup = await prepare(fixture, 'base', { scope: 'letter' });
   setup.tab = 'refinement'; await idle(setup);
   const first = setup.requests[0];
-  fixture.cloud.seedProposal(first.id, { letterText: 'Applied letter for the next iteration.' });
+  const proposal = fixture.cloud.seedProposal(first.id, { letterText: 'Applied letter for the next iteration.' });
   await setup.syncRefinement();
   assert.equal(setup.error, '');
   assert.equal(await setup.saveAnnotation('annotation-2', 'resolved', 'Confirmed research interest in reproducible experiments.', null), true);
@@ -130,12 +130,20 @@ test('copying the next iteration closes comparison and publishes applied documen
   const next = setup.requests[0].request_json;
   assert.notEqual(next.requestId, first.id);
   assert.equal(next.letter.text, 'Applied letter for the next iteration.');
-  assert.equal(next.feedback.length, 1);
-  assert.match(next.feedback[0].text, /Confirmed research interest/);
+  assert.equal(next.feedback.length, 2, 'The resolved answer and the unanswered question both carry forward');
+  const resolved = next.feedback.find(item => item.annotation?.annotationId === 'annotation-2');
+  assert.ok(resolved, 'The saved answer remains in feedback');
+  assert.equal(resolved.annotation?.proposalId, proposal.id);
+  assert.match(resolved.text, /Status: resolved.*User response: Confirmed research interest/s);
+  const pending = next.feedback.find(item => item.annotation?.annotationId === 'annotation-1');
+  assert.ok(pending, 'The unanswered question remains in feedback');
+  assert.deepEqual(pending.annotation, { proposalId: proposal.id, annotationId: 'annotation-1', reviewId: null });
+  assert.match(pending.text, /Status: open.*No answer is approved/s);
   assert.ok(copied.includes(next.requestId));
   assert.equal(setup.letter!.working.body, 'Applied letter for the next iteration.');
   await setup.copyIterationTask();
   assert.equal(setup.requests.length, 2);
+  assert.equal(setup.requests[0].request_json.requestId, next.requestId, 'Copying unchanged feedback reuses the published request');
 });
 
 test('pending CV refinement works when no library source remains', async t => {

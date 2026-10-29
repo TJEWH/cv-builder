@@ -9,6 +9,7 @@ const response = 'I calibrated a research robot at E2E North Lab and recorded it
 
 test('connected resolved contextual question automatically feeds a fresh privacy-safe request without changing documents', async t => {
   const fixture = mount(t, createPrivateRefinementCv()); let setup = await prepare(fixture, 'base', { scope: 'letter' });
+  setup.letter!.templateSnapshot!.useMetaSearchInterests = false;
   setup.letter!.templateSnapshot!.researchInterests = 'Reliable robot sensing and reproducible calibration, inspired by E2E North Lab.';
   setup.letter!.templateSnapshot!.questionGuidance = 'Ask about undocumented robot calibration experience when a required or beneficial qualification is relevant to the letter.';
   setup.letter!.templateSnapshot!.refinementSystemPrompt = 'Evaluate whether answers from E2E North Lab support the research narrative; ask a focused follow-up when a detail is missing.';

@@ -23,12 +23,12 @@ function seedSearch(fixture: ReturnType<typeof mount>, active = true) {
   return { repository, saved };
 }
 
-function cloudSearch(fixture: ReturnType<typeof mount>) {
+function cloudSearch(fixture: ReturnType<typeof mount>, active = true) {
   const editor = createSearchTemplate('Saved on another device');
-  editor.researchInterests = 'Saved BCI interests; acoustic interfaces'; editor.active = false;
+  editor.researchInterests = 'Saved BCI interests; acoustic interfaces'; editor.active = active;
   const row = { id: '40000000-0000-4000-8000-000000000001', user_id: fixture.props.userId, name: editor.name, revision: 7,
     criteria: searchTemplateCloudCriteria(editor), schedule: searchTemplateCloudSchedule(editor), created_at: editor.updatedAt, updated_at: editor.updatedAt,
-    meta_search: { version: 1, active: false, editor, systemPrompt: 'System', userPrompt: 'User', recurringPrompt: 'Recurring' } };
+    meta_search: { version: 1, active, editor, systemPrompt: 'System', userPrompt: 'User', recurringPrompt: 'Recurring' } };
   fixture.database.opportunity_search_templates = [row];
   return row;
 }
@@ -91,9 +91,22 @@ test('a new device reads saved owner-scoped interests instead of the generated d
   await idle(setup);
   assert.equal(setup.error, '');
   assert.equal(setup.letter!.searchProfile!.researchInterests, row.meta_search.editor.researchInterests);
-  assert.equal(setup.letter!.searchProfile!.revision, 7);
+  assert.equal(setup.letter!.searchProfile!.revision, row.revision);
   assert.equal(setup.effectiveLetterTemplate.researchInterests, row.meta_search.editor.researchInterests);
   assert.equal(fixture.storage.getItem(`cv.search-templates.v1:${fixture.props.userId}`), null, 'Cloud hydration does not overwrite local search storage');
+});
+
+test('a new device retains interests from a previously paused search using its converted local revision', async t => {
+  const fixture = mount(t); const row = cloudSearch(fixture, false);
+  const beforeCloud = JSON.stringify(fixture.database);
+  const setup = fixture.setup as SharedWorkspace;
+  await idle(setup);
+  assert.equal(setup.error, '');
+  assert.equal(setup.letter!.searchProfile!.researchInterests, row.meta_search.editor.researchInterests);
+  assert.equal(setup.letter!.searchProfile!.revision, row.meta_search.editor.revision, 'Converted content has not been acknowledged at the cloud revision');
+  assert.equal(setup.effectiveLetterTemplate.researchInterests, row.meta_search.editor.researchInterests);
+  assert.equal(JSON.stringify(fixture.database), beforeCloud, 'Importing a paused search does not publish its converted content');
+  assert.equal(fixture.storage.getItem(`cv.search-templates.v1:${fixture.props.userId}`), null);
 });
 
 test('opting out preserves custom interests and does not depend on an unrelated cloud search read', async t => {
