@@ -21,6 +21,8 @@ export interface LetterTemplateGuidance {
   closingInstructions?: string;
   /** Applicant-defined interests, not evidence of qualifications or past experience. */
   researchInterests?: string;
+  /** Local source preference; omitted from the published refinement contract. */
+  useMetaSearchInterests?: boolean;
   /** When and why to ask the applicant for useful context during drafting or refinement. */
   questionGuidance?: string;
   /** Instructions for evaluating resolved answers and handling letter refinement iterations. */

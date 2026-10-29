@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { LetterSearchProfile } from '../src/letterTypes';
 import { createApplicationLetter, createLetterRepository, DEFAULT_LETTER_TEMPLATES, letterContextVersion, selectApplicationLetterTemplate } from '../src/composables/motivationLetters';
-import { letterTemplateWithSearchProfile, readLetterSearchProfile } from '../src/composables/searchLetterContext';
+import { captureMetaSearchInterests, letterTemplateWithSearchProfile, readLetterSearchProfile } from '../src/composables/searchLetterContext';
 import { prepareRefinement, refinementSignature } from '../src/composables/applicationRefinement';
 import { createTestState } from './helpers';
 
-const template = DEFAULT_LETTER_TEMPLATES[0]!;
+const template = { ...DEFAULT_LETTER_TEMPLATES[0]!, useMetaSearchInterests: undefined }; // Frozen pre-checkbox source
 const profile: LetterSearchProfile = {
   templateId: 'research-search', templateName: 'Research opportunities', profileId: 'robotics', profileName: 'Robotics',
   revision: 3, capturedAt: '2026-10-28T10:00:00.000Z',
@@ -63,4 +63,36 @@ test('invalid or oversized profile snapshots fail explicitly without silently tr
     assert.throws(() => readLetterSearchProfile(invalid), /saved search profile could not be read/);
   }
   assert.throws(() => letterTemplateWithSearchProfile(template, { ...profile, professionalContext: 'a'.repeat(20000) }), /20,000-character refinement limit/);
+});
+
+
+test('the default shared source replaces custom interests without publishing the local checkbox', async () => {
+  const { createSearchTemplate } = await import('../src/composables/useSearchTemplates');
+  const search = createSearchTemplate(); search.active = false; search.researchInterests = 'Acoustic sensing; BCI; prefer prototyping; avoid routine administration';
+  const source = { ...DEFAULT_LETTER_TEMPLATES[0]!, researchInterests: 'Keep this custom draft for opt-out.' };
+  const captured = captureMetaSearchInterests(search)!;
+  const effective = letterTemplateWithSearchProfile(source, captured);
+  assert.equal(effective.researchInterests, search.researchInterests);
+  assert.match(effective.structure, /alternative directions need not all fit/);
+  assert.match(effective.structure, /Avoided tasks are search filters/);
+  assert.equal(source.researchInterests, 'Keep this custom draft for opt-out.');
+  const local = prepareRefinement({ applicationId: 'a0000000-0000-4000-8000-000000000001', state: createTestState(), variantId: 'local',
+    setup: { template: effective, language: 'en', maxWords: 450 }, letterText: '', opportunity: {}, scope: 'letter', feedback: [], parentProposalId: null, baselineSignature: refinementSignature('new') });
+  assert.equal(local.request.letter.template.researchInterests, search.researchInterests);
+  assert.equal('useMetaSearchInterests' in local.request.letter.template, false);
+  assert.equal(local.letterBaseline!.setup.template.useMetaSearchInterests, true);
+  assert.equal(captured.professionalContext, '', 'Job and professional-background criteria do not enter the letter');
+});
+
+test('opting out retains custom interests and long shared interests are never truncated', async () => {
+  const { createSearchTemplate } = await import('../src/composables/useSearchTemplates');
+  const source = { ...DEFAULT_LETTER_TEMPLATES[0]!, useMetaSearchInterests: false, researchInterests: 'Custom interests only.' };
+  assert.equal(letterTemplateWithSearchProfile(source, profile), source);
+  const search = createSearchTemplate(); search.researchInterests = 'A'.repeat(12000);
+  const effective = letterTemplateWithSearchProfile({ ...source, useMetaSearchInterests: true }, captureMetaSearchInterests(search));
+  assert.equal(effective.researchInterests, '');
+  assert.ok(effective.structure.endsWith(search.researchInterests));
+  const prepared = prepareRefinement({ applicationId: 'a0000000-0000-4000-8000-000000000001', state: createTestState(), variantId: 'local',
+    setup: { template: effective, language: 'en', maxWords: 450 }, letterText: '', opportunity: {}, scope: 'letter', feedback: [], parentProposalId: null, baselineSignature: refinementSignature('long') });
+  assert.ok(prepared.request.letter.template.structure.endsWith(search.researchInterests));
 });

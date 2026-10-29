@@ -1,13 +1,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { SEARCH_CRITERIA_KEYS } from '../searchTypes';
 import type { SearchCloudSchedule, SearchCloudTemplate, SearchCriteria, SearchTemplate, SearchMetaSearchDocument } from '../searchTypes';
-import { createSearchProfile, readSearchTemplate, searchTemplateContentKey } from './useSearchTemplates';
+import { isSharedSearchTemplate, readSearchTemplate, searchTemplateContentKey } from './useSearchTemplates';
 import { SEARCH_DEADLINE_RULE, buildSearchSystemPrompt, buildSearchUserPrompt, buildRecurringSearchPrompt } from './searchPrompts';
 import type { SearchPromptOptions } from './searchPrompts';
 export { isSearchTemplateSaved } from './searchPrompts';
 export type { SearchCloudTemplate } from '../searchTypes';
 
-const PAYLOAD_MARKER = 'CV Harness meta-search context v1\n';
+const LEGACY_PAYLOAD_MARKER = 'CV Harness meta-search context v1\n';
+const SHARED_PAYLOAD_MARKER = 'CV Harness shared-search intent v2\n';
+export const SEARCH_META_SEARCH_PAYLOAD_MAX_BYTES = 512 * 1024;
 const stable = (value: unknown): string => Array.isArray(value) ? `[${value.map(stable).join(',')}]` : value && typeof value === 'object'
   ? `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stable((value as Record<string, unknown>)[key])}`).join(',')}}` : JSON.stringify(value);
 function matchesPayload(row: SearchCloudTemplate, name: string, criteria: SearchCriteria, schedule: SearchCloudSchedule) {
@@ -19,18 +21,18 @@ function criterion(value: string, label: string) {
 }
 export function searchTemplateCloudCriteria(input: SearchTemplate): SearchCriteria {
   const template = readSearchTemplate(input);
-  const profiles = template.profiles.filter(profile => profile.enabled);
   return {
-    opportunityTypes: profiles.length ? 'Find currently open opportunities matching the shared strategy and at least one enabled professional profile. Apply the explicit opportunity types and hard filters in that strategy.' : 'No professional profiles are enabled. Do not run this search or recommend opportunities.',
-    topicsAndMethods: criterion([template.researchInterests, ...profiles.map(profile => `${profile.name}: ${profile.researchInterests}`)].filter(Boolean).join('\n\n'), 'research interests'),
+    opportunityTypes: criterion(template.opportunityDescription, 'opportunity and job sources'),
+    topicsAndMethods: criterion(template.researchInterests, 'research interests and tasks'),
     locationsAndLanguages: criterion(template.locationPreferences, 'location and language preferences'),
-    fundingAndConditions: SEARCH_DEADLINE_RULE,
-    fitAndExclusions: criterion(PAYLOAD_MARKER + JSON.stringify({ version: 1, professionalContext: template.professionalContext,
-      researchInterests: template.researchInterests, profiles }), 'professional profile context'),
-    sourcesAndQueries: 'Prefer official vacancy listings, institutions/labs, graduate-school rules and linked application pages. Generate focused queries for each enabled professional profile, preserve explicit manual queries and exclusions, and follow the installed immutable query-revision contract.',
-    researchAndReporting: criterion(template.userPrompt, 'user prompt'),
+    fundingAndConditions: criterion(template.fundingConditions, 'salary, funding and conditions'),
+    fitAndExclusions: SHARED_PAYLOAD_MARKER + JSON.stringify({ version: 2, active: true }) + '\n'
+      + 'Semicolons separate entries. Research directions are alternatives; a role may match one or several, without fulfilling them all. Preferred and avoided tasks affect ranking unless explicitly specified as hard exclusions. Interests do not establish qualifications.\n' + SEARCH_DEADLINE_RULE,
+    sourcesAndQueries: 'Use the job-source descriptions in opportunityTypes. Prefer official vacancy listings, institutions/labs, graduate-school rules and linked application pages. Generate focused queries for alternative research directions; preserve explicit manual queries and exclusions and the installed immutable query-revision contract.',
+    researchAndReporting: criterion(template.userPrompt, 'additional instructions'),
   };
 }
+
 export function searchTemplateCloudSchedule(input: SearchTemplate): SearchCloudSchedule {
   const template = readSearchTemplate(input);
   return { frequency: 'daily', intervalHours: 1, weekdays: [], time: template.dailyTime, timezone: template.timezone, runImmediately: true };
@@ -51,22 +53,36 @@ export async function listCloudSearchTemplates(client: SupabaseClient, userId: s
 }
 export function importCloudSearchTemplate(row: SearchCloudTemplate): SearchTemplate {
   if (row.meta_search?.version === 1) {
-    const template = readSearchTemplate({ ...row.meta_search.editor, name: row.name, dailyTime: row.schedule.time, timezone: row.schedule.timezone, cloud: undefined });
-    return { ...template, cloud: { id: row.id, revision: row.revision, contentKey: searchTemplateContentKey(template) } };
+    const editor = row.meta_search.editor;
+    const template = readSearchTemplate({ ...editor, name: row.name, dailyTime: row.schedule.time, timezone: row.schedule.timezone, cloud: undefined });
+    const currentShape = isSharedSearchTemplate(editor) && row.meta_search.active === true && template.active === true;
+    // A converted profile document needs a committed save so the complete prompts
+    // and criteria match its new shared representation before schedule replacement.
+    return { ...template, active: true, cloud: { id: row.id, revision: row.revision, contentKey: currentShape ? searchTemplateContentKey(template) : '' } };
   }
-  let context: { professionalContext: string; researchInterests: string; profiles: SearchTemplate['profiles'] } | null = null;
-  if (row.criteria.fitAndExclusions?.startsWith(PAYLOAD_MARKER)) {
-    const parsed = JSON.parse(row.criteria.fitAndExclusions.slice(PAYLOAD_MARKER.length));
+  let context: Record<string, unknown> | null = null;
+  let sharedActive: boolean | undefined;
+  if (row.criteria.fitAndExclusions?.startsWith(SHARED_PAYLOAD_MARKER)) {
+    const marker = JSON.parse(row.criteria.fitAndExclusions.slice(SHARED_PAYLOAD_MARKER.length).split('\n')[0]!);
+    if (marker.version !== 2 || typeof marker.active !== 'boolean') throw new Error('This saved shared-search intent is unsupported.');
+    sharedActive = marker.active;
+  }
+  if (row.criteria.fitAndExclusions?.startsWith(LEGACY_PAYLOAD_MARKER)) {
+    const parsed = JSON.parse(row.criteria.fitAndExclusions.slice(LEGACY_PAYLOAD_MARKER.length));
     if (parsed.version !== 1) throw new Error('This saved meta-search context version is unsupported.');
     context = parsed;
   }
-  const template = readSearchTemplate({ id: row.id, name: row.name, revision: row.revision, updatedAt: row.updated_at,
-    professionalContext: context?.professionalContext ?? '', researchInterests: context?.researchInterests ?? '', locationPreferences: row.criteria.locationsAndLanguages || '',
-    profiles: context?.profiles ?? [{ ...createSearchProfile('Existing search strategy'), userPrompt: SEARCH_CRITERIA_KEYS.map(key => `${key}:\n${row.criteria[key] || ''}`).join('\n\n') }],
-    userPrompt: context ? row.criteria.researchAndReporting || '' : '', dailyTime: row.schedule.time, timezone: row.schedule.timezone });
-  // Legacy records need one committed save to attach the complete replacement prompt.
-  return { ...template, cloud: { id: row.id, revision: row.revision, contentKey: '' } };
+  const common = { id: row.id, name: row.name, revision: row.revision, updatedAt: row.updated_at,
+    locationPreferences: row.criteria.locationsAndLanguages || '', dailyTime: row.schedule.time, timezone: row.schedule.timezone };
+  const template = context ? readSearchTemplate({ ...common, professionalContext: context.professionalContext ?? '',
+    researchInterests: context.researchInterests ?? '', profiles: context.profiles ?? [], userPrompt: row.criteria.researchAndReporting || '' })
+    : readSearchTemplate({ ...common, active: true,
+      opportunityDescription: ['No professional profiles are enabled. Do not run this search or recommend opportunities.', 'This shared meta search is inactive. Do not run a search or recommend opportunities.'].includes(row.criteria.opportunityTypes) ? '' : row.criteria.opportunityTypes || '', researchInterests: row.criteria.topicsAndMethods || '', fundingConditions: row.criteria.fundingAndConditions || '',
+      userPrompt: [row.criteria.researchAndReporting, row.criteria.sourcesAndQueries, sharedActive === undefined ? row.criteria.fitAndExclusions : row.criteria.fitAndExclusions.slice(SHARED_PAYLOAD_MARKER.length).split('\n').slice(1).join('\n')].filter(Boolean).join('\n\n'),
+      legacySearchArchive: JSON.stringify({ criteria: row.criteria, schedule: row.schedule }) });
+  return { ...template, active: true, cloud: { id: row.id, revision: row.revision, contentKey: '' } };
 }
+
 async function stableCloudId(userId: string, localId: string) {
   const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`cv-search-template-v1:${userId}:${localId}`))).slice(0, 16);
   bytes[6] = (bytes[6]! & 15) | 80; bytes[8] = (bytes[8]! & 63) | 128;
@@ -75,14 +91,15 @@ async function stableCloudId(userId: string, localId: string) {
 }
 /** One atomic save returns the acknowledged row; no preflight/read-back chain. */
 export async function saveSearchTemplate(client: SupabaseClient, userId: string, input: SearchTemplate, options: SearchPromptOptions = {}): Promise<SearchTemplate> {
-  const template = readSearchTemplate(input);
+  const template = readSearchTemplate({ ...input, active: true });
   const criteria = searchTemplateCloudCriteria(template); const schedule = searchTemplateCloudSchedule(template);
   const id = template.cloud?.id || await stableCloudId(userId, template.id);
   const expectedRevision = template.cloud?.revision || 0;
   const bound = { ...template, cloud: { id, revision: Math.max(1, expectedRevision), contentKey: searchTemplateContentKey(template) } };
   const { cloud: _cloud, ...editor } = template;
-  const metaSearch: SearchMetaSearchDocument = { version: 1, active: template.profiles.some(profile => profile.enabled), editor,
+  const metaSearch: SearchMetaSearchDocument = { version: 1, active: template.active, editor,
     systemPrompt: buildSearchSystemPrompt(bound, options), userPrompt: buildSearchUserPrompt(bound, options), recurringPrompt: buildRecurringSearchPrompt(bound, options) };
+  if (new TextEncoder().encode(JSON.stringify({ criteria, schedule, metaSearch })).length > SEARCH_META_SEARCH_PAYLOAD_MAX_BYTES) throw new Error('The complete meta-search snapshot exceeds 512 KiB. Export its backup and shorten the search before saving; the current saved prompt is unchanged.');
   const { data, error } = await client.rpc('save_opportunity_meta_search', { p_id: id, p_expected_revision: expectedRevision,
     p_name: template.name, p_criteria: criteria, p_schedule: schedule, p_meta_search: metaSearch });
   if (error) throw error;

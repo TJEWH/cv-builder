@@ -4,5 +4,13 @@
   <body style="margin:0;background:#07121b">
     <!-- A real 390px browsing context exercises the app's matchMedia and media queries. -->
     <iframe title="Canonical opportunity mobile viewport" src="./job-workspace.html?flow=canonical-data" style="display:block;width:390px;height:844px;border:0;max-width:100%"></iframe>
+    <script>
+      if (new URLSearchParams(location.search).get('flow') === 'meta-research') {
+        document.title = 'Meta research · mobile viewport fixture';
+        const frame = document.querySelector('iframe');
+        frame.title = 'Meta research mobile viewport';
+        frame.src = './job-workspace.html?flow=meta-research';
+      }
+    </script>
   </body>
 </html>

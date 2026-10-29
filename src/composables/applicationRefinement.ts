@@ -77,6 +77,7 @@ export function sanitizeRefinementSetup(value: RefinementSetup, state: CvState):
   const setup = readSetup(value);
   // Template formatting is a local rendering default, not shared writing guidance.
   delete setup.template.formatting;
+  delete setup.template.useMetaSearchInterests;
   setup.template = Object.fromEntries(Object.entries(setup.template).map(([key, entry]) => [key,
     typeof entry === 'string' ? sanitizeRefinementText(entry, state) : entry])) as unknown as RefinementSetup['template'];
   setup.language = sanitizeRefinementText(setup.language, state);

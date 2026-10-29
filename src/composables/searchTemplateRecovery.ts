@@ -14,9 +14,9 @@ export function retainSearchDraft(owner: string, form: SearchTemplate, baseline:
 }
 export function recoverSearchDraft(owner: string): Draft | null {
   const memory = drafts.get(owner);
-  if (memory) return clone(memory);
   try {
-    const raw = sessionStorage.getItem(key(owner));
+    const raw = memory ? null : sessionStorage.getItem(key(owner));
+    if (memory) return { form: readSearchTemplate(memory.form), baseline: memory.baseline === null ? null : readSearchTemplate(memory.baseline) };
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     const draft = { form: readSearchTemplate(parsed.form), baseline: parsed.baseline === null ? null : readSearchTemplate(parsed.baseline) };

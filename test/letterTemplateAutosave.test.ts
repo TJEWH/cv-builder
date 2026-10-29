@@ -7,6 +7,8 @@ import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive, type Component } from 'vue';
 import { createLetterRepository, DEFAULT_LETTER_TEMPLATES, DEFAULT_REFINEMENT_SYSTEM_PROMPT } from '../src/composables/motivationLetters';
 import type { LetterFormatting, LetterTemplate } from '../src/letterTypes';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { createSearchTemplate, createSearchTemplateRepository } from '../src/composables/useSearchTemplates';
 import { useToasts, useToastWatch } from '../src/composables/useToasts';
 import * as textareaCommit from '../src/composables/textareaCommit';
 
@@ -24,6 +26,8 @@ interface Editor {
   form: LetterTemplate; selectedId: string; saveStatus: string; error: string; isImporting: boolean;
   select(id: string): void; create(): void; flushSave(): boolean;
   updateFormatting(value: LetterFormatting | undefined): void;
+  sharedResearchInterests: string; sharedInterestsState: string;
+  reloadSharedResearchInterests(): Promise<void>; updateResearchInterestSource(): void;
   importLibrary(event: Event): Promise<void>;
 }
 
@@ -38,7 +42,7 @@ function importFixture(t: TestContext, templates?: LetterTemplate[]) {
     Object.defineProperty(globalThis, name, { configurable: true, value });
     restoreGlobals.push(() => { if (previous) Object.defineProperty(globalThis, name, previous); else Reflect.deleteProperty(globalThis, name); });
   }
-  const props = reactive({ userId: 'owner', lang: 'en' });
+  const props = reactive({ userId: 'owner', lang: 'en', client: null as SupabaseClient | null });
   let instance: unknown;
   const component = { ...exports.default, render: () => null };
   const app = renderer.createApp({ render: () => h(component, { ...props, ref: (value: unknown) => { instance = value; } }) });
@@ -298,4 +302,83 @@ test('templates autosave edits, flush before navigation, and preserve account ow
     editor.form.tone = 'Saved when the editor closes';
   } finally { app.unmount(); }
   assert.equal(createLetterRepository(storage, 'other').defaultTemplate()?.tone, 'Saved when the editor closes');
+});
+
+test('shared research interests are enabled by default and opting out preserves the custom draft', t => {
+  const { editor, owner } = importFixture(t);
+  assert.equal(editor.form.useMetaSearchInterests, true);
+  editor.form.researchInterests = 'Custom research interests for this letter.';
+  assert.equal(editor.flushSave(), true);
+  editor.form.useMetaSearchInterests = false;
+  assert.equal(editor.flushSave(), true);
+  editor.select('industry'); editor.select('research');
+  assert.equal(editor.form.useMetaSearchInterests, false);
+  assert.equal(editor.form.researchInterests, 'Custom research interests for this letter.');
+  editor.form.useMetaSearchInterests = true; assert.equal(editor.flushSave(), true);
+  assert.equal(owner.defaultTemplate()?.useMetaSearchInterests, true);
+  assert.equal(owner.defaultTemplate()?.researchInterests, 'Custom research interests for this letter.');
+});
+
+function savedSharedSearch(owner: string, interests: string) {
+  const editor = createSearchTemplate(); editor.researchInterests = interests;
+  return { id: '40000000-0000-4000-8000-000000000001', user_id: owner, name: editor.name, revision: 2,
+    created_at: editor.updatedAt, updated_at: editor.updatedAt, criteria: {},
+    schedule: { frequency: 'daily', intervalHours: 1, weekdays: [], time: '09:00', timezone: 'Europe/Tirane', runImmediately: true },
+    meta_search: { version: 1, active: true, editor, systemPrompt: 'System', userPrompt: 'User', recurringPrompt: 'Recurring' } };
+}
+async function settlePreview() { for (let i = 0; i < 8; i++) { await nextTick(); await Promise.resolve(); } }
+
+test('the shared-interest preview reads the saved account source on a fresh device without any cloud writes', async t => {
+  const { editor, props, owner, data } = importFixture(t);
+  const queries: string[] = [];
+  props.client = { from(table: string) {
+    queries.push(table);
+    const builder = { select: () => builder, eq: (_key: string, account: string) => { assert.equal(account, 'owner'); return builder; },
+      order: () => Promise.resolve({ data: [savedSharedSearch('owner', 'Saved cloud acoustics; BCI')], error: null }) };
+    return builder;
+  } } as unknown as SupabaseClient;
+  await settlePreview();
+  assert.equal(editor.sharedResearchInterests, 'Saved cloud acoustics; BCI');
+  assert.equal(editor.sharedInterestsState, 'ready');
+  assert.deepEqual(queries, ['opportunity_search_templates']);
+  assert.equal(data.has('cv.search-templates.v1:owner'), false);
+  editor.form.useMetaSearchInterests = false; assert.equal(editor.flushSave(), true);
+  assert.equal(owner.defaultTemplate()?.useMetaSearchInterests, false);
+});
+
+test('late preview results cannot cross account changes or replace a committed local search', async t => {
+  const { editor, props, data } = importFixture(t);
+  const finishes = new Map<string, (value: unknown) => void>();
+  props.client = { from() {
+    let account = '';
+    const builder = { select: () => builder, eq: (_key: string, value: string) => { account = value; return builder; },
+      order: () => new Promise(resolve => { finishes.set(account, resolve); }) };
+    return builder;
+  } } as unknown as SupabaseClient;
+  await settlePreview(); assert.equal(editor.sharedInterestsState, 'loading');
+  props.userId = 'next-owner'; await settlePreview();
+  finishes.get('owner')!({ data: [savedSharedSearch('owner', 'Old account interests')], error: null });
+  await settlePreview(); assert.equal(editor.sharedResearchInterests, '');
+  const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value); } };
+  const local = createSearchTemplate(); local.researchInterests = 'Newest committed local interests';
+  createSearchTemplateRepository(storage, 'next-owner').saveTemplate(local);
+  finishes.get('next-owner')!({ data: [savedSharedSearch('next-owner', 'Older cloud interests')], error: null });
+  await settlePreview();
+  assert.equal(editor.sharedResearchInterests, 'Newest committed local interests');
+  assert.equal(editor.sharedInterestsState, 'ready');
+});
+
+test('a failed preview read does not block saving the checkbox or custom interests', async t => {
+  const { editor, props, owner } = importFixture(t);
+  props.client = { from() {
+    const builder = { select: () => builder, eq: () => builder, order: () => Promise.resolve({ data: null, error: new Error('Unavailable') }) };
+    return builder;
+  } } as unknown as SupabaseClient;
+  await settlePreview(); assert.equal(editor.sharedInterestsState, 'error');
+  assert.equal(editor.error, '');
+  editor.form.useMetaSearchInterests = false;
+  editor.form.researchInterests = 'My custom robotics interests';
+  assert.equal(editor.flushSave(), true);
+  assert.equal(owner.defaultTemplate()?.researchInterests, 'My custom robotics interests');
+  assert.equal(editor.saveStatus, 'saved');
 });

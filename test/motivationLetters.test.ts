@@ -158,7 +158,7 @@ test('saved built-in templates upgrade their original guidance once and retain p
     closingInstructions: template.closingInstructions, revision: 9, updatedAt: upgraded[0].updatedAt });
   assert.notEqual(upgraded[0].updatedAt, original.updatedAt);
   assert.equal(upgraded[1].structure, DEFAULT_LETTER_TEMPLATES[1].structure);
-  assert.equal(upgraded[1].revision, 3);
+  assert.equal(upgraded[1].revision, DEFAULT_LETTER_TEMPLATES[1]!.revision);
   assert.deepEqual(JSON.parse(storage.getItem(key)!), upgraded);
   const persisted = storage.getItem(key);
   assert.deepEqual(repository.listTemplates(), upgraded);
@@ -259,11 +259,12 @@ test('legacy letters pin the matching current template once without changing tex
   const current = repository.saveTemplate({ ...template, tone: 'Current tone', exampleText: 'Example wording.' });
   repository.save(legacy);
   const loaded = repository.load('app')!;
-  assert.deepEqual(loaded.templateSnapshot, current);
+  const pinned = { ...current }; delete pinned.useMetaSearchInterests;
+  assert.deepEqual(loaded.templateSnapshot, pinned);
   const { templateSnapshot: _snapshot, ...rest } = loaded;
   assert.deepEqual(rest, legacy);
   repository.saveTemplate({ ...current, tone: 'A later tone' });
-  assert.deepEqual(repository.load('app')?.templateSnapshot, current);
+  assert.deepEqual(repository.load('app')?.templateSnapshot, pinned);
   assert.equal(JSON.parse(repository.exportLetter('app')).templateSnapshot.tone, 'Current tone');
 
   const unknown = { ...legacy, applicationId: 'missing-template', templateId: 'removed-template' };
@@ -460,4 +461,18 @@ test('default letter preferences persist per account and resolve the latest save
   assert.equal(first.defaultTemplate()?.id, 'industry');
   storage.setItem('cv.letters.v1:owner:templates', JSON.stringify([DEFAULT_LETTER_TEMPLATES[0]]));
   assert.equal(first.defaultTemplate()?.id, 'research', 'removed defaults fall back to an available template');
+});
+
+test('the shared-interest checkbox validates and migrates only the live library, not frozen snapshots', () => {
+  const current = DEFAULT_LETTER_TEMPLATES[0]!;
+  const legacy = { ...current }; delete legacy.useMetaSearchInterests;
+  assert.equal(readLetterTemplate(legacy).useMetaSearchInterests, undefined);
+  assert.throws(() => readLetterTemplate({ ...legacy, useMetaSearchInterests: 'true' }), /checkbox value/);
+  const values = new Map<string, string>([['cv.letters.v1:owner:templates', JSON.stringify([legacy])]]);
+  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
+  const repository = createLetterRepository(storage, 'owner');
+  const letter = createApplicationLetter('owner', 'app', legacy, { content: 'frozen', theme: 'theme' });
+  repository.save(letter);
+  assert.equal(repository.listTemplates()[0]!.useMetaSearchInterests, true);
+  assert.equal(repository.load('app')!.templateSnapshot!.useMetaSearchInterests, undefined);
 });

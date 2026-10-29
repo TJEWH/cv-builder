@@ -1,6 +1,15 @@
 import type { LetterSearchProfile, LetterTemplate } from '../letterTypes';
+import type { SearchTemplate } from '../searchTypes';
+import { searchTemplateContentKey } from './useSearchTemplates';
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+
+export function captureMetaSearchInterests(template?: SearchTemplate): LetterSearchProfile | undefined {
+  if (!template) return undefined;
+  const revision = template.cloud?.contentKey === searchTemplateContentKey(template) ? template.cloud.revision : template.revision;
+  return { templateId: template.id, templateName: template.name, revision,
+    capturedAt: new Date().toISOString(), professionalContext: '', researchInterests: template.researchInterests };
+}
 
 export function readLetterSearchProfile(value: unknown): LetterSearchProfile {
   if (!object(value) || ['templateId', 'templateName', 'capturedAt', 'professionalContext', 'researchInterests'].some(key => typeof value[key] !== 'string')
@@ -21,6 +30,21 @@ export function readLetterSearchProfile(value: unknown): LetterSearchProfile {
 
 /** Use existing shared-template fields so publication retains its established schema and privacy filtering. */
 export function letterTemplateWithSearchProfile(template: LetterTemplate, profile?: LetterSearchProfile): LetterTemplate {
+  if (template.useMetaSearchInterests === false) return template;
+  if (template.useMetaSearchInterests === true) {
+    const interests = profile ? readLetterSearchProfile(profile).researchInterests : '';
+    // The shared search permits longer context than the existing refinement
+    // researchInterests field. Preserve it in the established structure field
+    // when necessary, without changing the server contract or truncating it.
+    if (interests.length <= 4000) {
+      const structure = interests.trim() ? `${template.structure}\n\nUse the shared research interests selectively: alternative directions need not all fit this opportunity. Preferred tasks and methods express aspirations, not qualifications. Avoided tasks are search filters, not wording to copy into the motivation letter.` : template.structure;
+      if (structure.length > 20000) throw new Error('The letter structure exceeds the 20,000-character refinement limit. Shorten it before selecting shared interests.');
+      return { ...template, researchInterests: interests, structure };
+    }
+    const structure = `${template.structure}\n\nShared meta-search research interests (applicant-stated aspirations, not evidence of qualifications):\nSelect only the directions relevant to this opportunity; the letter need not cover every interest, method or task. Avoided tasks are search filters, not wording to copy into the motivation letter.\n\n${interests}`;
+    if (structure.length > 20000) throw new Error('The letter template and shared research interests exceed the 20,000-character refinement limit. Shorten the meta search or letter structure before selecting it again.');
+    return { ...template, researchInterests: '', structure };
+  }
   if (!profile) return template;
   const context = readLetterSearchProfile(profile);
   const blocks = [

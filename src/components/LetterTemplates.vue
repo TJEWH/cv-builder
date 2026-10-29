@@ -12,8 +12,11 @@ import AutosaveTextarea from './AutosaveTextarea.vue';
 import { commitPendingTextareas } from '../composables/textareaCommit';
 import LetterFormattingControls from './LetterFormattingControls.vue';
 import { useDesktopSidebar } from '../composables/desktopSidebar';
+import { createSearchTemplateRepository, SEARCH_TEMPLATES_UPDATED_EVENT } from '../composables/useSearchTemplates';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { importCloudSearchTemplate, listCloudSearchTemplates } from '../composables/searchTemplateCloud';
 
-const props = withDefaults(defineProps<{ userId: string; lang?: string; sidebarActive?: boolean }>(), { sidebarActive: true });
+const props = withDefaults(defineProps<{ userId: string; lang?: string; sidebarActive?: boolean; client?: SupabaseClient | null }>(), { sidebarActive: true });
 const desktopSidebar = useDesktopSidebar();
 const sidebarControlsVisible = computed(() => desktopSidebar.value && props.sidebarActive);
 const emit = defineEmits<{ changed: [] }>();
@@ -23,6 +26,8 @@ const defaultId = ref('');
 const defaultTemplateName = computed(() => templates.value.find(template => template.id === defaultId.value)?.name || '');
 const controlsId = useId();
 const form = ref<LetterTemplate | null>(null);
+const sharedResearchInterests = ref('');
+const sharedInterestsState = ref<'loading' | 'ready' | 'empty' | 'error'>('empty');
 const message = ref('');
 const error = ref('');
 const validationError = ref('');
@@ -31,6 +36,8 @@ const isImporting = ref(false);
 const saveStatus = ref<'saved' | 'unsaved' | 'saving' | 'error'>('saved');
 let editingOwner = props.userId;
 let importGeneration = 0;
+let sharedInterestsGeneration = 0;
+let sharedInterestsRead: { owner: string; generation: number; promise: Promise<void> } | null = null;
 let disposed = false;
 let replacingForm = false;
 let dirty = false;
@@ -44,6 +51,42 @@ const announceSaved = debounce(() => {
 }, 1500);
 const applicantNamePlaceholder = '{{APPLICANT_NAME}}';
 const repository = () => createLetterRepository(localStorage, editingOwner);
+async function reloadSharedResearchInterests() {
+  const owner = editingOwner;
+  if (form.value?.useMetaSearchInterests === false) return;
+  const localKey = `cv.search-templates.v1:${encodeURIComponent(owner || 'local')}`;
+  try {
+    if (localStorage.getItem(localKey) !== null) {
+      sharedInterestsGeneration++;
+      sharedResearchInterests.value = createSearchTemplateRepository(localStorage, owner).listTemplates()[0]?.researchInterests || '';
+      sharedInterestsState.value = sharedResearchInterests.value ? 'ready' : 'empty';
+      return;
+    }
+    if (!props.client || owner === 'local') { sharedResearchInterests.value = ''; sharedInterestsState.value = 'empty'; return; }
+    if (sharedInterestsRead?.owner === owner) return sharedInterestsRead.promise;
+    const client = props.client;
+    const token = ++sharedInterestsGeneration;
+    sharedResearchInterests.value = ''; sharedInterestsState.value = 'loading';
+    const current = () => !disposed && editingOwner === owner && token === sharedInterestsGeneration;
+    const promise: Promise<void> = (async () => {
+      try {
+        const rows = await listCloudSearchTemplates(client, owner);
+        if (!current()) return;
+        // A local commit made during this read wins over the older remote copy.
+        if (localStorage.getItem(localKey) !== null) { await reloadSharedResearchInterests(); return; }
+        const row = rows.find(item => item.meta_search?.version === 1) || rows[0];
+        sharedResearchInterests.value = row ? importCloudSearchTemplate(row).researchInterests : '';
+        sharedInterestsState.value = sharedResearchInterests.value ? 'ready' : 'empty';
+      } catch { if (current()) sharedInterestsState.value = 'error'; }
+      finally { if (sharedInterestsRead?.generation === token) sharedInterestsRead = null; }
+    })();
+    sharedInterestsRead = { owner, generation: token, promise };
+    await promise;
+  } catch { sharedInterestsState.value = 'error'; }
+}
+function updateResearchInterestSource() {
+  if (flushSave() && form.value?.useMetaSearchInterests) void reloadSharedResearchInterests();
+}
 function select(id: string) {
   if (!flushSave()) return;
   try { templates.value = repository().listTemplates(); }
@@ -54,6 +97,7 @@ function select(id: string) {
   if (form.value && form.value.questionGuidance === undefined) form.value.questionGuidance = DEFAULT_QUESTION_GUIDANCE;
   if (form.value && form.value.refinementSystemPrompt === undefined) form.value.refinementSystemPrompt = DEFAULT_REFINEMENT_SYSTEM_PROMPT;
   save();
+  void reloadSharedResearchInterests();
 }
 function selectFromInput(event: Event) {
   const input = event.target as HTMLSelectElement;
@@ -131,6 +175,7 @@ watch(form, () => {
   dirty = true; saveStatus.value = 'unsaved'; message.value = '';
 }, { deep: true, flush: 'sync' });
 watch(() => props.userId, (id) => {
+  sharedInterestsGeneration++; sharedInterestsRead = null; sharedResearchInterests.value = ''; sharedInterestsState.value = 'empty';
   importGeneration++; isImporting.value = false;
   const saved = flushSave();
   announceSaved.cancel();
@@ -139,8 +184,9 @@ watch(() => props.userId, (id) => {
   if (saved) { error.value = ''; saveStatus.value = 'saved'; }
   reload();
 }, { immediate: true });
-onMounted(() => window.addEventListener('pagehide', flushSave));
-onBeforeUnmount(() => { disposed = true; importGeneration++; flushSave(); announceSaved.cancel(); window.removeEventListener('pagehide', flushSave); });
+watch(() => props.client, () => { void reloadSharedResearchInterests(); });
+onMounted(() => { window.addEventListener('pagehide', flushSave); window.addEventListener(SEARCH_TEMPLATES_UPDATED_EVENT, reloadSharedResearchInterests); window.addEventListener('focus', reloadSharedResearchInterests); });
+onBeforeUnmount(() => { disposed = true; sharedInterestsGeneration++; importGeneration++; flushSave(); announceSaved.cancel(); window.removeEventListener('pagehide', flushSave); window.removeEventListener(SEARCH_TEMPLATES_UPDATED_EVENT, reloadSharedResearchInterests); window.removeEventListener('focus', reloadSharedResearchInterests); });
 function download() {
   if (!flushSave()) return;
   try {
@@ -211,7 +257,12 @@ async function importLibrary(event: Event) {
           <summary><FontAwesomeIcon :icon="faAlignLeft" aria-hidden="true" /><span>{{ text('Main text', 'Haupttext') }}</span><FontAwesomeIcon class="template-chevron" :icon="faChevronDown" aria-hidden="true" /></summary>
           <div class="template-section-fields">
             <div class="template-field"><div class="hint-label-row"><label :for="`${controlsId}-structure`">{{ text('Structure and sections', 'Struktur und Abschnitte') }}</label><InfoHint :id="`${controlsId}-structure-help`" :lang="lang" :label="text('Structure and sections', 'Struktur und Abschnitte')" :text="text('Instructions for ChatGPT on paragraph order, section content and the letter’s narrative flow.', 'Anweisungen für ChatGPT zu Absatzreihenfolge, Abschnittsinhalten und dem roten Faden des Briefs.')" /></div><AutosaveTextarea @commit="flushSave" :id="`${controlsId}-structure`" v-model.lazy="form.structure" :aria-describedby="`${controlsId}-structure-help`" rows="8" required maxlength="16000" /></div>
-            <div class="template-field"><div class="hint-label-row"><label :for="`${controlsId}-research-interests`">{{ text('Main research interests (optional)', 'Zentrale Forschungsinteressen (optional)') }}</label><InfoHint :id="`${controlsId}-research-interests-help`" :lang="lang" :label="text('Main research interests (optional)', 'Zentrale Forschungsinteressen (optional)')" :text="text('Describe the research topics and questions that genuinely interest you, including interests not yet reflected in your CV. They enrich the motivation alongside your experience and the opportunity. Use the relevant interests selectively; the letter need not cover them all. Interests do not establish prior experience or qualifications.', 'Beschreiben Sie Forschungsthemen und Fragestellungen, die Sie wirklich interessieren, auch wenn sie noch nicht im Lebenslauf erscheinen. Sie ergänzen Ihre Erfahrungen und die Ausschreibung als Grundlage der Motivation. Relevante Interessen werden gezielt ausgewählt; der Brief muss nicht alle abdecken. Interessen sind kein Nachweis für Vorerfahrung oder Qualifikationen.')" /></div><AutosaveTextarea @commit="flushSave" :id="`${controlsId}-research-interests`" v-model.lazy="form.researchInterests" :aria-describedby="`${controlsId}-research-interests-help`" rows="5" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" /></div>
+            <div class="template-field">
+              <div class="hint-label-row"><label :for="form.useMetaSearchInterests ? undefined : `${controlsId}-research-interests`">{{ text('Research interests', 'Forschungsinteressen') }}</label><InfoHint :id="`${controlsId}-research-interests-help`" :lang="lang" :label="text('Research interests', 'Forschungsinteressen')" :text="text('Use the shared meta-search interests by default, or turn this off to write interests for this letter template. New applications keep a copy of the selected interests. Use relevant research directions selectively; interests and preferred tasks are aspirations, not proof of experience. Avoided tasks are search preferences, not wording to copy into a letter.', 'Standardmäßig werden die gemeinsamen Forschungsinteressen der Metasuche verwendet. Ausschalten, um eigene Interessen für diese Briefvorlage zu schreiben. Neue Bewerbungen behalten eine Kopie der gewählten Interessen. Relevante Forschungsrichtungen gezielt auswählen: Interessen und bevorzugte Aufgaben sind Ziele, keine Erfahrungsnachweise. Zu vermeidende Aufgaben sind Suchpräferenzen, kein Text für den Brief.')" /></div>
+              <label class="template-checkbox"><input v-model="form.useMetaSearchInterests" type="checkbox" @change="updateResearchInterestSource" /><span>{{ text('Use research interests from meta search', 'Forschungsinteressen aus der Metasuche verwenden') }}</span></label>
+              <button v-if="form.useMetaSearchInterests && sharedInterestsState === 'error'" type="button" @click="reloadSharedResearchInterests">{{ text('Retry loading shared interests', 'Gemeinsame Interessen erneut laden') }}</button>
+              <AutosaveTextarea v-if="!form.useMetaSearchInterests" @commit="flushSave" :id="`${controlsId}-research-interests`" v-model.lazy="form.researchInterests" :aria-describedby="`${controlsId}-research-interests-help`" rows="5" :maxlength="LETTER_TEMPLATE_CONTEXT_MAX_LENGTH" />
+            </div>
           </div>
         </details>
         <details class="template-section">
@@ -292,4 +343,6 @@ textarea{resize:vertical}
 .template-hint{font-size:12px}
 @media(max-width:760px){.letter-templates{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}.template-layout{display:flex;flex:0 0 auto;flex-direction:column;overflow:visible;gap:24px}.template-heading{flex-direction:column;gap:10px;margin-bottom:14px}.template-form-row{grid-template-columns:1fr}.template-form{overflow:visible;max-width:none}}
 @media(max-width:760px){.letter-templates :is(input,select,textarea),.template-library-controls :is(input,select){font-size:16px}.letter-templates button,.template-library-controls button{min-height:44px}}
+.template-form .template-checkbox { display:flex; align-items:center; justify-content:flex-start; gap:8px; min-height:44px; font-weight:400; }
+.template-form .template-checkbox input { width:16px; height:16px; min-width:16px; margin:0; padding:0; flex:0 0 16px; }
 </style>

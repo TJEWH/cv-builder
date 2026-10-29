@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive, type Component } from 'vue';
-import { createSearchProfile, createSearchTemplateRepository, DEFAULT_SEARCH_TEMPLATES, searchTemplateContentKey } from '../src/composables/useSearchTemplates';
+import { createSearchTemplateRepository, DEFAULT_SEARCH_TEMPLATES, searchTemplateContentKey } from '../src/composables/useSearchTemplates';
 import { importCloudSearchTemplate, searchTemplateCloudCriteria, searchTemplateCloudSchedule } from '../src/composables/searchTemplateCloud';
 import { isSearchTemplateSaved } from '../src/composables/searchPrompts';
 import type { SearchCloudTemplate, SearchTemplate } from '../src/searchTypes';
@@ -13,8 +13,7 @@ import * as textareaCommit from '../src/composables/textareaCommit';
 import { clearSearchDraft, recoverSearchDraft, retainSearchDraft } from '../src/composables/searchTemplateRecovery';
 
 interface Editor {
-  form: SearchTemplate; profileId: string; status: string; error: string; copiedFallback: string; loadingCloud: boolean;
-  selectProfile(id: string): Promise<void>; addProfile(): Promise<void>; removeProfile(): Promise<void>;
+  form: SearchTemplate; status: string; error: string; copiedFallback: string; loadingCloud: boolean;
   flushSave(): Promise<boolean>; flushTextareas(): Promise<boolean>; copy(): Promise<void>; retrySave(): Promise<unknown>;
   onDraftInput(): void;
 }
@@ -39,7 +38,7 @@ async function settle() { for (let i = 0; i < 12; i++) await nextTick(); }
 function cloudRow(template: SearchTemplate, revision = 3): SearchCloudTemplate {
   return { id: cloudId, user_id: ownerId, name: template.name, revision, criteria: searchTemplateCloudCriteria(template), schedule: searchTemplateCloudSchedule(template),
     created_at: template.updatedAt, updated_at: template.updatedAt,
-    meta_search: { version: 1, active: true, editor: clone(template), systemPrompt: 'System', userPrompt: 'User', recurringPrompt: 'Recurring' } };
+    meta_search: { version: 1, active: template.active, editor: clone(template), systemPrompt: 'System', userPrompt: 'User', recurringPrompt: 'Recurring' } };
 }
 async function fixture(t: TestContext, options: { linked?: boolean; readGate?: ReturnType<typeof gate>; rows?: SearchCloudTemplate[]; emptyLocal?: boolean } = {}) {
   const data = new Map<string, string>(); const recoveryData = new Map<string, string>();
@@ -58,7 +57,7 @@ async function fixture(t: TestContext, options: { linked?: boolean; readGate?: R
     restoreGlobals.push(() => { if (previous) Object.defineProperty(globalThis, name, previous); else Reflect.deleteProperty(globalThis, name); });
   }
   const owner = createSearchTemplateRepository(storage, ownerId);
-  const initial = owner.listTemplates()[0]!; initial.profiles.push(createSearchProfile('Second profile'));
+  const initial = owner.listTemplates()[0]!;
   const rows = options.rows || (options.linked ? [cloudRow(initial)] : []);
   if (options.linked) initial.cloud = { id: cloudId, revision: 3, contentKey: searchTemplateContentKey(initial) };
   if (!options.emptyLocal) owner.saveTemplate(initial);
@@ -154,14 +153,14 @@ test('navigation and copying await committed drafts; the clipboard receives only
   const { editor, saves, copied, holdSave } = await fixture(t); const hold = holdSave();
   let dirtyTextarea = true;
   const unregister = textareaCommit.registerTextareaCommit(() => {
-    if (!dirtyTextarea) return; dirtyTextarea = false; editor.form.professionalContext = 'Final pending background';
+    if (!dirtyTextarea) return; dirtyTextarea = false; editor.form.researchInterests = 'BCI; acoustics; preferred: hardware evaluation; avoid: routine administration';
   });
   try {
     let settled = false; const copying = editor.copy().then(() => { settled = true; }); await settle();
     assert.equal(settled, false); assert.equal(copied.length, 0);
     hold.release(); await copying;
-    assert.equal(saves[0]!.professionalContext, 'Final pending background');
-    assert.equal(copied.length, 1); assert.ok(copied[0]!.includes(cloudId)); assert.ok(!copied[0]!.includes('Final pending background'));
+    assert.equal(saves[0]!.researchInterests, 'BCI; acoustics; preferred: hardware evaluation; avoid: routine administration');
+    assert.equal(copied.length, 1); assert.ok(copied[0]!.includes(cloudId)); assert.ok(!copied[0]!.includes('hardware evaluation'));
   } finally { unregister(); }
 });
 
@@ -173,12 +172,11 @@ test('a newer uncommitted textarea input prevents pending navigation and clipboa
   assert.equal(copied.length, 0); assert.equal(editor.status, 'unsaved');
 });
 
-test('save failures retain the draft and block profile navigation and copying; retry uses no read chain', async t => {
+test('save failures retain the draft and block navigation and copying; retry uses no read chain', async t => {
   const { editor, saves, reads, copied, failCloud } = await fixture(t);
-  const profileId = editor.profileId; const next = editor.form.profiles.find(profile => profile.id !== profileId)!.id;
   editor.form.userPrompt = 'Important draft'; failCloud(true);
   assert.equal(await editor.flushSave(), false); assert.equal(editor.status, 'error');
-  await editor.selectProfile(next); assert.equal(editor.profileId, profileId);
+  assert.equal(await editor.flushTextareas(), false);
   await editor.copy(); assert.equal(copied.length, 0);
   failCloud(false); assert.equal(await editor.retrySave(), true, editor.error);
   assert.equal(reads.length, 1); assert.equal(editor.status, 'saved');
@@ -187,10 +185,10 @@ test('save failures retain the draft and block profile navigation and copying; r
 
 test('local failures retain the editor without sending a cloud save', async t => {
   const { editor, saves, failWrites } = await fixture(t);
-  editor.form.professionalContext = 'Private draft'; failWrites(true);
+  editor.form.fundingConditions = 'Funded contract; start in early 2027'; failWrites(true);
   assert.equal(await editor.flushTextareas(), false);
   assert.equal(saves.length, 0); assert.match(editor.error, /Storage full/);
-  assert.equal(recoverSearchDraft(ownerId)?.form.professionalContext, 'Private draft');
+  assert.equal(recoverSearchDraft(ownerId)?.form.fundingConditions, 'Funded contract; start in early 2027');
   failWrites(false); assert.equal(await editor.flushSave(), true);
 });
 
@@ -212,11 +210,36 @@ test('initial cloud hydration preserves edits entered while the initial read was
   assert.equal(saves[0]!.cloud?.id, cloudId); assert.equal(saves[0]!.cloud?.revision, 7);
 });
 
-test('profile switching waits for autosave and disabled profiles remain part of the saved editor', async t => {
+test('all shared profile fields save as one always-active committed snapshot', async t => {
   const { editor, saves } = await fixture(t);
-  const next = editor.form.profiles.find(profile => profile.id !== editor.profileId)!.id;
-  editor.form.profiles[0]!.enabled = false;
-  await editor.selectProfile(next);
-  assert.equal(editor.profileId, next, editor.error); assert.equal(saves[0]!.profiles[0]!.enabled, false);
+  editor.form.opportunityDescription = 'Funded PhD; applied research; official university job pages';
+  editor.form.researchInterests = 'BCI; robot audition; preferred: prototyping; avoid: routine support';
+  editor.form.fundingConditions = 'Salaried contract; full funding; start in early 2027';
+  assert.equal(await editor.flushSave(), true, editor.error);
+  assert.equal(saves.length, 1);
+  assert.equal(saves[0]!.active, true);
+  for (const key of ['opportunityDescription', 'researchInterests', 'fundingConditions'] as const) assert.equal(saves[0]![key], editor.form[key]);
   assert.equal(editor.status, 'saved');
+});
+
+test('retrying a failed snapshot precedes a newer committed draft without losing either revision', async t => {
+  const { editor, saves, reads, failCloud } = await fixture(t);
+  editor.form.researchInterests = 'Acoustics; signal processing';
+  failCloud(true); assert.equal(await editor.flushSave(), false);
+  editor.form.researchInterests = 'Acoustics; signal processing; BCI';
+  failCloud(false); assert.equal(await editor.flushSave(), true, editor.error);
+  assert.deepEqual(saves.map(value => value.researchInterests), ['Acoustics; signal processing', 'Acoustics; signal processing', 'Acoustics; signal processing; BCI']);
+  assert.equal(saves.at(-1)!.cloud?.revision, 1);
+  assert.equal(editor.form.cloud?.revision, 2);
+  assert.equal(reads.length, 1);
+});
+
+test('the shared profile exposes committed textareas without language postfixes or multi-profile controls', () => {
+  const template = parse(readFileSync(filename, 'utf8')).descriptor.template!.content;
+  for (const key of ['opportunityDescription', 'researchInterests', 'fundingConditions']) {
+    const textarea = template.match(new RegExp(`<AutosaveTextarea[^>]*v-model\\.lazy="form\\.${key}"[^>]*>`))?.[0];
+    assert.ok(textarea, key);
+    assert.match(textarea, /@commit="flushSave"/, `${key} must save on Enter as well as blur`);
+  }
+  assert.doesNotMatch(template, /· English|Shared professional context|Professional background and goals|form\.profiles|addProfile|removeProfile|selectProfile|Include in daily search|form\.active/);
 });

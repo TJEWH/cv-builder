@@ -835,7 +835,7 @@ function selectBuilderGroup(group: string) {
               :lang="lang"
             />
           </Transition>
-          <LetterTemplates v-show="activeBuilderGroup === 'templates'" class="builder-group-panel studio-templates" :user-id="cloudUser?.id || 'local'" :lang="lang" :sidebar-active="!isCloudTab && activeBuilderGroup === 'templates'" />
+          <LetterTemplates v-show="activeBuilderGroup === 'templates'" class="builder-group-panel studio-templates" :client="supabaseClient" :user-id="cloudUser?.id || 'local'" :lang="lang" :sidebar-active="!isCloudTab && activeBuilderGroup === 'templates'" />
           <LocalAttachments v-show="activeBuilderGroup === 'attachments'" class="builder-group-panel studio-attachments" :user-id="cloudUser?.id || ''" :client="supabaseClient" :lang="lang" :active="!isCloudTab && activeBuilderGroup === 'attachments'" :sidebar-active="!isCloudTab && activeBuilderGroup === 'attachments'" />
         </div>
 

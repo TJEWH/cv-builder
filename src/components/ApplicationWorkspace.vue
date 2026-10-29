@@ -44,8 +44,9 @@ import { commitPendingTextareas } from '../composables/textareaCommit';
 import { copyPreparedText } from '../composables/preparedClipboard';
 import type { SearchTemplate } from '../searchTypes';
 import { createSearchTemplateRepository } from '../composables/useSearchTemplates';
-import { searchProfileLetterContext } from '../composables/searchPrompts';
-import { letterTemplateWithSearchProfile } from '../composables/searchLetterContext';
+import { isSearchTemplateSaved } from '../composables/searchPrompts';
+import { importCloudSearchTemplate, listCloudSearchTemplates } from '../composables/searchTemplateCloud';
+import { captureMetaSearchInterests, letterTemplateWithSearchProfile } from '../composables/searchLetterContext';
 
 const props = withDefaults(defineProps<{
   projectId?: string; active?: boolean; checklistSaving?: boolean;
@@ -73,6 +74,7 @@ const record = ref<ApplicationCvRecord | null>(null);
 const letter = ref<ApplicationLetter | null>(null);
 const templates = ref<LetterTemplate[]>([]);
 const searchTemplates = ref<SearchTemplate[]>([]);
+const loadingSharedInterests = ref(false);
 const approvals = ref<RefinementApprovals>({ cv: null, letter: null });
 const variantName = ref('');
 const savedVariant = ref<{ id: string; name: string; revision: string; previousIds?: string[] } | null>(null);
@@ -213,6 +215,10 @@ let loadingCloud: Promise<void> | null = null;
 let localReadError = '';
 let committingSelection = false;
 let refreshSnapshotsOnOpen = false;
+let createdLetterOnOpen = false;
+let initialLetterDraftEdited = false;
+let sharedSearchHydrated = false;
+let sharedSearchRead: Promise<void> | null = null;
 const explicitHistorySelections = new Set<string>();
 
 try {
@@ -220,6 +226,7 @@ try {
   // Keep the saved copy until current refinement history confirms it can be refreshed.
   if (record.value) { record.value.detached = true; saveApplicationCv(record.value); }
   templates.value = letterRepository.listTemplates();
+  reloadSearchTemplates();
   letter.value = letterRepository.load(props.application.id);
   const stored = localStorage.getItem(storageKey);
   if (stored) {
@@ -269,8 +276,12 @@ try {
   if (!letter.value && !record.value && !stored && !props.application.cv_variant_id) {
     const template = letterRepository.defaultTemplate();
     if (template) {
-      const initialContext = letterContextVersion(props.application, null, template, template.language, '', template.maxWords);
-      letter.value = letterRepository.save(createApplicationLetter(props.userId, props.application.id, template, initialContext, template.language));
+      const interests = template.useMetaSearchInterests === true ? captureMetaSearchInterests(searchTemplates.value[0]) : undefined;
+      const initialContext = letterContextVersion(props.application, null, letterTemplateWithSearchProfile(template, interests), template.language, '', template.maxWords);
+      const initial = createApplicationLetter(props.userId, props.application.id, template, initialContext, template.language);
+      if (interests) initial.searchProfile = interests;
+      letter.value = letterRepository.save(initial);
+      createdLetterOnOpen = true;
     }
   }
   const previous = sessionStorage.getItem(navigationKey);
@@ -284,18 +295,6 @@ const selectedCvId = computed(() => record.value?.variantId || record.value?.bas
 const preparationVariants = computed(() => props.configurations.filter(isMainCvVariant));
 const selectedTemplate = computed(() => letter.value?.templateSnapshot || templates.value.find(item => item.id === letter.value?.templateId) || DEFAULT_LETTER_TEMPLATES[0]!);
 const effectiveLetterTemplate = computed(() => letterTemplateWithSearchProfile(selectedTemplate.value, letter.value?.searchProfile));
-const searchProfileOptions = computed(() => searchTemplates.value.flatMap(template => [
-  { id: JSON.stringify([template.id]), name: template.name + ' · ' + text('Shared context', 'Gemeinsamer Kontext'), template, profileId: undefined as string | undefined },
-  ...template.profiles.map(profile => ({
-    id: JSON.stringify([template.id, profile.id]), name: template.name + ' · ' + profile.name, template, profileId: profile.id as string | undefined,
-  })),
-]));
-const selectedSearchProfileId = computed(() => {
-  const snapshot = letter.value?.searchProfile;
-  if (!snapshot) return '';
-  return searchProfileOptions.value.find(option => option.template.id === snapshot.templateId && option.profileId === snapshot.profileId
-    && option.template.revision === snapshot.revision)?.id || 'saved';
-});
 const effectiveLetterFormatting = computed(() => resolveLetterFormatting(letter.value?.formatting, selectedTemplate.value.formatting));
 const missingLetterTemplate = computed(() => !!letter.value && !letter.value.templateSnapshot);
 const selectedTemplateId = computed(() => {
@@ -761,7 +760,46 @@ function refreshOnFocus() {
 watch(() => props.active, active => { if (active) void syncRefinement(true); });
 watch(tab, stage => { if (stage === 'refinement') refreshOnFocus(); });
 function reloadTemplates() { try { templates.value = letterRepository.listTemplates(); } catch (cause) { report(cause); } }
-function reloadSearchTemplates() { try { searchTemplates.value = searchRepository.listTemplates(); } catch (cause) { report(cause); } }
+function reloadSearchTemplates() {
+  try {
+    const raw = localStorage.getItem(`cv.search-templates.v1:${encodeURIComponent(props.userId || 'local')}`);
+    if (raw !== null) searchTemplates.value = searchRepository.listTemplates();
+    else if (!sharedSearchHydrated) searchTemplates.value = [];
+  } catch (cause) { report(cause); }
+}
+async function ensureSharedInterestsLoaded(force = false) {
+  reloadSearchTemplates();
+  const localKey = `cv.search-templates.v1:${encodeURIComponent(props.userId || 'local')}`;
+  const localRaw = localStorage.getItem(localKey);
+  const local = searchTemplates.value[0];
+  // Local committed edits can be ahead of the server; never replace that draft.
+  if (!props.client || localRaw !== null && (!force || !local || !isSearchTemplateSaved(local)) || sharedSearchHydrated && !force) return;
+  if (!sharedSearchRead) {
+    const owner = props.userId;
+    const client = props.client;
+    loadingSharedInterests.value = true;
+    sharedSearchRead = (async () => {
+      const rows = await listCloudSearchTemplates(client, owner);
+      if (disposed || owner !== props.userId) return;
+      if (localStorage.getItem(localKey) !== localRaw) { reloadSearchTemplates(); return; }
+      const row = local?.cloud ? rows.find(item => item.id === local.cloud!.id) : rows.find(item => item.meta_search?.version === 1) || rows[0];
+      searchTemplates.value = row ? [importCloudSearchTemplate(row)] : [];
+      sharedSearchHydrated = true;
+    })().finally(() => { sharedSearchRead = null; if (!disposed) loadingSharedInterests.value = false; });
+  }
+  await sharedSearchRead;
+}
+function markInitialLetterDraftInput() { initialLetterDraftEdited = true; }
+function captureInitialSharedInterests(allowWorkingDraft = false) {
+  if (!createdLetterOnOpen || !letter.value || letter.value.searchProfile || letter.value.templateSnapshot?.useMetaSearchInterests !== true
+    || letterApproved.value || letter.value.finalRevisionId || !allowWorkingDraft && (initialLetterDraftEdited || !serializeRefinementDraft(letter.value.working).empty || !!letter.value.instructions.trim())
+    || requests.value.some(row => matchesScope(row, 'letter'))) return;
+  const snapshot = captureMetaSearchInterests(searchTemplates.value[0]);
+  if (!snapshot) return;
+  const next = { ...clone(letter.value), searchProfile: snapshot };
+  if (!initialLetterDraftEdited && serializeRefinementDraft(next.working).empty && !next.instructions.trim()) next.workingContext = letterContextVersion(props.application, letterCvState.value, letterTemplateWithSearchProfile(next.templateSnapshot!, snapshot), next.language, next.instructions, next.maxWords, next.formatting);
+  letter.value = next; persist(); createdLetterOnOpen = false;
+}
 onMounted(() => {
   if (!props.application.workflow_stage) emit('change-stage', tab.value);
   void syncRefinement(true);
@@ -787,6 +825,8 @@ async function saveSetup() {
   if (!record.value || !letter.value) throw new Error(text('Select both templates first.', 'Zuerst beide Vorlagen auswählen.'));
   if (missingLetterTemplate.value) throw new Error(text('The original letter template is unavailable. Select a template in Preparation. Your existing letter is preserved.', 'Die ursprüngliche Briefvorlage ist nicht verfügbar. In Vorbereitung eine Vorlage auswählen. Der bestehende Brief bleibt erhalten.'));
   if (!cloudLoaded.value) await refreshCloud();
+  if (createdLetterOnOpen && selectedTemplate.value.useMetaSearchInterests === true && !letter.value.searchProfile) await ensureSharedInterestsLoaded();
+  captureInitialSharedInterests(true);
   const signature = baselineSignature.value;
   await publishCurrentCv();
   const safeSetup = sanitizeRefinementSetup(setup.value, record.value.state);
@@ -820,43 +860,40 @@ async function selectLetterTemplate(id: string) {
   await run(async () => {
     await refreshCloud();
     if (disposed || letterSelectionLocked.value) return;
-    letterTemplateWithSearchProfile(template, letter.value?.searchProfile);
-    if (letter.value) letter.value = selectApplicationLetterTemplate(letter.value, template);
-    else letter.value = createApplicationLetter(props.userId, props.application.id, template, context.value, template.language);
+    if (template.useMetaSearchInterests !== false) await ensureSharedInterestsLoaded(true);
+    if (disposed || letterSelectionLocked.value) return;
+    const snapshot = template.useMetaSearchInterests !== false ? captureMetaSearchInterests(searchTemplates.value[0]) : undefined;
+    const selected = { ...template, useMetaSearchInterests: template.useMetaSearchInterests !== false };
+    const effective = letterTemplateWithSearchProfile(selected, snapshot);
+    const initialContext = letterContextVersion(props.application, letterCvState.value, effective, selected.language, '', selected.maxWords);
+    const next = letter.value ? selectApplicationLetterTemplate(letter.value, selected)
+      : createApplicationLetter(props.userId, props.application.id, selected, initialContext, selected.language);
+    if (snapshot) next.searchProfile = snapshot; else delete next.searchProfile;
+    letter.value = next;
+    createdLetterOnOpen = false;
     approvals.value.letter = null; persist();
     if (record.value) await saveSetup();
     notice.value = text('Letter template selected for this application.', 'Briefvorlage für diese Bewerbung ausgewählt.');
   });
 }
-async function selectSearchProfile(id: string) {
-  if (!letter.value || missingLetterTemplate.value || preparationBusy.value || letterSelectionLocked.value || letterApproved.value || reviewActive.value || !await flushTextareas()) return;
-  const option = searchProfileOptions.value.find(item => item.id === id);
-  if (id && !option) return;
+async function refreshSharedResearchInterests() {
+  if (!letter.value || selectedTemplate.value.useMetaSearchInterests !== true || missingLetterTemplate.value || preparationBusy.value
+    || letterSelectionLocked.value || letterApproved.value || reviewActive.value || !await flushTextareas()) return;
   await run(async () => {
     await refreshCloud();
-    if (disposed || !letter.value || missingLetterTemplate.value || letterSelectionLocked.value || letterApproved.value || reviewActive.value) return;
-    const profile = option && option.template.profiles.find(item => item.id === option.profileId);
-    const snapshot = option ? {
-      templateId: option.template.id, templateName: option.template.name, revision: option.template.revision,
-      ...(profile ? { profileId: profile.id, profileName: profile.name } : {}), capturedAt: new Date().toISOString(),
-      ...searchProfileLetterContext(option.template, option.profileId),
-    } : undefined;
+    if (disposed || !letter.value || letterSelectionLocked.value || letterApproved.value || reviewActive.value) return;
+    await ensureSharedInterestsLoaded(true);
+    if (disposed || !letter.value || letterSelectionLocked.value || letterApproved.value) return;
+    const snapshot = captureMetaSearchInterests(searchTemplates.value[0]);
     letterTemplateWithSearchProfile(selectedTemplate.value, snapshot);
     const next = { ...clone(letter.value), finalRevisionId: null, updatedAt: new Date().toISOString() };
-    if (snapshot) next.searchProfile = snapshot;
-    else delete next.searchProfile;
-    letter.value = next;
-    approvals.value.letter = null; persist();
+    if (snapshot) next.searchProfile = snapshot; else delete next.searchProfile;
+    letter.value = next; approvals.value.letter = null; createdLetterOnOpen = false; persist();
     if (saveError.value) throw new Error(saveError.value);
-    notice.value = text('Search-profile context saved locally for this letter. Review the privacy preview before publishing sources.', 'Suchprofil-Kontext lokal für diesen Brief gespeichert. Vor dem Veröffentlichen der Quellen die Datenschutzvorschau prüfen.');
+    notice.value = text('Shared research interests copied to this letter. Review the privacy preview before publishing sources.', 'Gemeinsame Forschungsinteressen für diesen Brief übernommen. Vor dem Veröffentlichen der Quellen die Datenschutzvorschau prüfen.');
   });
 }
-async function selectSearchProfileFromInput(event: Event) {
-  const input = event.target as HTMLSelectElement;
-  await selectSearchProfile(input.value);
-  input.value = selectedSearchProfileId.value;
-}
-function updateLetter(value: string) { if (letter.value) letter.value = editLetter(letter.value, letterFromEditableText(value)); }
+function updateLetter(value: string) { initialLetterDraftEdited = true; if (letter.value) letter.value = editLetter(letter.value, letterFromEditableText(value)); }
 function updateLetterFormatting(formatting?: LetterFormatting) {
   if (!letter.value || letterApproved.value || busy.value || reviewActive.value) return;
   letter.value = formatLetter(letter.value, formatting);
@@ -941,6 +978,8 @@ async function createRound(scope: RefinementScope) {
   if (reviewActive.value) throw new Error('Accept or close the temporary review before publishing working documents.');
   scopeWasChosen = true;
   await refreshCloud();
+  if (createdLetterOnOpen && selectedTemplate.value.useMetaSearchInterests === true && !letter.value?.searchProfile) await ensureSharedInterestsLoaded();
+  captureInitialSharedInterests(true);
   await savePendingResetFeedback(scope);
   if (!record.value || !letter.value) throw new Error('Select CV and letter templates first.');
   if (saveError.value) throw new Error(saveError.value);
@@ -1078,7 +1117,13 @@ function refreshUnrefinedSnapshots(opening: { cv: string; letter: string }) {
     }
   }
   const latestTemplates = letterRepository.listTemplates();
-  const template = latestTemplates.find(item => item.id === nextLetter?.templateId);
+  let template = latestTemplates.find(item => item.id === nextLetter?.templateId);
+  // A new library default must not silently link a frozen, older application.
+  if (template && nextLetter?.templateSnapshot && template.useMetaSearchInterests !== nextLetter.templateSnapshot.useMetaSearchInterests) {
+    template = { ...template };
+    if (nextLetter.templateSnapshot.useMetaSearchInterests === undefined) delete template.useMetaSearchInterests;
+    else template.useMetaSearchInterests = nextLetter.templateSnapshot.useMetaSearchInterests;
+  }
   if (nextLetter && template && !letterApproved.value && !nextLetter.finalRevisionId && !refined('letter')
     && opening.letter === documentSignature('letter') && serializeRefinementDraft(nextLetter.working).empty
     && refinementSignature(template) !== refinementSignature(nextLetter.templateSnapshot)) {
@@ -1122,6 +1167,12 @@ async function syncRefinement(refreshSnapshots = false) {
     // Sync also runs on application load and must preserve the selected workflow stage.
     await checkProposals(false);
     if (stopped() || error.value) return;
+    if (createdLetterOnOpen && selectedTemplate.value.useMetaSearchInterests === true && !letter.value?.searchProfile) {
+      // Metadata is a background read; it must not prevent choosing an opt-out
+      // template while the required proposal/approval history is already loaded.
+      void ensureSharedInterestsLoaded().then(() => { if (!stopped()) captureInitialSharedInterests(); })
+        .catch(cause => { if (!stopped() && createdLetterOnOpen && selectedTemplate.value.useMetaSearchInterests === true) report(cause); });
+    }
     if (refreshOpeningSnapshots) {
       // Publish drafts typed during the history fetch before checking eligibility.
       if (!await flushTextareas() || stopped()) return;
@@ -1541,7 +1592,10 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
             <p v-if="!preparationVariants.length" class="app-hint hint">{{ text('Save a CV in CV Studio to select it here.', 'Einen CV im CV-Studio speichern, um ihn hier auszuwählen.') }}</p>
             <label>{{ text('Letter template', 'Briefvorlage') }}<select :value="selectedTemplateId" :aria-label="text('Letter template', 'Briefvorlage')" :disabled="preparationBusy || letterSelectionLocked" :aria-describedby="letterSelectionLocked ? `${application.id}-letter-selection-lock` : undefined" @change="selectLetterTemplate(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ letter && !missingLetterTemplate ? selectedTemplate.name + ' · ' + text('Saved revision', 'Gespeicherte Revision') + ' ' + selectedTemplate.revision : text('Choose a letter template…', 'Briefvorlage wählen…') }}</option><option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }}</option></select><small v-if="letterSelectionLocked" :id="`${application.id}-letter-selection-lock`" class="preparation-selection-hint">{{ text('Clear letter history in Refinement to choose another template.', 'Den Briefverlauf unter Überarbeitung löschen, um eine andere Vorlage zu wählen.') }}</small></label>
             <p v-if="missingLetterTemplate && !letterSelectionLocked" class="app-hint">{{ text('The original letter template is unavailable. Choose a template to continue; your existing letter is preserved.', 'Die ursprüngliche Briefvorlage ist nicht verfügbar. Zum Fortfahren eine Vorlage auswählen; der bestehende Brief bleibt erhalten.') }}</p>
-            <label v-if="letter">{{ text('Search profile for this letter', 'Suchprofil für diesen Brief') }}<select :value="selectedSearchProfileId" :disabled="missingLetterTemplate || preparationBusy || letterSelectionLocked || letterApproved || reviewActive" :aria-describedby="`${application.id}-search-profile-help`" @change="selectSearchProfileFromInput"><option value="">{{ text('No search profile', 'Kein Suchprofil') }}</option><option v-if="selectedSearchProfileId === 'saved'" value="saved" disabled>{{ letter.searchProfile?.templateName }}{{ letter.searchProfile?.profileName ? ' · ' + letter.searchProfile.profileName : '' }} · {{ text('Saved application copy', 'Gespeicherte Bewerbungskopie') }}</option><option v-for="option in searchProfileOptions" :key="option.id" :value="option.id">{{ option.name }}</option></select><small :id="`${application.id}-search-profile-help`" class="preparation-selection-hint">{{ text('Reuse professional context and research interests from a meta search. This letter keeps a local copy; select again to use later changes. Interests remain aspirations, not qualifications.', 'Beruflichen Kontext und Forschungsinteressen aus einer Metasuche wiederverwenden. Dieser Brief behält eine lokale Kopie; für spätere Änderungen erneut auswählen. Interessen bleiben Ziele, keine Qualifikationen.') }}</small></label>
+            <div v-if="letter && selectedTemplate.useMetaSearchInterests" class="preparation-shared-interests">
+              <div class="hint-label-row"><span>{{ text('Shared research interests', 'Gemeinsame Forschungsinteressen') }}</span><InfoHint :lang="lang" :label="text('Shared research interests', 'Gemeinsame Forschungsinteressen')" :text="text('The selected letter template uses the shared meta-search interests. This application keeps its own copy. Refresh explicitly to adopt later changes; drafts and approved letters are never replaced by a search edit.', 'Die gewählte Briefvorlage verwendet die gemeinsamen Forschungsinteressen der Metasuche. Diese Bewerbung behält eine eigene Kopie. Spätere Änderungen ausdrücklich übernehmen; Suchänderungen ersetzen keine Entwürfe oder freigegebenen Briefe.')" /></div>
+              <button type="button" :disabled="missingLetterTemplate || preparationBusy || letterSelectionLocked || letterApproved || reviewActive" @click="refreshSharedResearchInterests">{{ loadingSharedInterests ? text('Loading interests…', 'Interessen werden geladen…') : text('Refresh shared interests', 'Gemeinsame Interessen aktualisieren') }}</button>
+            </div>
           </div>
         </DesktopSidebarPortal>
         <DesktopSidebarPortal area="minor" :active="active && tab === 'preparation'">
@@ -1551,10 +1605,9 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
           </div>
         </DesktopSidebarPortal>
         <slot name="preparation-evaluation" />
-        <details v-if="letter?.searchProfile" class="disclosure-row preparation-profile-context">
-          <summary>{{ text('Saved search-profile context', 'Gespeicherter Suchprofil-Kontext') }}</summary>
-          <p>{{ letter.searchProfile.templateName }}{{ letter.searchProfile.profileName ? ' · ' + letter.searchProfile.profileName : '' }} · {{ text('Revision', 'Revision') }} {{ letter.searchProfile.revision }}</p>
-          <p v-if="letter.searchProfile.professionalContext" class="pre-wrap">{{ letter.searchProfile.professionalContext }}</p>
+        <details v-if="letter?.searchProfile?.researchInterests" class="disclosure-row preparation-profile-context">
+          <summary>{{ text('Saved research interests', 'Gespeicherte Forschungsinteressen') }}</summary>
+          <p>{{ letter.searchProfile.templateName }} · {{ text('Revision', 'Revision') }} {{ letter.searchProfile.revision }}</p>
           <p v-if="letter.searchProfile.researchInterests" class="pre-wrap">{{ letter.searchProfile.researchInterests }}</p>
         </details>
         <OpportunityContext :context="application.context_json" :lang="lang" :default-open-groups="['overview', 'requirements', 'documents']" />
@@ -1629,7 +1682,7 @@ useToastWatch(() => shortInstructionError.value, { tone: 'error' });
           <details class="disclosure-row"><summary>{{ text('Edit manually', 'Manuell bearbeiten') }}<InfoHint v-if="pane === 'cv'" :lang="lang" :label="text('Edit manually', 'Manuell bearbeiten')" :text="text('Edit the current CV, including active changes. Previous stays unchanged.', 'Aktuellen CV einschließlich aktiver Änderungen bearbeiten. Der vorherige Stand bleibt unverändert.')" /></summary>
 
           <section v-if="cvEditorState" v-show="pane === 'cv'" class="working-document"><fieldset :disabled="cvApproved || busy"><FormBuilder :state="cvEditorState" :read-version="() => null" :save-version="() => false" /></fieldset></section>
-          <section v-if="letter" v-show="pane === 'letter'" class="working-document"><label>{{ text('Complete letter text', 'Vollständiger Brieftext') }}<AutosaveTextarea :model-value="letterText" :model-modifiers="{ lazy: true }" rows="18" :disabled="letterApproved || busy || reviewActive" @update:model-value="updateLetter" /></label><p :class="{ warning: words > setup.maxWords }">{{ words }} / {{ setup.maxWords }} {{ text('target words (complete letter)', 'Zielwörter (vollständiger Brief)') }}</p><p v-if="words > setup.maxWords" class="app-hint warning">{{ text('Over the target. Review the tender limit; approval and export remain available.', 'Über der Zielwortzahl. Vorgabe prüfen; Freigabe und Export bleiben möglich.') }}</p><p v-if="unresolved.length" class="app-hint warning">{{ text('Resolve placeholders:', 'Platzhalter auflösen:') }} {{ unresolved.join(', ') }}</p><LetterFormattingControls :formatting="letter.formatting" :base-formatting="selectedTemplate.formatting" :lang="lang" :disabled="letterApproved || busy || reviewActive" @change="updateLetterFormatting" /></section>
+          <section v-if="letter" v-show="pane === 'letter'" class="working-document"><label>{{ text('Complete letter text', 'Vollständiger Brieftext') }}<AutosaveTextarea :model-value="letterText" :model-modifiers="{ lazy: true }" rows="18" :disabled="letterApproved || busy || reviewActive" @input="markInitialLetterDraftInput" @update:model-value="updateLetter" /></label><p :class="{ warning: words > setup.maxWords }">{{ words }} / {{ setup.maxWords }} {{ text('target words (complete letter)', 'Zielwörter (vollständiger Brief)') }}</p><p v-if="words > setup.maxWords" class="app-hint warning">{{ text('Over the target. Review the tender limit; approval and export remain available.', 'Über der Zielwortzahl. Vorgabe prüfen; Freigabe und Export bleiben möglich.') }}</p><p v-if="unresolved.length" class="app-hint warning">{{ text('Resolve placeholders:', 'Platzhalter auflösen:') }} {{ unresolved.join(', ') }}</p><LetterFormattingControls :formatting="letter.formatting" :base-formatting="selectedTemplate.formatting" :lang="lang" :disabled="letterApproved || busy || reviewActive" @change="updateLetterFormatting" /></section>
           </details>
           <RefinementHistory :scope="pane" :requests="requests" :proposals="proposals" :local-requests="localRequests" :current-request-id="currentRequestId" :active-id="selectedProposalId" :review-active="reviewActive" :accepted="proposalAlreadyApplied" :publication-status="publicationStatus" :open="historyOpen" :lang="lang" :busy="busy || refreshing || syncing" :can-clear="canClearHistory" @clear="clearRefinementHistory" @select="selectReviewProposal" @details="historyOpen = $event" @export-request="exportRequest" @export-proposal="exportProposal" />
         </div>

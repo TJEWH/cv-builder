@@ -23,7 +23,7 @@ The owner starts each application with copies from a reusable document library a
 ## Operating Context
 
 - In **CV Studio**, edit career variants, CV content, document design, privacy settings, letter templates, and local attachments. You do not need an account.
-- In **Opportunities**, review research and requirements, record interest, and create applications. The **Meta research** sidebar tab edits one shared search strategy, alternative professional profiles, research interests and regional priorities. Committed edits autosave search intent and the full English prompts to Supabase. **Copy replace prompt** prepares one read of the saved definition for ChatGPT to replace the existing meta-search task. Copying itself does not change a schedule; scheduled executions retain the existing research protocol.
+- In **Opportunities**, review research and requirements, record interest, and create applications. The **Meta research** sidebar tab edits one shared profile with job types/sources, alternative research interests and tasks, funding conditions and regional priorities. Committed edits autosave search intent and the full English prompts to Supabase. **Copy replace prompt** prepares one read of the saved definition for ChatGPT to replace the existing meta-search task. Copying itself does not change a schedule; scheduled executions retain the existing research protocol.
 - In **Applications**, move between Preparation, Refinement, Attachments, and Tracking in any order.
 - Select CV and letter templates to create independent application copies. On opening an application, untouched copies refresh from changed sources after checking refinement history. Proposals, manual document edits and approvals protect each document; clearing its refinement history makes the restored copy eligible again on the next open.
 - In Refinement, share privacy-filtered sources with ChatGPT through the connected Supabase workflow. Letter proposals update the working letter; CV suggestions appear in Current for review. Review the result, answer annotations, edit wording, and approve the CV and letter separately.
@@ -43,7 +43,7 @@ The owner starts each application with copies from a reusable document library a
 - The interface and document content support German and English. Desktop and mobile layouts exist; the owner has not named an exclusive device priority.
 - Keep opportunity interest, document approval, and application status separate. Research refreshes and template changes must preserve application work unless the user chooses to replace it.
 - Research interests, example letters, and AI suggestions do not establish applicant qualifications. Missing evidence and missing research scores must remain distinguishable from verified information.
-- Search-profile context can be selected explicitly for a motivation letter. The application keeps an independent local copy and shares it through the existing privacy-filtered refinement workflow. New opportunity recommendations require at least 72 hours before a verified official deadline, with confirmed rolling vacancies also eligible.
+- Letter templates use meta-search research interests by default; the owner can turn off that source and keep custom template interests. The application keeps an independent local copy and shares it through the existing privacy-filtered refinement workflow. New opportunity recommendations require at least 72 hours before a verified official deadline, with confirmed rolling vacancies also eligible.
 
 ## Brand Commitments
 
