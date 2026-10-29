@@ -19,7 +19,7 @@ function review(patch: Partial<OpportunityReview> = {}): OpportunityReview {
   return { user_id: owner, opportunity_id: opportunity, state: 'interested', comment: privateComment,
     reviewed_updated_at: null, created_at: now, updated_at: now, feedback_revision: 2, feedback_updated_at: now,
     interest_rating: 0, interest_reasons: [{ category: 'topic', polarity: 'positive', target: 'Acoustics' }],
-    search_feedback_summary: summary, search_feedback_approved_at: null, ...patch };
+    search_feedback_summary: summary, search_feedback_revision: 2, search_feedback_approved_at: null, ...patch };
 }
 
 function input(patch: Partial<OpportunityFeedbackProjectionInput> = {}): OpportunityFeedbackProjectionInput {
@@ -39,6 +39,17 @@ async function approvedReview(patch: Partial<OpportunityReview> = {}): Promise<O
     search_feedback_approved_summary_hash: summaryHash, search_feedback_approved_source_hash: sourceHash,
     search_feedback_approved_at: now };
 }
+
+test('deeply encoded or separator-obfuscated personal URL parameters fail closed', () => {
+  for (const url of ['https://example.invalid/Jobs?first+name=Synthetic', 'https://example.invalid/Jobs#first+name=Synthetic',
+    'https://example.invalid/Jobs?email=rowan%25252540example.invalid', 'https://example.invalid/Jobs?e%2525256dail=Synthetic',
+    'https://example.invalid/Jobs?phone%00=Synthetic', 'https://example.invalid/Jobs#x=%0Asecret',
+    'https://example.invalid/Jobs%5Cprivate', 'https://example.invalid/Jobs\\private']) {
+    assert.equal(sanitizeOpportunityFeedbackUrl(url), null, url);
+  }
+  assert.equal(sanitizeOpportunityFeedbackUrl('https://example.invalid/Jobs?jobId=123456789&location=Europe'),
+    'https://example.invalid/Jobs?jobId=123456789&location=Europe');
+});
 
 test('PRIV-01: strict outgoing DTO never exports private comments, contacts, identities, documents or arbitrary blobs', async () => {
   const sample = input();

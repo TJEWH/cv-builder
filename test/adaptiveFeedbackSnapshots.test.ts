@@ -1,0 +1,220 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { opportunityFeedbackTextHash } from '../src/composables/opportunityFeedbackPrivacy';
+import {
+  ADAPTIVE_FEEDBACK_FINGERPRINT_ENCODING, ADAPTIVE_FEEDBACK_MAX_BYTES, ADAPTIVE_FEEDBACK_SELECTION_POLICY_VERSION,
+  compileAdaptiveFeedbackSnapshot, type AdaptiveFeedbackExample, type ApprovedAdaptivePreference, type CompileAdaptiveFeedbackInput,
+} from '../src/composables/adaptiveFeedbackSnapshots';
+
+const owner = '70000000-0000-4000-8000-000000000001';
+const search = '70000000-0000-4000-8000-000000000002';
+const now = '2026-10-29T12:00:00Z';
+const earlier = '2026-10-28T12:00:00Z';
+const id = (index: number) => `71000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`;
+function example(index: number, patch: Partial<AdaptiveFeedbackExample> = {}): AdaptiveFeedbackExample {
+  return { opportunity_id: id(index), opportunity_key: `synthetic-${index}`, title: 'Synthetic research', institution: 'Synthetic Institute',
+    topics: ['Acoustic sensing'], metric_version: 'opportunity-interest-v1', interest_score: 6, interest_origin: 'explicit_rating',
+    interest_gap: null, baseline_status: 'unavailable', feedback_revision: 1, feedback_updated_at: now,
+    review_state: 'unreviewed', confirmed_submission: false, submission_at: null, reasons: [], ...patch };
+}
+function input(examples: (AdaptiveFeedbackExample | null)[] = [], patch: Partial<CompileAdaptiveFeedbackInput> = {}): CompileAdaptiveFeedbackInput {
+  return { user_id: owner, search_id: search, structured_feedback_enabled: true, consent_revision: 1,
+    feedback_revision: 1, preference_revision: 0, examples, approved_preferences: [], ...patch };
+}
+function discrepancy(index: number, score: number, prediction: number): AdaptiveFeedbackExample {
+  return example(index, { interest_score: score, interest_gap: score - prediction, baseline_status: 'available',
+    original_prediction: { user_id: owner, opportunity_id: id(index), score: prediction, scale_min: 0, scale_max: 10,
+      predicted_at: earlier, source_kind: 'historical_snapshot', source_ref: `opportunity-search-receipt:${id(900)}:${id(index)}` } });
+}
+async function summaryExample(index: number, summary = 'Prefer physical sensing experiments.'): Promise<AdaptiveFeedbackExample> {
+  return example(index, { interest_score: null, interest_origin: 'none', feedback_updated_at: null,
+    search_feedback_summary: summary, summary_approval: { summary_hash: await opportunityFeedbackTextHash(summary),
+      source_hash: 'a'.repeat(64), summary_revision: 1, approved_at: now } });
+}
+
+test('AF-03 cold start and disabled consent produce a bounded, versioned empty packet without implicit zero', async () => {
+  const cold = await compileAdaptiveFeedbackSnapshot(input());
+  assert.equal(cold.metric_version, 'opportunity-interest-v1');
+  assert.equal(cold.selection_policy_version, ADAPTIVE_FEEDBACK_SELECTION_POLICY_VERSION);
+  assert.equal(cold.fingerprint_encoding, ADAPTIVE_FEEDBACK_FINGERPRINT_ENCODING);
+  assert.deepEqual(cold.examples, []);
+  assert.equal(cold.counts.eligible, 0);
+  assert.equal(cold.aggregates.mean_interest, null);
+  assert.equal(cold.aggregates.score_sum, 0);
+  const disabled = await compileAdaptiveFeedbackSnapshot(input([example(1)], { structured_feedback_enabled: false }));
+  assert.equal(disabled.counts.eligible, 0);
+  assert.deepEqual(disabled.approved_preferences, []);
+  assert.ok(new TextEncoder().encode(JSON.stringify(cold)).length <= ADAPTIVE_FEEDBACK_MAX_BYTES);
+});
+
+test('AF-03 aggregates include the entire distinct eligible set before selecting at most 16 examples', async () => {
+  const samples = Array.from({ length: 60 }, (_, index) => example(index + 1, { interest_score: index % 10, institution: `Institute ${index % 5}` }));
+  const snapshot = await compileAdaptiveFeedbackSnapshot(input(samples));
+  assert.equal(snapshot.examples.length, 16);
+  assert.equal(snapshot.counts.eligible, 60);
+  assert.equal(snapshot.counts.scored, 60);
+  assert.equal(snapshot.aggregates.score_sum, 270);
+  assert.equal(snapshot.aggregates.mean_interest, 4.5);
+  assert.equal(snapshot.counts.omitted_limit, 44);
+  const topic = snapshot.aggregates.groups.find(group => group.kind === 'topic' && group.key === 'acoustic sensing');
+  assert.equal(topic?.count, 60, 'sampling cannot bias the topic denominator');
+  assert.equal(topic?.mean_interest, 4.5);
+  assert.equal(new Set(snapshot.examples.map(item => item.opportunity_id)).size, 16);
+});
+
+test('AF-03 balanced selection covers submissions, explicit high interest and both discrepancy directions once', async () => {
+  const submission = example(1, { interest_score: 9, interest_origin: 'confirmed_submission', confirmed_submission: true, submission_at: null });
+  const high = example(2, { interest_score: 8 });
+  const negative = discrepancy(3, 2, 8), positive = discrepancy(4, 8, 2);
+  const remaining = Array.from({ length: 24 }, (_, index) => example(index + 10));
+  const snapshot = await compileAdaptiveFeedbackSnapshot(input([...remaining, positive, negative, high, submission]));
+  assert.deepEqual(snapshot.examples.slice(0, 4).map(item => item.opportunity_id), [1, 2, 3, 4].map(id));
+  assert.equal(new Set(snapshot.examples.map(item => item.opportunity_id)).size, snapshot.examples.length, 'positive high interest occupies one slot');
+  assert.equal(snapshot.examples[0]!.submission_at, null, 'unknown historical submission time stays unknown');
+  assert.equal(snapshot.examples.find(item => item.opportunity_id === id(3))?.original_prediction?.score, 8);
+});
+
+test('AF-03 selection prefers explicit evidence and then unseen institutions/topics with stable-ID ties', async () => {
+  const samples = [example(1, { institution: 'A', topics: ['One'] }), example(2, { institution: 'A', topics: ['One'] }),
+    example(3, { institution: 'B', topics: ['One'] }), example(4, { institution: 'A', topics: ['Two'] })];
+  const snapshot = await compileAdaptiveFeedbackSnapshot(input(samples.reverse()));
+  assert.deepEqual(snapshot.examples.map(item => item.opportunity_id), [1, 3, 4, 2].map(id));
+  const submitted = await compileAdaptiveFeedbackSnapshot(input([
+    example(1, { interest_origin: 'confirmed_submission', interest_score: 9, confirmed_submission: true }),
+    example(9, { interest_score: 2, confirmed_submission: true }),
+  ]));
+  assert.equal(submitted.examples[0]!.opportunity_id, id(9), 'explicit low interest outranks a weak submission preference proxy');
+});
+
+test('AF-03 summary-only and reason-only observations preserve unknown interest and use only scored denominators', async () => {
+  const summary = await summaryExample(3);
+  const reason = example(4, { interest_score: null, interest_origin: 'none', feedback_updated_at: null, reasons: [{ category: 'funding', polarity: 'negative' }] });
+  const viewOnly = example(5, { interest_score: null, interest_origin: 'none', feedback_updated_at: null });
+  const snapshot = await compileAdaptiveFeedbackSnapshot(input([example(1, { interest_score: 0.1 }), example(2, { interest_score: 0.2 }), summary, reason, viewOnly]));
+  assert.equal(snapshot.counts.eligible, 4);
+  assert.equal(snapshot.counts.scored, 2);
+  assert.equal(snapshot.counts.approved_summaries, 1);
+  assert.equal(snapshot.aggregates.score_sum, 0.3, 'decimal accumulation mirrors PostgreSQL numeric');
+  assert.equal(snapshot.aggregates.mean_interest, 0.15);
+  const selectedSummary = snapshot.examples.find(item => item.opportunity_id === id(3))!;
+  assert.equal(selectedSummary.interest_score, null);
+  assert.equal(selectedSummary.feedback_updated_at, null);
+  assert.equal(selectedSummary.original_prediction, undefined);
+  const funding = snapshot.aggregates.groups.find(group => group.kind === 'funding');
+  assert.equal(funding?.count, 1); assert.equal(funding?.scored, 0); assert.equal(funding?.mean_interest, null);
+});
+
+test('AF-03 group identity uses normalized keys and counts one opportunity only once per group', async () => {
+  const sample = example(1, { topics: ['BCI', ' bci ', 'BCI'], institution: ' INSTITUTE ',
+    reasons: [{ category: 'topic', polarity: 'positive', target: 'BCI' }, { category: 'topic', polarity: 'positive', target: ' bci ' }] });
+  const snapshot = await compileAdaptiveFeedbackSnapshot(input([sample]));
+  assert.deepEqual(snapshot.aggregates.groups.map(group => [group.kind, group.key, group.polarity ?? null, group.count]),
+    [['institution', 'institute', null, 1], ['topic', 'bci', null, 1], ['topic', 'bci', 'positive', 1]]);
+});
+
+test('AF-03 exact duplicate joins contribute once, while conflicting current outcomes cannot be silently chosen', async () => {
+  const current = example(1);
+  const duplicate = Object.assign(example(1), { comment: 'Never exported', context_json: { secret: 'Never exported' } });
+  const snapshot = await compileAdaptiveFeedbackSnapshot(input([current, duplicate]));
+  assert.equal(snapshot.counts.eligible, 1);
+  await assert.rejects(compileAdaptiveFeedbackSnapshot(input([current, example(1, { interest_score: 0 })])), /Conflicting current/);
+  const corrected = await compileAdaptiveFeedbackSnapshot(input([current, example(1, { interest_score: 0, feedback_revision: 2 })]));
+  assert.equal(corrected.examples[0]!.interest_score, 0);
+  assert.equal(corrected.counts.eligible, 1);
+});
+
+test('AF-03 fingerprints are deterministic semantic inputs independent of assigned revision and view/private metadata', async () => {
+  const samples = [example(2), example(1)];
+  const first = await compileAdaptiveFeedbackSnapshot(input(samples));
+  const reordered = await compileAdaptiveFeedbackSnapshot(input(samples.toReversed(), { feedback_revision: 20 }));
+  assert.equal(first.input_fingerprint, reordered.input_fingerprint);
+  assert.equal(reordered.feedback_revision, 20);
+  const noisy = samples.map(item => Object.assign({ ...item }, { updated_at: '2099-01-01T00:00:00Z', reviewed_updated_at: '2099-01-01T00:00:00Z',
+    personal_fit: { score: 10 }, comment: 'Private Person person@example.invalid', contacts: [{ email: 'person@example.invalid' }], notes: 'Never exported' }));
+  const viewed = await compileAdaptiveFeedbackSnapshot(input(noisy));
+  assert.equal(first.input_fingerprint, viewed.input_fingerprint);
+  assert.doesNotMatch(JSON.stringify(viewed), /person@example|Private Person|contacts|"comment"|"notes"|personal_fit/u);
+  const changed = await compileAdaptiveFeedbackSnapshot(input([example(2), example(1, { interest_score: 0 })]));
+  assert.notEqual(first.input_fingerprint, changed.input_fingerprint);
+  const consent = await compileAdaptiveFeedbackSnapshot(input(samples, { consent_revision: 2 }));
+  assert.notEqual(first.input_fingerprint, consent.input_fingerprint);
+});
+
+test('AF-03 exact approval proof and its real event timestamp participate in the semantic fingerprint', async () => {
+  const summary = await summaryExample(1);
+  const original = await compileAdaptiveFeedbackSnapshot(input([summary]));
+  const reapproved = await compileAdaptiveFeedbackSnapshot(input([{ ...summary, summary_approval: { ...summary.summary_approval!, approved_at: '2026-10-29T13:00:00Z' } }]));
+  assert.notEqual(original.input_fingerprint, reapproved.input_fingerprint, 'reapproval cannot reuse an old redacted snapshot');
+  const revoked = await compileAdaptiveFeedbackSnapshot(input([{ ...summary, summary_approval: undefined }]));
+  assert.equal(revoked.examples.length, 0);
+  assert.equal(revoked.counts.approved_summaries, 0);
+  const edited = await compileAdaptiveFeedbackSnapshot(input([{ ...summary, search_feedback_summary: 'Changed but unapproved summary.' }]));
+  assert.equal(edited.examples.length, 0);
+});
+
+test('AF-03 only valid, timely owner-matched original predictions survive; current fit never establishes a baseline', async () => {
+  const known = discrepancy(1, 2, 8);
+  const unknown = Object.assign(example(2), { personal_fit: { score: 8, scale_min: 0, scale_max: 10 } });
+  const wrongOwner = discrepancy(3, 2, 8); wrongOwner.original_prediction!.user_id = id(999);
+  const future = discrepancy(4, 2, 8); future.original_prediction!.predicted_at = '2026-10-29T12:00:00.000001Z';
+  const malformed = discrepancy(5, 2, 8); malformed.feedback_updated_at = '2026-10-29T24:00:00Z';
+  const result = await compileAdaptiveFeedbackSnapshot(input([known, unknown, wrongOwner, future, malformed]));
+  assert.equal(result.counts.baseline_available, 1);
+  for (const row of result.examples.filter(item => item.opportunity_id !== id(1))) {
+    assert.equal(row.original_prediction, undefined); assert.equal(row.interest_gap, null);
+  }
+  assert.equal(result.examples.find(item => item.opportunity_id === id(5))!.feedback_updated_at, null);
+  assert.equal(result.examples.find(item => item.opportunity_id === id(2))!.baseline_status, 'unavailable');
+});
+
+test('AF-03 byte bounds omit complete examples without truncating text or biasing whole-set statistics', async () => {
+  const research = '🔬'.repeat(1000);
+  const topics = Array.from({ length: 16 }, (_, index) => `${'🔬'.repeat(119)}${String.fromCharCode(65 + index)}`);
+  const samples = Array.from({ length: 32 }, (_, index) => example(index + 1, { research_summary: research, topics }));
+  const result = await compileAdaptiveFeedbackSnapshot(input(samples));
+  assert.ok(new TextEncoder().encode(JSON.stringify(result)).length <= ADAPTIVE_FEEDBACK_MAX_BYTES);
+  assert.ok(result.counts.omitted_bytes > 0);
+  assert.equal(result.counts.eligible, 32); assert.equal(result.counts.scored, 32);
+  assert.equal(result.counts.omitted_limit, 16);
+  assert.equal(result.counts.selected + result.counts.omitted_limit + result.counts.omitted_bytes, 32);
+  assert.equal(result.aggregates.mean_interest, 6);
+  for (const row of result.examples) { assert.equal(row.research_summary, research); assert.deepEqual(row.topics.toSorted(), topics.toSorted()); }
+});
+
+test('AF-03 bounded group output reports complete omitted groups and preserves approved structured inputs', async () => {
+  const approved: ApprovedAdaptivePreference[] = Array.from({ length: 32 }, (_, index) => ({ preference_id: `preference-${index}`, category: 'topic', polarity: 'positive', target: '🔬'.repeat(120) }));
+  const samples = Array.from({ length: 100 }, (_, index) => example(index + 1, { institution: `${'🔬'.repeat(195)}${index}`, topics: [] }));
+  const result = await compileAdaptiveFeedbackSnapshot(input(samples, { approved_preferences: approved, preference_revision: 3 }));
+  assert.ok(new TextEncoder().encode(JSON.stringify(result)).length <= ADAPTIVE_FEEDBACK_MAX_BYTES);
+  assert.ok(result.counts.omitted_groups >= 36);
+  assert.equal(result.aggregates.groups.length + result.counts.omitted_groups, 100);
+  assert.equal(result.aggregates.score_sum, 600);
+  assert.equal(result.approved_preferences.length, 32);
+  assert.equal(result.preference_revision, 3);
+  assert.ok(result.approved_preferences.every(item => item.target === '🔬'.repeat(120)));
+});
+
+test('AF-03 strict preference/scope contracts reject malformed values without leaking private input', async () => {
+  for (const patch of [{ user_id: 'person@example.invalid' }, { feedback_revision: -1 }, { consent_revision: NaN }]) {
+    await assert.rejects(compileAdaptiveFeedbackSnapshot(input([], patch)), /Invalid feedback snapshot scope or revision/);
+  }
+  await assert.rejects(compileAdaptiveFeedbackSnapshot(input([], { approved_preferences: [{ preference_id: 'safe', category: 'topic', polarity: 'positive', target: 'person@example.invalid' }] })), /Invalid approved/);
+  const foreign = Object.assign(example(1), { user_id: id(999) });
+  const result = await compileAdaptiveFeedbackSnapshot(input([foreign]));
+  assert.equal(result.counts.eligible, 0);
+  assert.doesNotMatch(JSON.stringify(result), /person@example/u);
+});
+
+test('AF-03 asynchronous hashing captures scalar proof values and never aliases or mutates input objects', async () => {
+  const summary = await summaryExample(1);
+  const before = structuredClone(summary);
+  const pending = compileAdaptiveFeedbackSnapshot(input([summary]));
+  summary.summary_approval!.source_hash = 'person@example.invalid';
+  summary.topics.push('Changed after compilation began');
+  const result = await pending;
+  assert.equal(result.examples[0]!.summary_approval!.source_hash, before.summary_approval!.source_hash);
+  assert.deepEqual(result.examples[0]!.topics, before.topics);
+  result.examples[0]!.reasons.push({ category: 'other', polarity: 'negative' });
+  assert.deepEqual(summary.reasons, []);
+  assert.doesNotMatch(JSON.stringify(result), /person@example/u);
+});

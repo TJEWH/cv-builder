@@ -30,12 +30,12 @@ function decoded(value: string): string | null {
       result = next;
     } catch { return null; }
   }
-  return result;
+  return /%[0-9a-f]{2}/iu.test(result) ? null : result;
 }
 
 /** Public job links only. Do not strip a secret and then accidentally publish its enclosing URL. */
 export function sanitizeOpportunityFeedbackUrl(value: unknown): string | null {
-  if (typeof value !== 'string' || value.length > 2048 || /[\u0000-\u0020\u007f]/u.test(value)) return null;
+  if (typeof value !== 'string' || value.length > 2048 || /[\u0000-\u0020\u007f\\]/u.test(value)) return null;
   const safe = safeWebUrl(value);
   if (!safe) return null;
   const url = new URL(safe);
@@ -43,13 +43,16 @@ export function sanitizeOpportunityFeedbackUrl(value: unknown): string | null {
     || /^[0-9.]+$/u.test(url.hostname) || url.hostname.includes(':')) return null;
   const plain = decoded(safe);
   const path = decoded(url.pathname);
-  if (plain === null || path === null || email.test(plain) || contactScheme.test(plain)
+  if (plain === null || path === null || /[\u0000-\u001f\u007f\\]/u.test(plain) || email.test(plain) || contactScheme.test(plain)
     || credential.test(plain) || secretToken.test(plain) || credentialPath.test(path) || credentialPath.test(plain)
     || embeddedPersonalParameter.test(plain)) return null;
+  for (const match of plain.matchAll(/[?&#]([^?&#=]+)=/gu)) {
+    if (personalQueryKey.test(match[1]!.replace(/[+\s_-]+/gu, ''))) return null;
+  }
   for (const [key, entry] of url.searchParams) {
     const plainKey = decoded(key);
     const plainValue = decoded(entry);
-    if (plainKey === null || plainValue === null || personalQueryKey.test(plainKey)
+    if (plainKey === null || plainValue === null || personalQueryKey.test(plainKey.replace(/[\s_-]+/gu, ''))
       || email.test(plainValue) || contactScheme.test(plainValue) || credential.test(plainValue)
       || secretToken.test(plainValue) || /https?:\/\/[^\s/]+@/iu.test(plainValue)) return null;
   }
@@ -140,6 +143,7 @@ export interface SafeOpportunityFeedbackExample {
   submission_at: string | null;
   reasons: OpportunityInterestReason[];
   search_feedback_summary?: string;
+  summary_approval?: { summary_hash: string; source_hash: string; summary_revision: number; approved_at: string };
 }
 
 export type FeedbackWithheldField = 'example' | 'opportunity_key' | 'title' | 'institution' | 'official_url' | 'source_url'
@@ -222,7 +226,12 @@ export async function projectOpportunityFeedback(input: OpportunityFeedbackProje
     withhold('example', 'not_authorized'); return result;
   }
   if (input.review?.feedback_excluded) { withhold('example', 'excluded'); return result; }
-  if (summary !== null) example.search_feedback_summary = summary;
+  if (summary !== null && Number.isSafeInteger(input.review?.search_feedback_revision) && input.review!.search_feedback_revision! >= 0) {
+    example.search_feedback_summary = summary;
+    example.summary_approval = { summary_hash: input.review!.search_feedback_approved_summary_hash!,
+      source_hash: input.review!.search_feedback_approved_source_hash!, summary_revision: input.review!.search_feedback_revision!,
+      approved_at: input.review!.search_feedback_approved_at! };
+  }
   else if (input.review?.search_feedback_summary) withhold('search_feedback_summary', 'not_approved');
   result.example = example;
   return result;

@@ -19,6 +19,7 @@ create policy owner_search_templates on public.opportunity_search_templates for 
   with check (user_id=auth.uid() and not coalesce((auth.jwt()->>'is_anonymous')::boolean,false));
 create table public.opportunity_search_runs (
   id uuid primary key,
+  search_id uuid,
   user_id uuid not null
 );
 create table public.opportunity_search_receipts (

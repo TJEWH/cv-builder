@@ -132,6 +132,9 @@ function timestamp(value: unknown): bigint | null {
     ? BigInt(parsed) * 1_000n + BigInt((match[1] ?? '').padEnd(6, '0')) : null;
 }
 
+/** Shared strict, microsecond-preserving parser for authorized feedback metadata. */
+export { timestamp as opportunityFeedbackTimestamp };
+
 function compareTimestamps(left: string, right: string): number {
   const leftTime = timestamp(left)!;
   const rightTime = timestamp(right)!;
