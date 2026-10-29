@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { file, reset, sql } from './db';
 import { compileAdaptiveFeedbackSnapshot } from '../../src/composables/adaptiveFeedbackSnapshots';
-import { buildAdaptiveSearchPlanningContext, DEFAULT_ADAPTIVE_SEARCH_POLICY } from '../../src/composables/adaptiveSearchPlanner';
+import { buildAdaptiveSearchPlanningContext, LEGACY_ADAPTIVE_SEARCH_POLICY } from '../../src/composables/adaptiveSearchPlanner';
 import { SEARCH_CRITERIA_KEYS, type SearchCriteria } from '../../src/searchTypes';
 import type { SafeOpportunityFeedbackExample } from '../../src/composables/opportunityFeedbackPrivacy';
 
@@ -20,7 +20,7 @@ test('AF-06 useful source learning requires active consent and effective canonic
 });
 
 test('AF-06 SQL and UI expose the same named initial policy conventions', () => {
-  assert.deepEqual(JSON.parse(sql('select public.opportunity_search_adaptation_policy();')), DEFAULT_ADAPTIVE_SEARCH_POLICY);
+  assert.deepEqual(JSON.parse(sql('select public.opportunity_search_adaptation_policy();')), LEGACY_ADAPTIVE_SEARCH_POLICY);
 });
 
 test('AF-06 SQL and TypeScript priorities agree on targeted, sparse, conflicting and paused evidence', async () => {
@@ -70,7 +70,7 @@ test('AF-06 SQL and TypeScript priorities agree on targeted, sparse, conflicting
       rollback;`));
     const browser = buildAdaptiveSearchPlanningContext({ user_id: user, search_id: search, base_criteria: criteria,
       basis: saved.basis, feedback: packet, approved_rules: [], core_queries: [], due_sources: fixture.sources ?? [],
-      adaptation_enabled: true, adaptation_paused: paused, structured_feedback_enabled: consent });
+      adaptation_enabled: true, adaptation_paused: paused, structured_feedback_enabled: consent, policy: LEGACY_ADAPTIVE_SEARCH_POLICY });
     for (const key of ['policy', 'enabled', 'paused', 'consent_enabled', 'preference_revision', 'approved_rules',
       'approved_preferences', 'priorities', 'allocation', 'blocked_core_queries', 'refresh_required', 'basis'] as const) {
       assert.deepEqual(saved[key], browser[key], `${fixture.label}: ${key}`);

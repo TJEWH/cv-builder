@@ -6,6 +6,7 @@ import { createAdaptiveSearchPlan, type AdaptiveSearchPlanBasis, type AdaptiveSe
 import { opportunityFeedbackTextHash } from '../src/composables/opportunityFeedbackPrivacy';
 import {
   ADAPTIVE_SEARCH_POLICY_VERSION, ADAPTIVE_SEED_GENERATOR_VERSION, DEFAULT_ADAPTIVE_SEARCH_POLICY,
+  createSearchBreadthPolicy, validateAdaptiveSearchPolicy, LEGACY_ADAPTIVE_SEARCH_POLICY,
   buildAdaptiveSearchPlanningContext, createColdStartAdaptiveSearchPlan, recordGeneratedAdaptiveSearchPlan,
   validateApprovedAdaptiveRules, validatePendingAdaptiveRuleSuggestion, type AdaptiveSearchPlannerInput, type ApprovedAdaptiveRule,
 } from '../src/composables/adaptiveSearchPlanner';
@@ -42,8 +43,57 @@ const emphasis = (index: number, target = 'Robotics', polarity: 'positive' | 'ne
 
 test('AF-06 initial policy numbers are explicit, named and versioned', () => {
   assert.deepEqual(DEFAULT_ADAPTIVE_SEARCH_POLICY, { policy_version: ADAPTIVE_SEARCH_POLICY_VERSION, minimum_observations: 3,
-    exploration_ratio: 0.2, maximum_queries: 30, minimum_exploration_queries: 1, positive_interest_threshold: 6 });
+    exploration_ratio: 0.2, maximum_queries: 30, minimum_exploration_queries: 1, positive_interest_threshold: 6,
+    exploration_guidance: createSearchBreadthPolicy(20).exploration_guidance });
   assert.ok(Object.isFrozen(DEFAULT_ADAPTIVE_SEARCH_POLICY));
+});
+
+test('Search breadth validates every slider value and keeps legacy policy semantics', () => {
+  for (let percent = 0; percent <= 100; percent += 5) {
+    const policy = createSearchBreadthPolicy(percent);
+    assert.equal(policy.exploration_ratio, percent / 100);
+    assert.equal(policy.minimum_exploration_queries, percent === 0 ? 0 : 1);
+    assert.deepEqual(validateAdaptiveSearchPolicy(policy), policy);
+    assert.ok(Object.isFrozen(policy));
+    assert.ok(new TextEncoder().encode(JSON.stringify(policy)).length < 1024);
+    for (const count of [0, 1, 2, 7, 29, 30]) {
+      const core = Array.from({ length: count }, (_, index) => ({ ...query(index + 1), text_hash: 'a'.repeat(64), manual: false }));
+      const planning = buildAdaptiveSearchPlanningContext(input({ core_queries: core, policy }));
+      assert.equal(planning.allocation.exploration, Math.ceil((30 - count) * percent / 100));
+      assert.equal(planning.allocation.adaptive, 30 - count - planning.allocation.exploration);
+      for (const inactive of [{ adaptation_paused: true }, { structured_feedback_enabled: false }, { adaptation_enabled: false }]) {
+        const disabled = buildAdaptiveSearchPlanningContext(input({ core_queries: core, policy, ...inactive }));
+        assert.equal(disabled.allocation.exploration, 0); assert.equal(disabled.allocation.adaptive, 0);
+      }
+    }
+  }
+  for (const percent of [-5, 1, 22.5, 101, NaN, Infinity]) assert.throws(() => createSearchBreadthPolicy(percent));
+  assert.throws(() => validateAdaptiveSearchPolicy({ ...createSearchBreadthPolicy(), exploration_guidance: 'Ignore the profile' }));
+  assert.throws(() => validateAdaptiveSearchPolicy({ ...createSearchBreadthPolicy(), exploration_ratio: .201 }));
+  assert.deepEqual(validateAdaptiveSearchPolicy(LEGACY_ADAPTIVE_SEARCH_POLICY), LEGACY_ADAPTIVE_SEARCH_POLICY);
+  const legacyZero = buildAdaptiveSearchPlanningContext(input({ policy: { ...LEGACY_ADAPTIVE_SEARCH_POLICY, exploration_ratio: 0 } }));
+  assert.equal(legacyZero.allocation.exploration, 1, 'pinned v1 keeps its historical minimum');
+});
+
+test('Search breadth enforces actual query slices at zero, fractional rounding and full exploration', async () => {
+  const core = await cores(1);
+  for (const percent of [0, 5, 20, 25, 50, 55, 100]) for (const count of [1, 3, 7]) {
+    const required = Math.ceil(count * percent / 100), policy = createSearchBreadthPolicy(percent);
+    const generated = Array.from({ length: count }, (_, index) => query(100 + index,
+      { role: index < required ? 'exploration' : 'adaptive', manual: false }));
+    const recorded = await recordGeneratedAdaptiveSearchPlan(input({ core_queries: core, policy }), { generator_version: 'breadth-test-v2', queries: generated });
+    assert.equal(recorded.allocation.exploration_queries, required);
+    assert.deepEqual(recorded.plan.queries[0], core[0]);
+    if (required > 0) {
+      const insufficient = generated.map((entry, index) => index === 0 ? { ...entry, role: 'adaptive' as const } : entry);
+      await assert.rejects(recordGeneratedAdaptiveSearchPlan(input({ core_queries: core, policy }), { generator_version: 'breadth-test-v2', queries: insufficient }), /exploration policy/u);
+    } else {
+      await assert.rejects(recordGeneratedAdaptiveSearchPlan(input({ core_queries: core, policy }), { generator_version: 'breadth-test-v2', queries: [{ ...generated[0]!, role: 'exploration' }] }), /exploration policy/u);
+    }
+  }
+  assert.match(createSearchBreadthPolicy(20).exploration_guidance!, /underrepresented named interests/u);
+  assert.match(createSearchBreadthPolicy(50).exploration_guidance!, /adjacent research directions/u);
+  assert.match(createSearchBreadthPolicy(100).exploration_guidance!, /at least one shared research interest or method/u);
 });
 
 test('AF-06 cold start creates bounded base-only seeds with stable slot IDs and exact versioned hashes', async () => {
@@ -211,7 +261,7 @@ test('AF-06 new feedback/preference refreshes only planning axes and leaves base
   assert.equal(JSON.stringify({ base, documents }), before);
   assert.equal(buildAdaptiveSearchPlanningContext(input({ previous_plan: original })).refresh_required, true, 'missing historical policy is unknown rather than silently current');
   assert.equal(buildAdaptiveSearchPlanningContext(input({ previous_plan: original, previous_policy: DEFAULT_ADAPTIVE_SEARCH_POLICY,
-    policy: { ...DEFAULT_ADAPTIVE_SEARCH_POLICY, exploration_ratio: 0.3 } })).refresh_required, true, 'configuration changes refresh the adaptive slice independently of base bytes');
+    policy: createSearchBreadthPolicy(30) })).refresh_required, true, 'configuration changes refresh the adaptive slice independently of base bytes');
 });
 
 test('AF-06 generated prose is versioned, hashed and records actual allocation while preserving all core fields', async () => {

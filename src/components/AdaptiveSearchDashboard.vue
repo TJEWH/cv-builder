@@ -15,11 +15,15 @@ const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const controller = shallowRef<ReturnType<typeof createAdaptiveSearchDashboardController> | null>(null);
 const localError = ref('');
 const discardedNotice = ref(false);
+const breadthDraft = ref(20);
+const breadthDirty = ref(false);
+let breadthSaving: Promise<boolean> | null = null;
 const cadenceDrafts = reactive<Record<string,string>>({});
 const cadenceDirty = reactive<Record<string,boolean>>({});
 watch(() => [props.ownerId,props.searchId,props.projectRef,props.client] as const, () => {
   controller.value?.dispose(); controller.value = null; localError.value = '';
   discardedNotice.value = false;
+  breadthDraft.value = 20; breadthDirty.value = false; breadthSaving = null;
   for (const key of Object.keys(cadenceDrafts)) delete cadenceDrafts[key];
   for (const key of Object.keys(cadenceDirty)) delete cadenceDirty[key];
   if (!props.client || !props.searchId) return;
@@ -33,12 +37,40 @@ const state = computed(() => controller.value?.state);
 const data = computed(() => state.value?.data);
 const busy = computed(() => !data.value || state.value?.loading || state.value?.saving);
 watch(data, value => {
+  if (breadthDirty.value && value?.settings.search_breadth_percent === breadthDraft.value) breadthDirty.value = false;
+  if (!breadthDirty.value) breadthDraft.value = value?.settings.search_breadth_percent ?? 20;
   for (const source of value?.sources ?? []) {
     const sourceId = source.registry_id, local = cadenceDrafts[sourceId];
     if (cadenceDirty[sourceId] && local?.trim() && Number(local) === source.check_interval_hours && !state.value?.drafts[sourceId]) delete cadenceDirty[sourceId];
     if (!cadenceDirty[sourceId]) cadenceDrafts[sourceId] = String(state.value?.drafts[sourceId]?.check_interval_hours ?? source.check_interval_hours);
   }
 });
+const breadthAvailable = computed(() => data.value?.settings.search_breadth_percent !== null && data.value?.settings.breadth_revision !== null && data.value?.policy.policy_version === 'adaptive-query-v2');
+const breadthActive = computed(() => data.value?.settings.structured_feedback_enabled && data.value.settings.adaptation_enabled && !data.value.settings.adaptation_paused);
+const breadthLabel = computed(() => breadthDraft.value === 0 ? text('Off', 'Aus') : breadthDraft.value <= 20 ? text('Focused', 'Fokussiert') : breadthDraft.value <= 50 ? text('Balanced', 'Ausgewogen') : text('Adventurous', 'Experimentierfreudig'));
+const breadthValueText = computed(() => `${breadthDraft.value}% · ${breadthLabel.value}`);
+const breadthAllocation = computed(() => {
+  const capacity = data.value?.planning_capacity;
+  if (!capacity) return text('Allocation determined on next run.', 'Die Aufteilung wird im nächsten Lauf bestimmt.');
+  const count = Math.ceil(capacity.discretionary * breadthDraft.value / 100);
+  return text(`At full next-run capacity: at least ${count} of ${capacity.discretionary} discretionary queries for exploration.`, `Bei voller Kapazität im nächsten Lauf: mindestens ${count} von ${capacity.discretionary} freien Abfragen für neue Suchrichtungen.`);
+});
+function draftBreadth(event: Event) {
+  breadthDraft.value = Number((event.target as HTMLInputElement).value); breadthDirty.value = true;
+}
+async function saveBreadth(): Promise<boolean> {
+  if (breadthSaving) return breadthSaving;
+  const active = controller.value, value = breadthDraft.value;
+  if (!breadthDirty.value) return true;
+  if (!active || !breadthAvailable.value) return false;
+  const pending = (async () => {
+    const saved = await setting({ search_breadth_percent: value });
+    if (active === controller.value && saved && breadthDraft.value === value) breadthDirty.value = false;
+    return saved === true;
+  })();
+  breadthSaving = pending;
+  try { return await pending; } finally { if (breadthSaving === pending) breadthSaving = null; }
+}
 const preview = computed(() => data.value ? JSON.stringify(data.value.feedback_preview,null,2) : '');
 const orphanedDrafts = computed(() => Object.keys(state.value?.drafts ?? {}).filter(id => !data.value?.sources.some(source => source.registry_id === id)));
 function discardDraft(id: string) { if (controller.value?.discardSourceDraft(id)) discardedNotice.value = true; }
@@ -53,13 +85,14 @@ const allocation = computed(() => {
 const omittedCount = computed(() => data.value ? Object.values(data.value.omitted).reduce((sum,value) => sum+value,0) : 0);
 const errorText = computed(() => {
   const code = localError.value || state.value?.error;
-  return code === 'conflict' ? text('Another tab changed these settings. Reload the latest values, review your retained source draft and save again.', 'Ein anderer Tab hat diese Einstellungen geändert. Lade die aktuellen Werte, prüfe den erhaltenen Quellenentwurf und speichere erneut.')
+  return code === 'conflict' ? text('Another tab changed these settings. Reload the latest values, review your retained draft and save again.', 'Ein anderer Tab hat diese Einstellungen geändert. Lade die aktuellen Werte, prüfe den erhaltenen Entwurf und speichere erneut.')
     : code === 'denied' ? text('Access was denied. Check the signed-in owner and authorization before continuing.', 'Der Zugriff wurde verweigert. Prüfe das angemeldete Konto und die Autorisierung, bevor du fortfährst.')
       : code === 'source_unavailable' ? text('A retained source draft is outside the loaded view. Reload to inspect it, or explicitly discard that local draft.','Ein erhaltener Quellenentwurf liegt außerhalb der geladenen Ansicht. Lade zur Prüfung erneut oder verwirf diesen lokalen Entwurf ausdrücklich.')
       : code === 'consent_required' ? text('Enable structured feedback before enabling or resuming adaptation.','Aktiviere strukturiertes Feedback, bevor du die Anpassung aktivierst oder fortsetzt.')
+      : code === 'breadth_upgrade_required' ? text('Install the search-breadth database update before changing this setting.', 'Installiere die Datenbankaktualisierung für die Suchbreite, bevor du diese Einstellung änderst.')
       : code === 'cadence' ? text('Use a whole number from 24 to 720 hours. Your input is kept.', 'Gib eine ganze Zahl zwischen 24 und 720 Stunden ein. Deine Eingabe bleibt erhalten.')
         : code === 'load_failed' ? text('The adaptive dashboard could not be loaded. Retry loading it.', 'Die adaptive Übersicht konnte nicht geladen werden. Versuche es erneut.')
-          : code ? text('The change could not be saved. Your source draft is kept. Retry the exact request or reload to review the latest values.', 'Die Änderung konnte nicht gespeichert werden. Dein Quellenentwurf bleibt erhalten. Wiederhole die genaue Anfrage oder lade die aktuellen Werte zur Prüfung.') : '';
+          : code ? text('The change could not be saved. Your draft is kept. Retry the exact request or reload to review the latest values.', 'Die Änderung konnte nicht gespeichert werden. Dein Entwurf bleibt erhalten. Wiederhole die genaue Anfrage oder lade die aktuellen Werte zur Prüfung.') : '';
 });
 const date = (value: string | null) => value === null ? text('Unknown', 'Unbekannt') : new Intl.DateTimeFormat(props.lang === 'de' ? 'de' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 const number = (value: number | null) => value === null ? text('Unknown', 'Unbekannt') : new Intl.NumberFormat(props.lang === 'de' ? 'de' : 'en', { maximumFractionDigits: 2 }).format(value);
@@ -84,6 +117,7 @@ async function saveCadence(source: AdaptiveDashboardSource): Promise<boolean> {
 async function flush(): Promise<boolean> {
   commitPendingTextareas(); const active = controller.value;
   if (!active) return true;
+  while (breadthDirty.value) if (!await saveBreadth()) return false;
   for (const source of data.value?.sources ?? []) if (cadenceDirty[source.registry_id] && !await saveCadence(source)) return false;
   return localError.value !== 'cadence' && active === controller.value && await active.flush();
 }
@@ -128,6 +162,12 @@ onBeforeUnmount(() => controller.value?.dispose());
       <fieldset class="adaptive-settings" :disabled="busy"><legend class="sr-only">{{ text('Adaptive search settings','Einstellungen der adaptiven Suche') }}</legend>
         <div class="adaptive-setting-row"><label class="adaptive-check"><input type="checkbox" :checked="data.settings.structured_feedback_enabled" @change="setting({ structured_feedback_enabled: checked($event) })" />{{ text('Use structured feedback for this search','Strukturiertes Feedback für diese Suche verwenden') }}</label><InfoHint :lang="lang" :label="text('Structured feedback consent','Freigabe strukturierten Feedbacks')" :text="text('This explicitly permits current and historical review categories, ratings, structured reasons and minimal confirmed-submission evidence, plus public opportunity titles, institutions, topics and URLs. Private comments, contacts, notes, CVs and letters stay private. Summary text requires a separate current approval. Turning this off also disables adaptation.', 'Dies erlaubt ausdrücklich aktuelle und frühere Interessenkategorien, Bewertungen, strukturierte Gründe und minimale Nachweise bestätigter Einreichungen sowie öffentliche Stellentitel, Institutionen, Themen und URLs. Private Kommentare, Kontakte, Notizen, Lebensläufe und Briefe bleiben privat. Zusammenfassungen benötigen eine eigene aktuelle Freigabe. Ausschalten deaktiviert auch die Anpassung.')" /></div>
         <div class="adaptive-setting-row"><label class="adaptive-check"><input type="checkbox" :checked="data.settings.adaptation_enabled" :disabled="!data.settings.structured_feedback_enabled" @change="setting({ adaptation_enabled: checked($event) })" />{{ text('Adapt query priorities','Suchprioritäten anpassen') }}</label><label class="adaptive-check"><input type="checkbox" :checked="data.settings.adaptation_paused" :disabled="data.settings.adaptation_paused && !data.settings.structured_feedback_enabled" @change="setting({ adaptation_paused: checked($event) })" />{{ text('Pause adaptation','Anpassung pausieren') }}</label></div>
+        <div class="adaptive-breadth">
+          <div class="adaptive-setting-row"><label :for="`${controlsId}-breadth`">{{ text('Search breadth','Suchbreite') }}</label><InfoHint :lang="lang" :label="text('Search breadth','Suchbreite')" :text="text('Reserve this share of discretionary queries for exploration, rounded up. Focused searches try adjacent interests; broader searches try unusual combinations, unfamiliar role titles, disciplines and sources. Funding, deadlines, explicit exclusions and protected core queries stay binding. Zero turns exploration off. This preference applies on the next active adaptive run without replacing the scheduled task.', 'Reserviere diesen Anteil der freien Abfragen für neue Suchrichtungen, aufgerundet. Fokussierte Suchen prüfen benachbarte Interessen; breitere Suchen prüfen ungewöhnliche Kombinationen, neue Stellentitel, Disziplinen und Quellen. Finanzierung, Fristen, ausdrückliche Ausschlüsse und geschützte Kernabfragen bleiben verbindlich. Null schaltet die Erkundung aus. Die Einstellung gilt im nächsten aktiven adaptiven Lauf, ohne die geplante Aufgabe zu ersetzen.')" /><output :for="`${controlsId}-breadth`" class="adaptive-breadth-value">{{ breadthValueText }}</output></div>
+          <input :id="`${controlsId}-breadth`" type="range" min="0" max="100" step="5" :value="breadthDraft" :aria-valuetext="breadthValueText" :aria-describedby="`${controlsId}-breadth-help`" :disabled="!breadthAvailable" @input="draftBreadth" @change="saveBreadth()" />
+          <div class="adaptive-breadth-scale" aria-hidden="true"><span>{{ text('Focused','Fokussiert') }}</span><span>{{ text('Balanced','Ausgewogen') }}</span><span>{{ text('Adventurous','Experimentierfreudig') }}</span></div>
+          <p :id="`${controlsId}-breadth-help`" class="adaptive-muted">{{ !breadthAvailable ? text('Install the search-breadth database update to enable this control.', 'Installiere die Datenbankaktualisierung für die Suchbreite, um diesen Regler zu aktivieren.') : breadthAllocation }} <template v-if="breadthAvailable && !breadthActive">{{ text('Inactive while adaptation is off or paused.', 'Inaktiv, solange die Anpassung ausgeschaltet oder pausiert ist.') }}</template></p>
+        </div>
         <label class="adaptive-check"><input type="checkbox" :checked="data.settings.successful_source_reuse_enabled" @change="setting({ successful_source_reuse_enabled: checked($event) })" />{{ text('Retain verified useful source listings','Verifizierte nützliche Stellenquellen beibehalten') }}</label>
         <label class="adaptive-cadence">{{ text('New retained-source interval (hours)','Intervall neuer beibehaltener Quellen (Stunden)') }}<input type="number" min="24" max="720" step="1" :value="data.settings.reuse_check_interval_hours" @change="setting({ reuse_check_interval_hours: Number(($event.target as HTMLInputElement).value) })" /></label>
       </fieldset>
@@ -156,9 +196,13 @@ onBeforeUnmount(() => controller.value?.dispose());
 .adaptive-dashboard h4 { margin: 0; font: 600 13px/1.6 var(--font-ui); }
 .adaptive-muted, .adaptive-dashboard small { color: var(--ui-muted); font-size: 12px; }
 .adaptive-settings { display: grid; gap: 10px; border: 0; padding: 0; margin: 0 0 12px; min-width: 0; }
-.adaptive-check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.adaptive-check input { width: 16px; height: 16px; accent-color: var(--ui-accent); flex: 0 0 auto; }
+.adaptive-dashboard .adaptive-check { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; cursor: pointer; font: inherit; }
+.adaptive-dashboard .adaptive-check input[type="checkbox"] { box-sizing: border-box; width: 16px; min-width: 16px; max-width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--ui-accent); flex: 0 0 16px; }
 .adaptive-cadence { display: grid; gap: 4px; font-size: 12px; }
+.adaptive-breadth { display: grid; gap: 4px; min-width: 0; max-width: 560px; padding-block: 4px; }
+.adaptive-breadth input[type="range"] { width: 100%; min-width: 0; margin: 0; min-height: 28px; accent-color: var(--ui-accent); cursor: pointer; }
+.adaptive-breadth-value { margin-inline-start: auto; font-variant-numeric: tabular-nums; color: var(--ui-muted); font-size: 12px; }
+.adaptive-breadth-scale { display: flex; justify-content: space-between; gap: 8px; color: var(--ui-muted); font-size: 11px; }
 .adaptive-cadence input { box-sizing: border-box; min-width: 0; width: 100px; padding: 7px 9px; border: 1px solid var(--ui-border); border-radius: 7px; background: var(--ui-control); color: var(--ui-text); font: 400 14px/1.5 var(--font-ui); }
 .adaptive-dashboard :is(button,input,summary):focus-visible, .adaptive-body :deep(textarea:focus-visible) { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 .adaptive-dashboard :is(button,input):disabled { opacity: .55; cursor: default; }
@@ -177,5 +221,5 @@ onBeforeUnmount(() => controller.value?.dispose());
 .adaptive-entry a { overflow-wrap: anywhere; color: var(--ui-accent); text-underline-offset: 3px; }
 .adaptive-error { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-block: 10px; color: var(--ui-danger-text, var(--ui-text)); }
 .adaptive-recovery { display: grid; gap: 8px; padding-block: 10px; }
-@media (max-width: 760px) { .adaptive-dashboard button { min-height: 44px; } .adaptive-cadence input { font-size: 16px; min-height: 44px; } .adaptive-body :deep(textarea) { font-size: 16px; } }
+@media (max-width: 760px) { .adaptive-dashboard button, .adaptive-breadth input[type="range"] { min-height: 44px; } .adaptive-cadence input { font-size: 16px; min-height: 44px; } .adaptive-body :deep(textarea) { font-size: 16px; } }
 </style>

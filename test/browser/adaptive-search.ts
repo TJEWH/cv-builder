@@ -7,11 +7,19 @@ import { searchTemplateCloudCriteria, searchTemplateCloudSchedule } from '../../
 import type { SearchCloudTemplate } from '../../src/searchTypes';
 import type { AdaptiveSearchRunnerState } from '../../src/composables/adaptiveSearchTask';
 import type { AdaptiveSearchDashboardData } from '../../src/composables/adaptiveSearchDashboard';
+import { createSearchBreadthPolicy } from '../../src/composables/adaptiveSearchPlanner';
 import dashboardFixture from './adaptive-dashboard.fixture.json';
 import '../../src/assets/cv.css';
 
 // Captured only from the isolated synthetic AF-10 SQL fixture, never production.
 const dashboard = structuredClone(dashboardFixture) as unknown as AdaptiveSearchDashboardData;
+// Synthetic breadth upgrade layered on the historical isolated SQL capture.
+const breadthInstalled = !new URLSearchParams(location.search).has('breadthUpgradeMissing');
+if (breadthInstalled) {
+  Object.assign(dashboard.settings, { search_breadth_percent: 20, breadth_revision: 0 });
+  dashboard.policy = createSearchBreadthPolicy(20);
+  dashboard.planning_capacity = { core_queries: 20, discretionary: 10 };
+}
 const owner = dashboard.user_id, search = dashboard.search_id, project = dashboard.project_ref;
 const template = structuredClone(DEFAULT_SEARCH_TEMPLATES[0]!);
 template.name = 'Synthetic adaptive search'; template.researchInterests = 'BCI; acoustic sensing';
@@ -28,6 +36,7 @@ const copied = ref(''), saveCount = ref(0), requestCount = ref(0);
 const lang = ref('en');
 const actionReceipts = new Map<string, unknown>();
 let loseSourceResponse = false;
+let loseSettingsResponse = false;
 let holdRequest = false, releaseRequest: (() => void) | null = null, failSave = false;
 let failReadiness = new URLSearchParams(location.search).has('readinessFailure');
 const client = { from: (name: string) => {
@@ -44,9 +53,16 @@ const client = { from: (name: string) => {
     if ('structured_feedback_enabled' in patch) dashboard.settings.consent_revision++;
     if ('adaptation_enabled' in patch || 'adaptation_paused' in patch) dashboard.settings.adaptation_revision++;
     if ('successful_source_reuse_enabled' in patch || 'reuse_check_interval_hours' in patch) dashboard.settings.source_reuse_revision++;
+    if ('search_breadth_percent' in patch) {
+      dashboard.settings.breadth_revision = (dashboard.settings.breadth_revision ?? 0) + 1;
+      dashboard.settings.query_plan_dirty = true;
+      dashboard.policy = createSearchBreadthPolicy(Number(patch.search_breadth_percent));
+    }
     if (!dashboard.settings.structured_feedback_enabled && dashboard.settings.adaptation_enabled) { dashboard.settings.adaptation_enabled = false; dashboard.settings.adaptation_revision++; }
     const receipt = { dashboard_version: 1, action_id: id, search_id: search, kind: 'settings', settings: structuredClone(dashboard.settings) };
-    actionReceipts.set(id, receipt); return { data: receipt, error: null };
+    actionReceipts.set(id, receipt);
+    if (loseSettingsResponse) { loseSettingsResponse = false; return { data: null, error: { code: 'NETWORK', message: 'Synthetic settings response lost after commit' } }; }
+    return { data: receipt, error: null };
   }
   if (name === 'patch_opportunity_search_source') {
     const id = String(args.p_action_id);
@@ -94,6 +110,7 @@ Object.assign(window, { adaptiveFixture: {
   holdRequest: () => { holdRequest = true; }, releaseRequest: () => { holdRequest = false; releaseRequest?.(); },
   failSave: () => { failSave = true; }, failReadiness: (value: boolean) => { failReadiness = value; },
   loseSourceResponse: () => { loseSourceResponse = true; },
+  loseSettingsResponse: () => { loseSettingsResponse = true; },
   snapshot: () => structuredClone({ row, state, dashboard, calls, copied: copied.value }),
 } });
 createApp({ setup() { return () => h('main', { style: 'height:100vh;display:flex;flex-direction:column' }, [

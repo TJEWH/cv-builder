@@ -5,19 +5,35 @@ import type { AdaptiveFeedbackSnapshot, ApprovedAdaptivePreference } from './ada
 import { createAdaptiveSearchPlan, replaceAdaptiveSearchSlice, validateAdaptiveSearchPlanTransition, type AdaptiveSearchPlan, type AdaptiveSearchPlanBasis, type AdaptiveSearchQuery, type AdaptiveSearchQueryInput } from './adaptiveSearchPlans';
 import { opportunityFeedbackTextHash, opportunityFeedbackTextIsSafe, sanitizeOpportunityFeedbackUrl } from './opportunityFeedbackPrivacy';
 
-export const ADAPTIVE_SEARCH_POLICY_VERSION = 'adaptive-query-v1';
+export const ADAPTIVE_SEARCH_POLICY_VERSION = 'adaptive-query-v2';
 export interface AdaptiveSearchPolicy {
-  readonly policy_version: typeof ADAPTIVE_SEARCH_POLICY_VERSION;
+  readonly policy_version: 'adaptive-query-v1' | typeof ADAPTIVE_SEARCH_POLICY_VERSION;
   readonly minimum_observations: number;
   readonly exploration_ratio: number;
   readonly maximum_queries: number;
   readonly minimum_exploration_queries: number;
   readonly positive_interest_threshold: number;
+  readonly exploration_guidance?: string;
 }
-export const DEFAULT_ADAPTIVE_SEARCH_POLICY: Readonly<AdaptiveSearchPolicy> = Object.freeze({
-  policy_version: ADAPTIVE_SEARCH_POLICY_VERSION, minimum_observations: 3, exploration_ratio: 0.2,
+export const LEGACY_ADAPTIVE_SEARCH_POLICY: Readonly<AdaptiveSearchPolicy> = Object.freeze({
+  policy_version: 'adaptive-query-v1', minimum_observations: 3, exploration_ratio: 0.2,
   maximum_queries: 30, minimum_exploration_queries: 1, positive_interest_threshold: 6,
 });
+const explorationGuidance = Object.freeze({
+  off: 'Do not generate exploration queries. Preserve the shared profile, protected core/manual queries and all hard criteria.',
+  focused: 'Explore underrepresented named interests, alternative terminology and new official sources. Research directions are alternatives, not cumulative requirements. Preserve the shared profile and all hard criteria; interests do not establish qualifications.',
+  balanced: 'Explore interdisciplinary combinations and plausible adjacent research directions, different role titles and new official sources. Keep a clear connection to the shared research profile. Research directions are alternatives. Preserve all hard criteria; interests do not establish qualifications.',
+  adventurous: 'Prioritize plausible adjacent fields, unusual research combinations and role titles, and unfamiliar institutions or official sources. Each exploration query must connect clearly to at least one shared research interest or method. Research directions are alternatives. Preserve all hard criteria; interests do not establish qualifications.',
+});
+/** Structured owner preference only: this never changes consent or a scheduled task. */
+export function createSearchBreadthPolicy(percent = 20): Readonly<AdaptiveSearchPolicy> {
+  if (!Number.isSafeInteger(percent) || percent < 0 || percent > 100 || percent % 5 !== 0) throw new TypeError('Search breadth must be a multiple of five from 0 to 100.');
+  const level = percent === 0 ? 'off' : percent <= 20 ? 'focused' : percent <= 50 ? 'balanced' : 'adventurous';
+  return Object.freeze({ ...LEGACY_ADAPTIVE_SEARCH_POLICY, policy_version: ADAPTIVE_SEARCH_POLICY_VERSION,
+    exploration_ratio: percent / 100, minimum_exploration_queries: percent === 0 ? 0 : 1,
+    exploration_guidance: explorationGuidance[level] });
+}
+export const DEFAULT_ADAPTIVE_SEARCH_POLICY = createSearchBreadthPolicy();
 
 export interface AdaptiveEmphasisRule {
   rule_id: string;
@@ -136,16 +152,25 @@ export function validateApprovedAdaptiveRules(value: unknown): readonly Approved
   }).sort((a, b) => compare(a.rule_id, b.rule_id)));
 }
 
-function policy(value: Readonly<AdaptiveSearchPolicy>): Readonly<AdaptiveSearchPolicy> {
-  if (value.policy_version !== ADAPTIVE_SEARCH_POLICY_VERSION || !integer(value.minimum_observations, 3, 100)
+export function validateAdaptiveSearchPolicy(value: Readonly<AdaptiveSearchPolicy>): Readonly<AdaptiveSearchPolicy> {
+  if (!record(value) || !['adaptive-query-v1', ADAPTIVE_SEARCH_POLICY_VERSION].includes(value.policy_version) || !integer(value.minimum_observations, 3, 100)
     || typeof value.exploration_ratio !== 'number' || !Number.isFinite(value.exploration_ratio) || value.exploration_ratio < 0 || value.exploration_ratio > 1
-    || !integer(value.maximum_queries, 1, 30) || !integer(value.minimum_exploration_queries, 1, 30)
+    || !integer(value.maximum_queries, 1, 30) || !integer(value.minimum_exploration_queries, value.policy_version === 'adaptive-query-v1' ? 1 : 0, 30)
     || typeof value.positive_interest_threshold !== 'number' || !Number.isFinite(value.positive_interest_threshold)
     || value.positive_interest_threshold < 0 || value.positive_interest_threshold > 10) throw new TypeError('Invalid versioned adaptive query policy.');
+  if (value.policy_version === ADAPTIVE_SEARCH_POLICY_VERSION) {
+    const expected = createSearchBreadthPolicy(Math.round(value.exploration_ratio * 100));
+    if (value.exploration_ratio !== expected.exploration_ratio || value.minimum_exploration_queries !== expected.minimum_exploration_queries
+      || value.exploration_guidance !== expected.exploration_guidance || value.minimum_observations !== expected.minimum_observations
+      || value.maximum_queries !== expected.maximum_queries || value.positive_interest_threshold !== expected.positive_interest_threshold
+      || Object.keys(value).some(field => !Object.hasOwn(expected, field))) throw new TypeError('Invalid versioned adaptive query policy.');
+    return expected;
+  }
   return Object.freeze({ policy_version: value.policy_version, minimum_observations: value.minimum_observations,
     exploration_ratio: value.exploration_ratio, maximum_queries: value.maximum_queries,
     minimum_exploration_queries: value.minimum_exploration_queries, positive_interest_threshold: value.positive_interest_threshold });
 }
+const policy = validateAdaptiveSearchPolicy;
 function basis(value: AdaptiveSearchPlanBasis): Readonly<AdaptiveSearchPlanBasis> {
   if (!integer(value.base_revision, 1) || !integer(value.feedback_revision) || !integer(value.preference_revision)
     || typeof value.protocol_version !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/u.test(value.protocol_version)) throw new TypeError('Invalid planning revision basis.');
@@ -334,7 +359,7 @@ export async function recordGeneratedAdaptiveSearchPlan(input: AdaptiveSearchPla
   const exploration = captured.filter(query => query.role === 'exploration').length;
   const minimum = captured.length ? Math.min(captured.length, Math.max(context.policy.minimum_exploration_queries, Math.ceil(captured.length * context.policy.exploration_ratio))) : 0;
   if (!context.enabled && captured.length || context.enabled && context.allocation.discretionary > 0 && !captured.length
-    || exploration < minimum) throw new TypeError('The generated slice must preserve the active exploration policy.');
+    || exploration < minimum || context.policy.policy_version === ADAPTIVE_SEARCH_POLICY_VERSION && context.policy.exploration_ratio === 0 && exploration !== 0) throw new TypeError('The generated slice must preserve the active exploration policy.');
   // Hash validation snapshots the exact core fields before yielding; never read
   // a mutable source plan again after asynchronous hashing has started.
   const core = input.core_queries.map(query => ({ ...query, ...(query.sources === undefined ? {} : { sources: [...query.sources] }) }));

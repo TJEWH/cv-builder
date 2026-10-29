@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { compileAdaptiveFeedbackSnapshot } from '../src/composables/adaptiveFeedbackSnapshots';
-import { DEFAULT_ADAPTIVE_SEARCH_POLICY } from '../src/composables/adaptiveSearchPlanner';
+import { createSearchBreadthPolicy, DEFAULT_ADAPTIVE_SEARCH_POLICY, LEGACY_ADAPTIVE_SEARCH_POLICY } from '../src/composables/adaptiveSearchPlanner';
 import { adaptiveDashboardRunState, createAdaptiveSearchDashboardController, readAdaptiveSearchDashboard, validateAdaptiveSettingsPatch, validateAdaptiveSourcePatch } from '../src/composables/adaptiveSearchDashboard';
 
 const id = (index: number) => `81000000-0000-4000-8000-${index.toString(16).padStart(12,'0')}`;
@@ -14,8 +14,9 @@ async function fixture() {
     structured_feedback_enabled: false, consent_revision: 0, feedback_revision: 0, examples: [] });
   return { dashboard_version: 1, user_id: scope.ownerId, search_id: scope.searchId, project_ref: scope.projectRef,
     settings: { structured_feedback_enabled: false, adaptation_enabled: false, adaptation_paused: false, successful_source_reuse_enabled: false,
-      reuse_check_interval_hours: 168, consent_revision: 0, adaptation_revision: 0, source_reuse_revision: 0, feedback_revision: 0, preference_revision: 0, query_plan_revision: 1, query_plan_dirty: false },
+      reuse_check_interval_hours: 168, search_breadth_percent: 20, breadth_revision: 0, consent_revision: 0, adaptation_revision: 0, source_reuse_revision: 0, feedback_revision: 0, preference_revision: 0, query_plan_revision: 1, query_plan_dirty: false },
     policy: { ...DEFAULT_ADAPTIVE_SEARCH_POLICY },
+    planning_capacity: { core_queries: 1, discretionary: 29 } as { core_queries: number; discretionary: number } | null,
     readiness: { setup_contract_version: 1, user_id: scope.ownerId, search_id: scope.searchId, project_ref: scope.projectRef,
       revision: 0, mode: 'legacy', migration_requested: false, ready: false, readiness_code: 'owner_not_authorized', setup_id: null, binding: null },
     runner_authorization: { enabled: false, authorization_revision: 0, project_ref: null as string | null }, feedback_preview: feedback,
@@ -51,6 +52,10 @@ function mock(data: Fixture) {
     if (!result) {
       if (name === 'patch_opportunity_search_settings') {
         Object.assign(data.settings,args.p_patch);
+        if (Object.hasOwn(args.p_patch,'search_breadth_percent')) {
+          data.policy = { ...createSearchBreadthPolicy(args.p_patch.search_breadth_percent) };
+          data.settings.query_plan_dirty = true;
+        }
         for (const key of Object.keys(args.p_expected_revisions)) data.settings[key as keyof Fixture['settings']] = args.p_expected_revisions[key]+1 as never;
         if (Object.hasOwn(args.p_patch,'structured_feedback_enabled')) data.feedback_preview.consent_revision = data.settings.consent_revision;
         result = { dashboard_version: 1,action_id: args.p_action_id,search_id: data.search_id,kind: 'settings',settings: clone(data.settings) };
@@ -118,6 +123,76 @@ test('AF-10 structured patches are closed and cannot mutate base intent or impli
   for (const value of [{ meta_search: {} },{ researchInterests: 'Rewrite letters' },{ adaptation_enabled: 'true' },{ reuse_check_interval_hours: 23 },{}]) assert.throws(() => validateAdaptiveSettingsPatch(value));
   for (const value of [{ source_revision: 1 },{ check_interval_hours: 721 },{ listing_url: 'https://example.invalid/Jobs' },{ mandatory: false },{ enabled: 'true' }]) assert.throws(() => validateAdaptiveSourcePatch(value));
   assert.deepEqual(validateAdaptiveSourcePatch({ pinned: false,check_interval_hours: 24 }),{ pinned: false,check_interval_hours: 24 });
+});
+
+test('search breadth accepts only whole five-point percentages and preserves canonical capacity', async () => {
+  for (const value of [-5, 101, 21, 2.5, '20', null, NaN]) assert.throws(() => validateAdaptiveSettingsPatch({ search_breadth_percent: value }));
+  for (const value of [0, 5, 20, 50, 100]) assert.deepEqual(validateAdaptiveSettingsPatch({ search_breadth_percent: value }), { search_breadth_percent: value });
+  const raw = await fixture(), result = await readAdaptiveSearchDashboard(raw, scope);
+  assert.equal(result.settings.search_breadth_percent, 20);
+  assert.equal(result.settings.breadth_revision, 0);
+  assert.deepEqual(result.planning_capacity, { core_queries: 1, discretionary: 29 });
+  for (const capacity of [{ core_queries: 1, discretionary: 30 }, { core_queries: -1, discretionary: 30 }, { core_queries: 1.5, discretionary: 28.5 }]) {
+    await assert.rejects(readAdaptiveSearchDashboard({ ...raw, planning_capacity: capacity }, scope));
+  }
+  await assert.rejects(readAdaptiveSearchDashboard({ ...raw, settings: { ...raw.settings, search_breadth_percent: 25 } }, scope), 'effective policy must match the saved setting');
+  assert.equal((await readAdaptiveSearchDashboard({ ...raw, planning_capacity: null }, scope)).planning_capacity, null);
+});
+
+test('an older installed dashboard stays readable but cannot pretend to save breadth', async () => {
+  const raw = await fixture(), legacy = clone(raw) as any;
+  delete legacy.settings.search_breadth_percent; delete legacy.settings.breadth_revision; delete legacy.planning_capacity;
+  legacy.policy = { ...LEGACY_ADAPTIVE_SEARCH_POLICY };
+  const parsed = await readAdaptiveSearchDashboard(legacy, scope);
+  assert.equal(parsed.settings.search_breadth_percent, null); assert.equal(parsed.settings.breadth_revision, null);
+  assert.equal(parsed.planning_capacity, null); assert.equal(parsed.sources.length, raw.sources.length);
+  const service = mock(legacy), controller = createAdaptiveSearchDashboardController(service.client, scope, service);
+  await controller.load();
+  assert.equal(await controller.patchSettings({ search_breadth_percent: 55 }), false);
+  assert.equal(controller.state.error, 'breadth_upgrade_required'); assert.equal(controller.state.retryable, false);
+  assert.equal(service.calls.filter(call => call.name === 'patch_opportunity_search_settings').length, 0);
+  controller.dispose();
+});
+
+test('historical v1 plan policy remains readable with current v2 settings', async () => {
+  const raw = await fixture();
+  (raw.queries.plan as any).planning_policy = { ...LEGACY_ADAPTIVE_SEARCH_POLICY };
+  const result = await readAdaptiveSearchDashboard(raw, scope);
+  assert.equal(result.policy.policy_version, 'adaptive-query-v2');
+  assert.equal(result.queries.plan!.planning_policy!.policy_version, 'adaptive-query-v1');
+});
+
+test('breadth saves independently while adaptation is off and never opts into feedback', async () => {
+  const raw = await fixture(), service = mock(raw), controller = createAdaptiveSearchDashboardController(service.client, scope, service);
+  await controller.load();
+  assert.equal(await controller.patchSettings({ search_breadth_percent: 55 }), true);
+  const write = service.calls.find(call => call.name === 'patch_opportunity_search_settings')!;
+  assert.deepEqual(write.args.p_patch, { search_breadth_percent: 55 });
+  assert.deepEqual(write.args.p_expected_revisions, { breadth_revision: 0 });
+  assert.equal(controller.state.data!.settings.breadth_revision, 1);
+  assert.equal(controller.state.data!.settings.structured_feedback_enabled, false);
+  assert.equal(controller.state.data!.settings.adaptation_enabled, false);
+  assert.equal(controller.state.data!.policy.exploration_ratio, 0.55);
+  assert.equal(await controller.patchSettings({ search_breadth_percent: 0 }), true);
+  assert.equal(controller.state.data!.policy.minimum_exploration_queries, 0);
+  assert.equal(service.calls.some(call => /meta_search|schedule|request_adaptive/.test(call.name)), false);
+  controller.dispose();
+});
+
+test('a lost breadth acknowledgement retries the identical request and detects a newer owner setting', async () => {
+  const raw = await fixture(), service = mock(raw), controller = createAdaptiveSearchDashboardController(service.client, scope, service);
+  await controller.load(); let writes = 0;
+  service.hooks.afterWrite = (name, _args, reply) => name === 'patch_opportunity_search_settings' && ++writes === 1 ? { data: null, error: { code: 'NETWORK' } } : reply;
+  assert.equal(await controller.patchSettings({ search_breadth_percent: 75 }), false);
+  assert.equal(controller.state.retryable, true);
+  raw.settings.search_breadth_percent = 35; raw.settings.breadth_revision++;
+  raw.policy = { ...createSearchBreadthPolicy(35) };
+  assert.equal(await controller.retry(), false);
+  const calls = service.calls.filter(call => call.name === 'patch_opportunity_search_settings');
+  assert.deepEqual(calls[0]!.args, calls[1]!.args);
+  assert.equal(controller.state.data!.settings.search_breadth_percent, 35);
+  assert.equal(controller.state.error, 'conflict'); assert.equal(controller.state.retryable, false);
+  assert.equal(await controller.flush(), false); controller.dispose();
 });
 
 test('AF-10 malformed outcome denominators are rejected instead of presenting fabricated quality', async () => {

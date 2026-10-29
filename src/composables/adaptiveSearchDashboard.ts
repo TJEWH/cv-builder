@@ -5,17 +5,18 @@ import { opportunityFeedbackTextIsSafe, sanitizeOpportunityFeedbackUrl } from '.
 import { readAdaptiveSearchFeedbackPacket, type AdaptiveStartupFeedback } from './adaptiveSearchStartup';
 import { readAdaptiveSearchRunnerState, requireSearchTaskScope, type AdaptiveSearchRunnerState } from './adaptiveSearchTask';
 import type { AdaptiveSearchPlanBasis } from './adaptiveSearchPlans';
-import { DEFAULT_ADAPTIVE_SEARCH_POLICY, validateApprovedAdaptiveRules, type AdaptiveSearchPolicy, type ApprovedAdaptiveRule } from './adaptiveSearchPlanner';
+import { validateAdaptiveSearchPolicy, validateApprovedAdaptiveRules, type AdaptiveSearchPolicy, type ApprovedAdaptiveRule } from './adaptiveSearchPlanner';
 import { ADAPTIVE_SOURCE_KINDS, ADAPTIVE_SOURCE_STATUSES, type AdaptiveSearchSource } from './adaptiveSearchSources';
 
 export interface AdaptiveDashboardScope { ownerId: string; searchId: string; projectRef: string }
 export interface AdaptiveDashboardSettings {
   structured_feedback_enabled: boolean; adaptation_enabled: boolean; adaptation_paused: boolean;
   successful_source_reuse_enabled: boolean; reuse_check_interval_hours: number;
+  search_breadth_percent: number | null; breadth_revision: number | null;
   consent_revision: number; adaptation_revision: number; source_reuse_revision: number; feedback_revision: number;
   preference_revision: number; query_plan_revision: number; query_plan_dirty: boolean;
 }
-export type AdaptiveSettingsPatch = Partial<Pick<AdaptiveDashboardSettings, 'structured_feedback_enabled' | 'adaptation_enabled' | 'adaptation_paused' | 'successful_source_reuse_enabled' | 'reuse_check_interval_hours'>>;
+export type AdaptiveSettingsPatch = Partial<Pick<AdaptiveDashboardSettings, 'structured_feedback_enabled' | 'adaptation_enabled' | 'adaptation_paused' | 'successful_source_reuse_enabled' | 'reuse_check_interval_hours'>> & { search_breadth_percent?: number };
 export type AdaptiveSourcePatch = Partial<Pick<AdaptiveSearchSource, 'enabled' | 'pinned' | 'check_interval_hours'>>;
 export interface AdaptiveDashboardSuggestion {
   suggestion_id: string; rule: ApprovedAdaptiveRule; origin: 'owner' | 'runner';
@@ -50,6 +51,7 @@ export interface AdaptiveDashboardProposal {
 export interface AdaptiveSearchDashboardData {
   dashboard_version: 1; user_id: string; search_id: string; project_ref: string;
   settings: AdaptiveDashboardSettings; policy: AdaptiveSearchPolicy; readiness: AdaptiveSearchRunnerState;
+  planning_capacity: { core_queries: number; discretionary: number } | null;
   runner_authorization: { enabled: boolean; authorization_revision: number; project_ref: string | null };
   feedback_preview: AdaptiveStartupFeedback;
   preferences: { revision: number; approved_rules: readonly ApprovedAdaptiveRule[]; suggestions: AdaptiveDashboardSuggestion[]; proposals: AdaptiveDashboardProposal[] };
@@ -106,18 +108,18 @@ function scoped(scope: AdaptiveDashboardScope): AdaptiveDashboardScope {
 }
 function readSettings(value: unknown): AdaptiveDashboardSettings {
   const row = object(value);
+  const upgraded = Object.hasOwn(row, 'search_breadth_percent') || Object.hasOwn(row, 'breadth_revision');
+  const breadth = upgraded ? integer(row.search_breadth_percent, 0, 100) : null;
+  if (breadth !== null && breadth % 5 !== 0) fail();
   return { structured_feedback_enabled: bool(row.structured_feedback_enabled), adaptation_enabled: bool(row.adaptation_enabled),
     adaptation_paused: bool(row.adaptation_paused), successful_source_reuse_enabled: bool(row.successful_source_reuse_enabled),
-    reuse_check_interval_hours: integer(row.reuse_check_interval_hours, 24, 720), consent_revision: integer(row.consent_revision),
+    reuse_check_interval_hours: integer(row.reuse_check_interval_hours, 24, 720), search_breadth_percent: breadth,
+    breadth_revision: upgraded ? integer(row.breadth_revision) : null, consent_revision: integer(row.consent_revision),
     adaptation_revision: integer(row.adaptation_revision), source_reuse_revision: integer(row.source_reuse_revision), feedback_revision: integer(row.feedback_revision),
     preference_revision: integer(row.preference_revision), query_plan_revision: integer(row.query_plan_revision), query_plan_dirty: bool(row.query_plan_dirty) };
 }
 function readPolicy(value: unknown): AdaptiveSearchPolicy {
-  const row = object(value);
-  if (row.policy_version !== DEFAULT_ADAPTIVE_SEARCH_POLICY.policy_version) fail();
-  return { policy_version: DEFAULT_ADAPTIVE_SEARCH_POLICY.policy_version, minimum_observations: integer(row.minimum_observations, 1, 100),
-    positive_interest_threshold: numberOrNull(row.positive_interest_threshold) ?? fail(), exploration_ratio: numberOrNull(row.exploration_ratio, 0, 1) ?? fail(),
-    maximum_queries: integer(row.maximum_queries, 1, 30), minimum_exploration_queries: integer(row.minimum_exploration_queries, 1, 30) };
+  try { return validateAdaptiveSearchPolicy(value as AdaptiveSearchPolicy); } catch { return fail(); }
 }
 function readOutcomes(value: unknown): AdaptiveDashboardSource['outcomes'] {
   const row = object(value);
@@ -164,8 +166,19 @@ export async function readAdaptiveSearchDashboard(value: unknown, inputScope: Ad
           manual: bool(query.manual), source_registry_id: query.source_registry_id === null ? null : id(query.source_registry_id), withheld, outcomes: readOutcomes(query.outcomes) }; }),
       planning_policy: row.planning_policy === null ? null : readPolicy(row.planning_policy) };
   }
+  const currentPolicy = readPolicy(raw.policy);
+  const settings = readSettings(raw.settings);
+  if (currentPolicy.policy_version === 'adaptive-query-v2' && settings.search_breadth_percent !== null
+    && (currentPolicy.exploration_ratio !== settings.search_breadth_percent / 100
+      || currentPolicy.minimum_exploration_queries !== (settings.search_breadth_percent === 0 ? 0 : 1))) fail();
+  let capacity: AdaptiveSearchDashboardData['planning_capacity'] = null;
+  if (raw.planning_capacity !== undefined && raw.planning_capacity !== null) {
+    const row = object(raw.planning_capacity);
+    capacity = { core_queries: integer(row.core_queries, 0, 30), discretionary: integer(row.discretionary, 0, 30) };
+    if (capacity.discretionary !== Math.max(0, currentPolicy.maximum_queries - capacity.core_queries)) fail();
+  }
   return { dashboard_version: 1, user_id: scope.ownerId, search_id: scope.searchId, project_ref: scope.projectRef,
-    settings: readSettings(raw.settings), policy: readPolicy(raw.policy), readiness: readAdaptiveSearchRunnerState(raw.readiness, scope.ownerId, scope.searchId, scope.projectRef),
+    settings, policy: currentPolicy, planning_capacity: capacity, readiness: readAdaptiveSearchRunnerState(raw.readiness, scope.ownerId, scope.searchId, scope.projectRef),
     runner_authorization: { enabled: bool(authorization.enabled), authorization_revision: integer(authorization.authorization_revision),
       project_ref: authorization.project_ref === null ? null : authorization.project_ref === scope.projectRef ? scope.projectRef : fail() }, feedback_preview: preview,
     preferences: { revision: integer(prefs.revision), approved_rules: approved,
@@ -196,13 +209,15 @@ export async function readAdaptiveSearchDashboard(value: unknown, inputScope: Ad
     bounds: readIntegerObject(raw.bounds, ['maximum_dashboard_bytes','maximum_feedback_bytes','maximum_sources','maximum_queries','maximum_executions','maximum_runs','maximum_suggestions','maximum_proposals']) };
 }
 
-const settingsKeys = ['structured_feedback_enabled','adaptation_enabled','adaptation_paused','successful_source_reuse_enabled','reuse_check_interval_hours'] as const;
+const settingsKeys = ['structured_feedback_enabled','adaptation_enabled','adaptation_paused','successful_source_reuse_enabled','reuse_check_interval_hours','search_breadth_percent'] as const;
 const sourceKeys = ['enabled','pinned','check_interval_hours'] as const;
 export function validateAdaptiveSettingsPatch(value: unknown): AdaptiveSettingsPatch {
   const raw = object(value), patch: AdaptiveSettingsPatch = {};
   if (!Object.keys(raw).length || Object.keys(raw).some(key => !(settingsKeys as readonly string[]).includes(key))) fail();
   for (const key of settingsKeys) if (Object.hasOwn(raw,key)) {
-    if (key === 'reuse_check_interval_hours') patch[key] = integer(raw[key], 24, 720); else patch[key] = bool(raw[key]);
+    if (key === 'reuse_check_interval_hours') patch[key] = integer(raw[key], 24, 720);
+    else if (key === 'search_breadth_percent') { const value = integer(raw[key], 0, 100); if (value % 5 !== 0) fail(); patch[key] = value; }
+    else patch[key] = bool(raw[key]);
   }
   return patch;
 }
@@ -245,8 +260,8 @@ export function createAdaptiveSearchDashboardController(client: Pick<SupabaseCli
   function error(cause: unknown, loading = false) {
     const code = typeof cause === 'object' && cause ? String((cause as { code?: unknown }).code ?? '') : '';
     state.errorKind = loading ? 'load' : code === '40001' ? 'conflict' : ['42501','PGRST301','PGRST302'].includes(code) ? 'denied' : 'save';
-    state.error = code === 'SOURCE_UNAVAILABLE' ? 'source_unavailable' : code === 'CONSENT_REQUIRED' ? 'consent_required' : state.errorKind === 'conflict' ? 'conflict' : state.errorKind === 'denied' ? 'denied' : loading ? 'load_failed' : 'save_failed';
-    state.retryable = !loading && state.errorKind === 'save' && !['22023','CONSENT_REQUIRED'].includes(code) && failed !== null;
+    state.error = code === 'SOURCE_UNAVAILABLE' ? 'source_unavailable' : code === 'CONSENT_REQUIRED' ? 'consent_required' : code === 'BREADTH_UPGRADE_REQUIRED' ? 'breadth_upgrade_required' : state.errorKind === 'conflict' ? 'conflict' : state.errorKind === 'denied' ? 'denied' : loading ? 'load_failed' : 'save_failed';
+    state.retryable = !loading && state.errorKind === 'save' && !['22023','CONSENT_REQUIRED','BREADTH_UPGRADE_REQUIRED'].includes(code) && failed !== null;
   }
   async function load(clearFailure = true): Promise<boolean> {
     if (disposed) return false;
@@ -307,6 +322,10 @@ export function createAdaptiveSearchDashboardController(client: Pick<SupabaseCli
       failed = null;
       const loaded = await load(false);
       if (request.generation !== generation || disposed) return false;
+      if (loaded && request.name === 'patch_opportunity_search_settings'
+        && Object.entries(object(request.args.p_patch)).some(([key,value]) => state.data?.settings[key as keyof AdaptiveDashboardSettings] !== value)) {
+        failed = request; error({ code: '40001' }); return false;
+      }
       if (loaded && request.sourceId && request.patch) {
         const current = state.data?.sources.find(source => source.registry_id === request.sourceId);
         if (!current || Object.entries(request.patch).some(([key,value]) => current[key as keyof AdaptiveDashboardSource] !== value)) {
@@ -341,6 +360,10 @@ export function createAdaptiveSearchDashboardController(client: Pick<SupabaseCli
       if (Object.hasOwn(patch,'structured_feedback_enabled')) expected.consent_revision = settings.consent_revision;
       if (Object.hasOwn(patch,'adaptation_enabled') || Object.hasOwn(patch,'adaptation_paused')) expected.adaptation_revision = settings.adaptation_revision;
       if (Object.hasOwn(patch,'successful_source_reuse_enabled') || Object.hasOwn(patch,'reuse_check_interval_hours')) expected.source_reuse_revision = settings.source_reuse_revision;
+      if (Object.hasOwn(patch,'search_breadth_percent')) {
+        if (settings.breadth_revision === null || settings.search_breadth_percent === null || state.data?.policy.policy_version !== 'adaptive-query-v2') throw { code: 'BREADTH_UPGRADE_REQUIRED' };
+        expected.breadth_revision = settings.breadth_revision;
+      }
       return { name: 'patch_opportunity_search_settings', scope: { ...scope }, generation, args: {
         p_search_id: scope.searchId, p_action_id: id(randomId()), p_patch: patch, p_expected_revisions: expected } };
     });

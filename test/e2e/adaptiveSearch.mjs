@@ -56,8 +56,43 @@ try {
     await page.getByRole('button', { name: 'Retry save', exact: true }).click();
     await page.waitForFunction(() => window.adaptiveFixture.snapshot().row.criteria.topicsAndMethods.includes('RECOVER THIS DRAFT'));
     await page.getByRole('heading', { name: 'Adaptive feedback', exact: true }).scrollIntoViewIfNeeded();
+    const checkboxLayout = await page.locator('.adaptive-settings .adaptive-check').evaluateAll(labels => labels.map(label => {
+      const input = label.querySelector('input'), text = document.createRange(); text.selectNodeContents(label);
+      return { name: label.textContent.trim(), checkboxWidth: input.getBoundingClientRect().width, height: label.getBoundingClientRect().height,
+        textRight: text.getBoundingClientRect().right, viewport: innerWidth };
+    }));
+    for (const layout of checkboxLayout) {
+      assert.equal(layout.checkboxWidth, 16, `${layout.name}: checkbox must not inherit full-width text-input styling`);
+      assert(layout.height <= 48, `${layout.name}: checkbox text should occupy at most two readable lines`);
+      assert(layout.textRight <= layout.viewport, `${layout.name}: label text must fit the viewport`);
+    }
     await page.screenshot({ path: `${output}/controls-${width}.png`, fullPage: true });
     const baseRevision = await page.evaluate(() => window.adaptiveFixture.snapshot().row.revision);
+    const breadth = page.getByRole('slider', { name: 'Search breadth', exact: true });
+    assert.equal(await breadth.inputValue(), '20');
+    assert.equal(await breadth.getAttribute('aria-valuetext'), '20% · Focused');
+    const beforeBreadth = await page.evaluate(() => window.adaptiveFixture.snapshot());
+    await breadth.evaluate(element => { element.value = '60'; element.dispatchEvent(new Event('input', { bubbles: true })); });
+    assert.equal(await breadth.getAttribute('aria-valuetext'), '60% · Adventurous');
+    assert.equal(await page.evaluate(() => window.adaptiveFixture.snapshot().calls.length), beforeBreadth.calls.length, 'Dragging only changes a local draft');
+    await page.getByText('At full next-run capacity: at least 6 of 10 discretionary queries for exploration.', { exact: false }).waitFor();
+    await page.evaluate(() => window.adaptiveFixture.loseSettingsResponse());
+    await breadth.evaluate(element => element.dispatchEvent(new Event('change', { bubbles: true })));
+    await page.getByRole('button', { name: 'Retry exact request', exact: true }).waitFor();
+    assert.equal(await breadth.inputValue(), '60', 'Failed settings save preserves the selected breadth');
+    await page.getByRole('button', { name: 'Retry exact request', exact: true }).click();
+    await page.waitForFunction(() => window.adaptiveFixture.snapshot().calls.filter(call => call.name === 'patch_opportunity_search_settings').length === 2);
+    const breadthCalls = await page.evaluate(() => window.adaptiveFixture.snapshot().calls.filter(call => call.name === 'patch_opportunity_search_settings'));
+    assert.deepEqual(breadthCalls[0].args, breadthCalls[1].args);
+    assert.deepEqual(breadthCalls[0].args.p_patch, { search_breadth_percent: 60 });
+    assert.deepEqual(breadthCalls[0].args.p_expected_revisions, { breadth_revision: 0 });
+    const afterBreadth = await page.evaluate(() => window.adaptiveFixture.snapshot());
+    assert.equal(afterBreadth.dashboard.settings.structured_feedback_enabled, beforeBreadth.dashboard.settings.structured_feedback_enabled);
+    assert.equal(afterBreadth.dashboard.settings.adaptation_enabled, beforeBreadth.dashboard.settings.adaptation_enabled);
+    await page.waitForFunction(() => !document.querySelector('.adaptive-dashboard[aria-busy="true"]'));
+    await breadth.focus(); await breadth.press('Home');
+    await page.waitForFunction(() => window.adaptiveFixture.snapshot().dashboard.settings.search_breadth_percent === 0);
+    assert.equal(await breadth.getAttribute('aria-valuetext'), '0% · Off');
     await page.getByLabel('Use structured feedback for this search', { exact: true }).check();
     await page.waitForFunction(() => window.adaptiveFixture.snapshot().dashboard.settings.structured_feedback_enabled);
     await page.getByLabel('Adapt query priorities', { exact: true }).check();
@@ -91,6 +126,7 @@ try {
     await page.getByRole('button', { name: 'English / Deutsch', exact: true }).click();
     await page.getByRole('heading', { name: 'Adaptives Feedback', exact: true }).waitFor();
     await page.getByLabel('Strukturiertes Feedback für diese Suche verwenden', { exact: true }).waitFor();
+    await page.getByRole('slider', { name: 'Suchbreite', exact: true }).waitFor();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
     assert.equal(overflow, false, `Horizontal overflow at ${width}px`);
     assert.deepEqual(external, []); assert.deepEqual(errors, []);
@@ -108,4 +144,13 @@ try {
   await page.waitForFunction(() => !document.querySelector('.search-error'));
   await context.close();
   console.log('PASS unknown readiness blocks copying until successful reload');
+  const legacyContext = await browser.newContext(); const legacyPage = await legacyContext.newPage();
+  await legacyPage.goto('http://127.0.0.1:5177/cv-builder/test/browser/adaptive-search.html?breadthUpgradeMissing=1', { waitUntil: 'networkidle' });
+  await legacyPage.getByRole('heading', { name: 'Adaptive feedback', exact: true }).waitFor();
+  assert.equal(await legacyPage.getByRole('slider', { name: 'Search breadth', exact: true }).isDisabled(), true);
+  await legacyPage.getByText('Install the search-breadth database update to enable this control.', { exact: true }).waitFor();
+  assert.equal(await legacyPage.getByLabel('Use structured feedback for this search', { exact: true }).isDisabled(), false);
+  assert.equal(await legacyPage.evaluate(() => window.adaptiveFixture.snapshot().calls.filter(call => call.name === 'patch_opportunity_search_settings').length), 0);
+  await legacyContext.close();
+  console.log('PASS missing breadth upgrade preserves the old dashboard and disables the new slider');
 } finally { await browser.close(); }

@@ -2,7 +2,7 @@
 
 AF-01–AF-11 extend the single shared Meta research editor with owner-approved feedback, reusable sources, execution history and a separately versioned runner. The feature is implemented in the repository. This release work does not install it in Supabase, replace a ChatGPT task, or establish unattended execution.
 
-The specification reference is commit `f475d364fb16508b4ef8e1568b9d72fd80e3ddf2`; the last implementation commit before this release gate is `1e9ce5a49ad97383ddebe2d5ba304eee1bf5e286`. Current source hashes and installation order are recorded in [`supabase/adaptive-search-release.json`](../supabase/adaptive-search-release.json). That manifest is source evidence, not a record of production deployment.
+The specification reference is commit `f475d364fb16508b4ef8e1568b9d72fd80e3ddf2`; the complete AF-11 implementation before the breadth upgrade is `fbbe4c2a28a9a776e6040b92a9af2c28876efb21`. Current source hashes and installation order are recorded in [`supabase/adaptive-search-release.json`](../supabase/adaptive-search-release.json). That manifest is source evidence, not a record of production deployment.
 
 ## Versions and source verification
 
@@ -14,7 +14,7 @@ The specification reference is commit `f475d364fb16508b4ef8e1568b9d72fd80e3ddf2`
 | Complete runner capability | `adaptive-batch-v1` |
 | Interest metric | `opportunity-interest-v1` |
 | Example selection | `opportunity-feedback-selection-v1` |
-| Query policy | `adaptive-query-v1` |
+| Query policy | `adaptive-query-v2` (historical v1 retained) |
 | Technical setup and feature rollback | 1 |
 
 `npm run adaptive:release:check` checks the exact migration, runner and schema files against the manifest without connecting to a database. After reviewing an intentional source change, regenerate it with `node --import tsx scripts/adaptiveSearchRelease.ts --write`, inspect the diff, and rerun the gate. Regeneration is never a substitute for reviewing changed SQL.
@@ -30,7 +30,9 @@ The isolated driver loads these prerequisites in order:
 1. `supabase/schema.sql`, in an empty disposable database.
 2. `test/opportunityFeedback/fixtures/legacy-search-bootstrap.sql`, the pinned technical fixture from `supabase/opportunity_search.sql` at commit `3a3abaf2fa3a4dfd94f9bd145555a007e166f0fb`. Its provenance file checks SHA-256 `9baff81fb8a014b8e40bcc212d8264bdb1021027229c1d309f2258694f1b76f5`.
 3. `opportunity_merge_v4.sql`, `opportunity_canonical_v5.sql`, then `opportunity_meta_search_autosave.sql`.
-4. The ordered additive files under `existing_workspace_upgrade` in the release manifest: AF-01 feedback through AF-10 preview/dashboard, the AF-11 proposal correction, and the feature rollback definitions.
+4. The ordered additive files under `existing_workspace_upgrade` in the release manifest: AF-01 feedback through AF-10 preview/dashboard, the AF-11 proposal correction, the feature rollback definitions, and the search-breadth upgrade.
+
+The additive `opportunity_search_breadth.sql` runs after all eighteen AF files. It adds the 20% breadth default and a separate revision, derives the per-search v2 planning policy, and extends settings receipts and planning validation without modifying opportunity payloads or scheduled tasks. Existing v1 plan history and already pinned runs remain valid. The dashboard keeps older installations readable, but disables the slider until this upgrade is installed. Installing the upgrade does not enable the release or any owner opt-in. Test its synthetic boundaries with `npm run test:adaptive-search-breadth` as well as the release gate before a separately authorized deployment.
 
 The historical bootstrap is a **local technical fixture**. It contains historical setup/conversion behavior and is excluded from the existing-workspace upgrade list. No captured production records are used. The fixture driver accepts only its fixed, labelled, network-disabled Docker container; it rejects bind mounts, published ports, another database name, and concurrent suites. It has no Supabase URL or connection-string override.
 

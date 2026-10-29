@@ -63,6 +63,18 @@ test('German policy help updates in place and reflects supplied policy values in
   assert.match(view.help(), /mittleres Interesse ab 7,5.*anfänglichen Produktkonvention/);
   assert.match(view.help(), /vorläufig|tatsächliche Aufteilung/);
   assert.doesNotMatch(view.help(), /automatic priority|30-query|20%/);
+  assert.match(view.help(), /^Aktuelle Strategie:/);
+});
+
+test('zero breadth explicitly turns exploration off without inventing a minimum query', async t => {
+  const view = mount(t);
+  view.props.policy = { ...DEFAULT_ADAPTIVE_SEARCH_POLICY, exploration_ratio: 0, minimum_exploration_queries: 0 };
+  await nextTick();
+  assert.match(view.help(), /^Current policy:/); assert.match(view.help(), /Exploration is off\./);
+  assert.doesNotMatch(view.help(), /at least 0 when capacity|reserve 0%/);
+  view.props.lang = 'de'; await nextTick();
+  assert.match(view.help(), /Erkundung neuer Suchrichtungen ist ausgeschaltet/);
+  assert.doesNotMatch(view.help(), /mindestens 0/);
 });
 
 test('a supplied policy without the newer threshold retains the shared positive-interest convention', async t => {

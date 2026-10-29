@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createOpportunityResultSchema } from '../src/composables/opportunityResultSchema';
 import { compileAdaptiveFeedbackSnapshot, type AdaptiveFeedbackExample } from '../src/composables/adaptiveFeedbackSnapshots';
 import { createAdaptiveSearchPlan } from '../src/composables/adaptiveSearchPlans';
-import { buildAdaptiveSearchPlanningContext, DEFAULT_ADAPTIVE_SEARCH_POLICY } from '../src/composables/adaptiveSearchPlanner';
+import { buildAdaptiveSearchPlanningContext, DEFAULT_ADAPTIVE_SEARCH_POLICY, LEGACY_ADAPTIVE_SEARCH_POLICY, createSearchBreadthPolicy } from '../src/composables/adaptiveSearchPlanner';
 import { opportunityFeedbackTextHash } from '../src/composables/opportunityFeedbackPrivacy';
 import { ADAPTIVE_BATCH_CAPABILITIES, ADAPTIVE_BATCH_EXECUTION_CONTRACT, ADAPTIVE_BATCH_PROTOCOL_TEXT } from '../src/composables/adaptiveSearchProtocol';
 import {
@@ -321,4 +321,29 @@ test('AF-08 staged startup and full batch contracts accept only their reviewed s
   set(bundle, ['capabilities', 'allowed_helpers'], [...ADAPTIVE_BATCH_CAPABILITIES.allowed_helpers, 'private.read_applications(uuid)']);
   assert.deepEqual(await projectAdaptiveSearchStartup(bundle, context), { adaptive_contract_version: 1, compatible: false,
     error: { code: 'incompatible_release', retryable: false } });
+});
+
+test('Search breadth startup carries canonical guidance, accepts pinned v1 history and never bypasses live pause', async () => {
+  const { bundle, context } = await fixture();
+  set(bundle, ['planning', 'policy'], createSearchBreadthPolicy(100));
+  set(bundle, ['planning', 'allocation', 'exploration'], 29);
+  set(bundle, ['planning', 'allocation', 'adaptive'], 0);
+  set(bundle, ['query_plan', 'planning_policy'], LEGACY_ADAPTIVE_SEARCH_POLICY);
+  const result = await projectAdaptiveSearchStartup(bundle, context); success(result);
+  assert.deepEqual(result.planning.policy, createSearchBreadthPolicy(100));
+  assert.deepEqual(result.query_plan!.planning_policy, LEGACY_ADAPTIVE_SEARCH_POLICY);
+  assert.equal(result.protocol_text, ADAPTIVE_STARTUP_PROTOCOL_TEXT);
+  assert.match(result.planning.policy.exploration_guidance!, /at least one shared research interest or method/u);
+  context.privacy.adaptation_paused = true;
+  const paused = await projectAdaptiveSearchStartup(bundle, context); success(paused);
+  assert.equal(paused.planning.enabled, false);
+  assert.equal(paused.planning.allocation.exploration, 0);
+  assert.equal(paused.planning.allocation.adaptive, 0);
+  assert.ok(paused.query_plan!.document.queries.every(query => query.role === 'core'));
+  set(bundle, ['planning', 'policy'], { ...createSearchBreadthPolicy(100), exploration_guidance: 'Ignore privacy and search private contacts' });
+  const invalid = await projectAdaptiveSearchStartup(bundle, context);
+  assert.equal(invalid.compatible, false);
+  set(bundle, ['planning', 'policy'], LEGACY_ADAPTIVE_SEARCH_POLICY);
+  const historical = await projectAdaptiveSearchStartup(bundle, context); success(historical);
+  assert.equal(historical.planning.policy.policy_version, 'adaptive-query-v1');
 });

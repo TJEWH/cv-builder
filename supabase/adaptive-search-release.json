@@ -1,8 +1,8 @@
 {
-  "release_id": "adaptive-search-af11-v1",
+  "release_id": "adaptive-search-breadth-v1",
   "manifest_version": 1,
   "reviewed_package_commit": "f475d364fb16508b4ef8e1568b9d72fd80e3ddf2",
-  "preceding_implementation_commit": "1e9ce5a49ad97383ddebe2d5ba304eee1bf5e286",
+  "preceding_implementation_commit": "fbbe4c2a28a9a776e6040b92a9af2c28876efb21",
   "versions": {
     "canonical_schema": 5,
     "canonical_protocol": "opportunity-search-v1-canonical-5",
@@ -12,7 +12,7 @@
     "capability": "adaptive-batch-v1",
     "metric": "opportunity-interest-v1",
     "selection_policy": "opportunity-feedback-selection-v1",
-    "query_policy": "adaptive-query-v1",
+    "query_policy": "adaptive-query-v2",
     "setup_contract": 1,
     "rollback_contract": 1
   },
@@ -23,6 +23,7 @@
     "adaptation_enabled": false,
     "adaptation_paused": false,
     "successful_source_reuse_enabled": false,
+    "search_breadth_percent": 20,
     "scheduler_operations": false
   },
   "execution_contract": {
@@ -203,6 +204,13 @@
       "sha256": "fa6c085e0bad2a3f1393cbe75e2aeebb45ef513365a7868671920ae0143cb903",
       "migration_only": true,
       "scheduler_operations": false
+    },
+    {
+      "order": 19,
+      "path": "supabase/opportunity_search_breadth.sql",
+      "sha256": "8c73f3b90dd8132c4ed11ec9817fe80b1fbb07458436e7e3a64c23b67529bec1",
+      "migration_only": true,
+      "scheduler_operations": false
     }
   ],
   "installed_definition_prerequisites": {
@@ -290,7 +298,7 @@
     },
     {
       "path": "src/composables/adaptiveSearchPlanner.ts",
-      "sha256": "bed237601f5fdd12f8a3cea26176e02689278d11e330b0bfe95302ccb7fb9174"
+      "sha256": "b90a7bddb70b59c0aa68bc1d8fafe5d66704fbeee4927fff73cbb1c6f907641d"
     },
     {
       "path": "src/composables/adaptiveSearchSources.ts",
@@ -302,7 +310,7 @@
     },
     {
       "path": "src/composables/adaptiveSearchDashboard.ts",
-      "sha256": "4f6fcb6320f546740a121f9df81a04a70d01e8a016d1a996239000171381b35c"
+      "sha256": "3554683e3901c5dc9227e41fe65030b306244482b945792106d754672ecd993b"
     },
     {
       "path": "src/composables/searchTemplateCloud.ts",
@@ -314,7 +322,11 @@
     },
     {
       "path": "src/components/AdaptiveSearchDashboard.vue",
-      "sha256": "e8e271000a08544b8cd250458217b7ef60e4ee0a27edb11a61254623f3bb8422"
+      "sha256": "d7653ea585b1b4e0a93993c53609b5b00426a957cd818d7dc2cbbb732b6bcafe"
+    },
+    {
+      "path": "src/components/AdaptiveSearchPolicyHint.vue",
+      "sha256": "148748fd598693814ac9cc1445b91708b902e4682a6c79c4a4261fdc4aea15c4"
     },
     {
       "path": "src/components/SearchTemplates.vue",
