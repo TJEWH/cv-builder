@@ -10,6 +10,14 @@ The user authorized deletion of the unused **Test** project (`vhkfrseocgiqxshrbe
 
 [`opportunity_canonical_v5.sql`](opportunity_canonical_v5.sql) was installed in **phd-workflow** on **2026-10-28** as migration `20261028221555`, after v4 (`20261028210636`) and its audit index (`20261028210937`). The owner authorized a one-time conversion of all 186 opportunity payloads and confirmed their existing ratings use 0–10. Original rows are privately archived; all rating numbers, IDs/timestamps, 186 reviews and 29 applications were preserved. Future intake and storage enforce [one closed canonical schema](opportunity_schema_v5.json); legacy conversion and generic JSON union helpers have been removed. The active protocol is `opportunity-search-v1-canonical-5`. See [the contract, installed-function verification and isolated rollback tests](../docs/opportunity-merge.md).
 
+## Adaptive search release (AF-01–AF-11)
+
+The adaptive feedback system is prepared as additive, owner-scoped upgrades. It has **not been deployed or scheduled** by this implementation. Use the [release guide](../docs/adaptive-search-release.md) and [ordered SHA-256 manifest](adaptive-search-release.json) for prerequisites, verification, privacy cleanup and feature rollback.
+
+Existing canonical v5 workspaces apply only the manifest's `existing_workspace_upgrade` files after prerequisite review. Do not replay `schema.sql`, historical bootstrap, v4/v5 conversion or catalogue backfills. The pinned bootstrap under `test/` is a local synthetic-fixture prerequisite, not a production upgrade. Release enablement, owner authorization, feedback sharing, adaptation and source reuse start off; task mode changes only after an explicit real task-tool acknowledgement.
+
+Run `npm run adaptive:release:check` for source verification and `npm run test:adaptive-search-release` for the labelled, network-disabled PostgreSQL 17 fixture. The integration gate checks original-column preservation, invoker/RLS boundaries, revocation/deletion, old/new callers and the three-call / `2 + B` workflow. Real deployment and an unattended scheduled smoke test require separate authorization.
+
 ## Storage and workflow boundaries
 
 **CV Studio** maintains CV variants, letter templates and attachments. Applications have Preparation, Refinement, Attachments and

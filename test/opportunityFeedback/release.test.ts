@@ -1,0 +1,146 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import { file, reset, sql } from './db';
+import { runConcurrentRollbackAckRegression } from './rollbackConcurrency';
+import { ADAPTIVE_RELEASE_MIGRATIONS, buildAdaptiveSearchReleaseManifest, checkAdaptiveSearchReleaseManifest } from '../../scripts/adaptiveSearchRelease';
+import { buildAdaptiveSearchSqlCall, type AdaptiveBatchPayload } from '../../src/composables/adaptiveSearchProtocol';
+
+const legacyRelations = ['public.opportunities','public.opportunity_reviews','public.applications','public.cv_variants',
+  'public.application_refinement_state','public.application_refinement_requests','public.application_refinement_proposals',
+  'public.application_refinement_reviews','public.application_refinement_protocols','public.local_attachment_metadata',
+  'public.opportunity_search_templates','public.opportunity_search_query_revisions','public.opportunity_search_runs',
+  'public.opportunity_search_schedule_bindings','public.opportunity_search_receipts','private.opportunity_search_merge_state',
+  'private.opportunity_search_merge_audit'] as const;
+const oldFunctions = ['private.begin_opportunity_search(uuid,uuid)','private.save_opportunity_search_queries(uuid,jsonb)',
+  'private.inspect_opportunity_search_result(uuid,jsonb)','private.submit_opportunity_search_result(uuid,uuid,jsonb)',
+  'private.verify_opportunity_search_result(uuid,uuid)','private.complete_opportunity_search(uuid,jsonb)',
+  'private.read_opportunity_search_run(uuid)','public.review_job_opportunity(uuid,timestamp with time zone,text)',
+  'public.save_opportunity_comment(uuid,text)','public.save_opportunity_meta_search(uuid,integer,text,jsonb,jsonb,jsonb)'];
+const quote = (value: string): string => `'${value.replaceAll("'", "''")}'`;
+function columns(relation: string): string[] {
+  return JSON.parse(sql(`select json_agg(attname order by attnum) from pg_attribute where attrelid=${quote(relation)}::regclass and attnum>0 and not attisdropped;`));
+}
+function checksum(relation: string, names: readonly string[]): string {
+  const fields = names.map(name => `"${name.replaceAll('"','""')}"`).join(',');
+  return sql(`select encode(sha256(convert_to(coalesce(jsonb_agg(to_jsonb(t) order by to_jsonb(t)::text),'[]')::text,'UTF8')),'hex') from(select ${fields} from ${relation}) t;`);
+}
+const definitionHash = (signature: string) => sql(`select encode(sha256(convert_to(pg_get_functiondef(${quote(signature)}::regprocedure),'UTF8')),'hex');`);
+
+test('AF-11 ordered additive release preserves every pre-existing record column and legacy callable contract', () => {
+  checkAdaptiveSearchReleaseManifest();
+  reset({ searchProtocol: true });
+  assert.equal(sql("select current_setting('server_version_num')::integer/10000;"), '17', 'Re-review pg_get_functiondef fingerprints for another PostgreSQL formatter.');
+  sql(file('../../supabase/tests/opportunity_search_adaptive_release_seed.sql'));
+  const preserved = legacyRelations.map(relation => { const names=columns(relation); return { relation,columns:names,sha256:checksum(relation,names) }; });
+  const definitions=Object.fromEntries(oldFunctions.map(signature => [signature,definitionHash(signature)]));
+  const acl=sql(`select jsonb_agg(jsonb_build_array(n.nspname,c.relname,c.relacl::text) order by n.nspname,c.relname)
+    from pg_class c join pg_namespace n on n.oid=c.relnamespace where c.oid=any(array[${legacyRelations.map(value => `${quote(value)}::regclass`).join(',')}]);`);
+  const privateSchemaAcl=sql("select nspacl::text from pg_namespace where nspname='private';");
+  for (const path of ADAPTIVE_RELEASE_MIGRATIONS) {
+    if (path === 'opportunity_search_adaptive_release_fixes.sql') {
+      const original=sql("select pg_get_functiondef('private.validate_adaptive_proposals(jsonb,jsonb)'::regprocedure);");
+      const changed=original.replace('AS $function$','AS $function$\n-- Synthetic unreviewed release prerequisite\n');
+      assert.notEqual(changed,original); sql(changed);
+      assert.throws(() => sql(file(`../../supabase/${path}`)), /prerequisite/iu);
+      sql(original);
+    }
+    sql(file(`../../supabase/${path}`));
+  }
+  for (const row of preserved) assert.equal(checksum(row.relation,row.columns),row.sha256,`Changed existing columns in ${row.relation}`);
+  for (const [signature,hash] of Object.entries(definitions)) assert.equal(definitionHash(signature),hash,`Changed legacy function ${signature}`);
+  assert.equal(sql(`select jsonb_agg(jsonb_build_array(n.nspname,c.relname,c.relacl::text) order by n.nspname,c.relname)
+    from pg_class c join pg_namespace n on n.oid=c.relnamespace where c.oid=any(array[${legacyRelations.map(value => `${quote(value)}::regclass`).join(',')}]);`),acl);
+  assert.equal(sql("select nspacl::text from pg_namespace where nspname='private';"),privateSchemaAcl);
+  assert.equal(sql('select enabled or project_ref is not null from public.opportunity_search_adaptive_release where singleton;'),'f');
+  assert.equal(sql('select count(*) from public.opportunity_search_adaptive_settings;'),'0','Migration opted historical owners into feedback.');
+  assert.equal(sql('select count(*) from public.opportunity_feedback_summary_approvals;'),'0','Migration approved private text.');
+  // Only hashes/column names/technical signatures are written, never snapshots.
+  writeFileSync('/tmp/cv-adaptive-release-preservation.json',JSON.stringify({ release_id:buildAdaptiveSearchReleaseManifest().release_id,
+    postgres_major:17,records:preserved,legacy_definition_sha256:definitions,preserved:true },null,2)+'\n');
+});
+
+test('AF-11 all new relations retain owner RLS, narrow grants and cleanup contracts; old caller remains usable', () => {
+  sql(file('../../supabase/tests/opportunity_search_adaptive_release.sql'));
+});
+
+test('AF-11 explicit feature rollback requires a real task receipt and preserves research', () => {
+  sql(file('../../supabase/tests/opportunity_search_adaptive_rollback.sql'));
+});
+
+for (const batchCount of [1,2]) test(`AF-11 fully installed runner preserves ${2+batchCount}-call budget, actual exploration and deferred submission-only suggestions`, () => {
+  const owner=randomUUID(),search=randomUUID(),run=randomUUID(),core=randomUUID(),adaptive=randomUUID(),exploration=randomUUID();
+  const batchIds=Array.from({length:batchCount},()=>randomUUID()),item=randomUUID(),completion=randomUUID();
+  const checks=[randomUUID(),randomUUID(),randomUUID()],project='rrrrrrrrrrrrrrrrrrrr',scope={project_ref:project,search_id:search,run_id:run};
+  const evidence=randomUUID(),application=randomUUID(),suggestion=randomUUID();
+  sql(`insert into auth.users(id) values(${quote(owner)});
+    insert into public.opportunities(id,opportunity_key,title) values(${quote(evidence)},${quote('af11-submission-'+run)},'Synthetic submission evidence');
+    insert into public.opportunity_search_templates(id,user_id,name,criteria,schedule) values(${quote(search)},${quote(owner)},'AF11 integrated runner',
+      '{"topicsAndMethods":"Acoustics; BCI; Robotics"}','{"frequency":"daily","intervalHours":24,"weekdays":[],"time":"08:00","timezone":"UTC","runImmediately":false}');
+    update public.opportunity_search_adaptive_release set enabled=true,project_ref=${quote(project)} where singleton;
+    select set_config('request.jwt.claims',${quote(JSON.stringify({sub:owner,is_anonymous:false}))},false);set role authenticated;
+    select public.create_job_application(${quote(application)},${quote(evidence)});
+    update public.applications set status='submitted',notes='APPLICATION_PRIVATE_CANARY' where id=${quote(application)};
+    select public.set_opportunity_feedback_consent(${quote(search)},true);
+    select public.save_opportunity_search_adaptation(${quote(search)},true,false,0);
+    select public.set_opportunity_source_reuse(${quote(search)},true,168);
+    select public.set_opportunity_search_runner_authorization(${quote(search)},${quote(project)},true,0);reset role;`);
+  const calls:string[]=[];let saved=false;
+  const api=(call:ReturnType<typeof buildAdaptiveSearchSqlCall>)=>{assert.equal(call.project_ref,project);calls.push(call.sql);return JSON.parse(sql(call.sql));};
+  try {
+    const startup=api(buildAdaptiveSearchSqlCall({action:'startup',scope}));
+    assert.equal(startup.compatible,true,JSON.stringify(startup));
+    assert.equal(startup.feedback.counts.submission_fallback,1);
+    assert.equal(startup.capabilities.capability_version,'adaptive-batch-v1');
+    assert.deepEqual(startup.execution_contract,buildAdaptiveSearchReleaseManifest().execution_contract);
+    const now=new Date().toISOString(),url=`https://example.invalid/Research/${run}`,listing=`https://example.invalid/Jobs?fixture=${run}`;
+    const payload:AdaptiveBatchPayload={schema_version:1,query_plan:{schema_version:2,queries:[
+      {query_id:core,query:'synthetic core acoustic research',role:'core',manual:false},
+      {query_id:adaptive,query:'synthetic adaptive sensor research',role:'adaptive',manual:false},
+      {query_id:exploration,query:'synthetic exploration physical systems',role:'exploration',manual:false}]},
+      opportunities:[{item_id:item,opportunity:{opportunity_key:'af11-result-'+run,title:'Synthetic integrated sensing research',institution:'Example Institute',topics:['Acoustics'],
+        official_url:url,last_checked_at:now,personal_fit:{score:8,scale_min:0,scale_max:10,summary:'Synthetic alignment.'},
+        sources:[{url,kind:'official',checked_at:now,precision:'instant',supports:['title','institution','topics','official_url','personal_fit']},
+          {url:listing,kind:'official_listing',checked_at:now,precision:'instant',supports:['title']}]},
+        attribution:{execution_refs:[checks[0]!],primary_check_id:checks[0]!,discovered_at:now,encountered_at:now},reusable_source:{listing_url:listing}}],
+      execution:{checks:[core,adaptive,exploration].map((query,index)=>({check_id:checks[index]!,kind:'query' as const,query_id:query,attempted_at:now,status:'complete' as const,results_count:index===0?1:0})),backlog:[],complete:true},
+      preference_suggestions:[{suggestion_id:suggestion,rule:{rule_id:randomUUID(),kind:'emphasis',category:'topic',polarity:'positive',target:'Acoustics',evidence_refs:[evidence]}}]};
+    let receipt=api(buildAdaptiveSearchSqlCall({action:'batch',scope,batch_id:batchIds[0]!,payload}));
+    assert.equal(receipt.batch_schema_version,1,JSON.stringify(receipt));assert.equal(receipt.error,undefined);assert.equal(receipt.items[0].outcome,'saved',JSON.stringify(receipt));saved=true;
+    assert.equal(receipt.verification_required,true);
+    // Harness-only persistence probes below are not runner connector calls.
+    assert.equal(sql(`select verified_at is null from public.opportunity_search_receipts where run_id=${quote(run)} and item_id=${quote(item)};`),'t');
+    assert.equal(sql(`select status||':'||reason from public.opportunity_search_adaptive_proposals where user_id=${quote(owner)} and suggestion_id=${quote(suggestion)};`),'deferred:needs_reviewed_evidence');
+    assert.equal(sql(`select count(*) from public.opportunity_search_preference_suggestions where user_id=${quote(owner)} and suggestion_id=${quote(suggestion)};`),'0');
+    assert.equal(sql(`select count(*) from public.opportunity_search_sources where user_id=${quote(owner)} and search_id=${quote(search)};`),'0','A write receipt prematurely retained a source.');
+    // An explicit synthetic owner review is a UI action, outside runner calls.
+    // It changes next-run feedback without rebasing this run's pinned plan.
+    sql(`select set_config('request.jwt.claims',${quote(JSON.stringify({sub:owner,is_anonymous:false}))},false);set role authenticated;
+      select public.save_opportunity_feedback(${quote(receipt.items[0].opportunity_id)},'{"interest_rating":9}');reset role;`);
+    for(const batch of batchIds.slice(1)) receipt=api(buildAdaptiveSearchSqlCall({action:'batch',scope,batch_id:batch,payload:{schema_version:1,plan_hash:receipt.plan_hash,opportunities:[],execution:{checks:[],backlog:[],complete:true}}}));
+    const finished=api(buildAdaptiveSearchSqlCall({action:'complete',scope,payload:{schema_version:1,completion_id:completion,batch_ids:[...batchIds].sort(),manifest_hash:receipt.manifest_hash,status:'complete'}}));
+    assert.equal(finished.compatible,true,JSON.stringify(finished));assert.equal(finished.persisted_summary_read,true);
+    assert.equal(finished.historical_summary.status,'complete',JSON.stringify(finished));assert.equal(finished.current_verification.verified_items,1);
+    assert.equal(calls.length,2+batchCount);assert(calls.every(call=>/^SELECT private\.(begin_adaptive_opportunity_search|submit_adaptive_search_batch|verify_and_complete_adaptive_search)\(/u.test(call)));
+    assert.equal(sql(`select count(*) from public.opportunity_search_executions where run_id=${quote(run)} and status='complete';`),'3');
+    assert.equal(sql(`select count(*) from public.opportunity_search_sources where user_id=${quote(owner)} and search_id=${quote(search)}
+      and listing_url=${quote(listing)} and provenance='evidenced_listing' and enabled and listing_verified_at is not null and last_successful_at is null;`),'1',
+      'Verified useful listing was not retained, or a direct source check was invented.');
+    const metrics=JSON.parse(sql(`begin;do $$begin perform set_config('request.jwt.claims',${quote(JSON.stringify({sub:owner,is_anonymous:false}))},true);end$$;
+      set local role authenticated;select public.read_opportunity_search_metrics(${quote(search)});commit;`));
+    assert.equal(metrics.overall.unique_discoveries,1);assert.equal(metrics.overall.mean_interest,9);
+    assert.doesNotMatch(JSON.stringify({startup,receipt,finished}),/APPLICATION_PRIVATE_CANARY|effective_fields|context_json|private_comment|after_snapshot/u);
+  } finally {
+    sql(`delete from auth.users where id=${quote(owner)};update public.opportunity_search_adaptive_release set enabled=false,project_ref=null where singleton;`);
+    for(const relation of ['public.opportunity_search_adaptive_settings','public.opportunity_search_feedback_snapshots','public.opportunity_search_discoveries',
+      'public.opportunity_search_adaptive_proposals','public.opportunity_feedback_prediction_proofs','private.opportunity_search_adaptive_contexts',
+      'private.opportunity_search_adaptive_batches','private.opportunity_search_adaptive_completions']) {
+      assert.equal(sql(`select count(*) from ${relation} where user_id=${quote(owner)};`),'0',`Account deletion retained ${relation}`);
+    }
+    assert.equal(sql(`select count(*) from private.opportunity_search_adaptive_items where run_id=${quote(run)};`),'0');
+    if(saved) assert.equal(sql(`select count(*) from public.opportunities where opportunity_key=${quote('af11-result-'+run)};`),'1','Account deletion removed canonical result.');
+  }
+});
+
+test('AF-11 concurrent identical rollback receipts publish one technical revision', runConcurrentRollbackAckRegression);

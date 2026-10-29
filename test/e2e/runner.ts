@@ -8,7 +8,8 @@ import { provideDesktopSidebar } from '../../src/composables/desktopSidebar';
 import { useToasts } from '../../src/composables/useToasts';
 import { createPrivateRefinementCv, createSyntheticRefinementWorkspace } from '../refinementFixture';
 import { refinementSignature } from '../../src/composables/applicationRefinement';
-import { DEFAULT_REFINEMENT_SYSTEM_PROMPT } from '../../src/composables/motivationLetters';
+import { createLetterRepository, DEFAULT_REFINEMENT_SYSTEM_PROMPT } from '../../src/composables/motivationLetters';
+import { createSearchTemplateRepository } from '../../src/composables/useSearchTemplates';
 import type { RefinementProposalRow, RefinementProposalV2 } from '../../src/refinementTypes';
 import type { Workspace } from '../refinementWorkflowHarness';
 import '../../src/assets/cv.css';
@@ -68,6 +69,11 @@ async function field(name: string, value: string) {
   if (control instanceof HTMLTextAreaElement) control.dispatchEvent(new FocusEvent('blur'));
   if (control instanceof HTMLInputElement && control.type === 'number') control.dispatchEvent(new Event('change', { bubbles: true }));
   await settle();
+}
+function sharedInterestCheckbox() {
+  const label = [...root.querySelectorAll('label')].find(node => node.textContent?.trim() === 'Use research interests from meta search');
+  const checkbox = label?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+  assert(checkbox, 'Missing shared meta-search interest checkbox'); return checkbox;
 }
 async function mount(reload = false) {
   app?.unmount(); root.replaceChildren();
@@ -335,7 +341,10 @@ async function templateQuestionFlow() {
   const interests = 'Reliable robot sensing and reproducible experiments. I am also interested in scientific visualization.';
   const guidance = 'When required or beneficial robot calibration experience has no CV evidence, ask about relevant coursework or projects and a concrete example. If useful, ask about a genuine learning interest instead; do not assume experience.';
   const refinementPrompt = 'Include resolved answers only if they add concrete evidence to the central narrative. Ask a focused follow-up if an answer is too vague to judge.';
-  await field('Main research interests (optional)', interests); await disclose('Feedback loop'); await field('Questions and context to ask for (optional)', guidance);
+  // This scenario intentionally tests custom template interests. Shared interests
+  // are now the default and correctly hide the custom textarea until opted out.
+  if (sharedInterestCheckbox().checked) { sharedInterestCheckbox().click(); await settle(); }
+  await field('Research interests', interests); await disclose('Feedback loop'); await field('Questions and context to ask for (optional)', guidance);
   await field('Refinement system prompt (optional)', refinementPrompt);
   await disclose('Formalities');
   await field('Page margins (mm)', '25'); await field('Body size (pt)', '12');
@@ -384,6 +393,56 @@ async function templateQuestionFlow() {
   root.querySelector('details.letter-formatting summary')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); await nextTick();
   await click('Reset to template defaults');
   assert(setup.letter?.formatting === undefined && Math.abs(parseFloat(headerSize()) - 22 * 4 / 3) < 0.01, 'Reset must restore the frozen template header size');
+}
+async function sharedLetterInterestFlow() {
+  await mount();
+  const searches = createSearchTemplateRepository(fixture.storage, fixture.props.userId);
+  const original = searches.listTemplates()[0]!;
+  const shared = 'BCI; acoustics; robotics; preferred physical prototypes; avoided repetitive annotation';
+  searches.saveTemplate({ ...original,researchInterests: shared },original);
+  app!.unmount(); root.replaceChildren();
+  app = createApp({ render: () => h(LetterTemplates,{ userId: fixture.props.userId,lang: 'en' }) });
+  app.mount(root); await nextTick();
+  assert(sharedInterestCheckbox().checked, 'Shared research interests must be enabled by default');
+  assert(!root.querySelector('textarea[id$="-research-interests"]'), 'Enabled shared interests must hide the custom textarea');
+  sharedInterestCheckbox().click(); await settle();
+  const editor = root.querySelector<HTMLTextAreaElement>('textarea[id$="-research-interests"]');
+  assert(editor, 'Opting out must expose the custom research-interest textarea');
+  const letters = createLetterRepository(fixture.storage,fixture.props.userId);
+  const before = letters.listTemplates().find(template => template.id==='research')!.researchInterests;
+  const custom = 'Custom acoustic experiments and reproducible measurements.';
+  editor.value = custom; editor.dispatchEvent(new Event('input',{ bubbles: true })); await nextTick();
+  assert(letters.listTemplates().find(template=>template.id==='research')!.researchInterests===before, 'Typing must remain a local draft');
+  editor.dispatchEvent(new CompositionEvent('compositionstart',{ bubbles: true }));
+  editor.dispatchEvent(new KeyboardEvent('keydown',{ key: 'Enter',isComposing: true,bubbles: true,cancelable: true })); await nextTick();
+  assert(letters.listTemplates().find(template=>template.id==='research')!.researchInterests===before, 'IME confirmation must not commit custom interests');
+  editor.dispatchEvent(new CompositionEvent('compositionend',{ bubbles: true }));
+  editor.dispatchEvent(new KeyboardEvent('keydown',{ key: 'Enter',bubbles: true,cancelable: true })); await settle();
+  assert(letters.listTemplates().find(template=>template.id==='research')!.researchInterests===custom, 'Enter must commit the custom-interest draft');
+  const blurred = `${custom} Preferred hardware evaluation.`;
+  editor.value = blurred; editor.dispatchEvent(new Event('input',{ bubbles: true }));
+  editor.dispatchEvent(new FocusEvent('blur')); await settle();
+  assert(letters.listTemplates().find(template=>template.id==='research')!.researchInterests===blurred, 'Blur must commit the custom-interest draft');
+  sharedInterestCheckbox().click(); await settle();
+  assert(sharedInterestCheckbox().checked && !root.querySelector('textarea[id$="-research-interests"]'), 'Reenabling shared interests must hide custom editing');
+  assert(letters.listTemplates().find(template=>template.id==='research')!.researchInterests===blurred, 'Hiding the textarea must preserve custom interests for later opt-out');
+  await mount(true); await field('Saved CV','base'); await field('Letter template','research');
+  assert(setup.letter?.searchProfile?.researchInterests===shared, 'Selecting a shared template must capture the meta-search interests');
+  await click('2Refinement'); await field('Refinement scope','letter'); await click('Copy task'); assert(!setup.error,setup.error);
+  const request = setup.requests[0].request_json;
+  assert(request.letter.template.researchInterests===shared, 'The privacy-filtered letter context lost the shared interests');
+  assert(request.letter.template.structure.includes('aspirations, not qualifications'), 'Research interests must not claim qualifications');
+  const proposal = fixture.cloud.seedProposal(request.requestId,{ persist: false,letterText: 'I am interested in acoustic sensing experiments and reproducible physical prototypes.' });
+  (proposal.proposal_json as RefinementProposalV2).annotations = [];
+  await loadProposal(proposal); await click('Approve letter');
+  assert(setup.letterApproved, 'The frozen-document regression needs an approved application letter');
+  const frozen = refinementSignature({ letter: setup.letter,cv: setup.record,context: fixture.props.application.context_json,request: setup.requests[0] });
+  const baseline = searches.listTemplates()[0]!;
+  searches.saveTemplate({ ...baseline,researchInterests: 'A new alternative direction; quantum sensing; NEW SHARED INTERESTS' },baseline);
+  window.dispatchEvent(new Event('cv-search-templates-updated')); await settle();
+  assert(refinementSignature({ letter: setup.letter,cv: setup.record,context: fixture.props.application.context_json,request: setup.requests[0] })===frozen,
+    'Editing the shared meta search must preserve approved letters, application snapshots and published requests byte-for-byte');
+  assert(setup.letter!.searchProfile!.researchInterests===shared, 'An existing application must retain its captured research interests');
 }
 async function scopeLayoutFlow() {
   await prepare('letter');
@@ -742,6 +801,7 @@ const flows = [
   ['existing-letter', 'Existing letter → automatic refinement → compare → reload', () => letterFlow(false)],
   ['proposal-review', 'Automatic application → ignored answer → next iteration → reset → approved PDFs', proposalReviewFlow],
   ['template-questions', 'Template interests → contextual question → explicit answer feedback → refinement', templateQuestionFlow],
+  ['shared-letter-interests', 'Shared-interest checkbox → textarea commits → captured letter context → approved application frozen', sharedLetterInterestFlow],
   ['cv-selection', 'Individual CV decisions → next prompt → new proposal → reload with all annotations', cvSelectionFlow],
 ] as const;
 const flowId = new URLSearchParams(location.search).get('flow');

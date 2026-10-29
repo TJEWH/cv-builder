@@ -23,6 +23,13 @@ import AdaptiveSearchDashboard from './AdaptiveSearchDashboard.vue';
 const props = withDefaults(defineProps<{ userId: string; lang?: string; sidebarActive?: boolean; projectId?: string; client?: SupabaseClient | null }>(), { sidebarActive: true });
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const text = (en: string, de: string) => props.lang === 'de' ? de : en;
+function failureMessage(cause: unknown): string {
+  if (cause instanceof Error) return cause.message;
+  const code = cause && typeof cause === 'object' ? (cause as { code?: unknown }).code : null;
+  return code === '42501' || code === 'PGRST301' || code === 'PGRST302'
+    ? text('Access was denied. Check the signed-in owner and search authorization before retrying.', 'Der Zugriff wurde verweigert. Prüfe das angemeldete Konto und die Suchautorisierung, bevor du es erneut versuchst.')
+    : text('The search request failed. Check the connection and setup, then retry. Your draft is retained.', 'Die Suchanfrage ist fehlgeschlagen. Prüfe Verbindung und Einrichtung und versuche es erneut. Dein Entwurf bleibt erhalten.');
+}
 const controlsId = useId();
 const desktopSidebar = useDesktopSidebar();
 const connectedProjectId = computed(() => props.projectId || (supabaseConfiguration.status === 'ready' ? new URL(supabaseConfiguration.url).hostname.split('.')[0] : undefined));
@@ -112,7 +119,7 @@ function commitSnapshot(forceCloud = false): Promise<boolean> {
     dirty = false; committedTypingVersion = inputVersion;
   } catch (cause) {
     retainSearchDraft(owner, form.value, baseline);
-    error.value = cause instanceof Error ? cause.message : String(cause); status.value = 'error';
+    error.value = failureMessage(cause); status.value = 'error';
     return Promise.resolve(false);
   }
   const key = searchTemplateContentKey(snapshot);
@@ -154,7 +161,7 @@ function commitSnapshot(forceCloud = false): Promise<boolean> {
       status.value = unchanged ? 'saved' : 'unsaved'; error.value = '';
       return unchanged;
     } catch (cause) {
-      if (current()) { error.value = cause instanceof Error ? cause.message : String(cause); status.value = 'error'; }
+      if (current()) { error.value = failureMessage(cause); status.value = 'error'; }
       return false;
     }
   }).finally(() => { if (current() && pending === operation) { pending = null; pendingKey = null; } });
@@ -191,11 +198,11 @@ watch(() => props.userId, id => {
     replace(recovered?.form || local); baseline = recovered?.baseline || clone(local); binding = local.cloud;
     const token = ownerGeneration;
     ready = initialize(id, token).catch(cause => {
-      if (!disposed && token === ownerGeneration) { loadError.value = true; error.value = cause instanceof Error ? cause.message : String(cause); status.value = 'error'; }
+      if (!disposed && token === ownerGeneration) { loadError.value = true; error.value = failureMessage(cause); status.value = 'error'; }
       throw cause;
     });
     void ready.catch(() => {});
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); status.value = 'error'; }
+  } catch (cause) { error.value = failureMessage(cause); status.value = 'error'; }
 }, { immediate: true });
 async function retryLoad() {
   const token = ownerGeneration;
@@ -206,7 +213,7 @@ async function retryLoad() {
     loadError.value = false; error.value = ''; await flushSave();
   } catch (cause) {
     if (disposed || token !== ownerGeneration) return;
-    loadError.value = true; error.value = cause instanceof Error ? cause.message : String(cause); status.value = 'error';
+    loadError.value = true; error.value = failureMessage(cause); status.value = 'error';
   }
 }
 function retrySave() { return loadError.value ? retryLoad() : flushSave(); }
@@ -219,7 +226,7 @@ async function refreshRunnerState() {
     const loaded = await loadAdaptiveSearchRunnerState(client, owner, search, project);
     if (disposed || token !== ownerGeneration) return;
     runner.value = loaded; runnerError.value = '';
-  } catch (cause) { if (!disposed && token === ownerGeneration) runnerError.value = cause instanceof Error ? cause.message : String(cause); }
+  } catch (cause) { if (!disposed && token === ownerGeneration) runnerError.value = failureMessage(cause); }
 }
 async function prepareRunner() {
   if (preparingRunner.value) return;
@@ -237,7 +244,7 @@ async function prepareRunner() {
     if (!await commitSnapshot(true)) return;
     requestedSetupId = null;
     notice.value = text('Adaptive instructions prepared. Copy the replace prompt to update the selected task in ChatGPT.', 'Adaptive Anweisungen vorbereitet. Die Ersetzungsanweisung kopieren, um die ausgewählte Aufgabe in ChatGPT zu aktualisieren.');
-  } catch (cause) { if (!disposed && token === ownerGeneration) runnerError.value = cause instanceof Error ? cause.message : String(cause); }
+  } catch (cause) { if (!disposed && token === ownerGeneration) runnerError.value = failureMessage(cause); }
   finally { if (token === ownerGeneration) preparingRunner.value = false; }
 }
 async function copy() {
@@ -251,7 +258,7 @@ async function copy() {
     if (!result || disposed || token !== ownerGeneration) return;
     if (result.copied) notice.value = text('Replacement instruction copied. Paste it into ChatGPT to replace the meta-search schedule.', 'Ersetzungsanweisung kopiert. In ChatGPT einfügen, um den Metasuch-Zeitplan zu ersetzen.');
     else { copiedFallback.value = result.value; notice.value = text('Select and copy the instruction below.', 'Die Anweisung unten markieren und kopieren.'); }
-  } catch (cause) { if (!disposed && token === ownerGeneration) error.value = cause instanceof Error ? cause.message : String(cause); }
+  } catch (cause) { if (!disposed && token === ownerGeneration) error.value = failureMessage(cause); }
   finally { if (token === ownerGeneration) copying.value = false; }
 }
 onBeforeUnmount(() => { if (form.value && status.value !== 'saved') retainSearchDraft(editingOwner, form.value, baseline); disposed = true; ownerGeneration++; });

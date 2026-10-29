@@ -26,7 +26,9 @@
     "test:e2e:serve": "vite --config test/e2e/vite.config.ts",
     "typecheck": "vue-tsc --noEmit",
     "test:adaptive-search-setup": "tsx --test test/opportunityFeedback/setup.test.ts",
-    "test:adaptive-search-dashboard": "tsx --test test/opportunityFeedback/dashboard.test.ts"
+    "test:adaptive-search-dashboard": "tsx --test test/opportunityFeedback/dashboard.test.ts",
+    "adaptive:release:check": "node --import tsx scripts/adaptiveSearchRelease.ts --check",
+    "test:adaptive-search-release": "node --import tsx --test test/opportunityFeedback/release.test.ts"
   },
   "dependencies": {
     "@fortawesome/fontawesome-svg-core": "^7.1.0",

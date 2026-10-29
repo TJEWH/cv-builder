@@ -21,6 +21,7 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const ownerId = '90000000-0000-4000-8000-000000000001';
 const otherOwnerId = '90000000-0000-4000-8000-000000000002';
 const cloudId = 'a0000000-0000-4000-8000-000000000001';
+const projectRef = 'bbbbbbbbbbbbbbbbbbbb';
 const filename = new URL('../src/components/SearchTemplates.vue', import.meta.url);
 const compiled = compileScript(parse(readFileSync(filename, 'utf8')).descriptor, { id: 'search-template-autosave' });
 const code = ts.transpileModule(compiled.content, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -40,7 +41,8 @@ function cloudRow(template: SearchTemplate, revision = 3): SearchCloudTemplate {
     created_at: template.updatedAt, updated_at: template.updatedAt,
     meta_search: { version: 1, active: template.active, editor: clone(template), systemPrompt: 'System', userPrompt: 'User', recurringPrompt: 'Recurring' } };
 }
-async function fixture(t: TestContext, options: { linked?: boolean; readGate?: ReturnType<typeof gate>; rows?: SearchCloudTemplate[]; emptyLocal?: boolean } = {}) {
+async function fixture(t: TestContext, options: { linked?: boolean; readGate?: ReturnType<typeof gate>; rows?: SearchCloudTemplate[]; emptyLocal?: boolean;
+  readinessError?: { code: string; message: string } } = {}) {
   const data = new Map<string, string>(); const recoveryData = new Map<string, string>();
   let failWrites = false; let failCloud = false; let failRead = false;
   let saveGate: ReturnType<typeof gate> | null = null;
@@ -62,6 +64,7 @@ async function fixture(t: TestContext, options: { linked?: boolean; readGate?: R
   if (options.linked) initial.cloud = { id: cloudId, revision: 3, contentKey: searchTemplateContentKey(initial) };
   if (!options.emptyLocal) owner.saveTemplate(initial);
   const saves: SearchTemplate[] = []; const reads: string[] = []; const copied: string[] = [];
+  const readinessCalls: { name: string; args: Record<string,unknown> }[] = [];
   const exports: { default?: Component } = {};
   new Function('require', 'exports', code)((path: string) => {
     if (path.endsWith('.vue')) return { default: {} };
@@ -93,7 +96,13 @@ async function fixture(t: TestContext, options: { linked?: boolean; readGate?: R
     };
     return requireComponent(path);
   }, exports);
-  const props = reactive({ userId: ownerId, lang: 'en', client: {} });
+  const props = reactive({ userId: ownerId, lang: 'en', projectId: projectRef, client: {
+    rpc: async (name: string, args: Record<string,unknown>) => {
+      assert.equal(name,'read_adaptive_search_readiness','the autosave harness permits only the additive readiness read');
+      readinessCalls.push({ name,args: clone(args) });
+      return { data: null,error: options.readinessError ?? { code: 'PGRST202',message: 'Synthetic workspace has no additive readiness helper.' } };
+    },
+  } });
   let instance: unknown;
   const component = { ...exports.default, render: () => null };
   const app = renderer.createApp({ render: () => h(component, { ...props, ref: (value: unknown) => { instance = value; } }) });
@@ -103,7 +112,7 @@ async function fixture(t: TestContext, options: { linked?: boolean; readGate?: R
     unmount(); for (const account of [ownerId, otherOwnerId]) { const old = recoverSearchDraft(account); if (old) clearSearchDraft(account, old.form.id); }
   } finally { restoreGlobals.forEach(restore => restore()); } });
   if (!options.readGate) await settle();
-  return { editor: (instance as { $: { setupState: Editor } }).$.setupState, owner, props, saves, reads, copied, unmount,
+  return { editor: (instance as { $: { setupState: Editor } }).$.setupState, owner, props, saves, reads, copied, readinessCalls, unmount,
     holdSave: () => { saveGate = gate(); return saveGate; },
     failWrites: (value: boolean) => { failWrites = value; }, failCloud: (value: boolean) => { failCloud = value; }, failRead: (value: boolean) => { failRead = value; } };
 }
@@ -120,9 +129,36 @@ test('typing does not save; one commit autosaves to Supabase and repeated commit
 });
 
 test('a clean server-backed editor performs no save when opened or flushed', async t => {
-  const { editor, saves, reads } = await fixture(t, { linked: true });
+  const { editor, saves, reads, readinessCalls } = await fixture(t, { linked: true });
   assert.equal(editor.status, 'saved'); assert.equal(await editor.flushSave(), true);
   assert.equal(saves.length, 0); assert.equal(reads.length, 1);
+  assert.deepEqual(readinessCalls,[{ name: 'read_adaptive_search_readiness',args: { p_search_id: cloudId,p_project_ref: projectRef } }]);
+});
+
+test('a missing additive readiness helper keeps legacy copy/navigation usable without additional saves', async t => {
+  const { editor,saves,copied,readinessCalls } = await fixture(t,{ linked: true });
+  assert.equal(await editor.flushTextareas(),true);
+  await editor.copy();
+  assert.equal(editor.error,''); assert.equal(editor.status,'saved');
+  assert.equal(copied.length,1); assert.ok(copied[0]!.includes(cloudId));
+  assert.equal(saves.length,0); assert.equal(readinessCalls.length,1);
+});
+
+test('missing readiness for a saved adaptive runner blocks copying rather than inventing a legacy fallback', async t => {
+  const row = cloudRow(clone(DEFAULT_SEARCH_TEMPLATES[0]!));
+  row.meta_search!.recurringPrompt = 'SELECT private.begin_adaptive_opportunity_search(saved_search, run);';
+  const { editor,saves,copied,readinessCalls } = await fixture(t,{ linked: true,rows: [row] });
+  assert.equal(editor.status,'error'); assert.match(editor.error,/saved adaptive runner is unavailable/);
+  assert.equal(await editor.flushTextareas(),false); await editor.copy();
+  assert.equal(copied.length,0); assert.equal(saves.length,0); assert.equal(readinessCalls.length,1);
+});
+
+test('a denied readiness read is not treated as a missing deployment and cannot copy or save through a fallback', async t => {
+  const { editor,saves,copied,readinessCalls } = await fixture(t,{ linked: true,
+    readinessError: { code: '42501',message: 'Synthetic owner readiness access denied.' } });
+  assert.equal(editor.status,'error'); assert.notEqual(editor.error,'');
+  assert.equal(await editor.flushTextareas(),false); await editor.copy();
+  assert.equal(copied.length,0); assert.equal(saves.length,0); assert.equal(readinessCalls.length,1);
 });
 
 test('commits are serialized, with each newer snapshot saved once and the latest revision reused', async t => {
