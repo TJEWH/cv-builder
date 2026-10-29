@@ -4,6 +4,7 @@ import type { SearchCloudSchedule, SearchCloudTemplate, SearchCriteria, SearchTe
 import { isSharedSearchTemplate, readSearchTemplate, searchTemplateContentKey } from './useSearchTemplates';
 import { SEARCH_DEADLINE_RULE, buildSearchSystemPrompt, buildSearchUserPrompt, buildRecurringSearchPrompt } from './searchPrompts';
 import type { SearchPromptOptions } from './searchPrompts';
+import { readAdaptiveSearchRunnerState } from './adaptiveSearchTask';
 export { isSearchTemplateSaved } from './searchPrompts';
 export type { SearchCloudTemplate } from '../searchTypes';
 
@@ -94,6 +95,7 @@ export async function saveSearchTemplate(client: SupabaseClient, userId: string,
   const template = readSearchTemplate({ ...input, active: true });
   const criteria = searchTemplateCloudCriteria(template); const schedule = searchTemplateCloudSchedule(template);
   const id = template.cloud?.id || await stableCloudId(userId, template.id);
+  if (options.runner) readAdaptiveSearchRunnerState(options.runner, userId, id, options.projectId || options.runner.project_ref);
   const expectedRevision = template.cloud?.revision || 0;
   const bound = { ...template, cloud: { id, revision: Math.max(1, expectedRevision), contentKey: searchTemplateContentKey(template) } };
   const { cloud: _cloud, ...editor } = template;

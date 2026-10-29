@@ -24,7 +24,8 @@
     "test:refinement-protocol": "tsx --test test/refinementProtocol.test.ts",
     "refinement:live": "tsx test/refinementProtocol/run.ts",
     "test:e2e:serve": "vite --config test/e2e/vite.config.ts",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit",
+    "test:adaptive-search-setup": "tsx --test test/opportunityFeedback/setup.test.ts"
   },
   "dependencies": {
     "@fortawesome/fontawesome-svg-core": "^7.1.0",

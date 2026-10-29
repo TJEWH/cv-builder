@@ -8,6 +8,7 @@ import type { SearchTemplate, SearchTemplateCloudBinding } from '../searchTypes'
 import { createSearchTemplateRepository, readSearchTemplate, searchTemplateContentKey } from '../composables/useSearchTemplates';
 import { buildReplaceSearchPrompt, buildSearchSystemPrompt, buildSearchUserPrompt, isSearchTemplateSaved } from '../composables/searchPrompts';
 import { listCloudSearchTemplates, importCloudSearchTemplate, saveSearchTemplate } from '../composables/searchTemplateCloud';
+import { loadAdaptiveSearchRunnerState, requestAdaptiveSearchRunner, type AdaptiveSearchRunnerState } from '../composables/adaptiveSearchTask';
 import { commitPendingTextareas } from '../composables/textareaCommit';
 import { copyPreparedText } from '../composables/preparedClipboard';
 import { clearSearchDraft, recoverSearchDraft, retainSearchDraft } from '../composables/searchTemplateRecovery';
@@ -32,6 +33,10 @@ const loadingCloud = ref(false);
 const loadError = ref(false);
 const copying = ref(false);
 const copiedFallback = ref('');
+const runner = ref<AdaptiveSearchRunnerState | null>(null);
+const preparingRunner = ref(false);
+const runnerError = ref('');
+let requestedSetupId: string | null = null;
 useToastWatch(() => error.value, { tone: 'error' });
 useToastWatch(() => notice.value, { tone: 'success' });
 let editingOwner = props.userId;
@@ -84,11 +89,17 @@ async function initialize(owner: string, token: number) {
         baseline = clone(stored);
         replacing = true; form.value = clone(stored); replacing = false;
       } else if (saved.cloud) patchBinding({ ...saved.cloud, contentKey: initial?.cloud?.contentKey || '' });
+      const loadedRunner = await loadAdaptiveSearchRunnerState(client, owner, row.id, connectedProjectId.value || '');
+      if (disposed || token !== ownerGeneration) return;
+      if (!loadedRunner && row.meta_search?.recurringPrompt.includes('private.begin_adaptive_opportunity_search')) {
+        throw new Error(text('The saved adaptive runner is unavailable. Restore its readiness helper before changing task instructions.', 'Der gespeicherte adaptive Ablauf ist nicht verfügbar. Zuerst seine Bereitschaftsfunktion wiederherstellen, bevor Aufgabenanweisungen geändert werden.'));
+      }
+      runner.value = loadedRunner; runnerError.value = '';
     }
     status.value = form.value && isSearchTemplateSaved(form.value) && typingVersion === committedTypingVersion ? 'saved' : 'unsaved';
   } finally { if (token === ownerGeneration) loadingCloud.value = false; }
 }
-function commitSnapshot(): Promise<boolean> {
+function commitSnapshot(forceCloud = false): Promise<boolean> {
   if (!form.value) return Promise.resolve(false);
   const owner = editingOwner; const token = ownerGeneration; const inputVersion = typingVersion;
   let snapshot: SearchTemplate;
@@ -104,10 +115,9 @@ function commitSnapshot(): Promise<boolean> {
   }
   const key = searchTemplateContentKey(snapshot);
   if (pending && pendingKey === key) return pending;
-  if (!pending && !failedWrite && isSearchTemplateSaved(snapshot)) { status.value = 'saved'; return Promise.resolve(true); }
+  if (!forceCloud && !pending && !failedWrite && isSearchTemplateSaved(snapshot)) { status.value = 'saved'; return Promise.resolve(true); }
   retainSearchDraft(owner, snapshot, baseline);
   const client = props.client;
-  const options = { projectId: connectedProjectId.value };
   const initialization = ready;
   status.value = 'saving'; error.value = '';
   const current = () => !disposed && token === ownerGeneration && owner === editingOwner;
@@ -115,6 +125,7 @@ function commitSnapshot(): Promise<boolean> {
     try {
       await initialization;
       if (!current() || !client) return false;
+      const options = { projectId: connectedProjectId.value, runner: runner.value };
       status.value = 'saving';
       let result: SearchTemplate;
       if (failedWrite) {
@@ -150,6 +161,7 @@ function commitSnapshot(): Promise<boolean> {
 }
 function flushSave(): Promise<boolean> {
   commitPendingTextareas();
+  if (loadError.value) return Promise.resolve(false);
   if (loadingCloud.value && !dirty) return ready.then(() => commitSnapshot(), () => false);
   return commitSnapshot();
 }
@@ -167,6 +179,7 @@ watch(() => props.userId, id => {
   if (form.value && (dirty || !isSearchTemplateSaved(form.value))) retainSearchDraft(editingOwner, form.value, baseline);
   ownerGeneration++; editingOwner = id; copying.value = false;
   pending = null; pendingKey = null; failedWrite = null; binding = undefined; queue = Promise.resolve();
+  runner.value = null; runnerError.value = ''; preparingRunner.value = false; requestedSetupId = null;
   error.value = ''; notice.value = ''; loadError.value = false; replace(null);
   try {
     const local = repository().listTemplates()[0]!; const recovered = recoverSearchDraft(id);
@@ -182,18 +195,44 @@ watch(() => props.userId, id => {
 async function retryLoad() {
   const token = ownerGeneration;
   ready = initialize(editingOwner, token);
-  try { await ready; loadError.value = false; error.value = ''; await flushSave(); } catch (cause) { loadError.value = true; error.value = cause instanceof Error ? cause.message : String(cause); status.value = 'error'; }
+  try {
+    await ready;
+    if (disposed || token !== ownerGeneration) return;
+    loadError.value = false; error.value = ''; await flushSave();
+  } catch (cause) {
+    if (disposed || token !== ownerGeneration) return;
+    loadError.value = true; error.value = cause instanceof Error ? cause.message : String(cause); status.value = 'error';
+  }
 }
 function retrySave() { return loadError.value ? retryLoad() : flushSave(); }
-const systemPreview = computed(() => { try { return form.value ? buildSearchSystemPrompt(form.value, { projectId: connectedProjectId.value }) : ''; } catch { return ''; } });
-const userPreview = computed(() => { try { return form.value ? buildSearchUserPrompt(form.value, { projectId: connectedProjectId.value }) : ''; } catch { return ''; } });
+const systemPreview = computed(() => { try { return form.value ? buildSearchSystemPrompt(form.value, { projectId: connectedProjectId.value, runner: runner.value }) : ''; } catch { return ''; } });
+const userPreview = computed(() => { try { return form.value ? buildSearchUserPrompt(form.value, { projectId: connectedProjectId.value, runner: runner.value }) : ''; } catch { return ''; } });
+async function prepareRunner() {
+  if (preparingRunner.value) return;
+  const token = ownerGeneration; preparingRunner.value = true; runnerError.value = '';
+  try {
+    if (!await flushTextareas() || disposed || token !== ownerGeneration || !props.client || !binding || !connectedProjectId.value) return;
+    const currentRunner = runner.value || await loadAdaptiveSearchRunnerState(props.client, editingOwner, binding.id, connectedProjectId.value);
+    if (disposed || token !== ownerGeneration) return;
+    if (!currentRunner?.ready) throw new Error(text('Install and enable the adaptive batch release and authorize this search before preparing its task update.', 'Zuerst die adaptive Batch-Version installieren und aktivieren sowie diese Suche autorisieren.'));
+    requestedSetupId ||= currentRunner.migration_requested && currentRunner.setup_id ? currentRunner.setup_id : crypto.randomUUID();
+    const requested = await requestAdaptiveSearchRunner(props.client, editingOwner, binding.id, connectedProjectId.value, currentRunner.revision, requestedSetupId);
+    if (disposed || token !== ownerGeneration) return;
+    runner.value = requested;
+    if (!await flushTextareas() || disposed || token !== ownerGeneration) return;
+    if (!await commitSnapshot(true)) return;
+    requestedSetupId = null;
+    notice.value = text('Adaptive instructions prepared. Copy the replace prompt to update the selected task in ChatGPT.', 'Adaptive Anweisungen vorbereitet. Die Ersetzungsanweisung kopieren, um die ausgewählte Aufgabe in ChatGPT zu aktualisieren.');
+  } catch (cause) { if (!disposed && token === ownerGeneration) runnerError.value = cause instanceof Error ? cause.message : String(cause); }
+  finally { if (token === ownerGeneration) preparingRunner.value = false; }
+}
 async function copy() {
   if (copying.value) return;
   const token = ownerGeneration; copying.value = true; notice.value = '';
   try {
     const result = await copyPreparedText(async () => {
       if (!await flushTextareas() || !form.value || token !== ownerGeneration || disposed) return null;
-      return buildReplaceSearchPrompt(form.value, { projectId: connectedProjectId.value });
+      return buildReplaceSearchPrompt(form.value, { projectId: connectedProjectId.value, runner: runner.value });
     });
     if (!result || disposed || token !== ownerGeneration) return;
     if (result.copied) notice.value = text('Replacement instruction copied. Paste it into ChatGPT to replace the meta-search schedule.', 'Ersetzungsanweisung kopiert. In ChatGPT einfügen, um den Metasuch-Zeitplan zu ersetzen.');
@@ -213,7 +252,7 @@ onBeforeUnmount(() => { if (form.value && status.value !== 'saved') retainSearch
       <DesktopSidebarPortal area="major" :active="sidebarActive">
         <aside class="search-library" :aria-label="text('Meta research actions', 'Metasuchaktionen')">
           <div class="search-action-row">
-            <button class="search-primary" type="button" :disabled="copying || loadingCloud || !client" @click="copy"><FontAwesomeIcon :icon="faCopy" aria-hidden="true" />{{ copying ? text('Preparing…', 'Vorbereiten…') : text('Copy replace prompt', 'Ersetzungsanweisung kopieren') }}</button>
+            <button class="search-primary" type="button" :disabled="copying || preparingRunner || loadingCloud || !client" @click="copy"><FontAwesomeIcon :icon="faCopy" aria-hidden="true" />{{ copying ? text('Preparing…', 'Vorbereiten…') : text('Copy replace prompt', 'Ersetzungsanweisung kopieren') }}</button>
             <InfoHint :lang="lang" :label="text('Replace meta search', 'Metasuche ersetzen')" :text="text('Edits save to Supabase on blur or Enter. Copy this short instruction and paste it into ChatGPT to read the saved prompt and replace the existing meta-search scheduled task. Copying itself does not change the schedule.', 'Änderungen werden beim Verlassen des Felds oder mit Enter in Supabase gespeichert. Die kurze Anweisung kopieren und in ChatGPT einfügen, um den gespeicherten Prompt zu lesen und die bestehende geplante Metasuche zu ersetzen. Kopieren selbst ändert den Zeitplan nicht.')" />
           </div>
           <AdaptiveSearchPolicyHint :lang="lang" />
@@ -244,6 +283,14 @@ onBeforeUnmount(() => { if (form.value && status.value !== 'saved') retainSearch
         <details class="search-section">
           <summary><FontAwesomeIcon :icon="faClock" aria-hidden="true" /><span>{{ text('Daily schedule', 'Täglicher Zeitplan') }}</span><InfoHint :lang="lang" :label="text('Daily schedule', 'Täglicher Zeitplan')" :text="text('Time and context save automatically. Copy the replacement instruction into ChatGPT to apply the saved schedule. Successful runs without new or materially changed strong matches stay quiet.', 'Uhrzeit und Kontext werden automatisch gespeichert. Die Ersetzungsanweisung in ChatGPT einfügen, um den gespeicherten Zeitplan anzuwenden. Erfolgreiche Läufe ohne neue oder wesentlich geänderte starke Treffer bleiben still.')" /><FontAwesomeIcon :icon="faChevronDown" class="search-chevron" aria-hidden="true" /></summary>
           <div class="search-fields"><div class="search-schedule"><label>{{ text('Daily time', 'Tägliche Uhrzeit') }}<input v-model="form.dailyTime" type="time" required @change="flushSave" /></label><label>{{ text('Time zone', 'Zeitzone') }}<input v-model="form.timezone" placeholder="Europe/Tirane" required @change="flushSave" /></label></div></div>
+          <div class="search-fields search-runner-setup" :aria-label="text('Technical task setup', 'Technische Aufgaben-Einrichtung')">
+            <div class="hint-label-row"><strong>{{ text('Technical runner', 'Technischer Suchablauf') }}</strong><InfoHint :lang="lang" :label="text('Technical runner', 'Technischer Suchablauf')" :text="text('Prepare the adaptive contract once, then copy the replacement instruction. Current criteria and feedback load on every run; ordinary edits need no task replacement. Schedule or technical changes require an explicit task update. A saved binding records a task-tool receipt, not proof of unattended execution.', 'Den adaptiven Ablauf einmal vorbereiten und danach die Ersetzungsanweisung kopieren. Aktuelle Kriterien und Rückmeldungen werden bei jedem Lauf geladen; normale Änderungen benötigen keinen Aufgabenersatz. Zeitplan- oder technische Änderungen erfordern eine ausdrückliche Aktualisierung. Eine gespeicherte Bindung belegt eine Werkzeugbestätigung, keinen unbeaufsichtigten Erfolg.')" /></div>
+            <p>{{ runner?.mode === 'adaptive' ? text('Adaptive runner installed. Search edits take effect on the next run.', 'Adaptiver Ablauf eingerichtet. Suchänderungen gelten ab dem nächsten Lauf.') : runner?.migration_requested ? text('Adaptive update prepared; task-tool confirmation is pending.', 'Adaptive Aktualisierung vorbereitet; Aufgabenbestätigung steht aus.') : text('Existing runner preserved. Adaptive setup requires an explicit update.', 'Bisheriger Ablauf bleibt erhalten. Die adaptive Einrichtung erfordert eine ausdrückliche Aktualisierung.') }}</p>
+            <p v-if="runner?.binding">{{ text('Bound task', 'Verknüpfte Aufgabe') }}: <code>{{ runner.binding.task_id }}</code></p>
+            <p v-if="runner && !runner.ready">{{ text('Adaptive setup unavailable', 'Adaptive Einrichtung nicht verfügbar') }}: {{ runner.readiness_code }}</p>
+            <p v-if="runnerError" class="search-error" role="alert">{{ runnerError }}</p>
+            <button type="button" :disabled="preparingRunner || copying || loadingCloud || !client" @click="prepareRunner">{{ preparingRunner ? text('Preparing…', 'Vorbereiten…') : text('Prepare adaptive task update', 'Adaptive Aufgabenaktualisierung vorbereiten') }}</button>
+          </div>
         </details>
         <details class="search-section">
           <summary><FontAwesomeIcon :icon="faSliders" aria-hidden="true" /><span>{{ text('Generated prompts', 'Generierte Prompts') }}</span><InfoHint :lang="lang" :label="text('Generated prompts', 'Generierte Prompts')" :text="text('These are the complete English prompts saved in Supabase. The short replacement instruction tells ChatGPT where to read them. Search execution keeps the existing research protocol.', 'Dies sind die vollständigen englischen Prompts in Supabase. Die kurze Ersetzungsanweisung zeigt ChatGPT, wo es sie lesen kann. Die Suchausführung verwendet weiterhin das bestehende Forschungsprotokoll.')" /><FontAwesomeIcon :icon="faChevronDown" class="search-chevron" aria-hidden="true" /></summary>
@@ -261,6 +308,9 @@ onBeforeUnmount(() => { if (form.value && status.value !== 'saved') retainSearch
 .search-heading { margin-bottom: 20px; flex-shrink: 0; }
 .search-heading h2 { margin: 0 0 8px; font: 700 22px/1.3 var(--font-ui); color: var(--ui-text); text-shadow: none; text-transform: none; letter-spacing: 0; }
 .search-templates p, .search-library p { margin: 0; max-width: 75ch; color: var(--ui-muted); font-size: 13px; line-height: 1.6; }
+.search-runner-setup { font-family: var(--font-ui); }
+.search-runner-setup strong { font-size: 13px; font-weight: 600; }
+.search-runner-setup code { overflow-wrap: anywhere; }
 .search-layout { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 24px; min-width: 0; min-height: 0; flex: 1 1 0; overflow: hidden; }
 .search-layout--sidebar { grid-template-columns: minmax(0, 1fr); }
 .search-library { display: grid; align-content: start; gap: 16px; min-width: 0; }

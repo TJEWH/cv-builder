@@ -157,11 +157,15 @@ test('shared criteria preserve the installed seven-string contract without leaki
   assert.ok(!JSON.stringify(criteria).includes(original.legacySearchArchive));
 });
 
-test('replacement stays a short one-read instruction and does not start a research or setup run', () => {
+test('legacy replacement reads a minimal handoff and requires exact task selection', () => {
   const original = template(); assert.throws(() => buildReplaceSearchPrompt(original), /Save the current/);
   original.cloud = { id: cloudId, revision: 1, contentKey: searchTemplateContentKey(original) }; const prompt = buildReplaceSearchPrompt(original);
-  assert.ok(prompt.length < 1400); assert.equal((prompt.match(/SELECT /g) || []).length, 1);
-  for (const expected of [cloudId, 'ehkfzvjgesomteqpwrwa', "meta_search - 'editor'", 'recurringPrompt', 'update and enable the bound task', 'disable superseded', 'preserving unrelated']) assert.ok(prompt.includes(expected));
+  assert.ok(prompt.length < 2100); assert.equal((prompt.match(/SELECT /g) || []).length, 1);
+  for (const expected of [cloudId, 'ehkfzvjgesomteqpwrwa', "jsonb_build_object('version'", 'recurringPrompt', 'exact bound task ID only', 'explicit approval', 'separately approved exact superseded IDs']) assert.ok(prompt.includes(expected));
+  assert.ok(!prompt.includes("meta_search - 'editor'") && !prompt.includes('find my existing meta-research task by purpose'));
+  assert.ok(prompt.includes('octet_length') && prompt.includes('<=65536') && prompt.includes('ELSE NULL') && prompt.includes('legacySearchArchive|'));
+  assert.ok(prompt.includes('Do not create an unbound task in this legacy fallback') && prompt.includes('stop before any task change'));
+  assert.ok(!prompt.includes('or a create proposal'));
   for (const forbidden of ['begin_opportunity_search', 'claim_opportunity_search_schedule', 'confirm_opportunity_search_schedule', 'ONE-TIME SETUP']) assert.ok(!prompt.includes(forbidden));
 });
 
@@ -238,5 +242,5 @@ test('previously paused shared searches save as active daily searches without lo
   assert.equal(saved.active, true); assert.equal(fixture.row().meta_search!.active, true); assert.equal(fixture.row().meta_search!.editor.active, true); assert.ok(buildRecurringSearchPrompt(saved).includes('Run the saved CV Harness meta search now'));
   const imported = importCloudSearchTemplate({ ...fixture.row(), meta_search: { ...fixture.row().meta_search!, active: false, editor: { ...original, active: false } } });
   assert.equal(imported.active, true); assert.equal(isSearchTemplateSaved(imported), false, 'Old disabled task prompts must be saved again before replacement');
-  assert.equal(fixture.row().meta_search!.editor.researchInterests, original.researchInterests); assert.ok(buildReplaceSearchPrompt(saved).includes('update and enable the bound task')); assert.ok(!buildReplaceSearchPrompt(saved).includes('disable the task instead'));
+  assert.equal(fixture.row().meta_search!.editor.researchInterests, original.researchInterests); assert.ok(buildReplaceSearchPrompt(saved).includes('exact bound task ID only')); assert.ok(!buildReplaceSearchPrompt(saved).includes('disable the task instead'));
 });
