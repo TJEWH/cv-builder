@@ -9,46 +9,15 @@ import { createCloudCvSnapshot } from './cloudCvPrivacy';
 import { isRecord, readCvConfig, readCvContent } from './cvStateValidation';
 import { hasReviewedOpportunity } from './opportunityRecency';
 import { normalizeApplication } from './applicationTracking';
-import { isOpportunityInternalFact, isOpportunityInternalField } from './opportunityPresentation';
+import { OPPORTUNITY_COLUMNS, readOpportunity } from './readOpportunity';
 import { parseOpportunityInterestRating, normalizeOpportunityInterestReasons } from './opportunityFeedback';
 import { normalizeOpportunityDispositionPatch, readOpportunityDisposition } from './opportunityDisposition';
 
 const PAGE_SIZE = 500;
 const CV_SUMMARY_FIELDS = 'id,user_id,name,cv_version,revision,created_at';
 
-function displayText(value: unknown): string | null {
-  if (isOpportunityInternalFact(value)) return null;
-  if (typeof value === 'string') return value;
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  if (Array.isArray(value)) return value.map(displayText).filter(Boolean).join('; ') || null;
-  if (isRecord(value)) return Object.entries(value).filter(([key]) => !isOpportunityInternalField(key)).map(([key, item]) => `${key.replaceAll('_', ' ')}: ${displayText(item) ?? ''}`).join('; ') || null;
-  return null;
-}
-
-/** Project canonical catalogue columns into display strings; archived application snapshots render separately. */
-export function normalizeOpportunity(value: unknown): Opportunity {
-  if (!isRecord(value) || typeof value.id !== 'string') throw new Error('The opportunities table returned an invalid record.');
-  return {
-    id: value.id, opportunity_key: displayText(value.opportunity_key) ?? value.id,
-    vacancy_id: displayText(value.vacancy_id), title: displayText(value.title) ?? 'Untitled opportunity',
-    university: displayText(value.institution), country: displayText(value.country),
-    deadline: displayText(value.deadline), supervisor: displayText(value.supervisors),
-    supervisor_reputation: displayText(value.supervisor_reputation),
-    supervisor_research_focus: isRecord(value.supervisor_research_focus) ? value.supervisor_research_focus : {},
-    supervisor_top_papers: Array.isArray(value.supervisor_top_papers) ? value.supervisor_top_papers : [],
-    contact: value.contacts ?? [],
-    topics: Array.isArray(value.topics) ? value.topics.map(displayText).filter((topic): topic is string => topic !== null) : [],
-    salary_text: displayText(value.salary),
-    research_career_potential: displayText(value.research_career_potential), rd_career_potential: displayText(value.rd_career_potential),
-    hardware_software_profile: displayText(value.hardware_software_balance), personal_fit: displayText(value.personal_fit),
-    particularly_suitable: typeof value.particularly_suitable === 'boolean' ? value.particularly_suitable : null,
-    special_features: displayText(value.special_features), requirements: value.requirements ?? [], required_documents: value.required_documents ?? [],
-    official_url: displayText(value.official_url), availability: displayText(value.availability), verification_level: displayText(value.verification_level),
-    data: isRecord(value.data) ? value.data : {}, details: value,
-    created_at: displayText(value.created_at), updated_at: displayText(value.updated_at),
-  };
-}
+/** Decode the canonical catalogue directly; frozen application snapshots have their own reader. */
+export const normalizeOpportunity = readOpportunity;
 
 function errorMessage(reason: unknown, fallback: string): string {
   if (isRecord(reason) && reason.code === '23505') return 'An application already exists for this opportunity. Refresh to view it.';
@@ -160,7 +129,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
     loading.value = true; error.value = '';
     try {
       const [opportunityRows, applicationRows, cvRows, reviewRows] = await Promise.all([
-        rows('opportunities', '*', account, controller.signal), rows('applications', '*', account, controller.signal),
+        rows('opportunities', OPPORTUNITY_COLUMNS, account, controller.signal), rows('applications', '*', account, controller.signal),
         rows('cv_variants', CV_SUMMARY_FIELDS, account, controller.signal),
         rows('opportunity_reviews', '*', account, controller.signal),
       ]);

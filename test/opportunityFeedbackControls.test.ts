@@ -1,3 +1,4 @@
+import { opportunityFixture } from './fixtures/opportunity';
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
 import { readFileSync } from 'node:fs';
@@ -6,7 +7,7 @@ import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive, watch, type Component } from 'vue';
 import type { OpportunityInterestReason, OpportunityReview } from '../src/cloudTypes';
-import { normalizeOpportunity } from '../src/composables/useJobWorkspace';
+import { normalizeOpportunity as readOpportunity } from '../src/composables/useJobWorkspace';
 import { mergeOpportunityEvaluation } from '../src/composables/opportunityEvaluation';
 import * as textareaCommit from '../src/composables/textareaCommit';
 const { registerTextareaCommit } = textareaCommit;
@@ -27,6 +28,8 @@ const renderer = createRenderer<object, object>({
 type Review = OpportunityReview & { search_feedback_summary?: string | null; search_feedback_revision?: number; search_feedback_summary_hash?: string;
   search_feedback_source_hash?: string; search_feedback_approved_at?: string | null; search_feedback_approved_summary_hash?: string | null; search_feedback_approved_source_hash?: string | null };
 type Patch = { interest_rating?: number | null; interest_reasons?: OpportunityInterestReason[]; feedback_excluded?: boolean };
+const normalizeOpportunity = (input: Record<string, unknown> & { id: string }) => readOpportunity(opportunityFixture(input));
+
 interface Setup {
   ratingDraft: string; summaryDraft: string; summaryIncluded: boolean; summaryEligible: boolean; summaryExcerpt: string; summaryError: string;
   summaryLength: number; flushSummary(): Promise<boolean>;

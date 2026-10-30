@@ -10,7 +10,7 @@ import { useJobWorkspace } from '../composables/useJobWorkspace';
 import { safeEmailUrl } from '../composables/safeUrl';
 import { isOpportunityDeadlinePassed, opportunityDeadlineSortKey, formatOpportunityDeadline } from '../composables/opportunityDeadline';
 import { hasReviewedOpportunity, opportunityRecency } from '../composables/opportunityRecency';
-import { personalFitScore, fitScoreTone as fitTone } from '../composables/opportunityContext';
+import { fitScoreTone as fitTone } from '../composables/opportunityContext';
 import { readLivingStandard } from '../composables/livingStandard';
 import { applicationStatusHistory, applicationStatusLabel, applicationStatusTone, applicationTrackingStarted, applicationWasSubmitted } from '../composables/applicationTracking';
 import { useApplicationNotesAutosave } from '../composables/useApplicationNotesAutosave';
@@ -115,22 +115,19 @@ const unseenById = computed(() => new Map(opportunities.value.map((item) => {
   const visitedWithoutVersion = !item.updated_at && !item.created_at && (visitedOpportunityVersions.value.has(item.id) || !!reviewedVersion);
   return [item.id, hasReviewedOpportunity(item, reviewedVersion) || visitedWithoutVersion ? null : recencyById.value.get(item.id) || (reviewedVersion ? 'updated' : 'new')];
 })));
-const fitScoreById = computed(() => new Map(opportunities.value.map((item) => [item.id, personalFitScore(item.details.personal_fit ?? item.data.personal_fit)])));
+const fitScoreById = computed(() => new Map(opportunities.value.map((item) => [item.id, item.personal_fit.score ?? undefined])));
 function showPersonalFitBadge(item: Opportunity): boolean {
   const score = fitScoreById.value.get(item.id);
   return score !== undefined && score > 9;
 }
 const salaryScoreById = computed(() => new Map(opportunities.value.map((item) => [item.id,
-  readLivingStandard(item.details.living_standard ?? item.data.living_standard)?.factors.affordability.score ?? undefined,
+  readLivingStandard(item.data.living_standard)?.factors.affordability.score ?? undefined,
 ])));
 function researchSummary(item: Opportunity): string {
-  const value = item.details.research_summary ?? item.data.research_summary;
-  return typeof value === 'string' ? value.trim() : Array.isArray(value)
-    ? value.filter((part): part is string => typeof part === 'string').join('\n') : '';
+  return item.research_summary?.trim() || '';
 }
 function opportunityLocation(item: Opportunity): string {
-  const location = item.details.location ?? item.data.location ?? item.details.city ?? item.data.city;
-  return [...new Set([typeof location === 'string' ? location.trim() : '', item.country].filter(Boolean))].join(', ') || '—';
+  return [...new Set([item.city?.trim(), item.country].filter(Boolean))].join(', ') || '—';
 }
 function fitLabel(score: number | undefined) { return score === undefined ? '' : props.lang === 'de' ? String(score).replace('.', ',') : String(score); }
 const reviewState = (id: string): OpportunityReviewState => reviewById.value.get(id)?.state || 'unreviewed';
@@ -150,16 +147,16 @@ onBeforeUnmount(clearReviewSelections);
 const applicationByOpportunity = computed(() => new Map(applications.value.map((item) => [item.opportunity_id, item])));
 const filteredOpportunities = computed(() => {
   const needle = query.value.toLocaleLowerCase().trim();
-  return opportunities.value.filter((item) => (isOpportunityInPast(item.details, reviewById.value.get(item.id), now.value) === (deadlineFilter.value === 'past'))
+  return opportunities.value.filter((item) => (isOpportunityInPast(item, reviewById.value.get(item.id), now.value) === (deadlineFilter.value === 'past'))
     && (showWithApplications.value || !applicationByOpportunity.value.has(item.id))
     && (showLowInterest.value || reviewState(item.id) !== 'not_interested')
     && (reviewFilter.value === 'all' || reviewState(item.id) === reviewFilter.value)
-    && (!needle || [item.title, item.university, item.country, ...item.topics].join(' ').toLocaleLowerCase().includes(needle)))
+    && (!needle || [item.title, item.institution, item.country, ...item.topics].join(' ').toLocaleLowerCase().includes(needle)))
     .toSorted((a, b) => sortBy.value === 'personal_fit' ? (fitScoreById.value.get(b.id) ?? -1) - (fitScoreById.value.get(a.id) ?? -1)
       : sortBy.value === 'salary_score' ? (salaryScoreById.value.get(b.id) ?? -1) - (salaryScoreById.value.get(a.id) ?? -1)
       : sortBy.value === 'title' ? a.title.localeCompare(b.title)
-      : sortBy.value === 'institution' ? (a.university || '').localeCompare(b.university || '')
-        : (opportunityDeadlineSortKey(a.details) - opportunityDeadlineSortKey(b.details)) * (deadlineFilter.value === 'past' ? -1 : 1));
+      : sortBy.value === 'institution' ? (a.institution || '').localeCompare(b.institution || '')
+        : (opportunityDeadlineSortKey(a) - opportunityDeadlineSortKey(b)) * (deadlineFilter.value === 'past' ? -1 : 1));
 });
 const opportunityGroups = computed(() => {
   const recent: Opportunity[] = [];
@@ -353,7 +350,7 @@ async function closeOpportunity() {
   commitPendingTextareas();
   if (((commentStatus.value !== 'saved' || opportunityFeedback.value || applicationFeedback.value || opportunityDisposition.value) && !await flushEvaluation()) || selectedOpportunityId.value !== id) return;
   const opportunity = id ? opportunityById.value.get(id) : undefined;
-  if (opportunity) deadlineFilter.value = isOpportunityInPast(opportunity.details, reviewById.value.get(opportunity.id), now.value) ? 'past' : 'current';
+  if (opportunity) deadlineFilter.value = isOpportunityInPast(opportunity, reviewById.value.get(opportunity.id), now.value) ? 'past' : 'current';
   selectedOpportunityId.value = null;
   if (id) focusResult('opportunities', id);
 }
@@ -423,7 +420,7 @@ async function openList(kind: 'opportunities' | 'applications'): Promise<boolean
   notice.value = '';
   if (kind === 'opportunities' && opportunityId) {
     const opportunity = opportunityById.value.get(opportunityId);
-    if (opportunity) deadlineFilter.value = isOpportunityInPast(opportunity.details, reviewById.value.get(opportunity.id), now.value) ? 'past' : 'current';
+    if (opportunity) deadlineFilter.value = isOpportunityInPast(opportunity, reviewById.value.get(opportunity.id), now.value) ? 'past' : 'current';
   } else if (kind === 'applications' && applicationId) {
     const application = applications.value.find(item => item.id === applicationId);
     if (application) applicationDeadlineFilter.value = isOpportunityInPast(application.context_json, reviewById.value.get(application.opportunity_id), now.value) ? 'past' : 'current';
@@ -614,7 +611,7 @@ async function showRemovedOpportunity(id: string) {
   await nextTick();
   query.value = ''; reviewFilter.value = 'all'; showLowInterest.value = false;
   if (opportunity) {
-    deadlineFilter.value = isOpportunityInPast(opportunity.details, reviewById.value.get(opportunity.id), now.value) ? 'past' : 'current';
+    deadlineFilter.value = isOpportunityInPast(opportunity, reviewById.value.get(opportunity.id), now.value) ? 'past' : 'current';
     openOpportunity(opportunity.id);
   }
 }
@@ -679,10 +676,10 @@ useToastWatch(() => notice.value, () => {
           <tr v-if="group.title" class="jobs-group-row" :data-opportunity-group="group.key"><th scope="rowgroup" colspan="5">{{ group.title }} <span>{{ group.items.length }}</span></th></tr>
           <template v-for="item in group.items" :key="item.id">
           <tr :data-item-id="item.id" class="jobs-result-row" :class="{ 'jobs-opportunity--new': recencyById.get(item.id) === 'new', 'jobs-opportunity--updated': recencyById.get(item.id) === 'updated', 'jobs-opportunity--unseen-new': unseenById.get(item.id) === 'new', 'jobs-opportunity--unseen-updated': unseenById.get(item.id) === 'updated' }" @click="openOpportunity(item.id)">
-            <td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :aria-label="`${text('Open opportunity:', 'Stelle öffnen:')} ${item.title}`" @click.stop="openOpportunity(item.id)"><strong>{{ item.title }}</strong></button><span class="jobs-subline">{{ item.university || '—' }}</span><div v-if="recencyById.get(item.id) || (showPersonalFitBadge(item))" class="jobs-opportunity-badges"><span v-if="recencyById.get(item.id)" class="jobs-badge" :class="`jobs-badge--${recencyById.get(item.id)}`" :title="recencyById.get(item.id) === 'new' ? text('Added within the last 24 hours', 'In den letzten 24 Stunden hinzugefügt') : text('Updated within the last 24 hours', 'In den letzten 24 Stunden aktualisiert')">{{ recencyById.get(item.id) === 'new' ? text('New · 24h', 'Neu · 24 Std.') : text('Updated · 24h', 'Aktualisiert · 24 Std.') }}</span><span v-if="showPersonalFitBadge(item)" class="jobs-badge jobs-fit-score" :class="fitTone(fitScoreById.get(item.id)) && `jobs-fit-score--${fitTone(fitScoreById.get(item.id))}`" :aria-label="`${text('Personal fit', 'Persönliche Passung')}: ${fitLabel(fitScoreById.get(item.id))}`" :title="text('Personal fit score', 'Bewertung der persönlichen Passung')">{{ fitLabel(fitScoreById.get(item.id)) }}</span></div></td>
+            <td class="jobs-cell-heading"><button class="jobs-row-toggle" type="button" :aria-label="`${text('Open opportunity:', 'Stelle öffnen:')} ${item.title}`" @click.stop="openOpportunity(item.id)"><strong>{{ item.title }}</strong></button><span class="jobs-subline">{{ item.institution || '—' }}</span><div v-if="recencyById.get(item.id) || (showPersonalFitBadge(item))" class="jobs-opportunity-badges"><span v-if="recencyById.get(item.id)" class="jobs-badge" :class="`jobs-badge--${recencyById.get(item.id)}`" :title="recencyById.get(item.id) === 'new' ? text('Added within the last 24 hours', 'In den letzten 24 Stunden hinzugefügt') : text('Updated within the last 24 hours', 'In den letzten 24 Stunden aktualisiert')">{{ recencyById.get(item.id) === 'new' ? text('New · 24h', 'Neu · 24 Std.') : text('Updated · 24h', 'Aktualisiert · 24 Std.') }}</span><span v-if="showPersonalFitBadge(item)" class="jobs-badge jobs-fit-score" :class="fitTone(fitScoreById.get(item.id)) && `jobs-fit-score--${fitTone(fitScoreById.get(item.id))}`" :aria-label="`${text('Personal fit', 'Persönliche Passung')}: ${fitLabel(fitScoreById.get(item.id))}`" :title="text('Personal fit score', 'Bewertung der persönlichen Passung')">{{ fitLabel(fitScoreById.get(item.id)) }}</span></div></td>
             <td v-if="researchSummary(item)" class="jobs-card-summary jobs-cell-wide"><p>{{ researchSummary(item) }}</p></td>
             <td class="jobs-topics jobs-cell-wide" :data-label="text('Topics', 'Themen')">{{ item.topics.join(' · ') || '—' }}</td>
-            <td class="jobs-card-location" :data-label="text('Country', 'Land')" :data-mobile-label="text('Location', 'Ort')"><span class="jobs-card-country">{{ item.country || '—' }}</span><span class="jobs-card-location-text">{{ opportunityLocation(item) }}</span></td><td class="jobs-card-deadline" :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item.details, now) }">{{ formatOpportunityDeadline(item.details, lang) }}</span></td>
+            <td class="jobs-card-location" :data-label="text('Country', 'Land')" :data-mobile-label="text('Location', 'Ort')"><span class="jobs-card-country">{{ item.country || '—' }}</span><span class="jobs-card-location-text">{{ opportunityLocation(item) }}</span></td><td class="jobs-card-deadline" :data-label="text('Deadline', 'Frist')"><span :class="{ 'jobs-expired': isOpportunityDeadlinePassed(item, now) }">{{ formatOpportunityDeadline(item, lang) }}</span></td>
             <td class="jobs-cell-state" :data-label="text('Your review', 'Deine Bewertung')" @click.stop><select class="jobs-review-select" :aria-label="`${text('Review state for', 'Bewertung für')} ${item.title}`" :aria-invalid="pendingReviewSelections.get(item.id)?.status === 'error' || undefined" :value="reviewSelection(item.id)" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select><button v-if="pendingReviewSelections.get(item.id)?.status === 'error'" class="btn" type="button" @click="saveReviewSelection(item, reviewSelection(item.id))">{{ text('Retry interest save', 'Interesse erneut speichern') }}</button></td>
             <td v-if="reviewById.get(item.id)?.comment?.trim()" class="jobs-cell-wide jobs-card-evaluation" :data-label="text('Personal Evaluation', 'Persönliche Einschätzung')"><p>{{ reviewById.get(item.id)?.comment }}</p></td>
           </tr>
@@ -707,10 +704,10 @@ useToastWatch(() => notice.value, () => {
       </table>
     </div>
     <section v-if="selectedOpportunity" v-show="tab === 'opportunities'" ref="opportunityDetail" class="opportunity-detail" :class="{ 'opportunity-detail--sidebar': sidebarActive }" :aria-label="selectedOpportunity.title" tabindex="-1">
-      <WorkspaceDetailHeader class="opportunity-detail__header" :class="{ 'opportunity-detail__header--sidebar': sidebarActive }" :sidebar-active="props.active !== false && tab === 'opportunities'" :title="selectedOpportunity.title" :subtitle="selectedOpportunity.university || undefined" :back-label="text('All opportunities', 'Alle Stellenangebote')" @back="closeOpportunity">
+      <WorkspaceDetailHeader class="opportunity-detail__header" :class="{ 'opportunity-detail__header--sidebar': sidebarActive }" :sidebar-active="props.active !== false && tab === 'opportunities'" :title="selectedOpportunity.title" :subtitle="selectedOpportunity.institution || undefined" :back-label="text('All opportunities', 'Alle Stellenangebote')" @back="closeOpportunity">
         <template #metadata>
           <span v-if="selectedOpportunity.country" class="opportunity-detail__country" :title="selectedOpportunity.country">{{ selectedOpportunity.country }}</span>
-          <span class="opportunity-detail__deadline" :class="{ 'jobs-expired': isOpportunityDeadlinePassed(selectedOpportunity.details, now) }" :title="`${text('Deadline', 'Frist')}: ${formatOpportunityDeadline(selectedOpportunity.details, lang)}`" :aria-label="`${text('Deadline', 'Frist')}: ${formatOpportunityDeadline(selectedOpportunity.details, lang)}`"><span class="opportunity-detail__deadline-label">{{ text('Deadline', 'Frist') }}: </span>{{ formatOpportunityDeadline(selectedOpportunity.details, lang) }}</span>
+          <span class="opportunity-detail__deadline" :class="{ 'jobs-expired': isOpportunityDeadlinePassed(selectedOpportunity, now) }" :title="`${text('Deadline', 'Frist')}: ${formatOpportunityDeadline(selectedOpportunity, lang)}`" :aria-label="`${text('Deadline', 'Frist')}: ${formatOpportunityDeadline(selectedOpportunity, lang)}`"><span class="opportunity-detail__deadline-label">{{ text('Deadline', 'Frist') }}: </span>{{ formatOpportunityDeadline(selectedOpportunity, lang) }}</span>
           <span v-if="showPersonalFitBadge(selectedOpportunity)" class="jobs-badge jobs-fit-score opportunity-detail__fit" :class="fitTone(fitScoreById.get(selectedOpportunity.id)) && `jobs-fit-score--${fitTone(fitScoreById.get(selectedOpportunity.id))}`" :aria-label="`${text('Personal fit', 'Persönliche Passung')}: ${fitLabel(fitScoreById.get(selectedOpportunity.id))}`" :title="text('Personal fit score', 'Bewertung der persönlichen Passung')">{{ fitLabel(fitScoreById.get(selectedOpportunity.id)) }}</span>
         </template>
         <template v-if="applicationByOpportunity.has(selectedOpportunity.id)" #secondary-actions>
@@ -739,7 +736,7 @@ useToastWatch(() => notice.value, () => {
           </div>
           <OpportunityDispositionControls v-if="tab === 'opportunities' && active" ref="opportunityDisposition" :owner-id="userId" :opportunity-id="selectedOpportunity.id" :review="reviewById.get(selectedOpportunity.id)" :save-disposition="saveOpportunityDisposition" :busy="saving" :lang="lang" />
         </details>
-        <OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity.details" :lang="lang" />
+        <OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity" :lang="lang" />
       </div>
     </section>
     <ApplicationWorkspace ref="applicationWorkspace" tabindex="-1" :aria-label="editingApplication ? contextTitle(editingApplication) : undefined" v-if="editingApplication" v-show="tab === 'applications'" :active="props.active !== false && tab === 'applications'" :checklist-saving="saving" @toggle-checklist="(key, completed) => changeChecklist(editingApplication!, key, completed)" :key="userId + ':' + editingApplication.id" :application="editingApplication" :client="client" :user-id="userId" :lang="lang" :project-id="projectId" :configurations="configurations" :read-version="readVersion" :create-variant="createVariant" :flush-evaluation="flushEvaluation" :publish-cv="(state) => updateApplication(editingApplication!.id, { cvState: state })" @change-stage="stage => setApplicationStage(editingApplication!.id, stage)" @close="closeApplication" @edit-variant="id => emit('edit-variant', id)">

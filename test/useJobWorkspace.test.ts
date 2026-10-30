@@ -1,12 +1,15 @@
+import { opportunityFixture, opportunityAssessmentFixture } from './fixtures/opportunity';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { effectScope, ref } from 'vue';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Application, OpportunityReview } from '../src/cloudTypes';
 import { createCloudCvSnapshot } from '../src/composables/cloudCvPrivacy';
-import { normalizeOpportunity, useJobWorkspace } from '../src/composables/useJobWorkspace';
+import { normalizeOpportunity as readOpportunity, useJobWorkspace } from '../src/composables/useJobWorkspace';
 import { opportunityRecency } from '../src/composables/opportunityRecency';
 import { createTestState, stub } from './helpers';
+
+const normalizeOpportunity = (input: Record<string, unknown> & { id: string }) => readOpportunity(opportunityFixture(input));
 
 interface Query {
   table: string;
@@ -36,7 +39,8 @@ function fakeClient(handler: (query: Query) => Result | Promise<Result>) {
       upsert(value: Record<string, unknown>, options: { onConflict: string }) { request.operation = 'upsert'; request.payload = value; request.onConflict = options.onConflict; return builder; },
       then(resolve: (result: Result) => unknown, reject: (reason: unknown) => unknown) {
         queries.push(request);
-        return Promise.resolve().then(() => handler(request)).then(resolve, reject);
+        return Promise.resolve().then(() => handler(request)).then(result => request.table === 'opportunities' && Array.isArray(result.data)
+          ? { ...result, data: result.data.map(value => opportunityFixture(value)) } : result).then(resolve, reject);
       },
     };
     return builder;
@@ -67,24 +71,31 @@ function review(opportunityId = 'opportunity-1', state: OpportunityReview['state
   return { user_id: 'account-a', opportunity_id: opportunityId, state, reviewed_updated_at: null, created_at: '2026-09-19T16:00:00.000Z', updated_at: '2026-09-19T16:00:00.000Z' };
 }
 
-test('opportunity projection preserves canonical catalogue research', () => {
-  const contacts = [{ name: 'Professor Example', email: 'employer@example.org' }];
-  const row = { id: 'job', title: 'Researcher', institution: 'Institute', contacts, supervisors: [{ name: 'Professor Example' }],
-    salary: { amount: 50000, currency: 'EUR' }, requirements: ['Degree'], topics: ['Robotics'], extra_research: 'Preserved',
-    supervisor_research_focus: { robotics: 'Applied robotics' }, supervisor_top_papers: [{ title: 'Paper', year: 2025 }] };
-  const result = normalizeOpportunity(row);
-  assert.equal(result.university, 'Institute');
-  assert.deepEqual(result.contact, contacts);
-  assert.equal(result.supervisor, 'name: Professor Example');
-  assert.equal(result.salary_text, 'amount: 50000; currency: EUR');
-  assert.deepEqual(result.supervisor_research_focus, row.supervisor_research_focus);
-  assert.deepEqual(result.supervisor_top_papers, row.supervisor_top_papers);
-  assert.deepEqual(result.details, row);
+test('opportunity reader preserves the current structured catalogue without a second raw representation', () => {
+  const row = opportunityFixture({ id: 'job', title: 'Researcher', institution: 'Institute',
+    contacts: [{ entity_id: 'person', name: 'Professor Example', email: 'employer@example.org', roles: ['Scientific contact'] }],
+    supervisors: [{ entity_id: 'supervisor', name: 'Professor Example', roles: ['Supervisor'] }],
+    salary: { amount: 50000, currency: 'EUR' }, topics: ['Robotics'], personal_fit: opportunityAssessmentFixture(8.7),
+    requirements: [{ entity_id: 'degree', text: 'Degree', status: 'required', stage: 'recruitment' }],
+    supervisor_research_focus: { profiles: [{ entity_id: 'focus', name: 'Professor Example', topics: ['Applied robotics'] }] },
+    supervisor_top_papers: [{ entity_id: 'paper', title: 'Paper', year: 2025 }] });
+  const result = readOpportunity(row);
+  assert.strictEqual(result, row);
+  assert.equal(result.institution, 'Institute');
+  assert.strictEqual(result.contacts, row.contacts);
+  assert.strictEqual(result.supervisors, row.supervisors);
+  assert.strictEqual(result.salary, row.salary);
+  assert.strictEqual(result.personal_fit, row.personal_fit);
+  for (const retired of ['university', 'contact', 'supervisor', 'salary_text', 'hardware_software_profile', 'details']) assert.equal(Object.hasOwn(result, retired), false);
 });
 
-test('current catalogue projection does not accept retired storage aliases', () => {
-  const r=normalizeOpportunity({id:'canonical',institution:'Current institute',university:'Retired alias',contacts:[],contact:[{name:'Retired'}],salary:{amount:3000},salary_text:'Retired salary',supervisors:[],supervisor:'Retired supervisor'});
-  assert.equal(r.university,'Current institute');assert.deepEqual(r.contact,[]);assert.equal(r.salary_text,'amount: 3000');assert.equal(r.supervisor,null);
+test('current catalogue reader rejects retired aliases and malformed nested field shapes', () => {
+  const row = opportunityFixture({ id: 'canonical', institution: 'Current institute' });
+  for (const patch of [{ university: 'Retired alias' }, { contact: [] }, { supervisor: 'Old supervisor' },
+    { salary_text: 'Retired salary' }, { personal_fit: '9 / 10' }, { personal_fit: { score: '9', scale_min: 0, scale_max: 10, summary: 'Legacy score' } },
+    { contacts: ['Professor Example'] }, { requirements: ['Degree'] }, { data: { personal_fit: { score: 9 } } }, { metadata_schema_version: 4 }]) {
+    assert.throws(() => readOpportunity({ ...row, ...patch }), /invalid canonical record/);
+  }
 });
 
 test('standalone mode performs no cloud calls and pagination loads all shared opportunities', async () => {
@@ -100,6 +111,9 @@ test('standalone mode performs no cloud calls and pagination loads all shared op
   assert.equal(workspace.opportunities.value.length, 502);
   assert.deepEqual(queries.filter(({ table }) => table === 'opportunities').map(({ range }) => range), [[0, 499], [500, 999]]);
   assert.ok(queries.filter(({ table }) => table === 'opportunities').every(({ filters }) => !('user_id' in filters)));
+  const catalogueFields = queries.find(({ table }) => table === 'opportunities')?.fields?.split(',') || [];
+  assert.ok(catalogueFields.includes('institution') && catalogueFields.includes('personal_fit'));
+  assert.equal(catalogueFields.includes('*') || catalogueFields.includes('university') || catalogueFields.includes('details'), false);
   assert.ok(queries.filter(({ table }) => table !== 'opportunities').every(({ filters }) => filters.user_id === 'account-a'));
   assert.equal(queries.find(({ table }) => table === 'cv_variants')?.fields?.includes('content_json'), false);
   assert.equal(queries.find(({ table }) => table === 'opportunity_reviews')?.orderColumn, 'opportunity_id');
@@ -380,7 +394,7 @@ test('opportunity comments persist across reloads, interest choices and receipts
         reviewed_updated_at: query.payload?.p_observed_updated_at as string | null };
       return { data: { ...stored }, error: null };
     }
-    return { data: query.table === 'opportunities' ? [source.details]
+    return { data: query.table === 'opportunities' ? [source]
       : query.table === 'opportunity_reviews' ? [{ ...stored }] : [], error: null };
   });
   const scope = effectScope(); t.after(() => scope.stop());
@@ -563,8 +577,8 @@ test('comments and concurrent receipts preserve both changes in either response 
 });
 
 test('strong interest survives a fresh workspace, updated-source receipt, and application creation', async (t) => {
-  let source = { id: 'opportunity-1', title: 'Materials discovery', personal_fit: { score: 6.4 },
-    deadline: '2025-01-01', original_search: 'Materials discovery', created_at: '2026-09-18T12:00:00Z', updated_at: '2026-09-20T10:00:00Z' };
+  let source = { id: 'opportunity-1', title: 'Materials discovery', personal_fit: opportunityAssessmentFixture(6.4),
+    deadline: '2025-01-01', source_context: 'Materials discovery', created_at: '2026-09-18T12:00:00Z', updated_at: '2026-09-20T10:00:00Z' };
   let stored = review('opportunity-1', 'unreviewed');
   let created: Application | null = null;
   const { client, queries } = fakeClient((query) => {
@@ -620,7 +634,7 @@ test('opening and changing review state persist the viewed source version across
       stored = { ...stored, state: (query.payload?.p_state ?? stored.state) as OpportunityReview['state'], reviewed_updated_at: String(query.payload?.p_observed_updated_at) };
       return { data: { ...stored }, error: null };
     }
-    return { data: query.table === 'opportunities' ? [source.details] : query.table === 'opportunity_reviews' ? [{ ...stored }] : [], error: null };
+    return { data: query.table === 'opportunities' ? [source] : query.table === 'opportunity_reviews' ? [{ ...stored }] : [], error: null };
   });
   const scope = effectScope();
   const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
@@ -1291,18 +1305,16 @@ test('AF-02 invalid patches never reach storage; consent is explicit, scoped and
   scope.stop();
 });
 
-test('canonical catalogue display strings omit internal identities while retaining the untouched research snapshot', async () => {
+test('canonical catalogue decoding keeps structured identities for consumers without adding display aliases', async () => {
   const { canonicalOpportunityFixture } = await import('./fixtures/canonicalOpportunity');
-  const row = canonicalOpportunityFixture();
-  const projected = normalizeOpportunity(row);
-  for (const value of [projected.supervisor, projected.salary_text, projected.personal_fit, projected.supervisor_reputation]) {
-    assert.ok(!value?.includes('INTERNAL-'));
-  }
-  assert.ok(projected.supervisor?.includes('Prof. Morgan Example'));
-  assert.deepEqual(projected.requirements, row.requirements);
-  assert.deepEqual(projected.required_documents, row.required_documents);
-  assert.deepEqual(projected.contact, row.contacts);
-  assert.deepEqual(projected.details, row);
+  const row = opportunityFixture(canonicalOpportunityFixture());
+  const result = readOpportunity(row);
+  assert.strictEqual(result, row);
+  assert.equal(result.supervisors[0]?.name, 'Prof. Morgan Example');
+  assert.deepEqual(result.requirements, row.requirements);
+  assert.deepEqual(result.required_documents, row.required_documents);
+  assert.deepEqual(result.contacts, row.contacts);
+  assert.equal(Object.hasOwn(result, 'details'), false);
 });
 
 test('manual disposition saves one owner-scoped partial patch without changing interest or applications', async () => {

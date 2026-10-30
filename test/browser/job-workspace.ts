@@ -28,6 +28,7 @@ import { createLetterRepository, DEFAULT_LETTER_TEMPLATES } from '../../src/comp
 import { createRefinementFixture, REFINEMENT_TABLES } from '../refinementFixture';
 import { livingStandardFixture } from '../fixtures/livingStandard';
 import { canonicalOpportunityFixture } from '../fixtures/canonicalOpportunity';
+import { opportunityFixture } from '../fixtures/opportunity';
 import '../../src/assets/cv.css';
 
 if (!import.meta.env.DEV) throw new Error('The browser fixture is available only on the development server.');
@@ -42,16 +43,16 @@ const now = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 const recent = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
 const database: Record<string, Row[]> = {
   opportunities: [
-    { id: '10000000-0000-4000-8000-000000000001', opportunity_key: 'robotics-phd',
+    opportunityFixture({ id: '10000000-0000-4000-8000-000000000001', opportunity_key: 'robotics-phd',
       title: 'PhD in Human-Centred Robotics', institution: 'Northbridge Technical University', country: 'Netherlands',
-      deadline: '2026-10-30T23:59:00Z', topics: ['Robotics', 'Human–robot interaction', 'Machine learning'],
+      deadline: '2026-10-30', deadline_time_local: '23:59:00', deadline_timezone: 'UTC', topics: ['Robotics', 'Human–robot interaction', 'Machine learning'],
       contacts: [{ entity_id: 'robotics-contact', name: 'Prof. Alex Example', email: 'robotics@example.org', roles: ['Scientific contact'] }], particularly_suitable: true,
       salary: { min: 3100, max: 3900, currency: 'EUR', period: 'month' }, supervisors: [{ entity_id: 'robotics-advisor', name: 'Prof. Alex Example', roles: ['Supervisor'] }],
       duration_details: 'Four-year funded doctoral contract.',
       research_summary: 'Study how robots can learn safe collaboration from human demonstrations, combining learning algorithms with physical experiments.',
-      personal_fit: { score: 8.8, summary: 'Strong alignment with robotics experience', gaps: ['Develop experimental design skills'] },
-      research_career_potential: { score: 9, summary: 'Publish research in human–robot interaction' },
-      rd_career_potential: { score: 8, summary: 'Transfer safe learning methods to industrial R&D' },
+      personal_fit: { scale_min: 0, scale_max: 10, score: 8.8, summary: 'Strong alignment with robotics experience', gaps: ['Develop experimental design skills'] },
+      research_career_potential: { scale_min: 0, scale_max: 10, score: 9, summary: 'Publish research in human–robot interaction' },
+      rd_career_potential: { scale_min: 0, scale_max: 10, score: 8, summary: 'Transfer safe learning methods to industrial R&D' },
       particularly_suitable_reason: 'Combines robot learning with practical experiments.',
       hardware_software_balance: { summary: 'Software development with hands-on robot experiments.' },
       supervisor_research_focus: { profiles: [{ entity_id: 'robotics-focus', name: 'Prof. Alex Example', summary: 'Learning safe human–robot collaboration from demonstrations.', topics: ['Robot learning', 'Safety'], source_urls: ['https://example.org/lab'] }] },
@@ -67,25 +68,25 @@ const database: Record<string, Row[]> = {
         { source_id: 'robotics-listing', url: 'https://example.org/opportunities/robotics', kind: 'official', supports: ['salary', 'duration_details'], checked_at: '2026-09-20', precision: 'date' },
         { source_id: 'robotics-requirements', url: 'https://example.org/opportunities/robotics', kind: 'official', supports: ['requirements'], checked_at: null, precision: 'unknown' },
       ],
-      data: { funding: [{ label: 'Funding', text: 'Fully funded' }], notes: [{ label: 'Work pattern', text: 'Hybrid' }], living_standard: livingStandardFixture }, created_at: recent, updated_at: recent },
-    { id: '10000000-0000-4000-8000-000000000002', opportunity_key: 'research-engineer',
+      data: { funding: [{ label: 'Funding', text: 'Fully funded' }], notes: [{ label: 'Work pattern', text: 'Hybrid' }], living_standard: { ...livingStandardFixture, housing_baseline: livingStandardFixture.housing_baseline || 'shared_flat' } }, created_at: recent, updated_at: recent }),
+    opportunityFixture({ id: '10000000-0000-4000-8000-000000000002', opportunity_key: 'research-engineer',
       title: 'Research Engineer — Embedded AI Systems', institution: 'Institute for Responsible Computing', country: 'Germany',
-      deadline: '2026-11-15T17:00:00Z', topics: ['Embedded systems', 'Efficient AI'],
+      deadline: '2026-11-15', deadline_time_local: '17:00:00', deadline_timezone: 'UTC', topics: ['Embedded systems', 'Efficient AI'],
       contacts: [{ entity_id: 'embedded-contact', name: 'Dr. Robin Example', email: 'careers@example.org', roles: ['Contact'] }], particularly_suitable: true,
-      personal_fit: { score: 9.6, summary: 'Strong embedded systems fit' },
+      personal_fit: { scale_min: 0, scale_max: 10, score: 9.6, summary: 'Strong embedded systems fit' },
       salary: { model: 'TV-L E13' }, duration_details: 'Three-year contract', requirements: [{ entity_id: 'embedded-experience', text: 'Embedded software experience', status: 'required', stage: 'recruitment' }],
-      data: { living_standard: { ...livingStandardFixture, factors: { ...livingStandardFixture.factors, affordability: { score: 9, reason: 'Synthetic example: a larger buffer after essentials.' } } } },
+      data: { living_standard: { ...livingStandardFixture, housing_baseline: livingStandardFixture.housing_baseline || 'shared_flat', factors: { ...livingStandardFixture.factors, affordability: { score: 9, reason: 'Synthetic example: a larger buffer after essentials.' } } } },
       required_documents: [{ entity_id: 'embedded-cv', text: 'CV', status: 'required', stage: 'recruitment' }, { entity_id: 'embedded-portfolio', text: 'Portfolio', status: 'required', stage: 'recruitment' }], official_url: 'https://example.org/opportunities/embedded-ai',
-      availability: 'open', created_at: now, updated_at: recent },
-    { id: '10000000-0000-4000-8000-000000000003', opportunity_key: 'past-opportunity', title: 'Archived research position', institution: 'Example Institute', deadline: '2025-01-01', topics: ['Materials discovery'], contacts: [], personal_fit: { score: 6.4 }, source_context: 'Materials discovery', created_at: now, updated_at: now },
-    { id: '10000000-0000-4000-8000-000000000004', opportunity_key: 'open-deadline', title: 'Rolling research fellowship', institution: 'Example Institute', deadline: null, topics: ['Research'], contacts: [], particularly_suitable: true, personal_fit: { score: 10 }, created_at: now, updated_at: now },
-    { id: '10000000-0000-4000-8000-000000000005', opportunity_key: 'recent-learning', title: 'Learning Systems PhD', institution: 'Synthetic Science University', country: 'Sweden', deadline: null, topics: ['Learning'], particularly_suitable: true, personal_fit: { score: 9.1 }, created_at: recent, updated_at: recent },
-    { id: '10000000-0000-4000-8000-000000000006', opportunity_key: 'older-unseen', title: 'Applied Robotics Fellowship', institution: 'Example Institute', country: 'Denmark', deadline: null, topics: ['Robotics'], particularly_suitable: true, personal_fit: { score: 9.5 }, created_at: now, updated_at: now },
-    { id: '10000000-0000-4000-8000-000000000007', opportunity_key: 'older-update', title: 'Control Systems Researcher', institution: 'Synthetic Science University', country: 'Finland', deadline: null, topics: ['Control'], particularly_suitable: true, personal_fit: { score: 9.4 }, created_at: '2025-01-01T12:00:00Z', updated_at: now },
-    { id: '10000000-0000-4000-8000-000000000008', opportunity_key: 'already-viewed', title: 'Reviewed AI Fellowship', institution: 'Synthetic Science University', country: 'Germany', deadline: null, topics: ['AI'], particularly_suitable: false, personal_fit: { score: 9.05 }, created_at: now, updated_at: recent },
-    { id: '10000000-0000-4000-8000-000000000009', opportunity_key: 'unknown-fit', title: 'Research Assistant — Fit not scored', institution: 'Example Institute', country: 'France', deadline: null, topics: ['Research'], particularly_suitable: true,
+      availability: 'open', created_at: now, updated_at: recent }),
+    opportunityFixture({ id: '10000000-0000-4000-8000-000000000003', opportunity_key: 'past-opportunity', title: 'Archived research position', institution: 'Example Institute', deadline: '2025-01-01', topics: ['Materials discovery'], contacts: [], personal_fit: { scale_min: 0, scale_max: 10, summary: null, score: 6.4 }, source_context: 'Materials discovery', created_at: now, updated_at: now }),
+    opportunityFixture({ id: '10000000-0000-4000-8000-000000000004', opportunity_key: 'open-deadline', title: 'Rolling research fellowship', institution: 'Example Institute', deadline: null, topics: ['Research'], contacts: [], particularly_suitable: true, personal_fit: { scale_min: 0, scale_max: 10, summary: null, score: 10 }, created_at: now, updated_at: now }),
+    opportunityFixture({ id: '10000000-0000-4000-8000-000000000005', opportunity_key: 'recent-learning', title: 'Learning Systems PhD', institution: 'Synthetic Science University', country: 'Sweden', deadline: null, topics: ['Learning'], particularly_suitable: true, personal_fit: { scale_min: 0, scale_max: 10, summary: null, score: 9.1 }, created_at: recent, updated_at: recent }),
+    opportunityFixture({ id: '10000000-0000-4000-8000-000000000006', opportunity_key: 'older-unseen', title: 'Applied Robotics Fellowship', institution: 'Example Institute', country: 'Denmark', deadline: null, topics: ['Robotics'], particularly_suitable: true, personal_fit: { scale_min: 0, scale_max: 10, summary: null, score: 9.5 }, created_at: now, updated_at: now }),
+    opportunityFixture({ id: '10000000-0000-4000-8000-000000000007', opportunity_key: 'older-update', title: 'Control Systems Researcher', institution: 'Synthetic Science University', country: 'Finland', deadline: null, topics: ['Control'], particularly_suitable: true, personal_fit: { scale_min: 0, scale_max: 10, summary: null, score: 9.4 }, created_at: '2025-01-01T12:00:00Z', updated_at: now }),
+    opportunityFixture({ id: '10000000-0000-4000-8000-000000000008', opportunity_key: 'already-viewed', title: 'Reviewed AI Fellowship', institution: 'Synthetic Science University', country: 'Germany', deadline: null, topics: ['AI'], particularly_suitable: false, personal_fit: { scale_min: 0, scale_max: 10, summary: null, score: 9.05 }, created_at: now, updated_at: recent }),
+    opportunityFixture({ id: '10000000-0000-4000-8000-000000000009', opportunity_key: 'unknown-fit', title: 'Research Assistant — Fit not scored', institution: 'Example Institute', country: 'France', deadline: null, topics: ['Research'], particularly_suitable: true,
       research_summary: Array.from({ length: 8 }, () => 'This synthetic project combines experimental research, collaborative analysis and the development of reproducible methods.').join('\n\n'),
-      created_at: now, updated_at: now },
+      created_at: now, updated_at: now }),
   ],
   applications: [],
   cv_variants: [],
@@ -133,7 +134,7 @@ if (fixtureFlow === 'application-groups') {
     const opportunityId = `10000000-0000-4000-8000-${suffix}`;
     const context = { title: example.title, institution: example.institution, deadline: example.deadline, contacts: [{ name: 'Dr. Alex Example', email: 'research@example.org' }] };
     const applied = ['submitted', 'interview'].includes(example.status);
-    database.opportunities.push({ id: opportunityId, opportunity_key: `application-group-${index}`, ...context, created_at: now, updated_at: now });
+    database.opportunities.push(opportunityFixture({ id: opportunityId, opportunity_key: `application-group-${index}`, ...context, deadline: context.deadline?.slice(0, 10) ?? null, contacts: context.contacts.map((person, personIndex) => ({ ...person, entity_id: `${opportunityId}-person-${personIndex}`, roles: ['Scientific contact'] })), created_at: now, updated_at: now }));
     database.applications.push({ id: `20000000-0000-4000-8000-${suffix}`, user_id: account, opportunity_id: opportunityId,
       application_code: `APP-GROUP${index + 1}`, cv_variant_id: null, contact_email: null, context_json: context,
       context_captured_at: now, completed_checklist_keys: [], status: example.status,

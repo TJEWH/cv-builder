@@ -82,38 +82,8 @@ export interface OpportunityFeedbackSettings {
   consent_updated_at: string | null;
 }
 
-/** A display projection supporting both the imported catalogue and portable schema. */
-export interface Opportunity {
-  id: string;
-  opportunity_key: string;
-  vacancy_id: string | null;
-  title: string;
-  university: string | null;
-  country: string | null;
-  deadline: string | null;
-  supervisor: string | null;
-  supervisor_reputation: string | null;
-  supervisor_research_focus: Record<string, unknown>;
-  supervisor_top_papers: unknown[];
-  contact: unknown;
-  topics: string[];
-  salary_text: string | null;
-  research_career_potential: string | null;
-  rd_career_potential: string | null;
-  hardware_software_profile: string | null;
-  personal_fit: string | null;
-  particularly_suitable: boolean | null;
-  special_features: string | null;
-  requirements: unknown;
-  required_documents: unknown;
-  official_url: string | null;
-  availability: string | null;
-  verification_level: string | null;
-  data: Record<string, unknown>;
-  details: Record<string, unknown>;
-  created_at: string | null;
-  updated_at: string | null;
-}
+/** Current canonical catalogue contract, generated from the shared JSON Schema. */
+export type { Opportunity } from './opportunityTypes';
 
 export interface CloudCvVariant {
   id: string;

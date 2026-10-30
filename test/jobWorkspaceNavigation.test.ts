@@ -1,3 +1,4 @@
+import { opportunityFixture, opportunityAssessmentFixture } from './fixtures/opportunity';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
@@ -9,10 +10,12 @@ import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive, ref } from 'vue';
 import type { Component } from 'vue';
 import type { Application, ApplicationStage, Opportunity, OpportunityFeedbackPatch, OpportunityReview, OpportunityReviewState } from '../src/cloudTypes';
-import { normalizeOpportunity } from '../src/composables/useJobWorkspace';
+import { normalizeOpportunity as readOpportunity } from '../src/composables/useJobWorkspace';
 import { useSaveStateToast, useToasts, useToastWatch } from '../src/composables/useToasts';
 import { commitPendingTextareas, registerTextareaCommit } from '../src/composables/textareaCommit';
 import { livingStandardFixture } from './fixtures/livingStandard';
+
+const normalizeOpportunity = (input: Record<string, unknown> & { id: string }) => readOpportunity(opportunityFixture(input));
 
 const filename = new URL('../src/components/JobWorkspace.vue', import.meta.url);
 const { descriptor } = parse(readFileSync(filename, 'utf8'));
@@ -43,7 +46,7 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   const opportunity = normalizeOpportunity({ id: 'opportunity-one', title: 'Robotics researcher', institution: 'Research University', deadline: null, topics: ['Robotics'], updated_at: '2026-09-20T12:00:00Z' });
   const application: Application = {
     id: 'application-one', user_id: 'account-one', opportunity_id: opportunity.id, cv_variant_id: null,
-    contact_email: null, context_json: opportunity.details, context_captured_at: '2026-09-20T12:00:00Z',
+    contact_email: null, context_json: opportunity, context_captured_at: '2026-09-20T12:00:00Z',
     completed_checklist_keys: [], status: 'preparation', workflow_stage: 'preparation', tracking_started: false, notes: null, contacted_at: null, submitted_at: null,
     created_at: '2026-09-20T12:00:00Z', updated_at: '2026-09-20T12:00:00Z',
   };
@@ -604,7 +607,7 @@ test('evaluations still save on older workspaces without the feedback schema', a
 test('application evaluations share opportunity drafts and block record navigation on save failure', async t => {
   const f = mount(t);
   const secondOpportunity = normalizeOpportunity({ id: 'opportunity-two', title: 'Second research role', deadline: null });
-  const second = { ...f.application, id: 'application-two', opportunity_id: secondOpportunity.id, context_json: secondOpportunity.details };
+  const second = { ...f.application, id: 'application-two', opportunity_id: secondOpportunity.id, context_json: secondOpportunity };
   f.opportunities.value.push(secondOpportunity);
   f.applications.value = [f.application, second];
   f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'interested', comment: 'Existing personal evaluation.', reviewed_updated_at: null, created_at: '', updated_at: '' }];
@@ -1059,7 +1062,7 @@ test('standalone workspaces activate sidebar controls by default while accepting
 
 test('strong-interest reviews remain filterable for current and past opportunities regardless of score', (t) => {
   const { setup, props, opportunity, opportunities, reviews } = mount(t);
-  const past = normalizeOpportunity({ id: 'past', title: 'Materials discovery', deadline: '2025-01-01', personal_fit: { score: 5.8 }, original_search: 'Materials' });
+  const past = normalizeOpportunity({ id: 'past', title: 'Materials discovery', deadline: '2025-01-01', personal_fit: opportunityAssessmentFixture(5.8), source_context: 'Materials' });
   opportunities.value.push(past);
   reviews.value = [opportunity, past].map(item => ({ user_id: props.userId, opportunity_id: item.id, state: 'strong_interest', reviewed_updated_at: item.updated_at, created_at: '', updated_at: '' }));
   setup.reviewFilter = 'strong_interest';
@@ -1136,7 +1139,7 @@ test('application deadline views are exclusive, use captured deadlines and prese
   });
   applications.value = [make('past', '2026-10-06T11:59:59Z'), make('exact', '2026-10-06T12:00:00Z'),
     make('future', '2026-10-07T12:00:00Z', 'submitted'), make('unknown', null), make('invalid', 'Until filled')];
-  opportunities.value = opportunities.value.map(item => ({ ...item, details: { ...item.details, deadline: '2025-01-01' } }));
+  opportunities.value = opportunities.value.map(item => ({ ...item, deadline: '2025-01-01' }));
   await nextTick();
   const ids = () => setup.filteredApplications.map(item => item.id).sort();
   assert.equal(setup.applicationDeadlineFilter, 'current');
@@ -1245,7 +1248,7 @@ test('past application groups keep sorting within groups, omit empty groups and 
 test('opening an application from an expired opportunity selects Past and returns to its group', async (t) => {
   const { setup, opportunity, application, handlers } = mount(t);
   const context = { ...application.context_json, deadline: '2025-01-01' };
-  const expired = { ...opportunity, details: { ...opportunity.details, deadline: '2025-01-01' } };
+  const expired = { ...opportunity, deadline: '2025-01-01' };
   handlers.create = async () => ({ ...application, context_json: context });
   setup.deadlineFilter = 'past';
   setup.applicationDeadlineFilter = 'current';
@@ -1383,28 +1386,25 @@ test('deadline options show mutually exclusive current and past opportunities an
   assert.equal(setup.deadlineFilter, 'past', 'opening and closing does not reset the chosen deadline view');
 });
 
-test('personal fit sorts numeric structured scores high to low within groups, with zero before unknown', (t) => {
+test('personal fit sorts current numeric assessments high to low within groups, with zero before unknown', (t) => {
   const { setup, opportunities } = mount(t);
   setup.now = new Date('2026-10-06T12:00:00Z');
-  const make = (id: string, score: unknown, extra: Record<string, unknown> = {}) => normalizeOpportunity({
+  const make = (id: string, score: number | null, extra: Record<string, unknown> = {}) => normalizeOpportunity({
     id, title: id, deadline: null, particularly_suitable: false,
     created_at: '2026-10-01T12:00:00Z', updated_at: '2026-10-01T12:00:00Z',
-    personal_fit: { score, summary: 'Synthetic fit rationale' }, ...extra,
+    personal_fit: opportunityAssessmentFixture(score), ...extra,
   });
-  const nested = make('nested-nine', undefined, { personal_fit: null, data: { personal_fit: { score: '9.1' } } });
-  const missing = make('unknown', undefined);
-  const zero = make('zero', 0);
-  const ten = make('ten', 10);
+  const missing = make('unknown', null), zero = make('zero', 0), nine = make('nine', 9.1), ten = make('ten', 10);
   const recent = make('recent-eight', 8, { created_at: '2026-10-06T11:00:00Z', updated_at: '2026-10-06T11:00:00Z' });
-  opportunities.value = [missing, zero, nested, recent, ten];
+  opportunities.value = [missing, zero, nine, recent, ten];
   setup.sortBy = 'personal_fit';
   assert.deepEqual(setup.opportunityGroups.map(({ key, items }) => [key, items.map(item => item.id)]), [
-    ['recent', ['recent-eight']], ['other', ['ten', 'nested-nine', 'zero', 'unknown']],
-  ], 'fit sorting also includes opportunities without the old strong-fit flag');
+    ['recent', ['recent-eight']], ['other', ['ten', 'nine', 'zero', 'unknown']],
+  ]);
   for (const score of [-1, 11, NaN, Infinity, true, '', '9.8 / 10', 'high']) {
-    opportunities.value = [make('invalid', score), zero, ten];
-    assert.deepEqual(setup.filteredOpportunities.map(item => item.id), ['ten', 'zero', 'invalid'], String(score));
+    assert.throws(() => normalizeOpportunity({ id: 'invalid', personal_fit: { score, scale_min: 0, scale_max: 10, summary: 'Invalid assessment' } }), /invalid canonical record/);
   }
+  assert.throws(() => normalizeOpportunity({ id: 'nested-old-fit', data: { personal_fit: { score: 9.1 } } }), /invalid canonical record/);
 });
 
 test('salary sorting uses validated affordability scores, keeps zero above unknown, and preserves recency groups', (t) => {
@@ -1418,10 +1418,10 @@ test('salary sorting uses validated affordability scores, keeps zero above unkno
   const make = (id: string, living_standard: unknown, extra: Record<string, unknown> = {}) => normalizeOpportunity({
     id, title: id, deadline: null, salary: { amount: 999999 },
     created_at: '2026-10-01T12:00:00Z', updated_at: '2026-10-01T12:00:00Z',
-    data: { living_standard }, ...extra,
+    data: living_standard === undefined ? {} : { living_standard }, ...extra,
   });
   const high = make('high-salary', assessment(9, 0));
-  const low = make('low-salary', undefined, { living_standard: assessment(5, 10) });
+  const low = make('low-salary', assessment(5, 10));
   const zero = make('zero', assessment(0));
   const unknown = make('unknown', assessment(null));
   const missing = make('missing', undefined);
@@ -1431,42 +1431,39 @@ test('salary sorting uses validated affordability scores, keeps zero above unkno
   assert.deepEqual(setup.opportunityGroups.map(({ key, items }) => [key, items.map(item => item.id)]), [
     ['recent', ['recent-seven']], ['other', ['high-salary', 'low-salary', 'zero', 'unknown', 'missing']],
   ], 'the salary verdict, not total living standard or the raw salary, controls the order');
-  for (const invalid of [assessment(-1), assessment(11), { ...assessment(10), sources: [] }, { ...assessment(10), version: 2 }]) {
-    opportunities.value = [make('invalid', invalid), zero, high];
-    assert.deepEqual(setup.filteredOpportunities.map(item => item.id), ['high-salary', 'zero', 'invalid']);
+  for (const invalid of [assessment(-1), assessment(11), { ...assessment(10), version: 2 }]) {
+    assert.throws(() => make('invalid', invalid), /invalid canonical record/);
   }
+  opportunities.value = [make('unverified', { ...assessment(10), sources: [] }), zero, high];
+  assert.deepEqual(setup.filteredOpportunities.map(item => item.id), ['high-salary', 'zero', 'unverified'], 'unverified salary assessments remain unrated');
 });
 
-test('strong-fit scores use the requested color boundaries without fabricating missing values', async (t) => {
+test('strong-fit scores use the requested color boundaries without fabricating unknown values', async (t) => {
   const { setup, opportunities, props } = mount(t);
-  for (const [score, tone] of [[10, 'red'], [9.6, 'red'], [9.5, 'yellow'], [9.1, 'yellow'], [9, undefined], [8.8, undefined], [0, undefined], [undefined, undefined], [11, undefined]] as const) {
-    const item = normalizeOpportunity({ id: 'strong-fit', title: 'Strong fit role', particularly_suitable: true, personal_fit: { score } });
+  for (const [score, tone] of [[10, 'red'], [9.6, 'red'], [9.5, 'yellow'], [9.1, 'yellow'], [9, undefined], [8.8, undefined], [0, undefined], [null, undefined]] as const) {
+    const item = normalizeOpportunity({ id: 'strong-fit', title: 'Strong fit role', particularly_suitable: true, personal_fit: opportunityAssessmentFixture(score) });
     opportunities.value = [item];
     const parsed = setup.fitScoreById.get(item.id);
     assert.equal(setup.fitTone(parsed), tone, String(score));
-    assert.equal(setup.fitLabel(parsed), score === undefined || score === 11 ? '' : String(score));
+    assert.equal(setup.fitLabel(parsed), score === null ? '' : String(score));
   }
-  props.lang = 'de';
-  await nextTick();
+  props.lang = 'de'; await nextTick();
   assert.equal(setup.fitLabel(9.6), '9,6');
 });
 
-test('personal-fit badges show only scores above 9 regardless of the legacy suitability flag', (t) => {
+test('personal-fit badges use the canonical assessment regardless of the suitability flag', (t) => {
   const { setup, opportunities } = mount(t);
-  for (const particularly_suitable of [true, false, null, undefined]) {
-    for (const [score, visible] of [[9.01, true], ['9.05', true], [9.1, true], ['9.5', true], [9.6, true], [10, true],
-      [9, false], ['9.0', false], [8.8, false], [0, false], [undefined, false], [11, false], [NaN, false], ['high', false]] as const) {
-      const item = normalizeOpportunity({ id: 'fit-badge', particularly_suitable, personal_fit: { score } });
+  for (const particularly_suitable of [true, false, null]) {
+    for (const [score, visible] of [[9.01, true], [9.1, true], [9.5, true], [9.6, true], [10, true],
+      [9, false], [8.8, false], [0, false], [null, false]] as const) {
+      const item = normalizeOpportunity({ id: 'fit-badge', particularly_suitable, personal_fit: opportunityAssessmentFixture(score) });
       opportunities.value = [item];
       assert.equal(setup.showPersonalFitBadge(item), visible, `${particularly_suitable}: ${score}`);
     }
   }
-  const nested = normalizeOpportunity({ id: 'nested-fit-badge', personal_fit: null, data: { personal_fit: { score: '9.8' } } });
-  opportunities.value = [nested];
-  assert.equal(setup.showPersonalFitBadge(nested), true, 'nested research uses the same score as sorting and detail');
-  const unknown = normalizeOpportunity({ id: 'unknown', particularly_suitable: true, personal_fit: { score: 'high' } });
+  const unknown = normalizeOpportunity({ id: 'unknown', particularly_suitable: true });
   opportunities.value = [unknown];
-  assert.equal(setup.showPersonalFitBadge(unknown), false, 'the legacy flag cannot invent a numeric score');
+  assert.equal(setup.showPersonalFitBadge(unknown), false, 'the flag cannot invent a numeric score');
 });
 
 test('only unseen additions and updates from the last 24 hours form a separate group', async (t) => {
@@ -1565,7 +1562,7 @@ test('application detail removal requires confirmation and cancellation preserve
 });
 
 test('manual Past disposition filters opportunities and linked applications without changing their facts or outcomes', async t => {
-  const f = mount(t), facts = JSON.stringify(f.opportunity.details), outcome = f.application.status;
+  const f = mount(t), facts = JSON.stringify(f.opportunity), outcome = f.application.status;
   f.applications.value = [f.application]; f.setup.showWithApplications = true;
   f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'strong_interest', manually_archived: true,
     technical_issue_category: 'requirements', technical_issue_note: 'Required prior degree cannot be met.', reviewed_updated_at: null, created_at: '', updated_at: '' }];
@@ -1574,7 +1571,7 @@ test('manual Past disposition filters opportunities and linked applications with
   f.setup.deadlineFilter = 'past'; f.setup.applicationDeadlineFilter = 'past';
   assert.deepEqual(f.setup.filteredOpportunities.map((item: Opportunity) => item.id), [f.opportunity.id]);
   assert.deepEqual(f.setup.filteredApplications.map((item: Application) => item.id), [f.application.id]);
-  assert.equal(JSON.stringify(f.opportunity.details), facts); assert.equal(f.application.status, outcome);
+  assert.equal(JSON.stringify(f.opportunity), facts); assert.equal(f.application.status, outcome);
   assert.equal(f.reviews.value[0]?.state, 'strong_interest');
 });
 

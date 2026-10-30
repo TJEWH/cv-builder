@@ -1,3 +1,4 @@
+import { opportunityFixture } from '../fixtures/opportunity';
 /** Synthetic, memory-only AF-02 browser fixture. No Auth, database or external network calls. */
 import { computed, createApp, defineComponent, h, ref } from 'vue';
 import OpportunityFeedbackControls from '../../src/components/OpportunityFeedbackControls.vue';
@@ -32,7 +33,7 @@ createApp(defineComponent({
     const language = ref('en');
     const saves = ref(0), evaluationSaves = ref(0), approvals = ref(0), revocations = ref(0), consentChanges = ref(0), structuredChanges = ref(0), dispositionChanges = ref(0);
     let failEvaluationSave = false;
-    const opportunity = normalizeOpportunity({ id, opportunity_key: 'synthetic-sensing-phd', title: 'PhD in physical sensing', institution: 'Synthetic Research Institute', topics: ['Physical sensing', 'Signal processing'] });
+    const opportunity = normalizeOpportunity(opportunityFixture({ id, opportunity_key: 'synthetic-sensing-phd', title: 'PhD in physical sensing', institution: 'Synthetic Research Institute', topics: ['Physical sensing', 'Signal processing'] }));
     const approveState = computed(() => Boolean(review.value.search_feedback_approved_at));
     const saveFeedback = async (_id: string, patch: OpportunityFeedbackPatch) => {
       const next: OpportunityFeedbackPatch = { ...patch };
