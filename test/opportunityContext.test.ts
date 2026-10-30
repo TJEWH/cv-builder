@@ -58,15 +58,90 @@ test('live opportunity shapes are assigned to useful groups and rendered as recu
 });
 
 test('unrecorded advisor research is explicitly identified without inventing facts', () => {
-  const groups = buildOpportunityGroups({ supervisor_research_focus: {}, supervisor_top_papers: [] }, 'en');
+  assert.equal(buildOpportunityGroups({ supervisor_research_focus: {}, supervisor_top_papers: [] }, 'en').some(group => group.id === 'advisor'), false);
+  const groups = buildOpportunityGroups({ supervisors: [{ name: 'Named researcher' }], supervisor_research_focus: {}, supervisor_top_papers: [] }, 'en');
   const research = groups.find(({ id }) => id === 'advisor')!;
-  assert.deepEqual(research.items.map(({ text, missing }) => [text, missing]), [
+  assert.deepEqual(research.items.slice(0, 2).map(({ text, missing }) => [text, missing]), [
     ['Advisor research focus not recorded.', true], ['Representative papers not recorded.', true],
   ]);
   const nested = buildOpportunityGroups({ supervisor_research_focus: {}, data: { supervisor_research_focus: { summary: 'Recorded in research dataset' } } }, 'en');
   const nodes = flatten(nested.flatMap(({ items }) => items));
   assert.equal(nodes.some(({ text }) => text === 'Advisor research focus not recorded.'), false);
   assert.equal(nodes.filter(({ text }) => text === 'Recorded in research dataset').length, 1);
+});
+
+test('canonical research reads named fields once without storage wrappers or machine metadata', async () => {
+  const { canonicalOpportunityFixture } = await import('./fixtures/canonicalOpportunity');
+  const fixture = canonicalOpportunityFixture();
+  const context = { ...fixture, metadata_schema_version: 6, arbitrary_storage: { relevance: 'Do not display unknown fields' },
+    data: { ...fixture.data, personal_fit: { gaps: fixture.personal_fit.gaps, summary: fixture.personal_fit.summary, score: fixture.personal_fit.score } } };
+  const nodes = flatten(buildOpportunityGroups(context, 'en').flatMap(group => group.items));
+  assert.equal(nodes.filter(node => node.label === 'Personal fit').length, 1);
+  assert.equal(nodes.filter(node => node.text === fixture.personal_fit.summary).length, 1);
+  for (const label of ['Profiles', 'Text', 'Supports', 'Precision', 'Identity verified', 'Role verified', 'Supervision confirmed', 'Particularly suitable', 'Source urls']) {
+    assert.equal(nodes.some(node => node.label === label), false, label);
+  }
+  assert.equal(nodes.some(node => node.text === 'Do not display unknown fields'), false);
+  const funding = nodes.find(node => node.label === 'Funding')!;
+  assert.equal(funding.text, 'Salary is confirmed for the doctoral contract.');
+  assert.equal(funding.children, undefined);
+  assert.equal(nodes.some(node => node.text === fixture.id || node.text?.includes('INTERNAL-')), false);
+});
+
+test('canonical checklist display keeps the saved identities of the same historical entries', async () => {
+  const { canonicalOpportunityFixture } = await import('./fixtures/canonicalOpportunity');
+  const current = canonicalOpportunityFixture();
+  const { metadata_schema_version: _version, ...snapshot } = current;
+  const previous = checklistKeys(buildOpportunityGroups(snapshot, 'en').flatMap(group => group.items));
+  for (const lang of ['en', 'de']) {
+    const groups = buildOpportunityGroups(current, lang);
+    assert.deepEqual(checklistKeys(groups.flatMap(group => group.items)), previous);
+    const rows = groups.filter(group => ['requirements', 'documents'].includes(group.id)).flatMap(group => group.items.flatMap(requirementTableRows)).filter(row => row.kind === 'requirement');
+    assert.equal(rows.length, 16);
+    assert.ok(rows.every(row => row.requirementStage && !row.children?.some(child => child.label === 'Stage')));
+    assert.ok(rows.every(row => row.evidence?.[0]?.href === current.official_url));
+  }
+});
+
+test('canonical salary is compact, preserves zero and never manufactures an amount', () => {
+  const context = { metadata_schema_version: 5, salary: { min: 3000, max: 3500, currency: 'EUR', period: 'month', gross: true,
+    components: [{ entity_id: 'allowance', label: 'Allowance', amount: 0, currency: 'EUR', period: 'year', gross: false }] } };
+  const salary = buildOpportunityGroups(context, 'en').find(group => group.id === 'salary')!.items.find(node => node.id === 'root.salary')!;
+  assert.equal(salary.text, '3,000–3,500 EUR / month gross');
+  assert.equal(salary.children?.[0]?.label, 'Allowance');
+  assert.equal(salary.children?.[0]?.text, '0 EUR / year net');
+  const unknown = buildOpportunityGroups({ metadata_schema_version: 6, salary: { amount: null, currency: 'EUR', period: 'month', gross: true, model: 'TV-L E13' } }, 'en');
+  const unknownSalary = unknown.find(group => group.id === 'salary')!.items.find(node => node.id === 'root.salary')!;
+  assert.equal(unknownSalary.text, undefined);
+  assert.equal(unknownSalary.children?.[0]?.text, 'TV-L E13');
+});
+
+test('canonical people combine roles and focus and retain publication and source evidence', () => {
+  const context = { metadata_schema_version: 5,
+    contacts: [{ entity_id: 'contact', name: 'Dr. Example', email: 'person@example.org', roles: ['Scientific contact'], source_urls: ['https://example.org/team'] }],
+    supervisors: [{ entity_id: 'supervisor', name: 'Dr. Example', email: 'person@example.org', roles: ['Supervisor'] }],
+    supervisor_research_focus: { profiles: [{ entity_id: 'focus', researcher_id: 'supervisor', name: 'Dr. Example', summary: 'Acoustic experiments', topics: ['Robot audition'] }] },
+    supervisor_top_papers: [{ entity_id: 'paper', title: 'Important study', supervisors: ['supervisor'], year: 2026, doi: '10.1234/paper', relevance: 'Uses acoustic prototypes.' }],
+  };
+  const nodes = flatten(buildOpportunityGroups(context, 'en').flatMap(group => group.items));
+  const person = nodes.filter(node => node.label === 'Dr. Example');
+  assert.equal(person.length, 1);
+  assert.equal(person[0]!.evidence?.[0]?.href, 'https://example.org/team');
+  assert.equal(nodes.filter(node => node.href === 'mailto:person@example.org').length, 1);
+  assert.ok(nodes.some(node => node.text === 'Scientific contact · Supervisor'));
+  assert.ok(nodes.some(node => node.text === 'Acoustic experiments'));
+  assert.equal(nodes.filter(node => node.label === 'Important study').length, 1);
+  assert.ok(nodes.some(node => node.href === 'https://doi.org/10.1234/paper'));
+  assert.ok(nodes.some(node => node.text === 'Uses acoustic prototypes.'));
+});
+
+test('canonical missing supervision stays empty and unsafe evidence cannot become a link', () => {
+  const groups = buildOpportunityGroups({ metadata_schema_version: 6, supervisor_research_focus: {}, supervisor_top_papers: [], supervisors: [],
+    salary: { details: 'Sourced pay model', source_urls: ['javascript:alert(1)', 'https://user:secret@example.org'] },
+    sources: [{ url: 'javascript:alert(1)' }] }, 'en');
+  assert.equal(groups.some(group => group.id === 'advisor'), false);
+  assert.equal(flatten(groups.flatMap(group => group.items)).some(node => node.href?.includes('javascript:') || node.href?.includes('user:secret')), false);
+  assert.equal(flatten(groups.flatMap(group => group.items)).some(node => node.evidence?.length), false);
 });
 
 test('safe web, email and DOI links work while dangerous or injected links remain plain text', () => {

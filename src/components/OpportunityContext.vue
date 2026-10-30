@@ -41,6 +41,12 @@ const ContextValue = defineComponent({
   setup(valueProps) {
     const inputPrefix = useId();
     const checklistInputId = (node: OpportunityContextNode) => `${inputPrefix}-checklist-${encodeURIComponent(node.id)}`;
+    function renderEvidence(node: OpportunityContextNode): VNode | null {
+      return node.evidence?.length ? h('details', { class: 'opportunity-context__evidence' }, [
+        h('summary', `${props.lang === 'de' ? 'Quellen' : 'Sources'} (${node.evidence.length})`),
+        h('ul', node.evidence.map(source => h('li', { key: source.href }, [h('a', { href: source.href, target: '_blank', rel: 'noopener noreferrer' }, source.text)]))),
+      ]) : null;
+    }
     function renderValue(node: OpportunityContextNode, withCheckbox = true, labelFor?: string, includeLabel = false, scoreProse = false): VNode {
       if (props.checklist && withCheckbox && node.checklistKey) {
         const key = node.checklistKey;
@@ -91,7 +97,7 @@ const ContextValue = defineComponent({
           ? h('details', { class: 'opportunity-context__score-details' }, [heading, ...explanation])
           : h('div', [heading]);
       }
-      if (!children) return value;
+      if (!children) return node.evidence?.length ? h('div', [value, renderEvidence(node)]) : value;
       if (node.kind === 'living-standard') return h('div', { class: 'opportunity-context__living-standard' }, [
         h('strong', { class: 'opportunity-context__living-standard-score' }, node.text),
         h('p', { class: 'opportunity-context__prose' }, [
@@ -100,11 +106,28 @@ const ContextValue = defineComponent({
         ]),
         h('details', [h('summary', props.lang === 'de' ? 'Bewertung, Annahmen und Quellen' : 'Breakdown, assumptions and sources'), children]),
       ]);
-      return h('div', [node.text ? value : null, children]);
+      return h('div', [node.text ? value : null, children, renderEvidence(node)]);
     }
     return () => {
       if (!valueProps.table) return renderValue(valueProps.node);
       const rows = requirementTableRows(valueProps.node);
+      const canonical = rows.some(row => row.kind === 'requirement' || row.kind === 'prose');
+      if (canonical) return h('table', { class: 'opportunity-context__requirements-table opportunity-context__requirements-table--canonical', 'aria-label': valueProps.node.label, role: 'table', lang: props.lang }, [
+        h('thead', { role: 'rowgroup' }, [h('tr', { role: 'row' }, [
+          h('th', { id: `${inputPrefix}-item`, scope: 'col', role: 'columnheader' }, props.lang === 'de' ? 'Eintrag' : 'Item'),
+          h('th', { id: `${inputPrefix}-status`, scope: 'col', role: 'columnheader', class: 'opportunity-context__requirement-status' }, 'Status'),
+          h('th', { id: `${inputPrefix}-stage`, scope: 'col', role: 'columnheader', class: 'opportunity-context__requirement-stage' }, props.lang === 'de' ? 'Phase' : 'Stage'),
+        ])]),
+        h('tbody', { role: 'rowgroup' }, rows.map(row => row.kind === 'prose'
+          ? h('tr', { key: row.id, role: 'row' }, [h('td', { colspan: 3, role: 'cell' }, [h('strong', row.label ?? ''), renderValue({ ...row, label: null }, false)])])
+          : h('tr', { key: row.id, role: 'row' }, [
+            h('td', { role: 'cell', headers: `${inputPrefix}-item` }, [renderValue({ ...row, text: undefined, children: undefined, evidence: undefined }, true, undefined, true),
+              row.children?.length ? h('div', { class: 'opportunity-context__requirement-details' }, [renderValue({ id: `${row.id}.details`, label: null, children: row.children }, false)]) : null,
+              renderEvidence(row)]),
+            h('td', { role: 'cell', headers: `${inputPrefix}-status`, class: 'opportunity-context__requirement-status', 'data-label': 'Status' }, requirementStatusLabel(row.requirementStatus)),
+            h('td', { role: 'cell', headers: `${inputPrefix}-stage`, class: 'opportunity-context__requirement-stage', 'data-label': props.lang === 'de' ? 'Phase' : 'Stage' }, row.requirementStage || (props.lang === 'de' ? 'Nicht angegeben' : 'Not specified')),
+          ]))),
+      ]);
       return h('table', { class: 'opportunity-context__requirements-table', 'aria-label': valueProps.node.label }, [
         h('thead', [h('tr', [
           h('th', { scope: 'col' }, props.lang === 'de' ? 'Eintrag' : 'Item'),
@@ -172,6 +195,13 @@ const ContextValue = defineComponent({
 .opportunity-context :deep(.opportunity-context__requirements-table th:first-child),
 .opportunity-context :deep(.opportunity-context__requirements-table td:first-child) { padding-left: 0; }
 .opportunity-context :deep(.opportunity-context__requirements-table .opportunity-context__requirement-status) { width: 28%; padding-right: 0; }
+.opportunity-context :deep(.opportunity-context__requirements-table--canonical .opportunity-context__requirement-status),
+.opportunity-context :deep(.opportunity-context__requirements-table--canonical .opportunity-context__requirement-stage) { width: 20%; }
+.opportunity-context :deep(.opportunity-context__requirement-details) { margin-top: 6px; }
+.opportunity-context :deep(.opportunity-context__evidence) { margin-top: 6px; font-size: .9em; }
+.opportunity-context :deep(.opportunity-context__evidence > summary) { cursor: pointer; min-height: 28px; align-content: center; color: var(--ui-muted, #abc9bb); }
+.opportunity-context :deep(.opportunity-context__evidence > summary:focus-visible) { outline: 2px solid var(--ui-accent, #9be8c7); outline-offset: 2px; }
+.opportunity-context :deep(.opportunity-context__evidence ul) { margin: 4px 0; padding-left: 18px; }
 .opportunity-context :deep(.opportunity-context__requirements-table tbody tr:last-child td) { border-bottom: 0; }
 .opportunity-context :deep(.opportunity-context__values) { display: grid; gap: 8px; }
 .opportunity-context :deep(.opportunity-context__requirement-status > span + div) { margin-top: 8px; }
@@ -205,6 +235,17 @@ const ContextValue = defineComponent({
   .opportunity-context__field dt, .opportunity-context__progress { font-size: 14px; }
   .opportunity-context__value { font-size: 16px; line-height: 1.6; }
   .opportunity-context :deep(.opportunity-context__requirements-table .opportunity-context__requirement-status) { width: 38%; }
+  .opportunity-context :deep(.opportunity-context__requirements-table--canonical .opportunity-context__requirement-status),
+  .opportunity-context :deep(.opportunity-context__requirements-table--canonical .opportunity-context__requirement-stage) { width: auto; padding: 8px 0 0; overflow-wrap: normal; hyphens: auto; }
+  .opportunity-context :deep(.opportunity-context__requirements-table--canonical),
+  .opportunity-context :deep(.opportunity-context__requirements-table--canonical tbody) { display: block; }
+  .opportunity-context :deep(.opportunity-context__requirements-table--canonical thead) { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .opportunity-context :deep(.opportunity-context__requirements-table--canonical tbody tr) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; padding: 14px 0; border-bottom: 1px solid #2a5046; }
+  .opportunity-context :deep(.opportunity-context__requirements-table--canonical tbody tr:last-child) { border-bottom: 0; }
+  .opportunity-context :deep(.opportunity-context__requirements-table--canonical td) { display: block; min-width: 0; border: 0; }
+  .opportunity-context :deep(.opportunity-context__requirements-table--canonical td:first-child) { grid-column: 1 / -1; padding: 0; }
+  .opportunity-context :deep(.opportunity-context__requirements-table--canonical td[data-label]::before) { content: attr(data-label); display: block; color: #abc9bb; font-size: 12px; line-height: 1.5; margin-bottom: 2px; }
+  .opportunity-context :deep(.opportunity-context__evidence > summary) { min-height: 36px; }
   .opportunity-context :deep(.opportunity-context__checklist-item > input[type=checkbox]) { flex-basis: 20px; width: 20px; height: 20px; margin-top: 3px; }
   .opportunity-context :deep(.opportunity-context__checklist-label) { font-size: inherit; }
 }

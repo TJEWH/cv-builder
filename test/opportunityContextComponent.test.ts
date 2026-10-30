@@ -212,11 +212,35 @@ test('canonical opportunity renders each person once, all checklist statuses, an
     const inputs = view.nodes.filter(node => node.tag === 'input');
     assert.equal(inputs.length, 32, 'Only the 8 requirements and 8 documents become tasks in each of two views');
     assert.ok(!inputs.some(node => String(node.props['aria-label']).includes('Portal submission')));
-    const names = view.nodes.filter(node => node.text === 'Dr. Alex Example: ');
+    const names = view.nodes.filter(node => node.tag === 'dt' && node.text === 'Dr. Alex Example');
     assert.equal(names.length, 2, 'The contact is not repeated for their email and source URL');
     assert.equal(view.nodes.filter(node => node.tag === 'a' && node.props.href === 'mailto:alex@example.invalid').length, 2);
     const rendered = JSON.stringify(view.nodes.map(node => ({ text: node.text, props: node.props })));
     for (const hidden of ['INTERNAL-', fixture.id, 'Entity ID', 'Source ID', 'Researcher ID', 'Record format version']) assert.ok(!rendered.includes(hidden), hidden);
     assert.ok(rendered.includes('PUBLIC-VACANCY-2027'));
   }
+});
+
+test('canonical requirement status and stage have their own cells while limits and evidence stay with the item', async t => {
+  const { canonicalOpportunityFixture } = await import('./fixtures/canonicalOpportunity');
+  const fixture = canonicalOpportunityFixture();
+  const view = mountContext(undefined, { context: fixture, checklist: true }); t.after(view.unmount);
+  const content = (node: HostNode): string => [node.text || '', ...node.children.map(content)].join(' ');
+  const tables = view.nodes.filter(node => node.tag === 'table');
+  assert.equal(tables.length, 4);
+  for (const table of tables) {
+    const header = table.children.find(child => child.tag === 'thead')!.children.find(child => child.tag === 'tr')!;
+    assert.deepEqual(header.children.map(child => child.text), ['Item', 'Status', 'Stage']);
+  }
+  const row = view.nodes.find(node => node.tag === 'tr' && node.children[0] && content(node.children[0]).includes('Document required'))!;
+  assert.equal(content(row.children[1]).trim(), 'Required');
+  assert.equal(content(row.children[2]).trim(), 'Recruitment');
+  assert.match(content(row.children[0]), /400 words maximum/);
+  assert.doesNotMatch(content(row.children[1]), /source|400|Recruitment/);
+  assert.ok(view.nodes.some(node => node.tag === 'details' && node.props.class === 'opportunity-context__evidence'));
+  const sources = view.nodes.filter(node => node.tag === 'a' && node.props.href === fixture.official_url);
+  assert.ok(sources.length > 0);
+  assert.ok(sources.every(node => node.props.rel === 'noopener noreferrer'));
+  const rendered = JSON.stringify(view.nodes.map(node => ({ text: node.text, props: node.props })));
+  for (const storageLabel of ['Source urls', 'Supports', 'Identity verified', 'Role verified', 'Profiles']) assert.ok(!rendered.includes(storageLabel), storageLabel);
 });

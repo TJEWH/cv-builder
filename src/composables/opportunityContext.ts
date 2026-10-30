@@ -1,6 +1,7 @@
 import { safeEmailUrl, safeLinkUrl, safeWebUrl } from './safeUrl';
 import { livingStandardNode } from './livingStandard';
 import { isOpportunityInternalFact, isOpportunityInternalField } from './opportunityPresentation';
+import { buildCanonicalOpportunityGroups } from './canonicalOpportunityContext';
 
 export interface OpportunityContextNode {
   id: string;
@@ -9,11 +10,13 @@ export interface OpportunityContextNode {
   href?: string;
   children?: OpportunityContextNode[];
   missing?: boolean;
-  kind?: 'summary' | 'main-link' | 'fit' | 'living-standard' | 'person';
+  kind?: 'summary' | 'main-link' | 'fit' | 'living-standard' | 'person' | 'requirement' | 'prose';
   score?: number;
   checklistKey?: string;
   requirementStatus?: 'required' | 'optional' | 'conditional' | 'beneficial' | 'preferred' | 'recommended' | 'desired' | 'unspecified';
   requirementStatusFields?: string[];
+  requirementStage?: string;
+  evidence?: { text: string; href: string }[];
 }
 
 export type OpportunityContextGroupId = 'overview' | 'links' | 'suitability' | 'advisor' | 'salary' | 'requirements' | 'documents' | 'metadata';
@@ -90,6 +93,7 @@ const LABELS: Record<string, [string, string]> = {
   desired_skills: ['Desired skills', 'Gewünschte Kenntnisse'], language_requirements: ['Language requirements', 'Sprachkenntnisse'],
   required: ['Required', 'Erforderlich'], optional: ['Optional', 'Optional'],
   conditional: ['Conditional', 'Bedingt erforderlich'], advantageous: ['Beneficial', 'Von Vorteil'],
+  beneficial: ['Beneficial', 'Von Vorteil'],
   recruitment: ['Recruitment', 'Stellenbewerbung'], doctoral_admission: ['Doctoral admission', 'Promotionszulassung'],
   after_selection: ['After selection', 'Nach der Auswahl'], interview: ['Interview', 'Gespräch'],
   offer: ['Offer', 'Angebot'], enrolment: ['Enrolment', 'Einschreibung'], unspecified: ['Not specified', 'Nicht angegeben'],
@@ -284,6 +288,7 @@ function attachChecklistKeys(node: OpportunityContextNode, value: unknown, path:
 /** Project checklist entries into rows without changing their saved content identities. */
 export function requirementTableRows(root: OpportunityContextNode): OpportunityContextNode[] {
   function visit(node: OpportunityContextNode, labels: string[], includeLabel = true): OpportunityContextNode[] {
+    if (node.kind === 'requirement' || node.kind === 'prose') return [node];
     const field = keyName(node.id.split('.').at(-1)!);
     const redundant = ['requirements', 'required_documents', 'application_documents', 'documents', 'submission_documents'].includes(field);
     const label = includeLabel && node.label && !redundant && !requirementGroupStatus(field) ? node.label : null;
@@ -357,8 +362,18 @@ function consolidateSourceLinks(items: OpportunityContextNode[], lang: string): 
   return [...sources.values(), ...unlinked];
 }
 
-/** Keep arbitrary research JSON readable without presenting serialized implementation data. */
+/** Canonical catalogue rows have a deliberate view; old frozen snapshots retain their original reader until migration. */
 export function buildOpportunityGroups(context: Record<string, unknown>, lang: string): OpportunityContextGroup[] {
+  if (typeof context.metadata_schema_version === 'number' && context.metadata_schema_version >= 5) {
+    return buildCanonicalOpportunityGroups(context, lang, {
+      label: key => opportunityFieldLabel(key, lang),
+      checklistKey: (value, path) => `${path}:${JSON.stringify(checklistValue(value))}`,
+    });
+  }
+  return buildLegacyOpportunityGroups(context, lang);
+}
+
+function buildLegacyOpportunityGroups(context: Record<string, unknown>, lang: string): OpportunityContextGroup[] {
   const groups = GROUPS.map(([id, en, de]) => ({ id, label: phrase(en, de, lang), items: [] as OpportunityContextNode[] }));
   const byGroup = new Map(groups.map((group) => [group.id, group]));
   const seen = new Map<string, string[]>();
@@ -401,11 +416,13 @@ export function buildOpportunityGroups(context: Record<string, unknown>, lang: s
     if ((group === 'requirements' || group === 'documents') && key !== 'application_process') attachChecklistKeys(node, value, `${group}:${canonicalKey}`, false, requirementGroupStatus(key));
     byGroup.get(group)!.items.push(node);
   };
-  // Put the two advisor context sections first and surface absent research explicitly.
-  for (const [key, en, de] of [
+  // Only explain missing advisor research when the snapshot actually identifies a person or lab.
+  const hasAdvisor = [context, isRecord(context.data) ? context.data : {}].some(value => FIELD_GROUPS.advisor
+    .some(key => key !== 'supervisor_top_papers' && !!buildNode(value[key], key, key, lang, new Set(), null)));
+  for (const [key, en, de] of (hasAdvisor ? [
     ['supervisor_research_focus', 'Advisor research focus not recorded.', 'Forschungsschwerpunkte der Betreuung nicht erfasst.'],
     ['supervisor_top_papers', 'Representative papers not recorded.', 'Repräsentative Publikationen nicht erfasst.'],
-  ]) {
+  ] : [])) {
     const candidates = [context[key], isRecord(context.data) ? context.data[key] : undefined];
     const value = candidates.find((candidate) => buildNode(candidate, key, `root.${key}`, lang, new Set(), opportunityFieldLabel(key, lang)));
     const node = buildNode(value, key, `root.${key}`, lang, new Set(), opportunityFieldLabel(key, lang));
@@ -444,14 +461,17 @@ function escapeMarkdown(text: string): string {
     .replace(/^(\s*)([#>+\-])(?=\s)/gm, '$1\\$2');
 }
 
-function nodeMarkdown(node: OpportunityContextNode, depth = 0, completed?: Set<string>): string {
+function nodeMarkdown(node: OpportunityContextNode, depth = 0, completed?: Set<string>, lang = 'en'): string {
   const indentation = '  '.repeat(depth);
   const label = node.label ? `**${escapeMarkdown(node.label)}:**` : '';
   const text = node.text ? escapeMarkdown(node.text) : '';
   const value = node.href ? `[${text}](<${node.href}>)` : text;
   const checkbox = completed && node.checklistKey ? `[${completed.has(node.checklistKey) ? 'x' : ' '}] ` : '';
   const line = `${indentation}- ${checkbox}${[label, value].filter(Boolean).join(' ')}`;
-  return [line.replace(/\n/g, `\n${indentation}  `), ...(node.children || []).map((child) => nodeMarkdown(child, depth + 1, completed))].join('\n');
+  const status = node.kind === 'requirement' ? [node.requirementStatus ? opportunityFieldLabel(node.requirementStatus, lang) : '', node.requirementStage].filter(Boolean).join(' · ') : '';
+  return [line.replace(/\n/g, `\n${indentation}  `) + (status ? ` — ${escapeMarkdown(status)}` : ''),
+    ...(node.children || []).map((child) => nodeMarkdown(child, depth + 1, completed, lang)),
+    ...(node.evidence || []).map(source => `${indentation}  - [${escapeMarkdown(source.text)}](<${source.href}>)`)].join('\n');
 }
 
 /** Human-readable context suitable for copy/download; contains no raw JSON or executable HTML. */
@@ -459,6 +479,8 @@ export function opportunityContextMarkdown(context: Record<string, unknown>, lan
   const title = typeof context.title === 'string' && context.title.trim() ? context.title.trim()
     : phrase('Opportunity context', 'Kontext zur Stelle', lang);
   const completed = completedKeys ? new Set(completedKeys) : undefined;
-  return [`# ${escapeMarkdown(title)}`, ...buildOpportunityGroups(context, lang).map((group) =>
-    `## ${group.label}\n\n${group.items.map((item) => nodeMarkdown(item, 0, completed)).join('\n')}`)].join('\n\n');
+  const institution = typeof context.metadata_schema_version === 'number' && context.metadata_schema_version >= 5 && typeof context.institution === 'string' && context.institution.trim()
+    ? [escapeMarkdown(context.institution.trim())] : [];
+  return [`# ${escapeMarkdown(title)}`, ...institution, ...buildOpportunityGroups(context, lang).map((group) =>
+    `## ${group.label}\n\n${group.items.map((item) => nodeMarkdown(item, 0, completed, lang)).join('\n')}`)].join('\n\n');
 }

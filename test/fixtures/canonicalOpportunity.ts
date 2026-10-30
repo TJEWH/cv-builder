@@ -1,22 +1,24 @@
-/** Synthetic schema-v5 research. No production records or applicant data. */
+import { opportunityFixture } from './opportunity';
+
+/** Synthetic canonical research. No production records or applicant data. */
 export const canonicalChecklistStatuses = ['required', 'optional', 'conditional', 'preferred', 'recommended', 'desired', 'advantageous', 'unspecified'] as const;
 
 export function canonicalOpportunityFixture() {
   const checklist = (field: string) => canonicalChecklistStatuses.map((status, index) => ({
     entity_id: `INTERNAL-${field}-${index}`, text: `${field === 'requirement' ? 'Qualification' : 'Document'} ${status}`,
-    status, stage: index % 2 ? 'doctoral_admission' : 'recruitment',
+    status, stage: index % 2 ? 'doctoral_admission' as const : 'recruitment' as const,
     conditions: status === 'conditional' ? ['Only if the graduate school requests it'] : [],
     source_urls: ['https://example.invalid/canonical/job'],
     ...(field === 'document' && status === 'required' ? { max_words: 400 } : {}),
   }));
-  return {
-    id: '10000000-0000-4000-8000-000000000099', opportunity_key: 'INTERNAL-catalogue-key', metadata_schema_version: 5, record_type: 'opportunity',
+  return opportunityFixture({
+    id: '10000000-0000-4000-8000-000000000099', opportunity_key: 'INTERNAL-catalogue-key',
     title: 'Canonical Acoustic Robotics PhD', institution: 'Synthetic Research Institute', country: 'Sweden', city: 'Synthetic City',
     vacancy_id: 'PUBLIC-VACANCY-2027', deadline: '2027-01-15', deadline_time_local: null, deadline_timezone: 'Europe/Stockholm',
     deadline_original_text: 'Applications close 15 January 2027.', availability: 'open', position_type: 'Funded PhD',
     official_url: 'https://example.invalid/canonical/job', application_url: 'https://example.invalid/canonical/apply', source_url: 'https://example.invalid/canonical/job',
     research_summary: 'Build acoustic sensing prototypes for human–robot interaction and evaluate them with real hardware.',
-    topics: ['Acoustics', 'Robotics'], particularly_suitable: true,
+    topics: ['Acoustics', 'Robotics'],
     contacts: [{ entity_id: 'INTERNAL-contact', name: 'Dr. Alex Example', email: 'alex@example.invalid', roles: ['Scientific contact', 'Programme contact'],
       institution: 'Synthetic Research Institute', verification: { identity_verified: true, role_verified: true, supervision_confirmed: false },
       source_urls: ['https://example.invalid/canonical/team'], notes: [{ label: 'Contact hours', text: 'Office hours by appointment' }] }],
@@ -40,5 +42,5 @@ export function canonicalOpportunityFixture() {
         { label: 'Vacancy ID', text: 'PUBLIC-VACANCY-2027' },
       ] }],
     last_checked_at: '2026-10-28T09:00:00Z', created_at: '2026-10-27T09:00:00Z', updated_at: '2026-10-28T09:00:00Z',
-  };
+  });
 }
