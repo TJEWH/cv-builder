@@ -208,9 +208,6 @@ const client = {
     let signal: AbortSignal | undefined;
     const execute = () => {
       if (signal?.aborted) return { data: null, error: new Error('Aborted') };
-      if (fixtureFlow === 'manual-past' && name === 'read_opportunity_feedback_settings') return { data: {
-        user_id: account, search_id: null, structured_feedback_enabled: false, consent_revision: 0, consent_updated_at: null,
-      }, error: null };
       if (fixtureFlow === 'manual-past' && name === 'save_opportunity_feedback') {
         const review = database.opportunity_reviews.find(row => row.user_id === account && row.opportunity_id === parameters.p_opportunity_id);
         if (!review) return { data: null, error: new Error('Missing fixture review') };

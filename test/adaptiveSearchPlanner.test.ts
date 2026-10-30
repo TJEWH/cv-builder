@@ -23,7 +23,7 @@ const criteria = (patch: Partial<SearchCriteria> = {}): SearchCriteria => ({
 });
 function input(patch: Partial<AdaptiveSearchPlannerInput> = {}): AdaptiveSearchPlannerInput {
   return { user_id: owner, search_id: search, base_criteria: criteria(), basis: basis(), feedback: null, approved_rules: [],
-    core_queries: [], due_sources: [], adaptation_enabled: true, adaptation_paused: false, structured_feedback_enabled: true, ...patch };
+    core_queries: [], due_sources: [], adaptation_enabled: true, adaptation_paused: false, ...patch };
 }
 const query = (index: number, patch: Partial<AdaptiveSearchQueryInput> = {}): AdaptiveSearchQueryInput => ({ query_id: id(index),
   query: `Funded synthetic research ${index}`, role: 'core', manual: index === 1, ...patch });
@@ -35,8 +35,8 @@ function example(index: number, patch: Partial<AdaptiveFeedbackExample> = {}): A
     review_state: 'unreviewed', confirmed_submission: false, submission_at: null, reasons: [], ...patch };
 }
 async function feedback(examples: AdaptiveFeedbackExample[]): Promise<AdaptiveFeedbackSnapshot> {
-  return compileAdaptiveFeedbackSnapshot({ user_id: owner, search_id: search, structured_feedback_enabled: true,
-    consent_revision: 1, feedback_revision: 1, preference_revision: 0, examples, approved_preferences: [] });
+  return compileAdaptiveFeedbackSnapshot({ user_id: owner, search_id: search,
+    feedback_revision: 1, preference_revision: 0, examples, approved_preferences: [] });
 }
 const emphasis = (index: number, target = 'Robotics', polarity: 'positive' | 'negative' = 'positive'): ApprovedAdaptiveRule => ({ rule_id: id(500 + index),
   kind: 'emphasis', category: 'topic', polarity, target, evidence_refs: [] });
@@ -62,7 +62,7 @@ test('Search breadth validates every slider value and keeps legacy policy semant
       const planning = buildAdaptiveSearchPlanningContext(input({ core_queries: core, policy }));
       assert.equal(planning.allocation.exploration, Math.ceil((30 - count) * percent / 100));
       assert.equal(planning.allocation.adaptive, 30 - count - planning.allocation.exploration);
-      for (const inactive of [{ adaptation_paused: true }, { structured_feedback_enabled: false }, { adaptation_enabled: false }]) {
+      for (const inactive of [{ adaptation_paused: true }, { adaptation_enabled: false }]) {
         const disabled = buildAdaptiveSearchPlanningContext(input({ core_queries: core, policy, ...inactive }));
         assert.equal(disabled.allocation.exploration, 0); assert.equal(disabled.allocation.adaptive, 0);
       }
@@ -258,7 +258,7 @@ test('AF-06 explicit owner emphasis wins; explicit hard exclusions suppress cont
 
 test('AF-06 stopped adaptation emits no priorities or discretionary slice while preserving approved hard/source rules', async () => {
   const packet = await feedback(Array.from({ length: 3 }, (_, index) => example(index + 1, { interest_score: 8 })));
-  for (const setting of [{ adaptation_enabled: false }, { adaptation_paused: true }, { structured_feedback_enabled: false }]) {
+  for (const setting of [{ adaptation_enabled: false }, { adaptation_paused: true }]) {
     const result = buildAdaptiveSearchPlanningContext(input({ ...setting, feedback: packet, approved_rules: [emphasis(1)],
       core_queries: await cores(1), due_sources: [{ registry_id: id(800), mandatory: true, pinned: true }] }));
     assert.equal(result.enabled, false); assert.deepEqual(result.priorities, []);

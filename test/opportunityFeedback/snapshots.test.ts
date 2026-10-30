@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { file, reset, sql, sqlAsync } from './db';
+import { file, reset, sql, sqlAsync, upgradeCurrentFeedbackContract } from './db';
+import { ADAPTIVE_RELEASE_MIGRATIONS } from '../../scripts/adaptiveSearchRelease';
 import { sanitizeOpportunityFeedbackUrl } from '../../src/composables/opportunityFeedbackPrivacy';
 import { compileAdaptiveFeedbackSnapshot } from '../../src/composables/adaptiveFeedbackSnapshots';
 
@@ -57,11 +58,16 @@ test('concurrent snapshot builds reuse one revision and ignore views, unapproved
   assert.equal(submitted.counts.eligible, 1, 'submission and review still contribute a single current opportunity');
 });
 
-test('SQL and TypeScript compile the same whole-set statistics and deterministic selection', async () => {
+test('current SQL and TypeScript compile the same whole-set statistics and deterministic selection', async () => {
+  reset({ searchProtocol: true });
+  for (const path of ADAPTIVE_RELEASE_MIGRATIONS) sql(file(`../../supabase/${path}`));
+  upgradeCurrentFeedbackContract();
   const owner = '71000000-0000-4000-8000-000000000001';
   const search = '71000000-0000-4000-8000-000000000002';
   sql(`insert into auth.users(id) values('${owner}');
-    insert into public.opportunity_search_templates(id,user_id) values('${search}','${owner}');
+    insert into public.opportunity_search_templates(id,user_id,name,criteria,schedule) values('${search}','${owner}',
+      'Synthetic current snapshot parity','{"topicsAndMethods":"Sensing; Robotics"}',
+      '{"frequency":"daily","intervalHours":24,"weekdays":[],"time":"08:00","timezone":"UTC","runImmediately":false}');
     begin; set local request.jwt.claim.sub='${owner}';
     insert into public.opportunities(id,opportunity_key,title,institution,topics,research_summary)
       select ('72000000-0000-4000-8000-'||lpad(i::text,12,'0'))::uuid,'parity-'||i,'Synthetic sensing role',
@@ -72,12 +78,12 @@ test('SQL and TypeScript compile the same whole-set statistics and deterministic
         jsonb_build_array(jsonb_build_object('category','topic','polarity','positive','target','Sensing')) from generate_series(1,20) i;
     insert into public.applications(user_id,opportunity_id,status)
       select '${owner}',('72000000-0000-4000-8000-'||lpad(i::text,12,'0'))::uuid,'submitted' from generate_series(4,20,4) i;
-    select public.set_opportunity_feedback_consent('${search}',true); commit;`);
+    commit;`);
   const packet = JSON.parse(sql(`select private.compile_opportunity_feedback_snapshot('${owner}','${search}');`));
   const examples = JSON.parse(sql(`select jsonb_agg(private.project_opportunity_feedback('${owner}',opportunity_id) order by opportunity_id)
     from public.opportunity_reviews where user_id='${owner}';`));
-  const reference = await compileAdaptiveFeedbackSnapshot({ user_id: owner, search_id: search, structured_feedback_enabled: true,
-    consent_revision: packet.consent_revision, feedback_revision: packet.feedback_revision, examples });
+  const reference = await compileAdaptiveFeedbackSnapshot({ user_id: owner, search_id: search,
+    feedback_revision: packet.feedback_revision, examples });
   assert.deepEqual(packet.counts, reference.counts);
   assert.deepEqual(packet.aggregates, reference.aggregates);
   assert.deepEqual(packet.examples.map((example: { opportunity_id: string }) => example.opportunity_id), reference.examples.map(example => example.opportunity_id));

@@ -24,7 +24,6 @@ function review(patch: Partial<OpportunityReview> = {}): OpportunityReview {
 
 function input(patch: Partial<OpportunityFeedbackProjectionInput> = {}): OpportunityFeedbackProjectionInput {
   return { user_id: owner, search_id: search,
-    consent: { user_id: owner, search_id: search, structured_feedback_enabled: true },
     opportunity: { id: opportunity, opportunity_key: 'public-sensing-vacancy', title: 'PhD in acoustic sensing', institution: 'Example University',
       research_summary: 'Develop sensor prototypes and evaluate physical sensing methods.', topics: ['Acoustics', 'Robotics'],
       official_url: 'https://example.invalid/Jobs/Sensing?jobId=123456789', source_url: 'https://example.invalid/Jobs?topic=audio' },
@@ -65,21 +64,23 @@ test('PRIV-01: strict outgoing DTO never exports private comments, contacts, ide
   assert.equal(JSON.stringify(sample), before, 'omission is never a mutation or deletion');
 });
 
-test('a missing, disabled, wrong-owner or wrong-search opt-in exports no historical or current outcome', async () => {
-  for (const consent of [undefined, null, { user_id: owner, search_id: search, structured_feedback_enabled: false },
-    { user_id: other, search_id: search, structured_feedback_enabled: true },
-    { user_id: owner, search_id: other, structured_feedback_enabled: true }]) {
-    const result = await projectOpportunityFeedback(input({ consent }));
+test('feedback is shared by default within a valid owner/search scope without an opt-in setting', async () => {
+  const included = await projectOpportunityFeedback(input());
+  assert.ok(included.example);
+  assert.equal(included.example.interest_score, 0);
+  for (const scope of [{ user_id: '' }, { user_id: 'not-an-owner' }, { search_id: '' }, { search_id: 'not-a-search' }]) {
+    const result = await projectOpportunityFeedback(input(scope));
     assert.equal(result.example, null);
     assert.deepEqual(result.withheld, [{ field: 'example', reason: 'not_authorized' }]);
   }
 });
 
-test('new applications and legacy private reviews cannot implicitly opt into sharing', async () => {
-  const sample = input({ consent: null, applications: [{ user_id: owner, opportunity_id: opportunity, status: 'submitted', submitted_at: now }] });
+test('default sharing includes confirmed outcomes while keeping unsafe private evaluations and raw records out', async () => {
+  const sample = input({ applications: [{ user_id: owner, opportunity_id: opportunity, status: 'submitted', submitted_at: now }] });
   const result = await projectOpportunityFeedback(sample);
-  assert.equal(result.example, null);
-  assert.equal(sample.consent, null);
+  assert.equal(result.example?.confirmed_submission, true);
+  assert.equal(result.example?.search_feedback_summary, undefined);
+  assert.equal(Object.hasOwn(result.example!, 'comment'), false);
   assert.equal(sample.review?.comment, privateComment);
 });
 
@@ -156,9 +157,9 @@ test('default inclusion proof validates its version, hashes, revision, source le
   }
 });
 
-test('evaluation edits and account/consent/exclusion changes during hashing cannot disclose stale or replacement text', async t => {
+test('evaluation edits and account/search/exclusion changes during hashing cannot disclose stale or replacement text', async t => {
   const originalDigest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
-  for (const change of ['source', 'revision', 'owner', 'consent', 'exclude', 'replace-review'] as const) {
+  for (const change of ['source', 'revision', 'owner', 'search', 'exclude', 'replace-review'] as const) {
     const sample = input({ review: review({ comment: summary }) });
     let finish!: () => void;
     const barrier = new Promise<void>(resolve => { finish = resolve; });
@@ -174,13 +175,13 @@ test('evaluation edits and account/consent/exclusion changes during hashing cann
     if (change === 'source') sample.review!.comment = `${privateComment} New explanation.`;
     if (change === 'revision') sample.review!.evaluation_revision = 99;
     if (change === 'owner') sample.user_id = other;
-    if (change === 'consent') sample.consent!.structured_feedback_enabled = false;
+    if (change === 'search') sample.search_id = other;
     if (change === 'exclude') sample.review!.feedback_excluded = true;
     if (change === 'replace-review') sample.review = review({ comment: privateComment });
     finish();
     const result = await pending;
     assert.equal(result.example?.search_feedback_summary, undefined, change);
-    if (['owner', 'consent', 'exclude', 'replace-review'].includes(change)) assert.equal(result.example, null, change);
+    if (['owner', 'search', 'exclude', 'replace-review'].includes(change)) assert.equal(result.example, null, change);
     assert.doesNotMatch(JSON.stringify(result), /Rowan|rowan@|execute_sql|123 456789/u);
     mocked.mock.restore();
   }

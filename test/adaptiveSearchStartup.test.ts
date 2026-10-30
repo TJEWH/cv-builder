@@ -31,8 +31,8 @@ async function fixture(withSummary = true): Promise<{ bundle: AdaptiveSearchStar
   const first = example(1), proof = { summary_hash: await opportunityFeedbackTextHash('Prefer physical robotics experiments.'),
     source_hash: 'b'.repeat(64), summary_revision: 2, policy_version: 'included-unless-excluded-v1' as const, truncated: false, source_length: Array.from('Prefer physical robotics experiments.').length };
   if (withSummary) { first.search_feedback_summary = 'Prefer physical robotics experiments.'; first.summary_inclusion = proof; }
-  const packet = await compileAdaptiveFeedbackSnapshot({ user_id: owner, search_id: search, structured_feedback_enabled: true,
-    consent_revision: 1, feedback_revision: 1, preference_revision: 0, approved_preferences: [], examples: [first, example(2), example(3)] });
+  const packet = await compileAdaptiveFeedbackSnapshot({ user_id: owner, search_id: search,
+    feedback_revision: 1, preference_revision: 0, approved_preferences: [], examples: [first, example(2), example(3)] });
   const basis = { base_revision: 2, feedback_revision: 1, preference_revision: 0, protocol_version: 'opportunity-search-v1-canonical-6' };
   const plan = await createAdaptiveSearchPlan(basis, [
     { query_id: id(100), query: 'Funded Robotics PhD', role: 'core', manual: true, sources: ['https://example.invalid/Jobs?Topic=BCI'], source_registry_id: id(800) },
@@ -51,7 +51,7 @@ async function fixture(withSummary = true): Promise<{ bundle: AdaptiveSearchStar
     sourcesAndQueries: 'Use https://example.invalid/Jobs?Topic=BCI' };
   const planning = buildAdaptiveSearchPlanningContext({ user_id: owner, search_id: search, base_criteria: criteria, basis, feedback: packet,
     approved_rules: [], core_queries: plan.queries.filter(query => query.role === 'core'), due_sources: due,
-    adaptation_enabled: true, adaptation_paused: false, structured_feedback_enabled: true, previous_plan: plan, previous_policy: DEFAULT_ADAPTIVE_SEARCH_POLICY });
+    adaptation_enabled: true, adaptation_paused: false, previous_plan: plan, previous_policy: DEFAULT_ADAPTIVE_SEARCH_POLICY });
   const binding: AdaptiveStartupBinding = { project_ref: 'synthetic-project', user_id: owner, search_id: search, authorization_epoch: id(950), authorization_revision: 1,
     release_revision: 1, protocol_version: basis.protocol_version, protocol_hash: 'a'.repeat(64), enabled: true, authorized: true };
   return { bundle: structuredClone({ adaptive_contract_version: 1, bootstrap_version: 1, compatible: true,
@@ -63,8 +63,8 @@ async function fixture(withSummary = true): Promise<{ bundle: AdaptiveSearchStar
     due_sources: due, source_context: due.map(({ registry_id, listing_url, provenance, pinned, mandatory }) => ({ registry_id, listing_url, provenance, pinned, mandatory })),
     planning, refresh: { cold_start: false, adaptive_slice: false, privacy_scope_changed: false },
     lease: { expires_at: '2026-10-29T14:00:00Z', status: 'active' }, capabilities: ADAPTIVE_STARTUP_CAPABILITIES, execution_contract: ADAPTIVE_STARTUP_EXECUTION_CONTRACT }),
-    context: { binding, expected_run_id: run, privacy: { structured_feedback_enabled: true, adaptation_enabled: true, adaptation_paused: false,
-      successful_source_reuse_enabled: true, consent_revision: 1, privacy_scope_changed: false, excluded_opportunity_ids: [],
+    context: { binding, expected_run_id: run, privacy: { adaptation_enabled: true, adaptation_paused: false,
+      successful_source_reuse_enabled: true, privacy_scope_changed: false, excluded_opportunity_ids: [],
       included_summaries: withSummary ? [{ opportunity_id: id(1), ...proof }] : [] } } };
 }
 function success(value: Awaited<ReturnType<typeof projectAdaptiveSearchStartup>>): asserts value is AdaptiveSearchStartupBundle {
@@ -107,8 +107,8 @@ test('AF-07 preserved whole-set aggregates never recompute from the bounded exam
     source_hash: 'b'.repeat(64), summary_revision: 2, policy_version: 'included-unless-excluded-v1' as const, truncated: false, source_length: Array.from('Prefer physical robotics experiments.').length };
   const examples = Array.from({ length: 60 }, (_, index) => ({ ...example(index + 1), search_feedback_summary: summary, summary_inclusion: proof }));
   context.privacy.included_summaries = examples.map(row => ({ opportunity_id: row.opportunity_id, ...proof }));
-  const packet = await compileAdaptiveFeedbackSnapshot({ user_id: owner, search_id: search, structured_feedback_enabled: true,
-    consent_revision: 1, feedback_revision: 1, preference_revision: 0, examples, approved_preferences: [] });
+  const packet = await compileAdaptiveFeedbackSnapshot({ user_id: owner, search_id: search,
+    feedback_revision: 1, preference_revision: 0, examples, approved_preferences: [] });
   set(bundle, ['feedback'], packet);
   const projected = await projectAdaptiveSearchStartup(bundle, context); success(projected);
   assert.equal(projected.feedback.examples.length, 16); assert.equal(projected.feedback.counts.eligible, 60);
@@ -134,15 +134,31 @@ test('AF-07 every retry rechecks current evaluation inclusion and removes all de
   assert.doesNotMatch(JSON.stringify(revoked), /Prefer physical robotics|ADAPTIVE_OLD_TEXT|EXPLORATION_OLD_TEXT/u);
   assert.deepEqual(revoked.query_plan!.document.queries, [originalCore]); assert.equal(revoked.query_plan!.plan_hash, bundle.query_plan!.plan_hash);
   assert.equal(revoked.refresh.privacy_scope_changed, true); assert.equal(revoked.refresh.adaptive_slice, true);
+  assert.deepEqual(revoked.feedback.aggregates, bundle.feedback.aggregates, 'a stale text proof withholds its excerpt without erasing independent score evidence');
   assert.deepEqual(revoked.planning.priorities, []); assert.equal(revoked.planning.enabled, false, 'a privacy-redacted old run cannot restore its adaptive layer');
   const retry = await projectAdaptiveSearchStartup(revoked, { ...context, privacy: { ...context.privacy, included_summaries: [{ opportunity_id: id(1), ...bundle.feedback.examples[0]!.summary_inclusion! }] } });
   success(retry); assert.doesNotMatch(JSON.stringify(retry), /Prefer physical robotics|ADAPTIVE_OLD_TEXT|EXPLORATION_OLD_TEXT/u);
 });
 
-test('AF-07 consent/exclusion reduction clears whole-set aggregates without inventing subtraction from samples', async () => {
-  for (const mode of ['consent', 'exclusion'] as const) {
+test('AF-07 existing exclusions outside an already-filtered packet preserve its examples, totals and inclusion proofs', async () => {
+  const { bundle, context } = await fixture();
+  context.privacy.excluded_opportunity_ids = [id(999)];
+  assert.equal(bundle.feedback.examples.some(example => example.opportunity_id === id(999)), false);
+  assert.equal(context.privacy.privacy_scope_changed, false);
+  const result = await projectAdaptiveSearchStartup(bundle, context); success(result);
+  assert.deepEqual(result.feedback, bundle.feedback);
+  assert.equal(result.refresh.privacy_scope_changed, false);
+  assert.equal(result.planning.enabled, true);
+  assert.deepEqual(result.query_plan, bundle.query_plan);
+});
+
+test('AF-07 new selected or server-signalled unselected exclusions clear whole-set aggregates without inventing subtraction', async () => {
+  for (const mode of ['privacy-scope', 'exclusion'] as const) {
     const { bundle, context } = await fixture();
-    if (mode === 'consent') { context.privacy.structured_feedback_enabled = false; context.privacy.consent_revision = 2; }
+    if (mode === 'privacy-scope') {
+      context.privacy.excluded_opportunity_ids = [id(999)];
+      context.privacy.privacy_scope_changed = true;
+    }
     else context.privacy.excluded_opportunity_ids = [id(1)];
     const revoked = await projectAdaptiveSearchStartup(bundle, context); success(revoked);
     assert.deepEqual(revoked.feedback.examples, []); assert.deepEqual(revoked.feedback.aggregates, { score_sum: 0, mean_interest: null, groups: [] });
@@ -158,6 +174,8 @@ test('AF-07 live pause/off/reuse decisions suppress automatic source reuse while
     assert.deepEqual(projected.due_sources.map(source => source.registry_id), [id(800), id(802)]);
     if (flag !== 'successful_source_reuse_enabled') {
       assert.equal(projected.planning.enabled, false); assert.deepEqual(projected.planning.priorities, []);
+      assert.deepEqual(projected.feedback.examples, bundle.feedback.examples, 'pause/off changes application of feedback, not default sharing');
+      assert.deepEqual(projected.feedback.aggregates, bundle.feedback.aggregates);
       assert.deepEqual(projected.query_plan!.document.queries.map(query => query.role), ['core']);
     }
   }
@@ -215,8 +233,8 @@ test('AF-07 fact masking retains full-token boundaries and cannot hide long phon
 
 test('AF-07 empty feedback and legacy core arrays start without invented IDs, hashes, attribution or query discovery', async () => {
   const { bundle, context } = await fixture(false);
-  const empty = await compileAdaptiveFeedbackSnapshot({ user_id: owner, search_id: search, structured_feedback_enabled: true,
-    consent_revision: 1, feedback_revision: 1, preference_revision: 0, examples: [], approved_preferences: [] });
+  const empty = await compileAdaptiveFeedbackSnapshot({ user_id: owner, search_id: search,
+    feedback_revision: 1, preference_revision: 0, examples: [], approved_preferences: [] });
   set(bundle, ['feedback'], empty); set(bundle, ['query_plan'], null); set(bundle, ['legacy_core_queries'], { query_revision_id: id(400),
     queries: [{ query: 'Exact legacy BCI query', sources: ['EXAMPLE.invalid'] }] });
   set(bundle, ['planning', 'priorities'], []); set(bundle, ['refresh', 'cold_start'], true);
@@ -224,7 +242,7 @@ test('AF-07 empty feedback and legacy core arrays start without invented IDs, ha
   assert.deepEqual(projected.feedback.examples, []); assert.equal(projected.feedback.aggregates.mean_interest, null);
   assert.deepEqual(projected.legacy_core_queries, { query_revision_id: id(400), queries: [{ query: 'Exact legacy BCI query', sources: ['EXAMPLE.invalid'] }] });
   assert.equal(projected.query_plan, null); assert.doesNotMatch(JSON.stringify(projected.legacy_core_queries), /query_id|text_hash|executed_at/u);
-  context.privacy.adaptation_enabled = false; context.privacy.structured_feedback_enabled = false;
+  context.privacy.adaptation_enabled = false;
   const freshOff = await projectAdaptiveSearchStartup(bundle, context); success(freshOff);
   assert.equal(freshOff.refresh.privacy_scope_changed, false, 'fresh default-off empty context has no historical privacy revocation');
   assert.equal(freshOff.feedback.privacy_scope_changed, false);
@@ -276,16 +294,13 @@ test('AF-07 exact run and authorization epoch reject different-run and delete/re
     { adaptive_contract_version: 1, compatible: false, error: { code: 'scope_unavailable', retryable: false } });
 });
 
-test('AF-07 live scope change and pause clear even an otherwise valid approved old summary and aggregates', async () => {
-  for (const mode of ['scope', 'pause'] as const) {
-    const { bundle, context } = await fixture();
-    if (mode === 'scope') context.privacy.privacy_scope_changed = true;
-    else context.privacy.adaptation_paused = true;
-    const result = await projectAdaptiveSearchStartup(bundle, context); success(result);
-    assert.deepEqual(result.feedback.examples, []); assert.equal(result.feedback.aggregates.mean_interest, null);
-    assert.deepEqual(result.feedback.aggregates.groups, []); assert.equal(result.feedback.counts.eligible, 0);
-    assert.doesNotMatch(JSON.stringify(result), /Prefer physical robotics|ADAPTIVE_OLD_TEXT|EXPLORATION_OLD_TEXT/u);
-  }
+test('AF-07 live privacy-scope change clears even an otherwise valid old summary and aggregates', async () => {
+  const { bundle, context } = await fixture();
+  context.privacy.privacy_scope_changed = true;
+  const result = await projectAdaptiveSearchStartup(bundle, context); success(result);
+  assert.deepEqual(result.feedback.examples, []); assert.equal(result.feedback.aggregates.mean_interest, null);
+  assert.deepEqual(result.feedback.aggregates.groups, []); assert.equal(result.feedback.counts.eligible, 0);
+  assert.doesNotMatch(JSON.stringify(result), /Prefer physical robotics|ADAPTIVE_OLD_TEXT|EXPLORATION_OLD_TEXT/u);
 });
 
 test('AF-07 source opt-out withholds old adaptive query text targeting that source and flags refresh', async () => {

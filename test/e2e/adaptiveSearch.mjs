@@ -92,14 +92,12 @@ try {
     assert.deepEqual(breadthCalls[0].args.p_patch, { search_breadth_percent: 60 });
     assert.deepEqual(breadthCalls[0].args.p_expected_revisions, { breadth_revision: 0 });
     const afterBreadth = await page.evaluate(() => window.adaptiveFixture.snapshot());
-    assert.equal(afterBreadth.dashboard.settings.structured_feedback_enabled, beforeBreadth.dashboard.settings.structured_feedback_enabled);
     assert.equal(afterBreadth.dashboard.settings.adaptation_enabled, beforeBreadth.dashboard.settings.adaptation_enabled);
     await page.waitForFunction(() => !document.querySelector('.adaptive-dashboard[aria-busy="true"]'));
     await breadth.focus(); await breadth.press('Home');
     await page.waitForFunction(() => window.adaptiveFixture.snapshot().dashboard.settings.search_breadth_percent === 0);
     assert.equal(await breadth.getAttribute('aria-valuetext'), '0% · Off');
-    await page.getByLabel('Use structured feedback for this search', { exact: true }).check();
-    await page.waitForFunction(() => window.adaptiveFixture.snapshot().dashboard.settings.structured_feedback_enabled);
+    assert.equal(await page.getByLabel('Use structured feedback for this search', { exact: true }).count(), 0);
     await page.getByLabel('Adapt query priorities', { exact: true }).check();
     await page.getByLabel('Pause adaptation', { exact: true }).uncheck();
     await page.getByLabel('Pause adaptation', { exact: true }).check();
@@ -130,7 +128,8 @@ try {
     assert(!/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/iu.test(body), 'Normal history labels must not expose internal IDs');
     await page.getByRole('button', { name: 'English / Deutsch', exact: true }).click();
     await page.getByRole('heading', { name: 'Adaptives Feedback', exact: true }).waitFor();
-    await page.getByLabel('Strukturiertes Feedback für diese Suche verwenden', { exact: true }).waitFor();
+    await page.getByLabel('Suchprioritäten anpassen', { exact: true }).waitFor();
+    assert.equal(await page.getByLabel('Strukturiertes Feedback für diese Suche verwenden', { exact: true }).count(), 0);
     await page.getByRole('slider', { name: 'Suchbreite', exact: true }).waitFor();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
     assert.equal(overflow, false, `Horizontal overflow at ${width}px`);
@@ -159,7 +158,9 @@ try {
   await upgradeTooltip.waitFor({ state: 'visible' });
   assert.equal(await upgradeTooltip.innerText(), 'Install the search-breadth database update to enable this control.');
   await legacyPage.keyboard.press('Escape'); await upgradeTooltip.waitFor({ state: 'hidden' });
-  assert.equal(await legacyPage.getByLabel('Use structured feedback for this search', { exact: true }).isDisabled(), false);
+  assert.equal(await legacyPage.getByLabel('Use structured feedback for this search', { exact: true }).count(), 0);
+  assert.equal(await legacyPage.getByLabel('Adapt query priorities', { exact: true }).isDisabled(), false);
+  assert.equal(await legacyPage.getByLabel('Pause adaptation', { exact: true }).isDisabled(), false);
   assert.equal(await legacyPage.evaluate(() => window.adaptiveFixture.snapshot().calls.filter(call => call.name === 'patch_opportunity_search_settings').length), 0);
   await legacyContext.close();
   console.log('PASS missing breadth upgrade preserves the old dashboard and disables the new slider');

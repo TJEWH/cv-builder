@@ -11,7 +11,7 @@
     "adaptive_contract": 1,
     "capability": "adaptive-batch-v1",
     "metric": "opportunity-interest-v1",
-    "selection_policy": "opportunity-feedback-selection-v1",
+    "selection_policy": "opportunity-feedback-selection-v2",
     "query_policy": "adaptive-query-v3",
     "summary_inclusion": "included-unless-excluded-v1",
     "setup_contract": 1,
@@ -20,7 +20,7 @@
   "defaults": {
     "adaptive_release_enabled": false,
     "owner_runner_authorized": false,
-    "structured_feedback_enabled": false,
+    "feedback_excluded": false,
     "adaptation_enabled": false,
     "adaptation_paused": false,
     "successful_source_reuse_enabled": false,
@@ -239,6 +239,12 @@
       "sha256": "259ec0012863f7e4e6f5a957e73b909cb8737ed50622bfa155e2566d051ed9f4",
       "migration_only": true,
       "scheduler_operations": false
+    },
+    {
+      "path": "supabase/opportunity_feedback_defaults.sql",
+      "sha256": "bb21ee391bd8ccc38720de083f3fdebf81be8db208c4484cb68ae637d8339cdb",
+      "migration_only": true,
+      "scheduler_operations": false
     }
   ],
   "installed_definition_prerequisites": {
@@ -298,7 +304,7 @@
     },
     {
       "path": "src/composables/adaptiveSearchStartup.ts",
-      "sha256": "76e6930fb8ebfc2ac79a6d7b5e6f91b7dccfa068f1a2c3c3436bde3024c6ea8b"
+      "sha256": "abca6e671f050a10a551a8708c914f81c4933fa326e6e6879c2420df4f2d412c"
     },
     {
       "path": "src/composables/opportunityResultSchema.ts",
@@ -314,11 +320,11 @@
     },
     {
       "path": "src/composables/opportunityFeedbackPrivacy.ts",
-      "sha256": "f06f187c62894cb197266afd8b59b7f5bcf6afcc1fab43461413c51426401813"
+      "sha256": "a90d4857ea3c5b24038588bd6553da1052edaa85ed4d42e0624437cf7ac9e840"
     },
     {
       "path": "src/composables/adaptiveFeedbackSnapshots.ts",
-      "sha256": "62ad7ae9f72a980efb34a810c9cc09a404e5790b53edf734eee2faf078726841"
+      "sha256": "16ae6e8aeeb00393f675c8d9be07fe2ff246bf1fb5aea0098f2df04c4f41e8fb"
     },
     {
       "path": "src/composables/adaptiveSearchPlans.ts",
@@ -326,11 +332,11 @@
     },
     {
       "path": "src/composables/adaptiveSearchPlanner.ts",
-      "sha256": "0f1abcd409c21853cc1aaea3a31767c0a0c61fe947c7e069d622d59addb731d9"
+      "sha256": "d3e24499a0acfa30942deb044cf1727dc9c46b82b148cd833af92522a73525c7"
     },
     {
       "path": "src/composables/adaptiveSearchSources.ts",
-      "sha256": "07d2db728f243c8382ea1a65cf7dd643921345928d36faf2544a9fb47ffa6cfc"
+      "sha256": "024299482b6d5080fae7877f6c73ff9352091bf7e70b867691e6def1a18e4f55"
     },
     {
       "path": "src/composables/adaptiveSearchQuality.ts",
@@ -338,7 +344,7 @@
     },
     {
       "path": "src/composables/adaptiveSearchDashboard.ts",
-      "sha256": "ae7284f72de96c05a2db53bd8ef8d0852874d828007333ef02d175f602fa1914"
+      "sha256": "f5b09a6451fa3a8fff5efc98d4d2a2719f19182175814d112a14b1a6716ce5eb"
     },
     {
       "path": "src/composables/searchTemplateCloud.ts",
@@ -350,7 +356,7 @@
     },
     {
       "path": "src/components/AdaptiveSearchDashboard.vue",
-      "sha256": "8137820c3a98669248e3bca87168d1ed7c432211ba79ef6a0b17153d5101c154"
+      "sha256": "352a4889c431f498dcfccb108f9c2074939f88c618f8224631a524af0f2a8458"
     },
     {
       "path": "src/components/AdaptiveSearchPolicyHint.vue",
@@ -362,15 +368,15 @@
     },
     {
       "path": "src/components/JobWorkspace.vue",
-      "sha256": "a8464b197c0ea2015a2040416a72acc5cf4955164eae65aacf410ed55c94a1af"
+      "sha256": "65ffd241a756e462fb48eb16275c3f162f1a5448ed3705c3ecdc109110819e7d"
     },
     {
       "path": "src/components/OpportunityFeedbackControls.vue",
-      "sha256": "72c781654dbbaac11b41e7b8b4e619e9b1e2da5fdaf95730b16ebb13070186a8"
+      "sha256": "c2c1c3ff9a805696b9b6d9734eb9e685197990f6747a698a8c37915756e4e6c3"
     },
     {
       "path": "src/components/OpportunityDispositionControls.vue",
-      "sha256": "83023540e5d6a2ba15ca6abe0f650dca2e7c15d49f26456d5604301d187eb531"
+      "sha256": "b80b7c4b1be526a82a6fcced6d2060044049a981c038d71c714dab8fd7903a9b"
     },
     {
       "path": "src/composables/opportunityDisposition.ts",

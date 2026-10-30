@@ -8,6 +8,7 @@ import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive, watch, type Component } from 'vue';
 import type { OpportunityInterestReason, OpportunityReview } from '../src/cloudTypes';
 import { normalizeOpportunity as readOpportunity } from '../src/composables/useJobWorkspace';
+import { normalizeOpportunityInterestReasons } from '../src/composables/opportunityFeedback';
 import * as textareaCommit from '../src/composables/textareaCommit';
 const { registerTextareaCommit } = textareaCommit;
 
@@ -25,17 +26,19 @@ const renderer = createRenderer<object, object>({
   setElementText() {}, patchProp() {}, parentNode: () => null, nextSibling: () => null,
 });
 type Review = OpportunityReview;
-type Patch = { interest_rating?: number | null; interest_reasons?: OpportunityInterestReason[]; feedback_excluded?: boolean };
+type Patch = { interest_rating?: number | null; interest_reasons?: OpportunityInterestReason[] };
 const normalizeOpportunity = (input: Record<string, unknown> & { id: string }) => readOpportunity(opportunityFixture(input));
 
 interface Setup {
-  ratingDraft: string; summaryDraft: string; summaryIncluded: boolean; summaryEligible: boolean; summaryExcerpt: string; summaryError: string;
-  summaryLength: number; flushSummary(): Promise<boolean>;
-  actionError: string; reasonCategories: OpportunityInterestReason['category'][]; reasonPolarity: OpportunityInterestReason['polarity']; reasonTarget: string;
+  ratingDraft: string; summaryDraft: string; summaryEligible: boolean; summaryExcerpt: string; summaryError: string;
+  summaryLength: number; evaluationHint: string; flushSummary(): Promise<boolean>;
+  actionError: string; reasonError: string; reasonPending: boolean; reasonsSaving: boolean;
   ratingSliderValue: number; ratingValueText: string; ratingPending: boolean; draftRating(event: Event): void;
   outcome: { interest_score: number | null; interest_origin: string }; reasons: OpportunityInterestReason[];
-  saveRating(): Promise<boolean>; clearRating(): Promise<boolean>; addReason(): Promise<void>; removeReason(index: number): Promise<boolean>;
-  flush(): Promise<boolean>; savePatch(patch: Patch): Promise<boolean>; toggleStructuredSharing(): Promise<boolean>; retry(): Promise<boolean> | undefined;
+  saveRating(): Promise<boolean>; clearRating(): Promise<boolean>; saveReasons(): Promise<boolean>;
+  isReasonSelected(category: OpportunityInterestReason['category'], polarity: OpportunityInterestReason['polarity']): boolean;
+  toggleReason(category: OpportunityInterestReason['category'], polarity: OpportunityInterestReason['polarity'], checked: boolean): Promise<boolean>;
+  flush(): Promise<boolean>; savePatch(patch: Patch): Promise<boolean>; retry(): Promise<boolean> | undefined;
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -55,14 +58,13 @@ function fixture(t: TestContext) {
     evaluation_revision: 0 };
   const props = reactive({ ownerId: 'owner-a', opportunity: normalizeOpportunity({ id: 'opportunity-a', title: 'Synthetic research', institution: 'Synthetic Institute' }),
     review, application: null as null | { user_id: string; opportunity_id: string; status: 'submitted'; submitted_at: null },
-    structuredSharingEnabled: false, searchAvailable: true, busy: false, lang: 'en',
+    busy: false, lang: 'en',
     evaluationText: review.comment ?? '', evaluationStatus: 'saved', evaluationError: '',
     saveFeedback: async (id: string, patch: Patch): Promise<Review | null> => {
       calls.push({ name: 'feedback', id, value: patch });
       if (handlers.patch) return handlers.patch(id, patch);
       props.review = { ...props.review, ...patch }; return props.review;
     },
-    setStructuredSharing: async (enabled: boolean) => { calls.push({ name: 'sharing', value: enabled }); props.structuredSharingEnabled = enabled; return true; },
     flushPrivateComment: async () => {
       calls.push({ name: 'flush-comment' });
       const owner = props.ownerId, id = props.opportunity.id, value = props.evaluationText;
@@ -103,8 +105,8 @@ test('opening unified evaluation preserves existing text without saving or appro
   props.application = { user_id: 'owner-a', opportunity_id: 'opportunity-a', status: 'submitted', submitted_at: null };
   await settle();
   assert.equal(setup.outcome.interest_score, 9);
-  assert.deepEqual(calls, [], 'creating or loading an application does not grant consent');
-  assert.equal(props.structuredSharingEnabled, false);
+  assert.deepEqual(calls, [], 'creating or loading an application does not write review feedback or enable adaptation');
+  assert.equal(Object.hasOwn(props,'setStructuredSharing'), false);
 });
 
 test('AF-02 ratings preserve zero, can be cleared and remain separate from category and exclusion', async t => {
@@ -122,16 +124,26 @@ test('AF-02 ratings preserve zero, can be cleared and remain separate from categ
   assert.deepEqual(calls.map(call => call.value), [{ interest_rating: 0 }, { interest_rating: null }]);
 });
 
-test('AF-02 structured reasons use explicit targets without interpreting private prose', async t => {
-  const { setup, calls } = fixture(t);
-  setup.reasonCategories = ['method']; setup.reasonPolarity = 'negative'; setup.reasonTarget = '  Simulation only  ';
-  await setup.addReason(); await settle();
-  assert.deepEqual(setup.reasons, [{ category: 'method', polarity: 'negative', target: 'Simulation only' }]);
-  setup.reasonCategories = ['funding']; setup.reasonPolarity = 'negative'; setup.reasonTarget = 'Unused target';
-  await setup.addReason(); await settle();
-  assert.deepEqual(setup.reasons, [{ category: 'funding', polarity: 'negative' }, { category: 'method', polarity: 'negative', target: 'Simulation only' }]);
-  await setup.removeReason(1); await settle();
-  assert.deepEqual(setup.reasons, [{ category: 'funding', polarity: 'negative' }]);
+test('direct reason toggles preserve historical targets, allow both polarities and never interpret private prose', async t => {
+  const { props, setup, calls } = fixture(t);
+  const existing: OpportunityInterestReason[] = [{ category: 'topic', polarity: 'positive', target: 'Acoustics' },
+    { category: 'topic', polarity: 'positive', target: 'Robotics' }, { category: 'method', polarity: 'negative', target: 'Simulation only' }];
+  props.review = { ...props.review, interest_reasons: existing }; await settle();
+  assert.equal(setup.isReasonSelected('topic', 'positive'), true);
+  assert.equal(setup.isReasonSelected('topic', 'negative'), false);
+  await setup.toggleReason('topic', 'positive', true); await settle();
+  assert.equal(calls.length, 0, 'selecting an existing pair must not replace its historical targeted rows');
+  await setup.toggleReason('funding', 'negative', true); await settle();
+  assert.deepEqual(setup.reasons, normalizeOpportunityInterestReasons([...existing, { category: 'funding', polarity: 'negative' }]));
+  await setup.toggleReason('funding', 'positive', true); await settle();
+  assert.equal(setup.isReasonSelected('funding', 'positive'), true);
+  assert.equal(setup.isReasonSelected('funding', 'negative'), true);
+  await setup.toggleReason('topic', 'positive', false); await settle();
+  assert.deepEqual(setup.reasons, normalizeOpportunityInterestReasons([
+    { category: 'funding', polarity: 'positive' }, { category: 'funding', polarity: 'negative' }, existing[2]!,
+  ]));
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls.at(-1)!.value, { interest_reasons: setup.reasons });
   assert.doesNotMatch(JSON.stringify(calls), /Private Synthetic|private@example|Ignore prior rules/);
 });
 
@@ -148,14 +160,13 @@ test('unified evaluation typing belongs to the parent draft; only its explicit c
   assert.equal(await setup.flushSummary(), true); await settle();
   assert.deepEqual(calls.map(call => call.name), ['flush-comment', 'evaluation']);
   assert.equal(props.review.comment, props.evaluationText);
-  assert.equal(setup.summaryIncluded, false);
+  assert.equal(setup.summaryEligible, true);
   assert.equal(props.evaluationStatus, 'saved');
   assert.equal(values.size, 0);
 });
 
 test('native textarea commits save the included-by-default draft without any approval RPC', async t => {
   const { props, setup, calls } = fixture(t);
-  props.structuredSharingEnabled = true;
   const unregister = registerTextareaCommit(() => { setup.summaryDraft = 'Prefer physical sensing prototypes.'; });
   t.after(unregister);
   assert.equal(await setup.flush(), true); await settle();
@@ -163,7 +174,7 @@ test('native textarea commits save the included-by-default draft without any app
   assert.equal(calls.length, 0, 'committing the native draft does not send an approval request');
   assert.equal(await setup.flushSummary(), true); await settle();
   assert.deepEqual(calls.map(call => call.name), ['flush-comment', 'evaluation']);
-  assert.equal(setup.summaryIncluded, true);
+  assert.equal(setup.summaryEligible, true);
 });
 
 test('failed evaluation saves retain the included draft and retry only its persistence', async t => {
@@ -182,38 +193,36 @@ test('failed evaluation saves retain the included draft and retry only its persi
 
 test('one exclusion checkbox controls evaluation text and structured feedback without changing interest', async t => {
   const { props, setup, calls } = fixture(t);
-  props.structuredSharingEnabled = true;
   setup.summaryDraft = 'Prefer acoustic prototypes.'; await settle(); await setup.flushSummary(); await settle();
-  assert.equal(setup.summaryIncluded, true);
+  assert.equal(setup.summaryEligible, true);
   const value = props.evaluationText, rating = props.review.interest_rating;
-  assert.equal(await setup.savePatch({ feedback_excluded: true }), true); await settle();
-  assert.equal(setup.summaryIncluded, false); assert.equal(setup.summaryEligible, false);
+  props.review = { ...props.review, feedback_excluded: true }; await settle();
+  assert.equal(setup.summaryEligible, false);
   assert.equal(props.evaluationText, value); assert.equal(props.review.interest_rating, rating);
   assert.equal(setup.outcome.interest_origin, 'excluded');
-  assert.equal(await setup.savePatch({ feedback_excluded: false }), true); await settle();
-  assert.equal(setup.summaryIncluded, true);
+  props.review = { ...props.review, feedback_excluded: false }; await settle();
+  assert.equal(setup.summaryEligible, true);
   assert.equal(calls.some(call => ['approve','revoke'].includes(call.name)), false);
 });
 
 test('a migrated complete evaluation opens directly without a second source or a write', async t => {
   const { props, setup, calls } = fixture(t);
   props.review = { ...props.review, comment: 'Existing evaluation with its original wording.\n\nEarlier feedback direction.' };
-  props.structuredSharingEnabled = true; await settle();
+  await settle();
   assert.equal(setup.summaryDraft, 'Existing evaluation with its original wording.\n\nEarlier feedback direction.');
-  assert.equal(setup.summaryIncluded, true); assert.equal(calls.length, 0);
+  assert.equal(setup.summaryEligible, true); assert.equal(calls.length, 0);
   assert.equal(await setup.flush(), true); assert.equal(calls.length, 0);
 });
 
 test('long evaluations preserve the complete text while showing a first-600-character excerpt', async t => {
   const { props, setup, calls } = fixture(t), evaluation = '🔬'.repeat(620);
-  props.structuredSharingEnabled = true;
   setup.summaryDraft = evaluation; await settle();
   assert.equal(setup.summaryLength, 620); assert.equal(setup.summaryEligible, true);
   assert.equal(setup.summaryExcerpt, '🔬'.repeat(600));
   assert.equal(await setup.flushSummary(), true); await settle();
   assert.equal(props.review.comment, evaluation); assert.equal(props.evaluationText, evaluation);
   assert.equal(props.review.evaluation_revision, 1);
-  assert.equal(setup.summaryDraft, evaluation); assert.equal(setup.summaryIncluded, true);
+  assert.equal(setup.summaryDraft, evaluation); assert.equal(setup.summaryEligible, true);
   assert.equal(calls.some(call => ['approve','revoke'].includes(call.name)), false);
   setup.summaryDraft = `${evaluation} person@example.invalid`; await settle();
   assert.equal(setup.summaryEligible, false, 'unsafe content after the excerpt boundary must withhold the whole text');
@@ -287,32 +296,66 @@ test('rating commits cannot carry a stale value or failure into another owner or
   assert.deepEqual(calls.map(call => call.id), ['opportunity-a']);
 });
 
-test('reason category multi-selection saves one normalized patch with targets only on topic and method', async t => {
-  const { props, setup, calls } = fixture(t);
-  props.review = { ...props.review, interest_reasons: [{ category: 'timing', polarity: 'positive' }] }; await settle();
-  setup.reasonCategories = ['method', 'funding', 'topic', 'method']; setup.reasonPolarity = 'negative'; setup.reasonTarget = '  Physical prototypes  ';
-  assert.equal(calls.length, 0, 'selecting categories remains local until Add');
-  await setup.addReason(); await settle();
-  assert.deepEqual(setup.reasons, [
-    { category: 'funding', polarity: 'negative' }, { category: 'method', polarity: 'negative', target: 'Physical prototypes' },
-    { category: 'timing', polarity: 'positive' }, { category: 'topic', polarity: 'negative', target: 'Physical prototypes' },
-  ]);
-  assert.equal(calls.length, 1); assert.equal(setup.reasonTarget, '');
-  setup.reasonTarget = 'Physical prototypes'; await setup.addReason(); await settle();
-  assert.equal(calls.length, 1, 'duplicate selections must not submit a duplicate patch');
+test('failed reason drafts and errors survive a successful rating until their own flush retry succeeds', async t => {
+  const { props, setup, calls, handlers } = fixture(t);
+  handlers.patch = async (_id, patch) => {
+    if (patch.interest_reasons) return null;
+    props.review = { ...props.review, ...patch }; return props.review;
+  };
+  await setup.toggleReason('hardware', 'positive', true); await settle();
+  assert.equal(setup.isReasonSelected('hardware', 'positive'), true);
+  assert.equal(setup.reasonPending, true); assert.ok(setup.reasonError);
+  const reasonError = setup.reasonError;
+  setup.ratingDraft = '7.2'; assert.equal(await setup.saveRating(), true); await settle();
+  assert.equal(props.review.interest_rating, 7.2);
+  assert.equal(setup.reasonError, reasonError, 'a rating success must not clear a reason failure');
+  assert.equal(setup.reasonPending, true); assert.equal(setup.isReasonSelected('hardware', 'positive'), true);
+  assert.equal(await setup.flush(), false);
+  delete handlers.patch;
+  assert.equal(await setup.flush(), true); await settle();
+  assert.equal(setup.reasonPending, false); assert.equal(setup.reasonError, '');
+  assert.deepEqual(props.review.interest_reasons, [{ category: 'hardware', polarity: 'positive' }]);
+  const reasonWrites = calls.filter(call => call.name === 'feedback' && (call.value as Patch).interest_reasons);
+  assert.equal(reasonWrites.length, 3);
+  assert.ok(reasonWrites.every(call => JSON.stringify(call.value) === JSON.stringify(reasonWrites[0]!.value)), 'retry only the retained reason patch');
 });
 
-test('reason category multi-selection preserves all saved reasons and pending selections at the limit', async t => {
+test('reason flush coalesces a pending save and record changes reject its stale completion', async t => {
+  const { props, setup, calls, handlers } = fixture(t), pending = deferred<Review | null>();
+  handlers.patch = () => pending.promise;
+  const changing = setup.toggleReason('location', 'negative', true), leaving = setup.flush(); await settle();
+  assert.equal(calls.length, 1); assert.equal(setup.reasonPending, true); assert.equal(setup.reasonsSaving, true);
+  const saved = { ...props.review, interest_reasons: [{ category: 'location', polarity: 'negative' }] as OpportunityInterestReason[] };
+  props.review = saved; pending.resolve(saved);
+  await changing; assert.equal(await leaving, true); await settle();
+  assert.equal(calls.length, 1); assert.equal(setup.reasonPending, false);
+
+  const stale = deferred<Review | null>(); handlers.patch = () => stale.promise;
+  const oldSave = setup.toggleReason('method', 'positive', true); await settle();
+  props.ownerId = 'owner-b'; props.opportunity = normalizeOpportunity({ id: 'opportunity-b', title: 'Other synthetic role' });
+  props.review = { ...props.review, user_id: 'owner-b', opportunity_id: 'opportunity-b', interest_reasons: [{ category: 'funding', polarity: 'positive' }] }; await settle();
+  assert.deepEqual(setup.reasons, [{ category: 'funding', polarity: 'positive' }]);
+  stale.resolve(null); await oldSave; await settle();
+  assert.equal(setup.reasonError, ''); assert.equal(setup.reasonPending, false);
+  assert.equal(setup.reasonsSaving, false);
+  assert.deepEqual(calls.map(call => call.id), ['opportunity-a', 'opportunity-a']);
+});
+
+test('reason toggles retain an over-limit draft and recover by deselecting the requested pair', async t => {
   const { props, setup, calls } = fixture(t);
   // JSONB can return keys in a different order from newly constructed UI reasons.
   const existing: OpportunityInterestReason[] = Array.from({ length: 16 }, (_, index) => ({ target: `Direction ${index}`, polarity: 'positive', category: 'topic' }));
   props.review = { ...props.review, interest_reasons: existing }; await settle();
-  setup.reasonCategories = ['topic']; setup.reasonTarget = 'Direction 0'; await setup.addReason();
-  assert.equal(calls.length, 0, 'deduplication precedes the maximum-count check');
-  setup.reasonCategories = ['funding', 'hardware']; setup.reasonPolarity = 'negative'; setup.reasonTarget = 'Retain this draft';
-  await setup.addReason(); assert.match(setup.actionError, /16 reasons/);
-  assert.deepEqual(setup.reasons, existing); assert.deepEqual(setup.reasonCategories, ['funding', 'hardware']);
-  assert.equal(setup.reasonTarget, 'Retain this draft'); assert.equal(calls.length, 0);
+  await setup.toggleReason('topic', 'positive', true); await settle();
+  assert.equal(calls.length, 0, 'checking a historical pair is a no-op even at the maximum count');
+  await setup.toggleReason('funding', 'negative', true); await settle();
+  assert.match(setup.reasonError, /16/); assert.equal(setup.reasonPending, true);
+  assert.equal(setup.reasons.length, 17); assert.equal(setup.isReasonSelected('funding', 'negative'), true);
+  assert.deepEqual(props.review.interest_reasons, existing); assert.equal(calls.length, 0);
+  assert.equal(await setup.flush(), false);
+  await setup.toggleReason('topic', 'positive', false); await settle();
+  assert.deepEqual(setup.reasons, [{ category: 'funding', polarity: 'negative' }]);
+  assert.equal(setup.reasonError, ''); assert.equal(setup.reasonPending, false); assert.equal(calls.length, 1);
 });
 
 test('AF-02 a stale other-owner review is withheld while the next account loads', async t => {
@@ -326,27 +369,28 @@ test('AF-02 a stale other-owner review is withheld while the next account loads'
   assert.equal(setup.ratingDraft, '');
 });
 
-test('AF-02 structured consent requires its explicit action and can be revoked independently', async t => {
+test('safe evaluation feedback needs no per-search sharing setting or mutation', async t => {
   const { props, setup, calls } = fixture(t);
-  setup.summaryDraft = 'Unapproved summary'; await setup.flush();
-  assert.equal(props.structuredSharingEnabled, false);
-  assert.equal(await setup.toggleStructuredSharing(), true); await settle();
-  assert.equal(props.structuredSharingEnabled, true);
-  assert.equal(await setup.toggleStructuredSharing(), true); await settle();
-  assert.equal(props.structuredSharingEnabled, false);
-  assert.deepEqual(calls.filter(call => call.name === 'sharing').map(call => call.value), [true, false]);
-  assert.equal(calls.some(call => call.name === 'approve'), false);
+  setup.summaryDraft = 'Prefer hands-on acoustic sensing.'; await settle();
+  assert.equal(setup.summaryEligible, true);
+  assert.match(setup.evaluationHint, /^Included in search feedback\./u);
+  assert.deepEqual(calls, [], 'default eligibility does not persist while typing');
+  assert.equal(Object.hasOwn(props,'structuredSharingEnabled'), false);
+  assert.equal(Object.hasOwn(props,'setStructuredSharing'), false);
+  assert.equal(Object.hasOwn(setup,'toggleStructuredSharing'), false);
+  assert.doesNotMatch(source, /Use structured feedback for this search|Disable structured feedback|setStructuredSharing|structuredSharingEnabled/u);
 });
 
-test('default feedback uses the shared textarea contract and only one opportunity-level exclusion', () => {
+test('default feedback uses the shared textarea contract without per-evaluation approval', () => {
   assert.match(source, /<AutosaveTextarea[^>]*v-model="summaryDraft"[^>]*@commit="flushSummary"/);
   assert.doesNotMatch(source, /Approve for search feedback|Revoke sharing/);
-  assert.match(source, /Exclude this opportunity from search feedback/);
   assert.match(source, /Search feedback excerpt — first 600 characters/);
   assert.doesNotMatch(source, /props\.(?:approveSummary|revokeSummary)\(/);
   assert.match(source, /<InfoHint/);
   assert.match(source, /type="range" min="0" max="10" step="0.1"/);
-  assert.match(source, /v-model="reasonCategories" type="checkbox"/);
+  assert.match(source, /:checked="isReasonSelected\(category,\s*polarity\)"/);
+  assert.match(source, /@change="toggleReason\(/);
+  assert.doesNotMatch(source, /reasonCategories|reasonPolarity|reasonTarget|addReason|removeReason/);
   assert.doesNotMatch(source, /<textarea\b|@input="[^"]*(?:save|approve)|setTimeout\(/);
   assert.doesNotMatch(source, /useApplicationNotesAutosave|CV_SEARCH_FEEDBACK_SUMMARY_DRAFT/);
 });

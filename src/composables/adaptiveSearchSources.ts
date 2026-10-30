@@ -35,13 +35,12 @@ export interface AdaptiveSearchSource extends AdaptiveSourceScope {
 export interface SuccessfulSourceReusePolicy {
   adaptation_enabled: boolean;
   adaptation_paused: boolean;
-  structured_feedback_enabled: boolean;
   successful_source_reuse_enabled: boolean;
   reuse_check_interval_hours: number;
 }
 
 export const DEFAULT_SUCCESSFUL_SOURCE_REUSE_POLICY: Readonly<SuccessfulSourceReusePolicy> = Object.freeze({
-  adaptation_enabled: false, adaptation_paused: false, structured_feedback_enabled: false,
+  adaptation_enabled: false, adaptation_paused: false,
   successful_source_reuse_enabled: false, reuse_check_interval_hours: DEFAULT_SOURCE_CHECK_INTERVAL_HOURS,
 });
 
@@ -219,7 +218,7 @@ export interface VerifiedReusableSourceSignal {
 export interface SourceRetentionResult {
   source: AdaptiveSearchSource;
   retained: boolean;
-  reason: 'retained' | 'policy_disabled' | 'adaptation_disabled' | 'adaptation_paused' | 'feedback_disabled' | 'owner_disabled' | 'unverified_listing' | 'not_useful' | 'listing_mismatch';
+  reason: 'retained' | 'policy_disabled' | 'adaptation_disabled' | 'adaptation_paused' | 'owner_disabled' | 'unverified_listing' | 'not_useful' | 'listing_mismatch';
   policy_version: typeof SUCCESSFUL_SOURCE_REUSE_VERSION;
 }
 
@@ -229,13 +228,11 @@ export function retainSuccessfulAdaptiveSource(source: AdaptiveSearchSource, sig
   const before = normalizeAdaptiveSearchSource(source, source);
   const enabled = boolean(policy.successful_source_reuse_enabled);
   const adaptationEnabled = boolean(policy.adaptation_enabled), paused = boolean(policy.adaptation_paused);
-  const feedbackEnabled = boolean(policy.structured_feedback_enabled);
   const interval = boundedInteger(policy.reuse_check_interval_hours, MIN_SOURCE_CHECK_INTERVAL_HOURS, MAX_SOURCE_CHECK_INTERVAL_HOURS);
   const result = (retained: boolean, reason: SourceRetentionResult['reason'], updated = before): SourceRetentionResult => ({ source: updated, retained, reason, policy_version: SUCCESSFUL_SOURCE_REUSE_VERSION });
   if (!enabled) return result(false, 'policy_disabled');
   if (!adaptationEnabled) return result(false, 'adaptation_disabled');
   if (paused) return result(false, 'adaptation_paused');
-  if (!feedbackEnabled) return result(false, 'feedback_disabled');
   if (before.owner_disabled) return result(false, 'owner_disabled');
   if (signal.role !== 'verified_listing' || !canonicalAdaptiveListingUrl(signal.listing_url) || instant(signal.verified_at) === null) return result(false, 'unverified_listing');
   if (!['explicit_rating', 'categorical_review', 'confirmed_submission', 'none', 'excluded'].includes(signal.interest_origin)

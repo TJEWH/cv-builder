@@ -1,6 +1,6 @@
 # Adaptive search release
 
-AF-01–AF-11 extend the single shared Meta research editor with owner-approved feedback, reusable sources, execution history and a separately versioned runner. The feature is implemented in the repository. This release work does not install it in Supabase, replace a ChatGPT task, or establish unattended execution.
+AF-01–AF-11 extend the single shared Meta research editor with owner-scoped feedback, reusable sources, execution history and a separately versioned runner. The feature is implemented in the repository. This release work does not install it in Supabase, replace a ChatGPT task, or establish unattended execution.
 
 The specification reference is commit `f475d364fb16508b4ef8e1568b9d72fd80e3ddf2`; the complete AF-11 implementation before the breadth upgrade is `fbbe4c2a28a9a776e6040b92a9af2c28876efb21`. Current source hashes and installation order are recorded in [`supabase/adaptive-search-release.json`](../supabase/adaptive-search-release.json). That manifest is source evidence, not a record of production deployment.
 
@@ -8,12 +8,12 @@ The specification reference is commit `f475d364fb16508b4ef8e1568b9d72fd80e3ddf2`
 
 | Contract | Version |
 | --- | --- |
-| Canonical opportunity storage/intake | 5 / `opportunity-search-v1-canonical-5` |
+| Canonical opportunity storage/intake | 6 / `opportunity-search-v1-canonical-6` |
 | Existing bootstrap and `meta_search` document | 1 |
 | Adaptive startup | 1 |
 | Complete runner capability | `adaptive-batch-v1` |
 | Interest metric | `opportunity-interest-v1` |
-| Example selection | `opportunity-feedback-selection-v1` |
+| Example selection | `opportunity-feedback-selection-v2` |
 | Query policy | `adaptive-query-v3` (historical v1/v2 retained) |
 | Feedback text | `included-unless-excluded-v1` |
 | Technical setup and feature rollback | 1 |
@@ -45,15 +45,17 @@ For an authorized deployment, first compare the installed canonical v5 protocol,
 
 All new runtime functions use invoker permissions, owner checks and RLS. Management startup/intake/completion/setup/rollback helpers remain unavailable to browser and service roles. Existing private-schema usage is preserved; no private helper grant or definer workaround is added. The management connector still has administrative powers beyond this workflow and is not authenticated as a human owner by these helpers.
 
-The release flag, per-search runner authorization, structured feedback, adaptation and successful-source reuse default off. Installing capabilities does not enable a project or owner, create a task, modify a binding, or fabricate discovery/prediction history. With structured feedback enabled, the current inclusion policy shares safe evaluation text by default unless the opportunity is excluded; the evaluation migration removes the retired per-summary approval capability. Existing reviews become adaptive inputs only after the owner's opt-in.
+The release flag, per-search runner authorization, adaptation and successful-source reuse default off. Feedback is included by default unless its opportunity is excluded; the current contract has no search-level sharing opt-in. Installing capabilities does not enable a runner or adaptation, create a task, modify a binding, or fabricate discovery/prediction history. Adaptation and pause controls still govern applying feedback to generated query plans.
 
 ## Default inclusion, personal Past status and institutional sources
 
 Append `opportunity_feedback_inclusion.sql` after all nineteen previous additive files. It adds owner-scoped manual Past/technical issue metadata, default text-inclusion proofs and v3 project-level screening guidance. No catalogue records, official deadlines, application statuses or scheduled tasks are rewritten. The seven institution listing defaults are retained only when a new, explicitly authorized run starts; historical retries do not seed them. Existing source settings and disabled paths are preserved. Capacity omissions are reported through `source_retention` and the dashboard.
 
-Append `opportunity_evaluation.sql` after the inclusion migration. It combines distinct saved comment and summary text once, without truncation, into `opportunity_reviews.comment`; `evaluation_revision` replaces the old text revision. Complete evaluations allow 12,000 Unicode codepoints. The browser migrates retired local summary recovery keys once before opening drafts; current edits persist through one comment RPC. Removed summary columns, approval hashes, approval rows and approval RPCs have no current read/write adapter. Existing interest values/revisions, consent, exclusions and application data are preserved.
+Append `opportunity_evaluation.sql` after the inclusion migration. It combines distinct saved comment and summary text once, without truncation, into `opportunity_reviews.comment`; `evaluation_revision` replaces the old text revision. Complete evaluations allow 12,000 Unicode codepoints. The browser migrates retired local summary recovery keys once before opening drafts; current edits persist through one comment RPC. Removed summary columns, approval hashes, approval rows and approval RPCs have no current read/write adapter. Existing interest values/revisions, exclusions and application data are preserved.
 
-The one shared opportunity exclusion controls evaluation text and structured feedback. Text is bounded to the first 600 Unicode codepoints and includes source length and truncation metadata. Content safeguards inspect the full source before excerpting. Search-level consent, release and runner authorization remain required. No synthetic approval timestamp is generated, and no raw technical note is exported. Tests use only isolated synthetic rows.
+Append `opportunity_feedback_defaults.sql` after the evaluation upgrade. It removes the search-level sharing column, consent metadata, read/set APIs and consent gates from current definitions. Cached feedback representations migrate once to selection policy v2; reviews and application records remain unchanged.
+
+The one shared opportunity exclusion controls evaluation text and structured feedback. Text is bounded to the first 600 Unicode codepoints and includes source length and truncation metadata. Content safeguards inspect the full source before excerpting. Release and runner authorization remain required for execution. Feedback previews and snapshots include eligible examples independently of adaptation being enabled or paused. No synthetic approval timestamp is generated, and no raw technical note is exported. Tests use only isolated synthetic rows.
 
 ## Local release gate
 
@@ -65,6 +67,7 @@ docker run --detach --name cv-adaptive-feedback-test \
   -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=adaptive_feedback_test postgres:17.6
 npm run adaptive:release:check
 npm run test:adaptive-search-release
+npm run test:opportunity-feedback-defaults
 npm run typecheck
 npm test
 npm run build
@@ -100,10 +103,10 @@ If a recovery archive makes technical republishing exceed the installed storage 
 
 | Data | Cleanup |
 | --- | --- |
-| Review feedback columns and text proofs | Existing owner review/account cascade; exclusion, consent withdrawal and source edits eagerly withhold stale cached text. Default inclusion uses exact source hashes/revisions and a labelled 600-character excerpt. Retired approval proofs are removed once; pinned text is checked against the current evaluation and inclusion proof. Technical notes remain private. |
+| Review feedback columns and text proofs | Existing owner review/account cascade; exclusion and source edits eagerly withhold stale cached text. Default inclusion uses exact source hashes/revisions and a labelled 600-character excerpt. Retired approval proofs are removed once; pinned text is checked against the current evaluation and inclusion proof. Technical notes remain private. |
 | Prediction proof cache | Owner-read-only technical metadata; receipt unverify/delete and audit rollback/delete invalidate proof. Owner deletion cascades it. No assessment prose or audit snapshots are cached. |
 | Adaptive settings, sources, plans, preferences/actions and dashboard control receipts | Owner/search foreign keys cascade on search/account deletion. Source opt-out remains authoritative; zero/blocked checks do not delete sources. |
-| Feedback snapshots | Search/settings cascade removes them. Consent withdrawal, exclusion and evaluation edits apply deterministic eager redaction; startup/retry rechecks current authorization. |
+| Feedback snapshots | Search/settings cascade removes them. Exclusion and evaluation edits apply deterministic eager redaction; startup/retry rechecks current authorization. |
 | Executions, execution receipts, discoveries and original assessments | Owner/search/run cascade. Verified historical attribution stays distinct from saved plans, current catalogue fit and notification delivery. |
 | Private startup contexts, batches/items and terminal receipts | Run/search cascade; no browser reads. Retry outputs revalidate live permissions and expose fixed safe receipts. |
 | Setup operations/acknowledgements, outstanding claims and rollback requests | Search/account cascade. Claims have no automatic expiry and need explicit reconciliation when external outcomes are uncertain. |

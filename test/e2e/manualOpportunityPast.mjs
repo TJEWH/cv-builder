@@ -47,7 +47,7 @@ try {
     await row().locator('.jobs-row-toggle').click();
     const opportunityDetail = page.locator('.opportunity-detail:visible');
     await opportunityDetail.waitFor();
-    const archive = opportunityDetail.getByRole('checkbox', { name: 'Move this opportunity to Past', exact: true });
+    const archive = opportunityDetail.getByRole('checkbox', { name: 'Remove from current opportunities', exact: true });
     await archive.check(); await waitForReview('manually_archived', true);
     assert.equal(await opportunityDetail.isVisible(), true, 'Changing list disposition must keep the detail open');
     await opportunityDetail.getByRole('combobox', { name: 'Technical issue (optional)', exact: true }).selectOption('requirements');
@@ -82,7 +82,7 @@ try {
     assert.equal(await row().count(), 1);
     await row().locator('.jobs-row-toggle').click();
     const applicationDetail = page.locator('.application-workspace:visible'); await applicationDetail.waitFor();
-    const applicationArchive = applicationDetail.getByRole('checkbox', { name: 'Move this opportunity to Past', exact: true });
+    const applicationArchive = applicationDetail.getByRole('checkbox', { name: 'Remove from current opportunities', exact: true });
     assert.equal(await applicationArchive.isChecked(), true);
     assert.equal(await applicationDetail.getByRole('textbox', { name: 'Technical details (optional)', exact: true }).inputValue(), archived.review.technical_issue_note);
     await applicationArchive.uncheck(); await waitForReview('manually_archived', false);

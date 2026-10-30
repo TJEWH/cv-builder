@@ -16,7 +16,7 @@ const other = '30000000-0000-4000-8000-000000000004';
 const scope: AdaptiveSourceScope = { user_id: owner, search_id: search };
 const listing = 'https://example.invalid/Jobs?topic=BCI&location=Berlin';
 const now = '2026-10-29T12:00:00Z';
-const policy = { adaptation_enabled: true, adaptation_paused: false, structured_feedback_enabled: true,
+const policy = { adaptation_enabled: true, adaptation_paused: false,
   successful_source_reuse_enabled: true, reuse_check_interval_hours: 168 };
 
 function source(patch: Partial<AdaptiveSearchSource> = {}): AdaptiveSearchSource {
@@ -233,11 +233,10 @@ test('retaining an institutional listing never rewards its priority or manufactu
   assert.equal(weak.retained, false); assert.deepEqual(weak.source, repeated.source, 'a weak individual project does not delete or penalize a retained institution');
 });
 
-test('AF-06 automatic retention requires active adaptation and structured consent without deleting manual coverage', () => {
+test('AF-06 automatic retention requires active adaptation without deleting manual coverage', () => {
   for (const [patch, reason] of [
     [{ adaptation_enabled: false }, 'adaptation_disabled'],
     [{ adaptation_paused: true }, 'adaptation_paused'],
-    [{ structured_feedback_enabled: false }, 'feedback_disabled'],
   ] as const) {
     const before = source({ pinned: true, mandatory: true, provenance: 'explicit' });
     const result = retainSuccessfulAdaptiveSource(before, signal(), { ...policy, ...patch });
@@ -326,7 +325,7 @@ test('a shared application portal associates two vacancies with one discovery pa
 
 test('retention validates settings and feedback rather than coercing numeric strings or inventing timestamps', () => {
   for (const invalid of [{ ...policy, successful_source_reuse_enabled: 'true' }, { ...policy, reuse_check_interval_hours: 1 },
-    { ...policy, adaptation_enabled: 'true' }, { ...policy, adaptation_paused: 'false' }, { ...policy, structured_feedback_enabled: 'true' },
+    { ...policy, adaptation_enabled: 'true' }, { ...policy, adaptation_paused: 'false' },
     { ...policy, reuse_check_interval_hours: 721 }, { ...policy, reuse_check_interval_hours: '168' }]) {
     assert.throws(() => retainSuccessfulAdaptiveSource(source(), signal(), invalid as unknown as typeof policy));
   }

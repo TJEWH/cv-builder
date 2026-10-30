@@ -10,14 +10,14 @@ import { ADAPTIVE_SOURCE_KINDS, ADAPTIVE_SOURCE_STATUSES, type AdaptiveSearchSou
 
 export interface AdaptiveDashboardScope { ownerId: string; searchId: string; projectRef: string }
 export interface AdaptiveDashboardSettings {
-  structured_feedback_enabled: boolean; adaptation_enabled: boolean; adaptation_paused: boolean;
+  adaptation_enabled: boolean; adaptation_paused: boolean;
   successful_source_reuse_enabled: boolean; reuse_check_interval_hours: number;
   search_breadth_percent: number | null; breadth_revision: number | null;
   institution_sources_omitted: number | null;
-  consent_revision: number; adaptation_revision: number; source_reuse_revision: number; feedback_revision: number;
+  adaptation_revision: number; source_reuse_revision: number; feedback_revision: number;
   preference_revision: number; query_plan_revision: number; query_plan_dirty: boolean;
 }
-export type AdaptiveSettingsPatch = Partial<Pick<AdaptiveDashboardSettings, 'structured_feedback_enabled' | 'adaptation_enabled' | 'adaptation_paused' | 'successful_source_reuse_enabled' | 'reuse_check_interval_hours'>> & { search_breadth_percent?: number };
+export type AdaptiveSettingsPatch = Partial<Pick<AdaptiveDashboardSettings, 'adaptation_enabled' | 'adaptation_paused' | 'successful_source_reuse_enabled' | 'reuse_check_interval_hours'>> & { search_breadth_percent?: number };
 export type AdaptiveSourcePatch = Partial<Pick<AdaptiveSearchSource, 'enabled' | 'pinned' | 'check_interval_hours'>>;
 export interface AdaptiveDashboardSuggestion {
   suggestion_id: string; rule: ApprovedAdaptiveRule; origin: 'owner' | 'runner';
@@ -112,10 +112,10 @@ function readSettings(value: unknown): AdaptiveDashboardSettings {
   const upgraded = Object.hasOwn(row, 'search_breadth_percent') || Object.hasOwn(row, 'breadth_revision');
   const breadth = upgraded ? integer(row.search_breadth_percent, 0, 100) : null;
   if (breadth !== null && breadth % 5 !== 0) fail();
-  return { structured_feedback_enabled: bool(row.structured_feedback_enabled), adaptation_enabled: bool(row.adaptation_enabled),
+  return { adaptation_enabled: bool(row.adaptation_enabled),
     adaptation_paused: bool(row.adaptation_paused), successful_source_reuse_enabled: bool(row.successful_source_reuse_enabled),
     reuse_check_interval_hours: integer(row.reuse_check_interval_hours, 24, 720), search_breadth_percent: breadth,
-    breadth_revision: upgraded ? integer(row.breadth_revision) : null, consent_revision: integer(row.consent_revision),
+    breadth_revision: upgraded ? integer(row.breadth_revision) : null,
     institution_sources_omitted: row.institution_sources_omitted === undefined ? null : integer(row.institution_sources_omitted,0,7),
     adaptation_revision: integer(row.adaptation_revision), source_reuse_revision: integer(row.source_reuse_revision), feedback_revision: integer(row.feedback_revision),
     preference_revision: integer(row.preference_revision), query_plan_revision: integer(row.query_plan_revision), query_plan_dirty: bool(row.query_plan_dirty) };
@@ -211,7 +211,7 @@ export async function readAdaptiveSearchDashboard(value: unknown, inputScope: Ad
     bounds: readIntegerObject(raw.bounds, ['maximum_dashboard_bytes','maximum_feedback_bytes','maximum_sources','maximum_queries','maximum_executions','maximum_runs','maximum_suggestions','maximum_proposals']) };
 }
 
-const settingsKeys = ['structured_feedback_enabled','adaptation_enabled','adaptation_paused','successful_source_reuse_enabled','reuse_check_interval_hours','search_breadth_percent'] as const;
+const settingsKeys = ['adaptation_enabled','adaptation_paused','successful_source_reuse_enabled','reuse_check_interval_hours','search_breadth_percent'] as const;
 const sourceKeys = ['enabled','pinned','check_interval_hours'] as const;
 export function validateAdaptiveSettingsPatch(value: unknown): AdaptiveSettingsPatch {
   const raw = object(value), patch: AdaptiveSettingsPatch = {};
@@ -262,8 +262,8 @@ export function createAdaptiveSearchDashboardController(client: Pick<SupabaseCli
   function error(cause: unknown, loading = false) {
     const code = typeof cause === 'object' && cause ? String((cause as { code?: unknown }).code ?? '') : '';
     state.errorKind = loading ? 'load' : code === '40001' ? 'conflict' : ['42501','PGRST301','PGRST302'].includes(code) ? 'denied' : 'save';
-    state.error = code === 'SOURCE_UNAVAILABLE' ? 'source_unavailable' : code === 'CONSENT_REQUIRED' ? 'consent_required' : code === 'BREADTH_UPGRADE_REQUIRED' ? 'breadth_upgrade_required' : state.errorKind === 'conflict' ? 'conflict' : state.errorKind === 'denied' ? 'denied' : loading ? 'load_failed' : 'save_failed';
-    state.retryable = !loading && state.errorKind === 'save' && !['22023','CONSENT_REQUIRED','BREADTH_UPGRADE_REQUIRED'].includes(code) && failed !== null;
+    state.error = code === 'SOURCE_UNAVAILABLE' ? 'source_unavailable' : code === 'BREADTH_UPGRADE_REQUIRED' ? 'breadth_upgrade_required' : state.errorKind === 'conflict' ? 'conflict' : state.errorKind === 'denied' ? 'denied' : loading ? 'load_failed' : 'save_failed';
+    state.retryable = !loading && state.errorKind === 'save' && !['22023','BREADTH_UPGRADE_REQUIRED'].includes(code) && failed !== null;
   }
   async function load(clearFailure = true): Promise<boolean> {
     if (disposed) return false;
@@ -357,9 +357,7 @@ export function createAdaptiveSearchDashboardController(client: Pick<SupabaseCli
     const patch = validateAdaptiveSettingsPatch(input);
     return enqueue(() => {
       const settings = state.data?.settings; if (!settings) fail();
-      if ((patch.adaptation_enabled === true || patch.adaptation_paused === false) && (patch.structured_feedback_enabled ?? settings.structured_feedback_enabled) !== true) throw { code: 'CONSENT_REQUIRED' };
       const expected: UnknownRecord = {};
-      if (Object.hasOwn(patch,'structured_feedback_enabled')) expected.consent_revision = settings.consent_revision;
       if (Object.hasOwn(patch,'adaptation_enabled') || Object.hasOwn(patch,'adaptation_paused')) expected.adaptation_revision = settings.adaptation_revision;
       if (Object.hasOwn(patch,'successful_source_reuse_enabled') || Object.hasOwn(patch,'reuse_check_interval_hours')) expected.source_reuse_revision = settings.source_reuse_revision;
       if (Object.hasOwn(patch,'search_breadth_percent')) {

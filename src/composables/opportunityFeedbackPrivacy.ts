@@ -108,13 +108,6 @@ export async function includedOpportunitySearchSummary(review: OpportunityReview
     summary_revision: revision, truncated: points.length > MAX_SEARCH_FEEDBACK_SUMMARY_LENGTH, source_length: points.length } };
 }
 
-export interface OpportunityFeedbackConsent {
-  user_id: string;
-  search_id: string;
-  structured_feedback_enabled: boolean;
-  consent_revision?: number;
-}
-
 export interface OpportunityFeedbackProjectionInput {
   user_id: string;
   search_id: string;
@@ -122,7 +115,6 @@ export interface OpportunityFeedbackProjectionInput {
   review?: OpportunityReview | null;
   applications?: readonly OpportunitySubmissionEvidence[];
   verified_prediction?: OpportunityPredictionBaseline | null;
-  consent?: OpportunityFeedbackConsent | null;
 }
 
 export interface SafeOpportunityFeedbackExample {
@@ -157,14 +149,14 @@ export type FeedbackWithheldField = 'example' | 'opportunity_key' | 'title' | 'i
 export interface OpportunityFeedbackProjection {
   allowlist_version: typeof OPPORTUNITY_FEEDBACK_ALLOWLIST_VERSION;
   example: SafeOpportunityFeedbackExample | null;
-  withheld: { field: FeedbackWithheldField; reason: 'not_authorized' | 'excluded' | 'invalid_value' | 'unsafe_value' | 'not_approved' | 'limit' }[];
+  withheld: { field: FeedbackWithheldField; reason: 'not_authorized' | 'excluded' | 'invalid_value' | 'unsafe_value' | 'limit' }[];
 }
 
 /** Build a new fixed-shape object, never clone a catalogue/application/review row into runner input. */
 export async function projectOpportunityFeedback(input: OpportunityFeedbackProjectionInput): Promise<OpportunityFeedbackProjection> {
   const result: OpportunityFeedbackProjection = { allowlist_version: OPPORTUNITY_FEEDBACK_ALLOWLIST_VERSION, example: null, withheld: [] };
   const withhold = (field: FeedbackWithheldField, reason: OpportunityFeedbackProjection['withheld'][number]['reason']) => { result.withheld.push({ field, reason }); };
-  if (!input.consent?.structured_feedback_enabled || input.consent.user_id !== input.user_id || input.consent.search_id !== input.search_id) {
+  if (typeof input.user_id !== 'string' || !identifier.test(input.user_id) || typeof input.search_id !== 'string' || !identifier.test(input.search_id)) {
     withhold('example', 'not_authorized'); return result;
   }
   const id = input.opportunity.id;
@@ -173,8 +165,6 @@ export async function projectOpportunityFeedback(input: OpportunityFeedbackProje
     withhold('example', 'not_authorized'); return result;
   }
   if (input.review?.feedback_excluded) { withhold('example', 'excluded'); return result; }
-  const capturedConsent = input.consent;
-  const capturedConsentRevision = capturedConsent.consent_revision;
   const capturedReview = input.review;
   const capturedOwner = input.user_id;
   const capturedSearch = input.search_id;
@@ -225,10 +215,7 @@ export async function projectOpportunityFeedback(input: OpportunityFeedbackProje
   } catch { withhold('reasons', 'invalid_value'); }
   const summary = await includedOpportunitySearchSummary(input.review);
   if (input.user_id !== capturedOwner || input.search_id !== capturedSearch || input.opportunity.id !== id
-    || input.review !== capturedReview || input.consent !== capturedConsent || !input.consent.structured_feedback_enabled
-    || input.review && (input.review.user_id !== capturedOwner || input.review.opportunity_id !== id)
-    || input.consent.user_id !== capturedOwner || input.consent.search_id !== capturedSearch
-    || input.consent.consent_revision !== capturedConsentRevision) {
+    || input.review !== capturedReview || input.review && (input.review.user_id !== capturedOwner || input.review.opportunity_id !== id)) {
     withhold('example', 'not_authorized'); return result;
   }
   if (input.review?.feedback_excluded) { withhold('example', 'excluded'); return result; }

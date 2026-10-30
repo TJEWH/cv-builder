@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
-import { file, reset, sql } from './db';
+import { file, reset, sql, upgradeCurrentFeedbackContract } from './db';
+import { ADAPTIVE_RELEASE_MIGRATIONS } from '../../scripts/adaptiveSearchRelease';
 import { readAdaptiveSearchDashboard } from '../../src/composables/adaptiveSearchDashboard';
 let privateAclBefore = '';
 
@@ -31,9 +32,15 @@ test('AF-10 dashboard reads and partial CAS actions preserve independent base in
   assert.equal(sql("select nspacl::text from pg_namespace where nspname='private';"), privateAclBefore);
 });
 
-test('AF-10 actual SQL dashboard decodes through the UI boundary with an identical outgoing packet', async () => {
+test('current SQL dashboard decodes through the UI boundary with an identical outgoing packet', async () => {
   const fixture = file('../../supabase/tests/opportunity_search_dashboard.sql');
+  // Exercise the historical assertions before upgrading their persisted synthetic data.
+  sql(fixture.replace(/rollback;\s*$/u, 'commit;'));
+  const dashboardIndex = ADAPTIVE_RELEASE_MIGRATIONS.indexOf('opportunity_search_dashboard.sql');
+  for (const path of ADAPTIVE_RELEASE_MIGRATIONS.slice(dashboardIndex + 1)) sql(file(`../../supabase/${path}`));
+  upgradeCurrentFeedbackContract();
   const projection = `
+    begin;
     select set_config('request.jwt.claims',jsonb_build_object('sub',user_id,'is_anonymous',false)::text,true)
       from public.opportunity_search_templates where name='Synthetic dashboard';
     update public.opportunity_search_runs set created_at=clock_timestamp()+interval '1 second' where status='failed';
@@ -43,7 +50,7 @@ test('AF-10 actual SQL dashboard decodes through the UI boundary with an identic
     reset role;
     rollback;
   `;
-  const output = sql(fixture.replace(/rollback;\s*$/u, projection));
+  const output = sql(projection);
   const raw = output.split('\n').map(line => JSON.parse(line)).find(value => value.dashboard_version === 1);
   assert(raw);
   const parsed = await readAdaptiveSearchDashboard(raw, raw.user_id, raw.search_id, raw.project_ref);

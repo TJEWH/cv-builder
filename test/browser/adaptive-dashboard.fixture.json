@@ -571,7 +571,6 @@
   ],
   "user_id": "133e1357-4681-4e44-a9a9-5a9edd158bc6",
   "settings": {
-    "consent_revision": 2,
     "query_plan_dirty": true,
     "adaptation_paused": true,
     "feedback_revision": 1,
@@ -581,7 +580,6 @@
     "query_plan_revision": 1,
     "source_reuse_revision": 1,
     "reuse_check_interval_hours": 96,
-    "structured_feedback_enabled": false,
     "successful_source_reuse_enabled": true
   },
   "readiness": {
@@ -645,14 +643,13 @@
       "mean_interest": null
     },
     "metric_version": "opportunity-interest-v1",
-    "consent_revision": 2,
     "feedback_revision": 2,
     "input_fingerprint": "4a689fb9e5c01e36abb87506af7da0a9e6fe58cc2083ffcd6bad5996037a932d",
     "preference_revision": 2,
     "approved_preferences": [],
     "fingerprint_encoding": "sha256-pg-jsonb-v1",
     "privacy_scope_changed": false,
-    "selection_policy_version": "opportunity-feedback-selection-v1"
+    "selection_policy_version": "opportunity-feedback-selection-v2"
   },
   "dashboard_version": 1,
   "runner_authorization": {

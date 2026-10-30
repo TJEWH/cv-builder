@@ -34,11 +34,9 @@ export interface AdaptiveStartupBinding {
   enabled: boolean; authorized: boolean;
 }
 export interface AdaptiveStartupPrivacy {
-  structured_feedback_enabled: boolean;
   adaptation_enabled: boolean;
   adaptation_paused: boolean;
   successful_source_reuse_enabled: boolean;
-  consent_revision: number;
   /** Server-maintained irreversible redaction flag for this pinned run. */
   privacy_scope_changed: boolean;
   excluded_opportunity_ids: readonly string[];
@@ -163,8 +161,8 @@ function privacy(value: AdaptiveStartupPrivacy): AdaptiveStartupPrivacy {
   if (!Array.isArray(raw.excluded_opportunity_ids) || raw.excluded_opportunity_ids.length > 5000
     || !Array.isArray(raw.included_summaries) || raw.included_summaries.length > 5000) fail('invalid_bundle');
   if (raw.authorized_source_ids !== undefined && (!Array.isArray(raw.authorized_source_ids) || raw.authorized_source_ids.length > 64)) fail('invalid_bundle');
-  return { structured_feedback_enabled: bool(raw.structured_feedback_enabled), adaptation_enabled: bool(raw.adaptation_enabled), adaptation_paused: bool(raw.adaptation_paused),
-    successful_source_reuse_enabled: bool(raw.successful_source_reuse_enabled), consent_revision: integer(raw.consent_revision),
+  return { adaptation_enabled: bool(raw.adaptation_enabled), adaptation_paused: bool(raw.adaptation_paused),
+    successful_source_reuse_enabled: bool(raw.successful_source_reuse_enabled),
     privacy_scope_changed: bool(raw.privacy_scope_changed), excluded_opportunity_ids: raw.excluded_opportunity_ids.map(identity),
     ...(raw.authorized_source_ids === undefined ? {} : { authorized_source_ids: (raw.authorized_source_ids as unknown[]).map(identity) }),
     included_summaries: (raw.included_summaries as unknown[]).map(value => {
@@ -177,14 +175,14 @@ function policy(value: unknown, owner: string, search: string): Readonly<Adaptiv
   const raw = object(value);
   return buildAdaptiveSearchPlanningContext({ user_id: owner, search_id: search, base_criteria: {}, basis: { base_revision: 1,
     feedback_revision: 0, preference_revision: 0, protocol_version: 'opportunity-search-v1-canonical-6' }, approved_rules: [], feedback: null,
-    core_queries: [], due_sources: [], adaptation_enabled: false, adaptation_paused: false, structured_feedback_enabled: false,
+    core_queries: [], due_sources: [], adaptation_enabled: false, adaptation_paused: false,
     policy: raw as unknown as AdaptiveSearchPolicy }).policy;
 }
 function preferences(value: unknown, owner: string, search: string): AdaptiveSearchStartupBundle['preferences'] {
   const raw = object(value), rules = validateApprovedAdaptiveRules(raw.approved_rules);
   const context = buildAdaptiveSearchPlanningContext({ user_id: owner, search_id: search, base_criteria: {}, basis: { base_revision: 1,
     feedback_revision: 0, preference_revision: 0, protocol_version: 'opportunity-search-v1-canonical-6' }, approved_rules: rules, feedback: null,
-    core_queries: [], due_sources: [], adaptation_enabled: false, adaptation_paused: false, structured_feedback_enabled: false });
+    core_queries: [], due_sources: [], adaptation_enabled: false, adaptation_paused: false });
   if (!same(raw.approved_preferences, context.approved_preferences)) fail('invalid_bundle');
   return Object.freeze({ revision: integer(raw.revision), approved_rules: rules, approved_preferences: context.approved_preferences });
 }
@@ -211,7 +209,7 @@ async function feedback(value: unknown, owner: string, search: string): Promise<
   });
   const result: AdaptiveStartupFeedback = { metric_version: 'opportunity-interest-v1', selection_policy_version: ADAPTIVE_FEEDBACK_SELECTION_POLICY_VERSION,
     fingerprint_encoding: raw.fingerprint_encoding as AdaptiveStartupFeedback['fingerprint_encoding'], feedback_revision: integer(raw.feedback_revision),
-    input_fingerprint: digest(raw.input_fingerprint), consent_revision: integer(raw.consent_revision), preference_revision: integer(raw.preference_revision),
+    input_fingerprint: digest(raw.input_fingerprint), preference_revision: integer(raw.preference_revision),
     counts: cleanCounts, aggregates: { score_sum: sum(aggregates.score_sum), mean_interest: nullableScore(aggregates.mean_interest), groups },
     examples: [], approved_preferences: [], privacy_scope_changed: bool(raw.privacy_scope_changed) };
   const preferenceRows = raw.approved_preferences;
@@ -314,7 +312,7 @@ function planning(value: unknown, owner: string, search: string): AdaptiveSearch
       direction: row.direction, provisional: bool(row.provisional), basis: row.basis, reason: row.reason }) as AdaptiveSearchPlanningContext['priorities'][number];
   });
   const blocked = raw.blocked_core_queries.map(value => { const row = object(value); return Object.freeze({ query_id: identity(row.query_id), rule_id: identity(row.rule_id) }); });
-  return Object.freeze({ policy: settings, enabled: bool(raw.enabled), paused: bool(raw.paused), consent_enabled: bool(raw.consent_enabled),
+  return Object.freeze({ policy: settings, enabled: bool(raw.enabled), paused: bool(raw.paused),
     preference_revision: prefs.revision, approved_rules: prefs.approved_rules, approved_preferences: prefs.approved_preferences, priorities: Object.freeze(priorities),
     allocation: Object.freeze({ maximum_queries: integer(allocation.maximum_queries, 1, 30), core_queries: integer(allocation.core_queries, 0, 30),
       mandatory_source_checks: integer(allocation.mandatory_source_checks, 0, 64), source_obligations: integer(allocation.source_obligations, 0, 64),
@@ -324,12 +322,9 @@ function planning(value: unknown, owner: string, search: string): AdaptiveSearch
 function redactFeedback(packet: AdaptiveStartupFeedback, current: AdaptiveStartupPrivacy): { packet: AdaptiveStartupFeedback; changed: boolean } {
   const blocked = new Set(current.excluded_opportunity_ids);
   const included = new Map(current.included_summaries.map(proof => [proof.opportunity_id, proof]));
-  const adaptationActive = current.adaptation_enabled && !current.adaptation_paused && current.structured_feedback_enabled;
-  const hadFeedback = packet.examples.length > 0 || packet.aggregates.groups.length > 0 || packet.aggregates.mean_interest !== null
-    || packet.aggregates.score_sum !== 0 || packet.approved_preferences.length > 0 || countFields.some(field => packet.counts[field] > 0);
-  let changed = packet.privacy_scope_changed || current.privacy_scope_changed || !adaptationActive && hadFeedback || current.consent_revision !== packet.consent_revision;
+  let changed = packet.privacy_scope_changed || current.privacy_scope_changed;
   const examples = packet.examples.filter(example => {
-    if (blocked.has(example.opportunity_id) || !current.structured_feedback_enabled) { changed = true; return false; }
+    if (blocked.has(example.opportunity_id)) { changed = true; return false; }
     return true;
   }).map<AdaptiveStartupFeedback['examples'][number]>(example => {
     if (!example.search_feedback_summary) return example;
@@ -343,9 +338,10 @@ function redactFeedback(packet: AdaptiveStartupFeedback, current: AdaptiveStartu
     void withheldSummary; void withheldInclusion;
     return safe;
   });
-  // Whole-set aggregates cannot be safely subtracted using only 16 selected
-  // examples. A privacy-scope reduction clears them instead of guessing totals.
-  const clear = current.privacy_scope_changed || !adaptationActive || current.consent_revision !== packet.consent_revision || current.excluded_opportunity_ids.length > 0;
+  // Exclusions already applied when the packet was built do not revoke its
+  // remaining evidence. A newly removed selected example proves a reduction;
+  // the server flag also covers changed contributions outside the 16 examples.
+  const clear = current.privacy_scope_changed || examples.length < packet.examples.length;
   const removedApproved = packet.examples.filter(row => row.search_feedback_summary).length - examples.filter(row => row.search_feedback_summary).length;
   const counts = { ...packet.counts, selected: examples.length, approved_summaries: Math.max(0, packet.counts.approved_summaries - removedApproved) };
   if (clear) for (const field of countFields) counts[field] = 0;
@@ -401,7 +397,7 @@ export async function projectAdaptiveSearchStartup(value: unknown, context: {
     if (!same(finalAuthorization, authorized) || identity(context.expected_run_id) !== expectedRun || context.isCurrent !== undefined && context.isCurrent() !== true) fail('authorization_revoked');
     const privacyChangedDuringProjection = !same(initialPrivacy, currentPrivacy);
     const redacted = redactFeedback(packet, currentPrivacy);
-    const adaptationActive = currentPrivacy.adaptation_enabled && !currentPrivacy.adaptation_paused && currentPrivacy.structured_feedback_enabled;
+    const adaptationActive = currentPrivacy.adaptation_enabled && !currentPrivacy.adaptation_paused;
     const changed = redacted.changed || privacyChangedDuringProjection || capturedRefresh.privacy_scope_changed
       || !adaptationActive && Boolean(pinnedPlan?.document.queries.some(query => query.role !== 'core') || planner.priorities.length);
     const suppressAdaptive = changed || !adaptationActive;
@@ -439,7 +435,7 @@ export async function projectAdaptiveSearchStartup(value: unknown, context: {
       return rule ? [Object.freeze({ query_id: query.query_id, rule_id: rule.rule_id })] : [];
     }).sort((left, right) => left.query_id < right.query_id ? -1 : left.query_id > right.query_id ? 1 : left.rule_id < right.rule_id ? -1 : left.rule_id > right.rule_id ? 1 : 0);
     const safePlanning: AdaptiveSearchPlanningContext = Object.freeze({ ...planner, enabled: adaptationActive && !changed,
-      paused: currentPrivacy.adaptation_paused, consent_enabled: currentPrivacy.structured_feedback_enabled,
+      paused: currentPrivacy.adaptation_paused,
       priorities: suppressAdaptive ? Object.freeze([]) : planner.priorities,
       allocation: Object.freeze({ ...planner.allocation, source_obligations: dueAllowed.length,
         mandatory_source_checks: dueAllowed.filter(source => source.mandatory || source.pinned).length,

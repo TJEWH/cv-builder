@@ -25,9 +25,8 @@ createApp(defineComponent({
       interest_rating: null, interest_reasons: [], feedback_excluded: false, feedback_revision: 1, feedback_updated_at: now,
       manually_archived: false, technical_issue_category: null, technical_issue_note: null,
       reviewed_updated_at: null, created_at: now, updated_at: now, evaluation_revision: 1 });
-    const sharing = ref(false);
     const language = ref('en');
-    const evaluationSaves = ref(0), consentChanges = ref(0), structuredChanges = ref(0), dispositionChanges = ref(0);
+    const evaluationSaves = ref(0), structuredChanges = ref(0), dispositionChanges = ref(0);
     let failEvaluationSave = false;
     const opportunity = normalizeOpportunity(opportunityFixture({ id, opportunity_key: 'synthetic-sensing-phd', title: 'PhD in physical sensing', institution: 'Synthetic Research Institute', topics: ['Physical sensing', 'Signal processing'] }));
     const saveFeedback = async (_id: string, patch: OpportunityFeedbackPatch) => {
@@ -55,12 +54,11 @@ createApp(defineComponent({
       },
       errorMessage: () => 'Evaluation was not saved. Your draft is kept.',
     });
-    const setStructuredSharing = async (enabled: boolean) => { consentChanges.value++; sharing.value = enabled; return true; };
     Object.assign(window, { opportunityFeedbackFixture: {
       snapshot: () => ({ review: JSON.parse(JSON.stringify(review.value)), evaluationText: evaluationText.value,
         evaluationStatus: evaluationStatus.value,
         evaluationSaves: evaluationSaves.value,
-        structuredChanges: structuredChanges.value, dispositionChanges: dispositionChanges.value, sharing: sharing.value }),
+        structuredChanges: structuredChanges.value, dispositionChanges: dispositionChanges.value }),
       failNextEvaluationSave: () => { failEvaluationSave = true; },
     } });
     return () => h('main', { class: 'feedback-fixture jobs-workspace builder-shell' }, [
@@ -71,13 +69,13 @@ createApp(defineComponent({
         h('summary', language.value === 'de' ? 'Persönliche Einschätzung' : 'Personal Evaluation'),
         h(OpportunityFeedbackControls, { ownerId: owner, opportunity, review: review.value, application: null,
           evaluationText: evaluationText.value, 'onUpdate:evaluationText': (value: string) => { evaluationText.value = value; }, evaluationStatus: evaluationStatus.value, evaluationError: evaluationError.value,
-          structuredSharingEnabled: sharing.value, searchAvailable: true, busy: false, lang: language.value,
-          saveFeedback, setStructuredSharing, flushPrivateComment }),
+          busy: false, lang: language.value,
+          saveFeedback, flushPrivateComment }),
         h(OpportunityDispositionControls, { ownerId: owner, opportunityId: id, review: review.value,
-          saveDisposition, busy: false, lang: language.value }),
+          saveDisposition, saveFeedback, busy: false, lang: language.value }),
       ]),
       h('output', { class: 'fixture-events', 'data-testid': 'fixture-events' },
-        `Evaluation saves: ${evaluationSaves.value}; structured changes: ${structuredChanges.value}; disposition changes: ${dispositionChanges.value}; consent changes: ${consentChanges.value}; sharing: ${sharing.value}`),
+        `Evaluation saves: ${evaluationSaves.value}; structured changes: ${structuredChanges.value}; disposition changes: ${dispositionChanges.value}`),
     ]);
   },
 })).mount('#app');

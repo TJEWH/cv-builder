@@ -27,7 +27,7 @@ const explorationGuidance = Object.freeze({
   balanced: 'Explore interdisciplinary combinations and plausible adjacent research directions, different role titles and new official sources. Keep a clear connection to the shared research profile. Research directions are alternatives. Preserve all hard criteria; interests do not establish qualifications.',
   adventurous: 'Prioritize plausible adjacent fields, unusual research combinations and role titles, and unfamiliar institutions or official sources. Each exploration query must connect clearly to at least one shared research interest or method. Research directions are alternatives. Preserve all hard criteria; interests do not establish qualifications.',
 });
-/** Structured owner preference only: this never changes consent or a scheduled task. */
+/** Structured owner preference only: this never enables adaptation or changes a scheduled task. */
 export function createLegacySearchBreadthPolicy(percent = 20): Readonly<AdaptiveSearchPolicy> {
   if (!Number.isSafeInteger(percent) || percent < 0 || percent > 100 || percent % 5 !== 0) throw new TypeError('Search breadth must be a multiple of five from 0 to 100.');
   const level = percent === 0 ? 'off' : percent <= 20 ? 'focused' : percent <= 50 ? 'balanced' : 'adventurous';
@@ -90,7 +90,6 @@ export interface AdaptiveSearchPlannerInput {
   due_sources: readonly AdaptivePlannerDueSource[];
   adaptation_enabled: boolean;
   adaptation_paused: boolean;
-  structured_feedback_enabled: boolean;
   previous_plan?: AdaptiveSearchPlan | null;
   previous_policy?: Readonly<AdaptiveSearchPolicy>;
   adaptive_slice_dirty?: boolean;
@@ -100,7 +99,6 @@ export interface AdaptiveSearchPlanningContext {
   policy: Readonly<AdaptiveSearchPolicy>;
   enabled: boolean;
   paused: boolean;
-  consent_enabled: boolean;
   preference_revision: number;
   approved_rules: readonly ApprovedAdaptiveRule[];
   approved_preferences: readonly ApprovedAdaptivePreference[];
@@ -195,7 +193,7 @@ function baseCriteria(value: Readonly<Partial<SearchCriteria>>): Readonly<Search
 /** Deterministic priorities use whole-set aggregate inputs, never the sampled examples as statistical totals. */
 export function buildAdaptiveSearchPlanningContext(input: AdaptiveSearchPlannerInput): AdaptiveSearchPlanningContext {
   identity(input.user_id); identity(input.search_id); baseCriteria(input.base_criteria);
-  if (typeof input.adaptation_enabled !== 'boolean' || typeof input.adaptation_paused !== 'boolean' || typeof input.structured_feedback_enabled !== 'boolean'
+  if (typeof input.adaptation_enabled !== 'boolean' || typeof input.adaptation_paused !== 'boolean'
     || input.adaptive_slice_dirty !== undefined && typeof input.adaptive_slice_dirty !== 'boolean') throw new TypeError('Adaptive settings require explicit booleans.');
   const current = basis(input.basis), settings = policy(input.policy ?? DEFAULT_ADAPTIVE_SEARCH_POLICY);
   const rules = validateApprovedAdaptiveRules(input.approved_rules);
@@ -216,7 +214,7 @@ export function buildAdaptiveSearchPlanningContext(input: AdaptiveSearchPlannerI
     || typeof source.registry_id !== 'string' || !uuid.test(source.registry_id) || typeof source.mandatory !== 'boolean' || typeof source.pinned !== 'boolean')
     || new Set(input.due_sources.map(source => source.registry_id.toLowerCase())).size !== input.due_sources.length) throw new TypeError('Use distinct prepared direct-source obligations.');
   const due = input.due_sources.filter(source => !exclusions.has(source.registry_id.toLowerCase()));
-  const active = input.adaptation_enabled && input.structured_feedback_enabled && !input.adaptation_paused;
+  const active = input.adaptation_enabled && !input.adaptation_paused;
   const priorities = new Map<string, AdaptivePriority>();
   if (active && input.feedback) {
     if (input.feedback.metric_version !== 'opportunity-interest-v1' || input.feedback.feedback_revision !== current.feedback_revision
@@ -280,7 +278,7 @@ export function buildAdaptiveSearchPlanningContext(input: AdaptiveSearchPlannerI
     || previousPolicy === null || JSON.stringify(previousPolicy) !== JSON.stringify(settings);
   const ranked = [...priorities.values()].sort((a, b) => Number(b.basis === 'approved') - Number(a.basis === 'approved')
     || (b.mean_interest ?? -1) - (a.mean_interest ?? -1) || compare(a.category, b.category) || compare(key(a.target), key(b.target)));
-  return Object.freeze({ policy: settings, enabled: active, paused: input.adaptation_paused, consent_enabled: input.structured_feedback_enabled,
+  return Object.freeze({ policy: settings, enabled: active, paused: input.adaptation_paused,
     preference_revision: current.preference_revision, approved_rules: rules, approved_preferences: Object.freeze(approved.map(item => Object.freeze(item))),
     priorities: Object.freeze(ranked.map(item => Object.freeze(item))), allocation: Object.freeze({ maximum_queries: settings.maximum_queries,
       core_queries: input.core_queries.length, mandatory_source_checks: due.filter(source => source.mandatory || source.pinned).length,

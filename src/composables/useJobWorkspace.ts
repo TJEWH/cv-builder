@@ -1,7 +1,7 @@
 import { onScopeDispose, ref, toValue, watch } from 'vue';
 import type { MaybeRefOrGetter } from 'vue';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Application, ApplicationContext, ApplicationStage, CloudCvSnapshot, CloudCvVariant, CreateApplicationInput, Opportunity, OpportunityReview, OpportunityReviewState, OpportunityFeedbackPatch, OpportunityFeedbackSettings, OpportunityDispositionPatch, UpdateApplicationInput } from '../cloudTypes';
+import type { Application, ApplicationContext, ApplicationStage, CloudCvSnapshot, CloudCvVariant, CreateApplicationInput, Opportunity, OpportunityReview, OpportunityReviewState, OpportunityFeedbackPatch, OpportunityDispositionPatch, UpdateApplicationInput } from '../cloudTypes';
 import { APPLICATION_STAGES, APPLICATION_STATUSES, TRACKING_STATUSES, OPPORTUNITY_REVIEW_STATES } from '../cloudTypes';
 import { SAMPLE_CONTACT } from '../defaults';
 import { CV_STATE_VERSION } from '../types';
@@ -71,10 +71,8 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   const opportunityReviewError = ref('');
   const opportunityCommentError = ref('');
   const opportunityFeedbackError = ref('');
-  const feedbackSharing = ref<OpportunityFeedbackSettings | null>(null);
   let epoch = 0;
   let loadSequence = 0;
-  let feedbackLoadSequence = 0;
   let loadController: AbortController | null = null;
   const controllers = new Set<AbortController>();
   const pendingReviews = new Set<string>();
@@ -87,7 +85,6 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   function reset() {
     epoch++;
     loadSequence++;
-    feedbackLoadSequence++;
     for (const controller of controllers) controller.abort();
     controllers.clear();
     pendingReviews.clear();
@@ -95,7 +92,6 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
     opportunities.value = []; applications.value = []; cvVariants.value = []; reviews.value = [];
     loading.value = false; saving.value = false; savingReview.value = false;
     error.value = ''; opportunityReviewError.value = ''; opportunityCommentError.value = ''; opportunityFeedbackError.value = '';
-    feedbackSharing.value = null;
     pendingCreate = null; pendingAssignment = null;
     mutationTail = Promise.resolve();
   }
@@ -394,44 +390,6 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
     catch (reason) { opportunityFeedbackError.value = errorMessage(reason, 'Invalid opportunity disposition.'); return Promise.resolve(null); }
   }
 
-  function readFeedbackSettings(value: unknown, account: string): OpportunityFeedbackSettings {
-    if (!isRecord(value) || value.user_id !== account || !(value.search_id === null || typeof value.search_id === 'string')
-      || typeof value.structured_feedback_enabled !== 'boolean' || !Number.isSafeInteger(value.consent_revision)
-      || Number(value.consent_revision) < 0 || !(value.consent_updated_at === null || typeof value.consent_updated_at === 'string')) {
-      throw new Error('Feedback sharing settings could not be confirmed.');
-    }
-    return value as unknown as OpportunityFeedbackSettings;
-  }
-  async function loadFeedbackSharing(): Promise<OpportunityFeedbackSettings | null> {
-    const account = toValue(userId); const generation = epoch;
-    if (!client || !account || disposed) return null;
-    const sequence = ++feedbackLoadSequence;
-    const controller = new AbortController(); controllers.add(controller);
-    try {
-      const { data, error: queryError } = await client.rpc('read_opportunity_feedback_settings', { p_search_id: null }).abortSignal(controller.signal);
-      if (queryError) throw queryError;
-      const settings = readFeedbackSettings(data, account);
-      if (!current(account, generation) || sequence !== feedbackLoadSequence) return null;
-      feedbackSharing.value = settings;
-      return settings;
-    } catch (reason) {
-      if (current(account, generation)) opportunityFeedbackError.value = errorMessage(reason, 'Could not load feedback sharing settings.');
-      return null;
-    } finally { controllers.delete(controller); }
-  }
-  async function setStructuredFeedbackSharing(enabled: boolean): Promise<boolean> {
-    const searchId = feedbackSharing.value?.search_id;
-    if (!searchId) { opportunityFeedbackError.value = 'Save the shared meta search before enabling feedback.'; return false; }
-    const result = await runMutation(async (account, _generation, signal) => {
-      const { data, error: queryError } = await client!.rpc('set_opportunity_feedback_consent', { p_search_id: searchId, p_enabled: enabled }).abortSignal(signal);
-      if (queryError) throw queryError;
-      const settings = readFeedbackSettings(data, account);
-      if (settings.search_id !== searchId || settings.structured_feedback_enabled !== enabled) throw new Error('Feedback consent could not be confirmed.');
-      return settings;
-    }, settings => { feedbackLoadSequence++; feedbackSharing.value = settings; }, 'Could not save feedback consent.', opportunityFeedbackError);
-    return result !== null;
-  }
-
   function setOpportunityReview(opportunityId: string, state: OpportunityReviewState): Promise<OpportunityReview | null> {
     const opportunity = opportunities.value.find(({ id }) => id === opportunityId);
     const observedVersion = opportunity?.updated_at || opportunity?.created_at || null;
@@ -521,6 +479,6 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   watch(() => toValue(userId), () => { reset(); void refresh(); }, { immediate: true, flush: 'sync' });
   onScopeDispose(() => { disposed = true; reset(); });
   return { opportunities, applications, cvVariants, reviews, loading, saving, savingReview, error, opportunityReviewError, opportunityCommentError,
-    opportunityFeedbackError, feedbackSharing, saveOpportunityFeedback, saveOpportunityDisposition,
-    loadFeedbackSharing, setStructuredFeedbackSharing, refresh, createApplication, updateApplication, setApplicationStage, resetApplicationHistory, setApplicationChecklistItem, removeApplication, refreshApplicationContext, setOpportunityReview, setOpportunityComment, markOpportunityReviewed, getApplicationContext };
+    opportunityFeedbackError, saveOpportunityFeedback, saveOpportunityDisposition,
+    refresh, createApplication, updateApplication, setApplicationStage, resetApplicationHistory, setApplicationChecklistItem, removeApplication, refreshApplicationContext, setOpportunityReview, setOpportunityComment, markOpportunityReviewed, getApplicationContext };
 }

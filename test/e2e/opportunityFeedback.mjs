@@ -42,14 +42,15 @@ try {
     const events = page.getByTestId('fixture-events');
     const summary = page.getByRole('textbox', { name: 'Personal evaluation', exact: true });
     const rating = page.getByRole('slider', { name: 'Interest override (0–10)', exact: true });
-    const summaryInfo = page.getByRole('button', { name: 'Information: Evaluation feedback inclusion', exact: true });
+    const summaryInfo = page.getByRole('button', { name: 'Information: Personal evaluation', exact: true });
     const assertSummaryInfo = async expected => {
       await summaryInfo.scrollIntoViewIfNeeded();
       await summaryInfo.click();
       const tooltip = page.locator(`[id="${await summaryInfo.getAttribute('aria-describedby')}"]`);
       await tooltip.waitFor({ state: 'visible' });
-      await page.waitForFunction(value => [...document.querySelectorAll('[role="tooltip"]:not([hidden])')].some(node => node.textContent === value), expected);
-      assert.equal(await tooltip.textContent(), expected);
+      await page.waitForFunction(value => [...document.querySelectorAll('[role="tooltip"]:not([hidden])')].some(node => node.textContent.startsWith(value)), expected);
+      assert.ok((await tooltip.textContent()).startsWith(expected));
+      assert.match(await tooltip.textContent(), /Your searches use.*by default/);
       await page.keyboard.press('Escape');
       await tooltip.waitFor({ state: 'hidden' });
     };
@@ -61,10 +62,10 @@ try {
     assert.equal(await page.locator('.feedback-controls textarea').count(), 1, 'Evaluation and feedback must share one editor');
     assert.equal(await summary.inputValue(), 'Prefer hands-on acoustic prototypes.\n\nConsider adjacent research involving robotics.');
     assert.match(await events.innerText(), /Evaluation saves: 0; structured changes: 0/);
-    assert.match(await events.innerText(), /sharing: false/);
     assert.equal((await snapshot()).review.interest_rating, null, 'Opening must not manufacture a rating');
     assert.equal(await page.getByRole('button', { name: /Approve for search feedback|Revoke sharing/ }).count(), 0);
-    await assertSummaryInfo('Included when structured feedback is enabled');
+    assert.equal(await page.getByRole('button', { name: /structured feedback/i }).count(), 0);
+    await assertSummaryInfo('Included in search feedback');
     await disclosureSummary.click();
     assert.equal(await rating.isVisible(), false); assert.equal(await summary.isVisible(), false);
     await disclosureSummary.click();
@@ -80,10 +81,15 @@ try {
     await waitForReview('comment', 'Prefer physical sensing prototypes.');
     assert.equal((await snapshot()).evaluationSaves, 1, 'One evaluation commit makes one persistence call');
     assert.equal('search_feedback_summary' in (await snapshot()).review, false);
-    await page.getByRole('button', { name: 'Use structured feedback for this search', exact: true }).click();
-    await page.waitForFunction(() => window.opportunityFeedbackFixture.snapshot().sharing);
     await assertSummaryInfo('Included in search feedback');
     const excluded = page.getByRole('checkbox', { name: 'Exclude this opportunity from search feedback', exact: true });
+    const exclusionInfo = page.getByRole('button', { name: 'Information: Exclude from search feedback', exact: true });
+    await exclusionInfo.scrollIntoViewIfNeeded();
+    if (name === 'mobile') await exclusionInfo.tap(); else await exclusionInfo.click();
+    const exclusionTooltip = page.locator(`[id="${await exclusionInfo.getAttribute('aria-describedby')}"]`);
+    await exclusionTooltip.waitFor({ state: 'visible' });
+    assert.match(await exclusionTooltip.innerText(), /Saved data and Current\/Past list placement stay unchanged/);
+    await page.keyboard.press('Escape'); await exclusionTooltip.waitFor({ state: 'hidden' });
     await excluded.check(); await waitForReview('feedback_excluded', true);
     await assertSummaryInfo('Excluded from search feedback');
     await page.waitForFunction(() => document.querySelector('.feedback-score')?.textContent?.startsWith('No adaptive score'));
@@ -125,21 +131,30 @@ try {
     await rating.focus(); await rating.press('End'); await waitForReview('interest_rating', 10);
     await page.getByRole('button', { name: 'Clear rating', exact: true }).click(); await waitForReview('interest_rating', null);
     const beforeReasons = (await snapshot()).structuredChanges;
-    await page.getByRole('checkbox', { name: 'Funding', exact: true }).check();
-    await page.getByRole('checkbox', { name: 'Timing', exact: true }).check();
-    assert.equal((await snapshot()).structuredChanges, beforeReasons, 'Category selection remains a staged multiselect');
-    await page.getByLabel('Preference', { exact: true }).selectOption('negative');
-    await page.getByLabel('Topic or method (optional)', { exact: true }).fill('acoustic design');
-    await page.getByRole('button', { name: 'Add reasons', exact: true }).click();
+    const prefer = page.getByRole('group', { name: 'Prefer', exact: true });
+    const avoid = page.getByRole('group', { name: 'Avoid', exact: true });
+    assert.equal(await prefer.getByRole('checkbox').count(), 7); assert.equal(await avoid.getByRole('checkbox').count(), 7);
+    assert.equal(await prefer.getByRole('checkbox', { checked: true }).count(), 0);
+    assert.equal(await avoid.getByRole('checkbox', { checked: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Add reasons', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: /^Remove reason:/ }).count(), 0);
+    assert.equal(await page.getByRole('combobox', { name: 'Preference', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('textbox', { name: 'Topic or method (optional)', exact: true }).count(), 0);
+    if (name === 'mobile') await avoid.getByText('Funding', { exact: true }).tap(); else await avoid.getByRole('checkbox', { name: 'Funding', exact: true }).check();
+    await page.waitForFunction(() => window.opportunityFeedbackFixture.snapshot().review.interest_reasons.length === 1);
+    await avoid.getByRole('checkbox', { name: 'Timing', exact: true }).focus();
+    await page.keyboard.press('Space');
+    await page.waitForFunction(() => window.opportunityFeedbackFixture.snapshot().review.interest_reasons.length === 2);
+    if (name === 'mobile') await prefer.getByText('Topic', { exact: true }).tap(); else await prefer.getByRole('checkbox', { name: 'Topic', exact: true }).check();
     await page.waitForFunction(() => window.opportunityFeedbackFixture.snapshot().review.interest_reasons.length === 3);
-    assert.equal((await snapshot()).structuredChanges, beforeReasons + 1, 'Multiple categories save together in one patch');
+    assert.equal((await snapshot()).structuredChanges, beforeReasons + 3, 'Each category change saves directly');
     assert.deepEqual((await snapshot()).review.interest_reasons, [
       { category: 'funding', polarity: 'negative' }, { category: 'timing', polarity: 'negative' },
-      { category: 'topic', polarity: 'negative', target: 'acoustic design' },
+      { category: 'topic', polarity: 'positive' },
     ]);
 
     const beforeDisposition = (await snapshot()).review;
-    const archive = page.getByRole('checkbox', { name: 'Move this opportunity to Past', exact: true });
+    const archive = page.getByRole('checkbox', { name: 'Remove from current opportunities', exact: true });
     await archive.check(); await waitForReview('manually_archived', true);
     const issue = page.getByRole('combobox', { name: 'Technical issue (optional)', exact: true });
     const note = page.getByRole('textbox', { name: 'Technical details (optional)', exact: true });
@@ -161,11 +176,6 @@ try {
     assert.equal(await note.inputValue(), 'The required prior degree cannot be met.');
     assert.equal(await page.locator('.feedback-controls textarea').count(), 1);
     assert.equal(await page.locator('.opportunity-disposition textarea').count(), 1);
-    await page.getByRole('button', { name: 'Disable structured feedback', exact: true }).click();
-    await page.waitForFunction(() => !window.opportunityFeedbackFixture.snapshot().sharing);
-    await assertSummaryInfo('Included when structured feedback is enabled');
-    await page.getByRole('button', { name: 'Use structured feedback for this search', exact: true }).click();
-    await page.waitForFunction(() => window.opportunityFeedbackFixture.snapshot().sharing);
     await page.getByRole('button', { name: 'English / Deutsch', exact: true }).click();
     await page.getByRole('slider', { name: 'Eigene Interessensbewertung (0–10)', exact: true }).waitFor();
     assert.equal(await page.getByRole('textbox', { name: 'Persönliche Einschätzung', exact: true }).count(), 1);

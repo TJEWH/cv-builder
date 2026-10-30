@@ -2,7 +2,7 @@ import { OPPORTUNITY_INTEREST_REASON_CATEGORIES, OPPORTUNITY_REVIEW_STATES, type
 import { OPPORTUNITY_INTEREST_METRIC_VERSION, isOpportunityInterestRating, normalizeOpportunityInterestReasons, opportunityFeedbackTimestamp } from './opportunityFeedback';
 import { opportunityFeedbackTextHash, opportunityFeedbackTextIsSafe, sanitizeOpportunityFeedbackUrl, validateAdaptiveSummaryInclusion, type SafeOpportunityFeedbackExample } from './opportunityFeedbackPrivacy';
 
-export const ADAPTIVE_FEEDBACK_SELECTION_POLICY_VERSION = 'opportunity-feedback-selection-v1';
+export const ADAPTIVE_FEEDBACK_SELECTION_POLICY_VERSION = 'opportunity-feedback-selection-v2';
 export const ADAPTIVE_FEEDBACK_FINGERPRINT_ENCODING = 'sha256-canonical-json-v1';
 export const ADAPTIVE_FEEDBACK_MAX_EXAMPLES = 16;
 export const ADAPTIVE_FEEDBACK_MAX_GROUPS = 64;
@@ -30,7 +30,6 @@ export interface AdaptiveFeedbackSnapshot {
   fingerprint_encoding: typeof ADAPTIVE_FEEDBACK_FINGERPRINT_ENCODING;
   feedback_revision: number;
   input_fingerprint: string;
-  consent_revision: number;
   preference_revision: number;
   counts: {
     eligible: number; scored: number; confirmed_submissions: number; explicit_rating: number; categorical_review: number;
@@ -45,8 +44,6 @@ export interface AdaptiveFeedbackSnapshot {
 export interface CompileAdaptiveFeedbackInput {
   user_id: string;
   search_id: string;
-  structured_feedback_enabled: boolean;
-  consent_revision: number;
   /** Assigned by the server after comparing semantic fingerprints; excluded from the fingerprint. */
   feedback_revision: number;
   preference_revision?: number;
@@ -232,13 +229,12 @@ function selectExamples(examples: readonly AdaptiveFeedbackExample[]): AdaptiveF
 
 /** Pure, deterministic reference compiler. Authorization and immutable persistence remain server-side. */
 export async function compileAdaptiveFeedbackSnapshot(input: CompileAdaptiveFeedbackInput): Promise<AdaptiveFeedbackSnapshot> {
-  if (!uuid.test(input.user_id) || !uuid.test(input.search_id) || typeof input.structured_feedback_enabled !== 'boolean'
-    || !revision(input.feedback_revision) || !revision(input.consent_revision) || !revision(input.preference_revision ?? 0)) throw new TypeError('Invalid feedback snapshot scope or revision.');
-  const owner = input.user_id.toLowerCase(), search = input.search_id.toLowerCase(), enabled = input.structured_feedback_enabled,
-    consentRevision = input.consent_revision, preferenceRevision = input.preference_revision ?? 0;
+  if (!uuid.test(input.user_id) || !uuid.test(input.search_id)
+    || !revision(input.feedback_revision) || !revision(input.preference_revision ?? 0)) throw new TypeError('Invalid feedback snapshot scope or revision.');
+  const owner = input.user_id.toLowerCase(), search = input.search_id.toLowerCase(), preferenceRevision = input.preference_revision ?? 0;
   const assignedRevision = input.feedback_revision;
-  const approved = enabled ? preferences(input.approved_preferences ?? []) : [];
-  const safe = enabled ? await Promise.all(input.examples.map(example => safeExample(example, owner, search))) : [];
+  const approved = preferences(input.approved_preferences ?? []);
+  const safe = await Promise.all(input.examples.map(example => safeExample(example, owner, search)));
   const unique = new Map<string, AdaptiveFeedbackExample>();
   for (const example of safe) {
     if (!example) continue;
@@ -251,13 +247,13 @@ export async function compileAdaptiveFeedbackSnapshot(input: CompileAdaptiveFeed
   const selected = selectExamples(eligible);
   const inputFingerprint = await opportunityFeedbackTextHash(canonicalJson({ user_id: owner, search_id: search,
     metric_version: OPPORTUNITY_INTEREST_METRIC_VERSION, selection_policy_version: ADAPTIVE_FEEDBACK_SELECTION_POLICY_VERSION,
-    fingerprint_encoding: ADAPTIVE_FEEDBACK_FINGERPRINT_ENCODING, structured_feedback_enabled: enabled,
-    consent_revision: consentRevision, preference_revision: preferenceRevision, examples: eligible, approved_preferences: approved }));
+    fingerprint_encoding: ADAPTIVE_FEEDBACK_FINGERPRINT_ENCODING,
+    preference_revision: preferenceRevision, examples: eligible, approved_preferences: approved }));
   const total = statistics(eligible.flatMap(example => example.interest_score === null ? [] : [example.interest_score]));
   const packet: AdaptiveFeedbackSnapshot = {
     metric_version: OPPORTUNITY_INTEREST_METRIC_VERSION, selection_policy_version: ADAPTIVE_FEEDBACK_SELECTION_POLICY_VERSION,
     fingerprint_encoding: ADAPTIVE_FEEDBACK_FINGERPRINT_ENCODING, feedback_revision: assignedRevision, input_fingerprint: inputFingerprint,
-    consent_revision: consentRevision, preference_revision: preferenceRevision,
+    preference_revision: preferenceRevision,
     counts: { eligible: eligible.length, scored: total.scored, confirmed_submissions: eligible.filter(example => example.confirmed_submission).length,
       explicit_rating: eligible.filter(example => example.interest_origin === 'explicit_rating').length,
       categorical_review: eligible.filter(example => example.interest_origin === 'categorical_review').length,

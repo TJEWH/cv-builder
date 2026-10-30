@@ -27,7 +27,11 @@ function fixture(t: TestContext) {
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) } });
   const calls: { id: string; patch: OpportunityDispositionPatch }[] = [], rows = new Map([['opportunity-a', review()]]);
-  const handlers: { save?: (id: string, patch: OpportunityDispositionPatch) => Promise<OpportunityReview | null> } = {};
+  const feedbackCalls: { id: string; patch: { feedback_excluded: boolean } }[] = [];
+  const handlers: {
+    save?: (id: string, patch: OpportunityDispositionPatch) => Promise<OpportunityReview | null>;
+    feedback?: (id: string, patch: { feedback_excluded: boolean }) => Promise<OpportunityReview | null>;
+  } = {};
   const props = reactive({ ownerId: 'owner-a', opportunityId: 'opportunity-a', review: review(), busy: false, lang: 'en',
     saveDisposition: async (id: string, patch: OpportunityDispositionPatch) => {
       calls.push({ id, patch });
@@ -35,11 +39,18 @@ function fixture(t: TestContext) {
       const saved = { ...(rows.get(id) ?? review(id, props.ownerId)), ...patch }; rows.set(id, saved);
       if (id === props.opportunityId) props.review = saved;
       return saved;
+    },
+    saveFeedback: async (id: string, patch: { feedback_excluded: boolean }) => {
+      feedbackCalls.push({ id, patch });
+      if (handlers.feedback) return handlers.feedback(id, patch);
+      const saved = { ...(rows.get(id) ?? review(id, props.ownerId)), ...patch }; rows.set(id, saved);
+      if (id === props.opportunityId) props.review = saved;
+      return saved;
     } });
   let mounted: any;
   const app = renderer.createApp({ render: () => h(component, { ...props, ref: (value: unknown) => { mounted = value; } }) }); app.mount({});
   t.after(() => { app.unmount(); previous ? Object.defineProperty(globalThis, 'localStorage', previous) : Reflect.deleteProperty(globalThis, 'localStorage'); });
-  return { props, setup: mounted.$.setupState as any, calls, handlers, storage, rows };
+  return { props, setup: mounted.$.setupState as any, calls, feedbackCalls, handlers, storage, rows };
 }
 
 test('manual past classification is personal, reversible and independent of the deadline', () => {
@@ -65,6 +76,20 @@ test('opening and archiving never change interest, catalogue evidence or sharing
   assert.deepEqual(f.calls, [{ id: 'opportunity-a', patch: { manually_archived: true } }]);
   assert.equal(f.props.review.state, 'strong_interest'); assert.equal(f.props.review.interest_rating, 8.2);
   assert.equal(f.props.review.comment, 'Keep this evaluation'); assert.equal(await f.setup.flush(), true);
+});
+test('a failed exclusion remains retryable after another footer control saves', async t => {
+  const f = fixture(t); f.handlers.feedback = async () => null;
+  assert.equal(await f.setup.changeExcluded({ target: { checked: true } }), false); await settle();
+  assert.equal(await f.setup.changeArchived({ target: { checked: true } }), true); await settle();
+  assert.equal(await f.setup.flush(), false);
+  assert.match(f.setup.actionError, /Retry before leaving/);
+  assert.deepEqual(f.calls, [{ id: 'opportunity-a', patch: { manually_archived: true } }]);
+  f.handlers.feedback = undefined;
+  assert.equal(await f.setup.retry(), true); await settle();
+  assert.equal(f.props.review.feedback_excluded, true);
+  assert.equal(f.props.review.manually_archived, true);
+  assert.equal(await f.setup.flush(), true);
+  assert.deepEqual(f.feedbackCalls, Array.from({ length: 2 }, () => ({ id: 'opportunity-a', patch: { feedback_excluded: true } })));
 });
 test('technical notes stay local until commit and save separately from the evaluation', async t => {
   const f = fixture(t);

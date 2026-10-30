@@ -40,7 +40,7 @@ export interface OpportunityReview {
   user_id: string;
   opportunity_id: string;
   state: OpportunityReviewState;
-  /** Complete owner evaluation; exported only as a safe derived excerpt after search consent. */
+  /** Complete owner evaluation; shared only as a safe derived excerpt unless this opportunity is excluded. */
   comment?: string | null;
   /** Server-maintained evaluation revision, independent of numeric interest. */
   evaluation_revision?: number;
@@ -65,14 +65,6 @@ export interface OpportunityFeedbackPatch extends OpportunityDispositionPatch {
   interest_rating?: number | null;
   interest_reasons?: OpportunityInterestReason[];
   feedback_excluded?: boolean;
-}
-
-export interface OpportunityFeedbackSettings {
-  user_id: string;
-  search_id: string | null;
-  structured_feedback_enabled: boolean;
-  consent_revision: number;
-  consent_updated_at: string | null;
 }
 
 /** Current canonical catalogue contract, generated from the shared JSON Schema. */

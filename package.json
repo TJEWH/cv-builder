@@ -12,6 +12,7 @@
     "test:opportunity-canonical": "tsx --test test/opportunityCanonical/canonical.test.ts",
     "test:opportunity-feedback": "tsx --test test/opportunityFeedback/database.test.ts",
     "test:opportunity-feedback-sharing": "tsx --test test/opportunityFeedback/sharing.test.ts",
+    "test:opportunity-feedback-defaults": "node --import tsx --test test/opportunityFeedback/defaults.test.ts",
     "test:adaptive-feedback-snapshots": "tsx --test test/opportunityFeedback/snapshots.test.ts",
     "test:adaptive-search-plans": "tsx --test test/opportunityFeedback/plans.test.ts",
     "test:adaptive-search-attribution": "tsx --test test/opportunityFeedback/attribution.test.ts",

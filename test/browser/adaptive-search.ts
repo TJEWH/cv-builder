@@ -50,7 +50,6 @@ const client = { from: (name: string) => {
     if (actionReceipts.has(id)) return { data: structuredClone(actionReceipts.get(id)), error: null };
     const patch = args.p_patch as Record<string, unknown>;
     Object.assign(dashboard.settings, patch);
-    if ('structured_feedback_enabled' in patch) dashboard.settings.consent_revision++;
     if ('adaptation_enabled' in patch || 'adaptation_paused' in patch) dashboard.settings.adaptation_revision++;
     if ('successful_source_reuse_enabled' in patch || 'reuse_check_interval_hours' in patch) dashboard.settings.source_reuse_revision++;
     if ('search_breadth_percent' in patch) {
@@ -58,7 +57,6 @@ const client = { from: (name: string) => {
       dashboard.settings.query_plan_dirty = true;
       dashboard.policy = createSearchBreadthPolicy(Number(patch.search_breadth_percent));
     }
-    if (!dashboard.settings.structured_feedback_enabled && dashboard.settings.adaptation_enabled) { dashboard.settings.adaptation_enabled = false; dashboard.settings.adaptation_revision++; }
     const receipt = { dashboard_version: 1, action_id: id, search_id: search, kind: 'settings', settings: structuredClone(dashboard.settings) };
     actionReceipts.set(id, receipt);
     if (loseSettingsResponse) { loseSettingsResponse = false; return { data: null, error: { code: 'NETWORK', message: 'Synthetic settings response lost after commit' } }; }

@@ -1341,7 +1341,7 @@ test('disposed workspaces discard queued writes and reject new writes', async ()
   assert.equal(queries.filter(query => query.operation !== 'select').length, 1);
 });
 
-test('evaluation commits use one comment RPC and preserve independent interest, exclusion and consent', async () => {
+test('evaluation commits use one comment RPC and preserve independent interest and exclusion', async () => {
   let stored = { ...review(), comment: 'Synthetic private person person@example.invalid', evaluation_revision: 4,
     interest_rating: 7.5, feedback_revision: 8, feedback_excluded: true };
   const { client, queries } = fakeClient(query => {
@@ -1371,28 +1371,17 @@ test('evaluation commits use one comment RPC and preserve independent interest, 
   scope.stop();
 });
 
-test('AF-02 invalid patches never reach storage; consent is explicit, scoped and protected from stale reads', async () => {
-  const initial = { user_id: 'account-a', search_id: 'search-a', structured_feedback_enabled: false, consent_revision: 0, consent_updated_at: null };
-  const pendingRead = deferred<Result>(); let delayed = false;
-  const { client, queries } = fakeClient(query => {
-    if (query.operation !== 'rpc') return { data: [], error: null };
-    if (query.table === 'read_opportunity_feedback_settings') return delayed ? pendingRead.promise : { data: initial, error: null };
-    return { data: { ...initial, structured_feedback_enabled: true, consent_revision: 1, consent_updated_at: '2026-10-29T12:00:00Z' }, error: null };
-  });
+test('invalid feedback patches never reach storage and the workspace has no search-sharing state or mutation', async () => {
+  const { client, queries } = fakeClient(() => ({ data: [], error: null }));
   const scope = effectScope(); const account = ref('account-a'); const workspace = scope.run(() => useJobWorkspace(client, account))!;
   await settleUntil(() => !workspace.loading.value);
   for (const patch of [{ interest_rating: '2' }, { interest_rating: NaN }, { comment: 'not an allowed patch' }, { search_feedback_summary:'Retired second source.' }, { feedback_excluded: 'yes' }]) {
     assert.equal(await workspace.saveOpportunityFeedback('opportunity-1', patch as never), null);
   }
   assert.equal(queries.some(query => query.operation === 'rpc'), false);
-  await workspace.loadFeedbackSharing(); delayed = true;
-  const stale = workspace.loadFeedbackSharing();
-  await workspace.setStructuredFeedbackSharing(true);
-  pendingRead.resolve({ data: initial, error: null }); await stale;
-  assert.equal(workspace.feedbackSharing.value?.structured_feedback_enabled, true);
+  for (const key of ['feedbackSharing','loadFeedbackSharing','setStructuredFeedbackSharing']) assert.equal(Object.hasOwn(workspace,key), false);
   account.value = 'account-b';
-  assert.equal(workspace.feedbackSharing.value, null);
-  assert.equal(await workspace.setStructuredFeedbackSharing(true), false);
+  assert.equal(queries.some(query => query.table === 'read_opportunity_feedback_settings' || query.table === 'set_opportunity_feedback_consent'), false);
   scope.stop();
 });
 

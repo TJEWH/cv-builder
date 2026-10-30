@@ -11,10 +11,10 @@ const now = '2026-10-29T12:00:00Z';
 const clone = <T>(value: T): T => structuredClone(value);
 async function fixture() {
   const feedback = await compileAdaptiveFeedbackSnapshot({ user_id: scope.ownerId, search_id: scope.searchId,
-    structured_feedback_enabled: false, consent_revision: 0, feedback_revision: 0, examples: [] });
+    feedback_revision: 0, examples: [] });
   return { dashboard_version: 1, user_id: scope.ownerId, search_id: scope.searchId, project_ref: scope.projectRef,
-    settings: { structured_feedback_enabled: false, adaptation_enabled: false, adaptation_paused: false, successful_source_reuse_enabled: false,
-      reuse_check_interval_hours: 168, search_breadth_percent: 20, breadth_revision: 0, consent_revision: 0, adaptation_revision: 0, source_reuse_revision: 0, feedback_revision: 0, preference_revision: 0, query_plan_revision: 1, query_plan_dirty: false },
+    settings: { adaptation_enabled: false, adaptation_paused: false, successful_source_reuse_enabled: false,
+      reuse_check_interval_hours: 168, search_breadth_percent: 20, breadth_revision: 0, adaptation_revision: 0, source_reuse_revision: 0, feedback_revision: 0, preference_revision: 0, query_plan_revision: 1, query_plan_dirty: false },
     policy: { ...DEFAULT_ADAPTIVE_SEARCH_POLICY },
     planning_capacity: { core_queries: 1, discretionary: 29 } as { core_queries: number; discretionary: number } | null,
     readiness: { setup_contract_version: 1, user_id: scope.ownerId, search_id: scope.searchId, project_ref: scope.projectRef,
@@ -57,7 +57,6 @@ function mock(data: Fixture) {
           data.settings.query_plan_dirty = true;
         }
         for (const key of Object.keys(args.p_expected_revisions)) data.settings[key as keyof Fixture['settings']] = args.p_expected_revisions[key]+1 as never;
-        if (Object.hasOwn(args.p_patch,'structured_feedback_enabled')) data.feedback_preview.consent_revision = data.settings.consent_revision;
         result = { dashboard_version: 1,action_id: args.p_action_id,search_id: data.search_id,kind: 'settings',settings: clone(data.settings) };
       } else if (name === 'patch_opportunity_search_source') {
         const source = data.sources.find(row => row.registry_id === args.p_registry_id)!;
@@ -170,7 +169,7 @@ test('breadth saves independently while adaptation is off and never opts into fe
   assert.deepEqual(write.args.p_patch, { search_breadth_percent: 55 });
   assert.deepEqual(write.args.p_expected_revisions, { breadth_revision: 0 });
   assert.equal(controller.state.data!.settings.breadth_revision, 1);
-  assert.equal(controller.state.data!.settings.structured_feedback_enabled, false);
+  assert.equal(Object.hasOwn(controller.state.data!.settings, 'structured_feedback_enabled'), false);
   assert.equal(controller.state.data!.settings.adaptation_enabled, false);
   assert.equal(controller.state.data!.policy.exploration_ratio, 0.55);
   assert.equal(await controller.patchSettings({ search_breadth_percent: 0 }), true);
@@ -218,28 +217,28 @@ test('AF-10 run labels preserve incomplete/unknown coverage despite a complete l
   assert.equal(adaptiveDashboardRunState({ ...complete,counts: { ...complete.counts,new: 1,verified: 1 } }),'complete');
 });
 
-test('AF-10 enabling or explicitly resuming adaptation needs consent, including atomic opt-in patches', async () => {
+test('AF-10 explicit adaptation changes need no sharing opt-in and do not enable the runner', async () => {
   const raw = await fixture(), service = mock(raw), controller = createAdaptiveSearchDashboardController(service.client,scope,service); await controller.load();
-  assert.equal(await controller.patchSettings({ adaptation_paused: false }),false);
-  assert.equal(controller.state.error,'consent_required');
-  assert.equal(service.calls.filter(call=>call.name.startsWith('patch_')).length,0);
-  assert.equal(await controller.patchSettings({ structured_feedback_enabled: true,adaptation_paused: false }),true);
-  assert.deepEqual(service.calls.find(call=>call.name.startsWith('patch_'))!.args.p_expected_revisions,{ consent_revision: 0,adaptation_revision: 0 });
+  assert.equal(await controller.patchSettings({ adaptation_enabled: true, adaptation_paused: false }),true);
+  assert.deepEqual(service.calls.find(call=>call.name.startsWith('patch_'))!.args.p_expected_revisions,{ adaptation_revision: 0 });
+  assert.equal(controller.state.data!.runner_authorization.enabled, false);
+  assert.equal(service.calls.some(call => /set_opportunity_search_runner_authorization|request_adaptive/.test(call.name)), false);
+  assert.throws(() => validateAdaptiveSettingsPatch({ structured_feedback_enabled: false }));
   controller.dispose();
 });
 
 test('AF-10 sequential independent settings use only touched axes and acknowledged current revisions', async () => {
   const raw = await fixture(), service = mock(raw), controller = createAdaptiveSearchDashboardController(service.client,scope,service);
   assert.equal(await controller.load(),true);
-  const first = controller.patchSettings({ structured_feedback_enabled: true });
+  const first = controller.patchSettings({ successful_source_reuse_enabled: true });
   const second = controller.patchSettings({ adaptation_enabled: true });
   assert.deepEqual(await Promise.all([first,second]),[true,true]);
   const writes = service.calls.filter(call => call.name.startsWith('patch_'));
   assert.equal(writes.length,2);
-  assert.deepEqual(writes[0]!.args.p_expected_revisions,{ consent_revision: 0 });
+  assert.deepEqual(writes[0]!.args.p_expected_revisions,{ source_reuse_revision: 0 });
   assert.deepEqual(writes[1]!.args.p_expected_revisions,{ adaptation_revision: 0 });
   assert.deepEqual(writes[1]!.args.p_patch,{ adaptation_enabled: true });
-  assert.equal(controller.state.data!.settings.structured_feedback_enabled,true);
+  assert.equal(controller.state.data!.settings.successful_source_reuse_enabled,true);
   assert.equal(service.calls.some(call => /meta_search|schedule|request_adaptive/.test(call.name)),false);
   controller.dispose();
 });

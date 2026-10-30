@@ -18,7 +18,7 @@ function example(index: number, patch: Partial<AdaptiveFeedbackExample> = {}): A
     review_state: 'unreviewed', confirmed_submission: false, submission_at: null, reasons: [], ...patch };
 }
 function input(examples: (AdaptiveFeedbackExample | null)[] = [], patch: Partial<CompileAdaptiveFeedbackInput> = {}): CompileAdaptiveFeedbackInput {
-  return { user_id: owner, search_id: search, structured_feedback_enabled: true, consent_revision: 1,
+  return { user_id: owner, search_id: search,
     feedback_revision: 1, preference_revision: 0, examples, approved_preferences: [], ...patch };
 }
 function discrepancy(index: number, score: number, prediction: number): AdaptiveFeedbackExample {
@@ -79,7 +79,7 @@ test('technical past metadata survives without turning closure or requirements i
   assert.notEqual(closed.input_fingerprint, result.input_fingerprint);
 });
 
-test('AF-03 cold start and disabled consent produce a bounded, versioned empty packet without implicit zero', async () => {
+test('AF-03 cold start is bounded and feedback examples are included by default without a sharing toggle', async () => {
   const cold = await compileAdaptiveFeedbackSnapshot(input());
   assert.equal(cold.metric_version, 'opportunity-interest-v1');
   assert.equal(cold.selection_policy_version, ADAPTIVE_FEEDBACK_SELECTION_POLICY_VERSION);
@@ -88,9 +88,11 @@ test('AF-03 cold start and disabled consent produce a bounded, versioned empty p
   assert.equal(cold.counts.eligible, 0);
   assert.equal(cold.aggregates.mean_interest, null);
   assert.equal(cold.aggregates.score_sum, 0);
-  const disabled = await compileAdaptiveFeedbackSnapshot(input([example(1)], { structured_feedback_enabled: false }));
-  assert.equal(disabled.counts.eligible, 0);
-  assert.deepEqual(disabled.approved_preferences, []);
+  const populated = await compileAdaptiveFeedbackSnapshot(input([example(1)]));
+  assert.equal(populated.counts.eligible, 1);
+  assert.equal(populated.examples.length, 1);
+  assert.equal(Object.hasOwn(populated, 'consent_revision'), false);
+  assert.equal(Object.hasOwn(populated, 'structured_feedback_enabled'), false);
   assert.ok(new TextEncoder().encode(JSON.stringify(cold)).length <= ADAPTIVE_FEEDBACK_MAX_BYTES);
 });
 
@@ -183,8 +185,8 @@ test('AF-03 fingerprints are deterministic semantic inputs independent of assign
   assert.doesNotMatch(JSON.stringify(viewed), /person@example|Private Person|contacts|"comment"|"notes"|personal_fit/u);
   const changed = await compileAdaptiveFeedbackSnapshot(input([example(2), example(1, { interest_score: 0 })]));
   assert.notEqual(first.input_fingerprint, changed.input_fingerprint);
-  const consent = await compileAdaptiveFeedbackSnapshot(input(samples, { consent_revision: 2 }));
-  assert.notEqual(first.input_fingerprint, consent.input_fingerprint);
+  const preferences = await compileAdaptiveFeedbackSnapshot(input(samples, { preference_revision: 2 }));
+  assert.notEqual(first.input_fingerprint, preferences.input_fingerprint);
 });
 
 test('current inclusion revision participates in the semantic fingerprint and missing or stale proofs omit text', async () => {
@@ -260,7 +262,7 @@ test('AF-03 bounded group output reports complete omitted groups and preserves a
 });
 
 test('AF-03 strict preference/scope contracts reject malformed values without leaking private input', async () => {
-  for (const patch of [{ user_id: 'person@example.invalid' }, { feedback_revision: -1 }, { consent_revision: NaN }]) {
+  for (const patch of [{ user_id: 'person@example.invalid' }, { feedback_revision: -1 }, { preference_revision: NaN }]) {
     await assert.rejects(compileAdaptiveFeedbackSnapshot(input([], patch)), /Invalid feedback snapshot scope or revision/);
   }
   await assert.rejects(compileAdaptiveFeedbackSnapshot(input([], { approved_preferences: [{ preference_id: 'safe', category: 'topic', polarity: 'positive', target: 'person@example.invalid' }] })), /Invalid approved/);

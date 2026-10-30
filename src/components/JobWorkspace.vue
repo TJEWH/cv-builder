@@ -45,7 +45,7 @@ const sidebarActive = computed(() => desktopSidebar.value && props.active);
 const emit = defineEmits<{ navigate: [tab: 'opportunities' | 'applications']; 'save-career-variant': [name: string, state: CvState]; 'edit-variant': [id: string] }>();
 const { opportunities, applications, reviews, loading, saving, savingReview, error, opportunityReviewError, opportunityCommentError, createApplication,
   updateApplication, setApplicationStage, setApplicationChecklistItem, resetApplicationHistory, removeApplication, setOpportunityReview, setOpportunityComment, markOpportunityReviewed,
-  saveOpportunityFeedback, saveOpportunityDisposition, feedbackSharing, loadFeedbackSharing, setStructuredFeedbackSharing } = useJobWorkspace(props.client, () => props.userId);
+  saveOpportunityFeedback, saveOpportunityDisposition } = useJobWorkspace(props.client, () => props.userId);
 const blockingSave = computed(() => saving.value && !savingReview.value);
 const startingApplication = shallowRef<{ opportunityId: string } | null>(null);
 watch(() => props.userId, () => { startingApplication.value = null; }, { flush: 'sync' });
@@ -206,9 +206,6 @@ const selectedOpportunity = computed(() => opportunityById.value.get(selectedOpp
 // Both editors share one draft and recovery key for the underlying opportunity.
 const evaluationOpportunityId = computed(() => props.tab === 'applications'
   ? editingApplication.value?.opportunity_id : selectedOpportunity.value?.id);
-watch([evaluationOpportunityId, () => props.userId, () => props.active], ([id, _owner, active]) => {
-  if (id && active && typeof loadFeedbackSharing === 'function') void loadFeedbackSharing();
-}, { immediate: true });
 const { notes: opportunityComment, status: commentStatus, error: commentError, flush: flushComment } = useApplicationNotesAutosave({
   application: () => evaluationOpportunityId.value ? { id: evaluationOpportunityId.value,
     notes: reviewById.value.get(evaluationOpportunityId.value)?.comment } : null,
@@ -709,12 +706,11 @@ useToastWatch(() => notice.value, () => {
           <OpportunityFeedbackControls v-if="tab === 'opportunities' && active" ref="opportunityFeedback" :owner-id="userId" :opportunity="selectedOpportunity" :review="reviewById.get(selectedOpportunity.id)"
             v-model:evaluation-text="opportunityComment" :evaluation-status="commentStatus" :evaluation-error="commentError" evaluation-input-id="opportunity-comment" evaluation-labelledby="opportunity-evaluation-heading"
             :application="applicationByOpportunity.get(selectedOpportunity.id)" :lang="lang" :busy="saving"
-            :search-available="!!feedbackSharing?.search_id" :structured-sharing-enabled="!!feedbackSharing?.structured_feedback_enabled"
-            :save-feedback="saveOpportunityFeedback" :set-structured-sharing="setStructuredFeedbackSharing" :flush-private-comment="flushComment" />
+            :save-feedback="saveOpportunityFeedback" :flush-private-comment="flushComment" />
           <div v-else class="opportunity-comment">
             <AutosaveTextarea id="opportunity-comment" v-model="opportunityComment" aria-labelledby="opportunity-evaluation-heading" rows="2" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @commit="flushComment" />
           </div>
-          <OpportunityDispositionControls v-if="tab === 'opportunities' && active" ref="opportunityDisposition" :owner-id="userId" :opportunity-id="selectedOpportunity.id" :review="reviewById.get(selectedOpportunity.id)" :save-disposition="saveOpportunityDisposition" :busy="saving" :lang="lang" />
+          <OpportunityDispositionControls v-if="tab === 'opportunities' && active" ref="opportunityDisposition" :owner-id="userId" :opportunity-id="selectedOpportunity.id" :review="reviewById.get(selectedOpportunity.id)" :save-disposition="saveOpportunityDisposition" :save-feedback="saveOpportunityFeedback" :busy="saving" :lang="lang" />
         </details>
         <OpportunityContext :key="selectedOpportunity.id" :context="selectedOpportunity" :lang="lang" />
       </div>
@@ -725,12 +721,12 @@ useToastWatch(() => notice.value, () => {
           <summary :id="`application-evaluation-${editingApplication.id}`">{{ text('Personal Evaluation', 'Persönliche Einschätzung') }}</summary>
           <OpportunityFeedbackControls v-if="tab === 'applications' && active && opportunityById.get(editingApplication.opportunity_id)" ref="applicationFeedback" :owner-id="userId" :opportunity="opportunityById.get(editingApplication.opportunity_id)!" :review="reviewById.get(editingApplication.opportunity_id)"
             v-model:evaluation-text="opportunityComment" :evaluation-status="commentStatus" :evaluation-error="commentError" :evaluation-labelledby="`application-evaluation-${editingApplication.id}`"
-            :application="editingApplication" :lang="lang" :busy="saving" :search-available="!!feedbackSharing?.search_id" :structured-sharing-enabled="!!feedbackSharing?.structured_feedback_enabled"
-            :save-feedback="saveOpportunityFeedback" :set-structured-sharing="setStructuredFeedbackSharing" :flush-private-comment="flushComment" />
+            :application="editingApplication" :lang="lang" :busy="saving"
+            :save-feedback="saveOpportunityFeedback" :flush-private-comment="flushComment" />
           <div v-else class="opportunity-comment">
             <AutosaveTextarea v-model="opportunityComment" :aria-labelledby="`application-evaluation-${editingApplication.id}`" rows="3" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @commit="flushComment" />
           </div>
-          <OpportunityDispositionControls v-if="tab === 'applications' && active" ref="applicationDisposition" :owner-id="userId" :opportunity-id="editingApplication.opportunity_id" :review="reviewById.get(editingApplication.opportunity_id)" :save-disposition="saveOpportunityDisposition" :busy="saving" :lang="lang" />
+          <OpportunityDispositionControls v-if="tab === 'applications' && active" ref="applicationDisposition" :owner-id="userId" :opportunity-id="editingApplication.opportunity_id" :review="reviewById.get(editingApplication.opportunity_id)" :save-disposition="saveOpportunityDisposition" :save-feedback="saveOpportunityFeedback" :busy="saving" :lang="lang" />
         </details>
       </template>
       <template #preparation-actions>

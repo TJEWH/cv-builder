@@ -46,8 +46,8 @@ export function buildAdaptiveSearchReleaseManifest() {
     preceding_implementation_commit: 'fbbe4c2a28a9a776e6040b92a9af2c28876efb21',
     versions: { canonical_schema: 6, canonical_protocol: 'opportunity-search-v1-canonical-6', legacy_bootstrap_contract: 1,
       meta_search: 1, adaptive_contract: 1, capability: 'adaptive-batch-v1', metric: 'opportunity-interest-v1',
-      selection_policy: 'opportunity-feedback-selection-v1', query_policy: 'adaptive-query-v3', summary_inclusion: 'included-unless-excluded-v1', setup_contract: 1, rollback_contract: 1 },
-    defaults: { adaptive_release_enabled: false, owner_runner_authorized: false, structured_feedback_enabled: false,
+      selection_policy: 'opportunity-feedback-selection-v2', query_policy: 'adaptive-query-v3', summary_inclusion: 'included-unless-excluded-v1', setup_contract: 1, rollback_contract: 1 },
+    defaults: { adaptive_release_enabled: false, owner_runner_authorized: false, feedback_excluded: false,
       adaptation_enabled: false, adaptation_paused: false, successful_source_reuse_enabled: false, search_breadth_percent: 20, scheduler_operations: false },
     execution_contract: { maximum_queries:30, maximum_sources:64, maximum_checks:128, maximum_backlog:64,
       maximum_report_bytes:524288, maximum_bundle_bytes:262144, maximum_feedback_bytes:65536, minimum_deadline_hours:72,
@@ -58,7 +58,7 @@ export function buildAdaptiveSearchReleaseManifest() {
     bootstrap_provenance: bootstrap,
     existing_workspace_upgrade: ADAPTIVE_RELEASE_MIGRATIONS.map((name, index) => ({ order: index + 1, ...artifact(`supabase/${name}`),
       migration_only: true, scheduler_operations: false })),
-    current_contract_upgrades: ['opportunity_description.sql', 'application_removal_review.sql', 'opportunity_evaluation.sql']
+    current_contract_upgrades: ['opportunity_description.sql', 'application_removal_review.sql', 'opportunity_evaluation.sql', 'opportunity_feedback_defaults.sql']
       .map(name => ({ ...artifact(`supabase/${name}`), migration_only: true, scheduler_operations: false })),
     installed_definition_prerequisites: { encoding: 'sha256-utf8-pg_get_functiondef-pg17-v1', tested_postgres_major: 17, functions: prerequisites },
     runner_artifacts: ['src/composables/adaptiveSearchProtocol.ts','src/composables/adaptiveSearchTask.ts',

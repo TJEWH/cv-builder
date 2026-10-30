@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { file, reset, sql, sqlAsync } from './db';
+import { file, reset, sql, sqlAsync, upgradeCurrentFeedbackContract } from './db';
+import { ADAPTIVE_RELEASE_MIGRATIONS } from '../../scripts/adaptiveSearchRelease';
 import { projectAdaptiveSearchStartup } from '../../src/composables/adaptiveSearchStartup';
 
 test('AF-07 one startup call returns a bounded authorized bundle with pinned revisions and privacy-safe retries', () => {
@@ -49,8 +50,10 @@ test('AF-07 concurrent logical starts serialize one active run and exact retries
   }
 });
 
-test('AF-07 the actual SQL bundle passes the same complete DTO projector used for preview', async () => {
-  sql(file('../../supabase/opportunity_description.sql'));
+test('the current SQL bundle passes the same complete DTO projector used for preview', async () => {
+  reset({ searchProtocol: true });
+  for (const path of ADAPTIVE_RELEASE_MIGRATIONS) sql(file(`../../supabase/${path}`));
+  upgradeCurrentFeedbackContract();
   assert.equal(sql("select to_regprocedure('private.begin_adaptive_opportunity_search(uuid,uuid)') is not null;"), 't', 'Install startup prerequisites before creating fixtures');
   const owner = randomUUID(), search = randomUUID(), run = randomUUID(), project = 'abcdefghijklmnopqrst';
   sql(`insert into auth.users(id) values('${owner}');
@@ -71,11 +74,13 @@ test('AF-07 the actual SQL bundle passes the same complete DTO projector used fo
       where a.user_id='${owner}' and a.search_id='${search}' and technical_release.singleton;`));
     const actual = JSON.parse(sql(`select private.begin_adaptive_opportunity_search('${search}','${run}');`));
     assert.equal(actual.compatible, true, JSON.stringify(actual));
+    const authorizedSourceIds = JSON.parse(sql(`select coalesce(jsonb_agg(registry_id::text order by registry_id),'[]')
+      from public.opportunity_search_sources where user_id='${owner}' and search_id='${search}' and enabled and not owner_disabled;`));
     const projected = await projectAdaptiveSearchStartup(actual, { expected_run_id: run,
       binding: { ...proof, project_ref: project, user_id: owner, search_id: search, enabled: true, authorized: true },
-      privacy: { structured_feedback_enabled: false, adaptation_enabled: false, adaptation_paused: false,
-        successful_source_reuse_enabled: false, consent_revision: 0, privacy_scope_changed: false,
-        excluded_opportunity_ids: [], included_summaries: [], authorized_source_ids: [] } });
+      privacy: { adaptation_enabled: false, adaptation_paused: false,
+        successful_source_reuse_enabled: false, privacy_scope_changed: false,
+        excluded_opportunity_ids: [], included_summaries: [], authorized_source_ids: authorizedSourceIds } });
     assert.equal(projected.compatible, true, JSON.stringify(projected));
     for (const field of Object.keys(actual)) assert.deepEqual(projected[field as keyof typeof projected], actual[field], `Server and preview disagreed on ${field}`);
     assert.doesNotMatch(JSON.stringify(actual), /PRIVATE_SEARCH_NAME_CANARY/u);

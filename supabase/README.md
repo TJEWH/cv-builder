@@ -14,7 +14,9 @@ The earlier [`opportunity_canonical_v5.sql`](opportunity_canonical_v5.sql) conve
 
 Apply [`application_removal_review.sql`](application_removal_review.sql) before rolling out the delete-only application action. Removal preserves the opportunity's review state, rating, reasons and evaluation; it remains owner-scoped and safe to retry.
 
-Then apply [`opportunity_evaluation.sql`](opportunity_evaluation.sql) before rolling out the single-field evaluation editor. It merges existing comment/summary text once without truncation, removes the second backing field and approval APIs, and keeps the complete evaluation in `comment` with a server-maintained `evaluation_revision`. Search excerpts are derived from that value under the existing consent and exclusion rules. The limit is 12,000 Unicode codepoints; pending browser drafts migrate once into the current recovery key.
+Then apply [`opportunity_evaluation.sql`](opportunity_evaluation.sql) before rolling out the single-field evaluation editor. It merges existing comment/summary text once without truncation, removes the second backing field and approval APIs, and keeps the complete evaluation in `comment` with a server-maintained `evaluation_revision`. Search excerpts are derived from that value under the current exclusion and content-safety rules. The limit is 12,000 Unicode codepoints; pending browser drafts migrate once into the current recovery key.
+
+Apply [`opportunity_feedback_defaults.sql`](opportunity_feedback_defaults.sql) after the evaluation upgrade. It includes feedback by default, with one per-opportunity exclusion control, and removes the retired search-level sharing setting, consent metadata and APIs. It preserves saved reviews and independent adaptation, pause, source-reuse and runner controls.
 
 These upgrades were installed in **phd-workflow** on **2026-10-30**:
 
@@ -23,16 +25,19 @@ These upgrades were installed in **phd-workflow** on **2026-10-30**:
 | Preserve reviews on application removal | `20261030102407` (`application_removal_preserve_review`) |
 | Canonical description and schema 6 | `20261030112942` (`opportunity_description_v6`) |
 | One evaluation backing field | `20261030120800` (`opportunity_evaluation`) |
+| Default feedback with opportunity exclusion | `20261030141421` (`opportunity_feedback_defaults`) |
 
 Production verification found 199 valid schema-6 opportunities, no missing migrated reasons/features, and unchanged workflow state for all 31 applications. All 195 evaluations exactly match the expected lossless merge; review states, ratings, revisions and unrelated fields are unchanged. The deployed storage and intake schemas exactly match the current frontend, and authenticated owner readiness passes.
 
-The connector received the two larger original SQL files in postgres-only staging parts. Both original-source and executed-body SHA-256 checks passed before each atomic application; the staging table was removed on success. Do not replay these installed one-time migrations.
+The connector received the schema, evaluation and feedback-default upgrades in postgres-only staging parts. Both original-source and executed-body SHA-256 checks passed before each atomic application; the staging tables were removed on success. Do not replay these installed one-time migrations.
+
+The feedback-default cutover removed all three retired settings columns, both consent RPCs and every current function reference to the old contract. Its transaction guards verified unchanged reviews, applications and independent control state. The application checksum still matches all 31 existing records. Security advisors introduced no new findings.
 
 ## Adaptive search release (AF-01–AF-11)
 
 The adaptive feedback system is prepared as additive, owner-scoped upgrades. It has **not been deployed or scheduled** by this implementation. Use the [release guide](../docs/adaptive-search-release.md) and [ordered SHA-256 manifest](adaptive-search-release.json) for prerequisites, verification, privacy cleanup and feature rollback.
 
-Existing canonical v5 workspaces apply only the manifest's `existing_workspace_upgrade` files after prerequisite review. Do not replay `schema.sql`, historical bootstrap, v4/v5 conversion or catalogue backfills. The pinned bootstrap under `test/` is a local synthetic-fixture prerequisite, not a production upgrade. Release enablement, owner authorization, feedback sharing, adaptation and source reuse start off; task mode changes only after an explicit real task-tool acknowledgement.
+Existing canonical v5 workspaces apply only the manifest's `existing_workspace_upgrade` files after prerequisite review. Do not replay `schema.sql`, historical bootstrap, v4/v5 conversion or catalogue backfills. The pinned bootstrap under `test/` is a local synthetic-fixture prerequisite, not a production upgrade. Release enablement, owner runner authorization, adaptation and source reuse start off; eligible feedback is included unless its opportunity is excluded; task mode changes only after an explicit real task-tool acknowledgement.
 
 Run `npm run adaptive:release:check` for source verification and `npm run test:adaptive-search-release` for the labelled, network-disabled PostgreSQL 17 fixture. The integration gate checks original-column preservation, invoker/RLS boundaries, revocation/deletion, old/new callers and the three-call / `2 + B` workflow. Real deployment and an unattended scheduled smoke test require separate authorization.
 
