@@ -12,6 +12,8 @@ The current catalogue uses [canonical schema 6](opportunity_schema_v6.json) and 
 
 The earlier [`opportunity_canonical_v5.sql`](opportunity_canonical_v5.sql) conversion remains an installation prerequisite and historical test fixture. Do not replay historical conversions over the current catalogue.
 
+Apply [`application_removal_review.sql`](application_removal_review.sql) before rolling out the delete-only application action. Removal preserves the opportunity's review state, rating, reasons and evaluation; it remains owner-scoped and safe to retry.
+
 ## Adaptive search release (AF-01–AF-11)
 
 The adaptive feedback system is prepared as additive, owner-scoped upgrades. It has **not been deployed or scheduled** by this implementation. Use the [release guide](../docs/adaptive-search-release.md) and [ordered SHA-256 manifest](adaptive-search-release.json) for prerequisites, verification, privacy cleanup and feature rollback.

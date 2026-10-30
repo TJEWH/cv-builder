@@ -44,7 +44,7 @@
   "local_prerequisites_only": [
     {
       "path": "supabase/schema.sql",
-      "sha256": "0119f3831f45666c00bf2c7895247239ea1a31bf57992b8de323c9187e329b2e",
+      "sha256": "da6b062cfc70866cc7cc07909b0d92d978b472346803ce4878a21ca8299a39c8",
       "stage": "fresh_schema",
       "replay_on_existing_workspace": false
     },
@@ -225,6 +225,12 @@
     {
       "path": "supabase/opportunity_description.sql",
       "sha256": "88cc44125a6764b56415d79ddb8944c792f98aeee5c70930af120759c29c0494",
+      "migration_only": true,
+      "scheduler_operations": false
+    },
+    {
+      "path": "supabase/application_removal_review.sql",
+      "sha256": "1125927bef7e347da915926a1059c18fa41a1c8ce6cf27cbdeb58e96893976e7",
       "migration_only": true,
       "scheduler_operations": false
     }

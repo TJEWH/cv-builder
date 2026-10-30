@@ -513,16 +513,11 @@ create function public.remove_job_application(p_application_id uuid)
 returns uuid language plpgsql security invoker set search_path = '' as $$
 declare
   actor uuid := auth.uid();
-  removed_opportunity uuid;
 begin
   if actor is null or coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) then
     raise exception 'A signed-in account is required' using errcode = '42501';
   end if;
-  delete from public.applications where id = p_application_id and user_id = actor
-    returning opportunity_id into removed_opportunity;
-  -- Bring it back to the default opportunity review list, preserving other interest choices and receipts.
-  update public.opportunity_reviews set state = 'unreviewed'
-    where user_id = actor and opportunity_id = removed_opportunity and state = 'not_interested';
+  delete from public.applications where id = p_application_id and user_id = actor;
   -- A lost response can safely be retried. No data is returned about another user's application.
   return p_application_id;
 end;

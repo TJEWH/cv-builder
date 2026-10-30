@@ -788,7 +788,7 @@ test('checklist mutations save only one task and retain owned application contex
   scope.stop();
 });
 
-test('removal returns the opportunity to the review list only after confirmed success and keeps CV snapshots', async () => {
+test('removal changes only the confirmed application and keeps its review and CV snapshots', async () => {
   let fail = true;
   const { client, queries } = fakeClient((query) => query.operation === 'rpc'
     ? fail ? { data: null, error: { message: 'Offline' } } : { data: query.payload?.p_application_id, error: null }
@@ -798,51 +798,73 @@ test('removal returns the opportunity to the review list only after confirmed su
   const scope = effectScope();
   const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
   await settleUntil(() => !workspace.loading.value);
+  const cachedReviews = workspace.reviews.value;
+  const cachedCvs = workspace.cvVariants.value;
   assert.equal(await workspace.removeApplication('application-1'), null);
   assert.equal(workspace.applications.value.length, 2);
   assert.equal(workspace.reviews.value[0].state, 'not_interested');
   fail = false;
   assert.equal(await workspace.removeApplication('application-1'), 'application-1');
   assert.deepEqual(workspace.applications.value.map(({ id }) => id), ['other']);
-  assert.equal(workspace.reviews.value[0].state, 'unreviewed');
+  assert.strictEqual(workspace.reviews.value, cachedReviews);
+  assert.equal(workspace.reviews.value[0].state, 'not_interested');
+  assert.strictEqual(workspace.cvVariants.value, cachedCvs);
   assert.equal(workspace.cvVariants.value.length, 1);
   assert.deepEqual(queries.filter(({ operation }) => operation === 'rpc').map(({ table, payload }) => ({ table, payload })),
     Array.from({ length: 2 }, () => ({ table: 'remove_job_application', payload: { p_application_id: 'application-1' } })));
   scope.stop();
 });
 
-test('AF-01 removal uses the server feedback revision and does not report failed deletion when feedback refresh fails', async () => {
-  for (const failRead of [false, true]) {
-    const previous: OpportunityReview = { ...review('opportunity-1', 'not_interested'), interest_rating: 0,
-      feedback_revision: 3, feedback_updated_at: '2026-09-19T16:00:00Z', prediction_baseline: null };
-    const saved: OpportunityReview = { ...previous, state: 'unreviewed', feedback_revision: 4,
-      feedback_updated_at: '2026-09-20T16:00:00Z' };
-    let removed = false;
+test('removal preserves every cached evaluation field and never rereads feedback, including zero interest', async () => {
+  for (const state of ['not_interested', 'unreviewed', 'interested', 'strong_interest'] as const) {
+    const previous: OpportunityReview = { ...review('opportunity-1', state), interest_rating: 0,
+      comment: 'Keep my complete private evaluation.', interest_reasons: [{ category: 'topic', polarity: 'negative', target: 'Robotics' }],
+      feedback_excluded: true, feedback_revision: 3, feedback_updated_at: '2026-09-19T16:00:00Z',
+      manually_archived: true, technical_issue_category: 'requirements', technical_issue_note: 'Keep my eligibility note.',
+      prediction_baseline: { user_id: 'account-a', opportunity_id: 'opportunity-1', score: 8, scale_min: 0, scale_max: 10,
+        predicted_at: '2026-09-18T16:00:00Z', source_kind: 'discovery_assessment', source_ref: 'Original verified assessment' },
+      evaluation_revision: 2, reviewed_updated_at: '2026-09-18T16:00:00Z' };
     const { client, queries } = fakeClient(query => {
-      if (query.operation === 'rpc') { removed = true; return { data: query.payload?.p_application_id, error: null }; }
-      if (query.table === 'opportunity_reviews' && query.single) return failRead
-        ? { data: null, error: { message: 'Offline after removal' } } : { data: saved, error: null };
-      return { data: query.table === 'applications' ? removed ? [] : [application()]
-        : query.table === 'opportunity_reviews' ? [removed ? saved : previous] : [], error: null };
+      if (query.operation === 'rpc') return { data: query.payload?.p_application_id, error: null };
+      return { data: query.table === 'applications' ? [application()]
+        : query.table === 'opportunity_reviews' ? [previous] : [], error: null };
     });
     const scope = effectScope();
     const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
     await settleUntil(() => !workspace.loading.value);
+    const cachedReviews = workspace.reviews.value;
+    const cachedReview = workspace.reviews.value[0];
+    const readsBeforeRemoval = queries.filter(query => query.operation === 'select').length;
     assert.equal(await workspace.removeApplication('application-1'), 'application-1');
     assert.deepEqual(workspace.applications.value, []);
-    if (failRead) {
-      assert.deepEqual(workspace.reviews.value, [], 'withhold the stale feedback until a successful refresh');
-      assert.match(workspace.error.value, /Application removed.*Refresh/);
-      await workspace.refresh();
-    }
-    assert.deepEqual(workspace.reviews.value, [saved]);
-    assert.deepEqual(queries.find(query => query.table === 'opportunity_reviews' && query.single)?.filters,
-      { user_id: 'account-a', opportunity_id: 'opportunity-1' });
+    assert.strictEqual(workspace.reviews.value, cachedReviews);
+    assert.strictEqual(workspace.reviews.value[0], cachedReview);
+    assert.deepEqual(workspace.reviews.value, [previous]);
+    assert.equal(workspace.error.value, '');
+    assert.equal(queries.filter(query => query.operation === 'select').length, readsBeforeRemoval);
     scope.stop();
   }
 });
 
-test('AF-01 removal never follows an old response with a feedback read under the next account', async () => {
+test('unconfirmed or unavailable application removal preserves all cached records', async () => {
+  const { client, queries } = fakeClient(query => query.operation === 'rpc' ? { data: 'different-application', error: null }
+    : { data: query.table === 'applications' ? [application()]
+      : query.table === 'opportunity_reviews' ? [review('opportunity-1', 'not_interested')] : [], error: null });
+  const scope = effectScope();
+  const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
+  await settleUntil(() => !workspace.loading.value);
+  const cachedApplications = workspace.applications.value, cachedReviews = workspace.reviews.value;
+  assert.equal(await workspace.removeApplication('missing-application'), null);
+  assert.equal(queries.some(query => query.operation === 'rpc'), false);
+  assert.match(workspace.error.value, /Refresh to load/);
+  assert.equal(await workspace.removeApplication('application-1'), null);
+  assert.match(workspace.error.value, /Removal could not be confirmed/);
+  assert.strictEqual(workspace.applications.value, cachedApplications);
+  assert.strictEqual(workspace.reviews.value, cachedReviews);
+  scope.stop();
+});
+
+test('removal never follows an old response with a feedback read under the next account', async () => {
   const writing = deferred<Result>();
   const { client, queries } = fakeClient(query => query.operation === 'rpc' ? writing.promise : {
     data: query.table === 'applications' ? [{ ...application(), user_id: String(query.filters.user_id) }]
