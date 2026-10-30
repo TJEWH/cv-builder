@@ -129,21 +129,23 @@ const ContextValue = defineComponent({
       if (!valueProps.table) return renderValue(valueProps.node);
       const rows = requirementTableRows(valueProps.node);
       const canonical = rows.some(row => row.kind === 'requirement' || row.kind === 'prose');
-      if (canonical) return h('table', { class: 'opportunity-context__requirements-table opportunity-context__requirements-table--canonical', 'aria-label': valueProps.node.label, role: 'table', lang: props.lang }, [
+      const stageLabel = (row: OpportunityContextNode) => row.requirementStage || (props.lang === 'de' ? 'Nicht angegeben' : 'Not specified');
+      const showStage = new Set(rows.filter(row => row.kind === 'requirement').map(stageLabel)).size > 1;
+      if (canonical) return h('table', { class: `opportunity-context__requirements-table opportunity-context__requirements-table--canonical${showStage ? ' opportunity-context__requirements-table--stages' : ''}`, 'aria-label': valueProps.node.label, role: 'table', lang: props.lang }, [
         h('thead', { role: 'rowgroup' }, [h('tr', { role: 'row' }, [
           h('th', { id: `${inputPrefix}-item`, scope: 'col', role: 'columnheader' }, props.lang === 'de' ? 'Eintrag' : 'Item'),
           h('th', { id: `${inputPrefix}-status`, scope: 'col', role: 'columnheader', class: 'opportunity-context__requirement-status' }, 'Status'),
-          h('th', { id: `${inputPrefix}-stage`, scope: 'col', role: 'columnheader', class: 'opportunity-context__requirement-stage' }, props.lang === 'de' ? 'Phase' : 'Stage'),
+          showStage ? h('th', { id: `${inputPrefix}-stage`, scope: 'col', role: 'columnheader', class: 'opportunity-context__requirement-stage' }, props.lang === 'de' ? 'Phase' : 'Stage') : null,
         ])]),
         h('tbody', { role: 'rowgroup' }, rows.map(row => row.kind === 'prose'
-          ? h('tr', { key: row.id, role: 'row' }, [h('td', { colspan: 3, role: 'cell' }, [h('strong', row.label ?? ''), renderValue({ ...row, label: null }, false)])])
+          ? h('tr', { key: row.id, role: 'row' }, [h('td', { colspan: showStage ? 3 : 2, role: 'cell' }, [h('strong', row.label ?? ''), renderValue({ ...row, label: null }, false)])])
           : h('tr', { key: row.id, role: 'row' }, [
             h('td', { role: 'cell', headers: `${inputPrefix}-item` }, [
               h('div', { class: 'opportunity-context__requirement-heading' }, [renderValue({ ...row, text: undefined, children: undefined, evidence: undefined }, true, undefined, true), renderEvidence(row)]),
               row.children?.length ? h('div', { class: 'opportunity-context__requirement-details' }, [renderValue({ id: `${row.id}.details`, label: null, children: row.children }, false)]) : null,
             ]),
             h('td', { role: 'cell', headers: `${inputPrefix}-status`, class: 'opportunity-context__requirement-status', 'data-label': 'Status' }, requirementStatusLabel(row.requirementStatus)),
-            h('td', { role: 'cell', headers: `${inputPrefix}-stage`, class: 'opportunity-context__requirement-stage', 'data-label': props.lang === 'de' ? 'Phase' : 'Stage' }, row.requirementStage || (props.lang === 'de' ? 'Nicht angegeben' : 'Not specified')),
+            showStage ? h('td', { role: 'cell', headers: `${inputPrefix}-stage`, class: 'opportunity-context__requirement-stage', 'data-label': props.lang === 'de' ? 'Phase' : 'Stage' }, stageLabel(row)) : null,
           ]))),
       ]);
       return h('table', { class: 'opportunity-context__requirements-table', 'aria-label': valueProps.node.label }, [
@@ -213,8 +215,8 @@ const ContextValue = defineComponent({
 .opportunity-context :deep(.opportunity-context__requirements-table th:first-child),
 .opportunity-context :deep(.opportunity-context__requirements-table td:first-child) { padding-left: 0; }
 .opportunity-context :deep(.opportunity-context__requirements-table .opportunity-context__requirement-status) { width: 28%; padding-right: 0; }
-.opportunity-context :deep(.opportunity-context__requirements-table--canonical .opportunity-context__requirement-status),
-.opportunity-context :deep(.opportunity-context__requirements-table--canonical .opportunity-context__requirement-stage) { width: 20%; }
+.opportunity-context :deep(.opportunity-context__requirements-table--stages .opportunity-context__requirement-status),
+.opportunity-context :deep(.opportunity-context__requirements-table--stages .opportunity-context__requirement-stage) { width: 20%; }
 .opportunity-context :deep(.opportunity-context__requirement-details) { margin-top: 6px; }
 .opportunity-context :deep(.opportunity-context__source-links) { display: inline-flex; flex-wrap: wrap; gap: 2px; max-width: 100%; margin-inline-start: 4px; vertical-align: middle; }
 .opportunity-context :deep(.opportunity-context__source-link) { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; min-height: 28px; border-radius: 4px; font-size: 13px; line-height: 1; text-decoration: none; }
@@ -264,6 +266,7 @@ const ContextValue = defineComponent({
   .opportunity-context :deep(.opportunity-context__requirements-table--canonical tbody tr:last-child) { border-bottom: 0; }
   .opportunity-context :deep(.opportunity-context__requirements-table--canonical td) { display: block; min-width: 0; border: 0; }
   .opportunity-context :deep(.opportunity-context__requirements-table--canonical td:first-child) { grid-column: 1 / -1; padding: 0; }
+  .opportunity-context :deep(.opportunity-context__requirements-table--canonical:not(.opportunity-context__requirements-table--stages) .opportunity-context__requirement-status) { grid-column: 1 / -1; }
   .opportunity-context :deep(.opportunity-context__requirements-table--canonical td[data-label]::before) { content: attr(data-label); display: block; color: #abc9bb; font-size: 12px; line-height: 1.5; margin-bottom: 2px; }
   .opportunity-context :deep(.opportunity-context__source-link) { min-width: 44px; min-height: 44px; font-size: 15px; }
   .opportunity-context :deep(.opportunity-context__checklist-item > input[type=checkbox]) { flex-basis: 20px; width: 20px; height: 20px; margin-top: 3px; }
