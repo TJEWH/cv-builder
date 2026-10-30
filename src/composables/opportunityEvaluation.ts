@@ -1,37 +1,36 @@
-/**
- * Read the existing evaluation and feedback draft as one lossless editor value.
- * This projection never saves or approves either source; commits own persistence.
+export const MAX_OPPORTUNITY_EVALUATION_LENGTH = 12000;
+
+type EvaluationDraftStorage = Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem' | 'removeItem'>;
+
+/** Move the retired browser editor's recovery keys once, before publishing workspace rows.
+ * Use the migrated saved evaluation only when no newer local evaluation draft exists.
+ * Keep either key on storage failure or a concurrent edit instead of losing a draft.
  */
-export function mergeOpportunityEvaluation(comment?: string | null, summary?: string | null): string {
-  const evaluation = comment ?? '', feedback = summary ?? '';
-  if (evaluation.includes(feedback)) return evaluation;
-  if (feedback.includes(evaluation)) return feedback;
-  return `${evaluation}\n\n${feedback}`;
-}
-
-type EvaluationDraftStorage = Pick<Storage, 'getItem' | 'removeItem'>;
-const legacyDraftKey = (owner: string, id: string) => `CV_SEARCH_FEEDBACK_SUMMARY_DRAFT:${encodeURIComponent(owner)}:${encodeURIComponent(id)}`;
-function draftStorage(storage?: EvaluationDraftStorage | null): EvaluationDraftStorage | null {
-  try { return storage === undefined ? globalThis.localStorage ?? null : storage; } catch { return null; }
-}
-
-/** Read only the old editor's bounded owner/opportunity recovery key. */
-export function readLegacyOpportunityFeedbackDraft(owner: string, id: string, storage?: EvaluationDraftStorage | null): string | undefined {
+export function migrateOpportunityEvaluationDrafts(owner: string, reviews: readonly Record<string, unknown>[], storage?: EvaluationDraftStorage | null): void {
+  if (!owner) return;
   try {
-    const parsed: unknown = JSON.parse(draftStorage(storage)?.getItem(legacyDraftKey(owner, id)) ?? 'null');
-    if (!parsed || typeof parsed !== 'object' || !('value' in parsed) || typeof parsed.value !== 'string'
-      || Array.from(parsed.value).length > 600) return undefined;
-    return parsed.value;
-  } catch { return undefined; }
-}
-
-/** A successful unified commit clears only the legacy version it incorporated. */
-export function clearLegacyOpportunityFeedbackDraft(owner: string, id: string, expected: string | undefined, storage?: EvaluationDraftStorage | null): boolean {
-  if (expected === undefined) return false;
-  try {
-    const target = draftStorage(storage);
-    if (!target || readLegacyOpportunityFeedbackDraft(owner, id, target) !== expected) return false;
-    target.removeItem(legacyDraftKey(owner, id));
-    return true;
-  } catch { return false; }
+    const target = storage === undefined ? globalThis.localStorage : storage;
+    if (!target) return;
+    const saved = new Map(reviews.flatMap(review => review.user_id === owner && typeof review.opportunity_id === 'string'
+      ? [[review.opportunity_id, typeof review.comment === 'string' ? review.comment : ''] as const] : []));
+    const prefix = `CV_SEARCH_FEEDBACK_SUMMARY_DRAFT:${encodeURIComponent(owner)}:`;
+    const keys = Array.from({ length: target.length }, (_, index) => target.key(index)).filter((key): key is string => !!key?.startsWith(prefix));
+    for (const key of keys) {
+      try {
+        const original = target.getItem(key), parsed: unknown = JSON.parse(original ?? 'null');
+        if (!parsed || typeof parsed !== 'object' || !('value' in parsed) || typeof parsed.value !== 'string'
+          || Array.from(parsed.value).length > 600) continue;
+        const id = key.slice(prefix.length);
+        if (!id) continue;
+        const currentKey = `CV_OPPORTUNITY_COMMENT_DRAFT:${encodeURIComponent(owner)}:${id}`;
+        const currentRaw = target.getItem(currentKey), current: unknown = JSON.parse(currentRaw ?? 'null');
+        if (currentRaw !== null && (!current || typeof current !== 'object' || !('value' in current) || typeof current.value !== 'string')) continue;
+        const draft = current && typeof current === 'object' && 'value' in current ? String(current.value) : saved.get(decodeURIComponent(id)) ?? '';
+        const value = draft.includes(parsed.value) ? draft : parsed.value.includes(draft) ? parsed.value : `${draft}\n\n${parsed.value}`;
+        if (target.getItem(currentKey) !== currentRaw || target.getItem(key) !== original) continue;
+        target.setItem(currentKey, JSON.stringify({ value }));
+        if (target.getItem(currentKey) === JSON.stringify({ value }) && target.getItem(key) === original) target.removeItem(key);
+      } catch { /* Preserve source keys when browser recovery storage is unavailable. */ }
+    }
+  } catch { /* Cloud evaluation saving remains available without browser storage. */ }
 }

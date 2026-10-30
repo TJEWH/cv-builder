@@ -14,8 +14,7 @@ export interface ApprovedAdaptivePreference {
   polarity: OpportunityInterestReason['polarity'];
   target: string;
 }
-export interface AdaptiveSummaryApproval { summary_hash: string; source_hash: string; summary_revision: number; approved_at: string }
-export type AdaptiveFeedbackExample = SafeOpportunityFeedbackExample & { summary_approval?: AdaptiveSummaryApproval };
+export type AdaptiveFeedbackExample = SafeOpportunityFeedbackExample;
 export interface AdaptiveFeedbackGroup {
   kind: 'topic' | 'institution' | OpportunityInterestReason['category'];
   key: string;
@@ -58,7 +57,6 @@ export interface CompileAdaptiveFeedbackInput {
 }
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
-const digest = /^[0-9a-f]{64}$/u;
 const revision = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const timestamp = (value: unknown): string | null => typeof value === 'string' && opportunityFeedbackTimestamp(value) !== null ? value : null;
@@ -155,19 +153,11 @@ async function safeExample(value: unknown, owner: string, search: string): Promi
     && Math.abs(result.interest_score - prediction.score - value.interest_gap) < 1e-12) {
     result.original_prediction = prediction; result.baseline_status = 'available'; result.interest_gap = value.interest_gap;
   }
-  const summary = value.search_feedback_summary, approval = value.summary_approval;
+  const summary = value.search_feedback_summary;
   const inclusion = validateAdaptiveSummaryInclusion(value.summary_inclusion);
   if (opportunityFeedbackTextIsSafe(summary) && inclusion && Array.from(summary).length === Math.min(600,inclusion.source_length)
     && await opportunityFeedbackTextHash(summary) === inclusion.summary_hash) {
     result.search_feedback_summary = summary; result.summary_inclusion = inclusion;
-  } else if (opportunityFeedbackTextIsSafe(summary) && record(approval) && typeof approval.summary_hash === 'string' && digest.test(approval.summary_hash)
-    && typeof approval.source_hash === 'string' && digest.test(approval.source_hash) && revision(approval.summary_revision) && timestamp(approval.approved_at)) {
-    const proof: AdaptiveSummaryApproval = { summary_hash: approval.summary_hash, source_hash: approval.source_hash,
-      summary_revision: approval.summary_revision, approved_at: approval.approved_at as string };
-    if (await opportunityFeedbackTextHash(summary) === proof.summary_hash) {
-      result.search_feedback_summary = summary;
-      result.summary_approval = proof;
-    }
   }
   // A view-only unreviewed row is not a preference observation or a sampling candidate.
   if (value.manually_archived === true) result.manually_archived = true;

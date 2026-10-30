@@ -60,7 +60,7 @@ try {
     }, { field, value });
     assert.equal(await page.locator('.feedback-controls textarea').count(), 1, 'Evaluation and feedback must share one editor');
     assert.equal(await summary.inputValue(), 'Prefer hands-on acoustic prototypes.\n\nConsider adjacent research involving robotics.');
-    assert.match(await events.innerText(), /Evaluation saves: 0; Summary saves: 0; approvals: 0/);
+    assert.match(await events.innerText(), /Evaluation saves: 0; structured changes: 0/);
     assert.match(await events.innerText(), /sharing: false/);
     assert.equal((await snapshot()).review.interest_rating, null, 'Opening must not manufacture a rating');
     assert.equal(await page.getByRole('button', { name: /Approve for search feedback|Revoke sharing/ }).count(), 0);
@@ -68,7 +68,7 @@ try {
     await disclosureSummary.click();
     assert.equal(await rating.isVisible(), false); assert.equal(await summary.isVisible(), false);
     await disclosureSummary.click();
-    assert.match(await events.innerText(), /Evaluation saves: 0; Summary saves: 0; approvals: 0/);
+    assert.match(await events.innerText(), /Evaluation saves: 0; structured changes: 0/);
 
     await summary.fill('Prefer physical sensing prototypes.');
     await summary.press('Shift+Enter');
@@ -78,8 +78,8 @@ try {
     await summary.dispatchEvent('compositionend');
     await summary.fill('Prefer physical sensing prototypes.'); await summary.press('Tab');
     await waitForReview('comment', 'Prefer physical sensing prototypes.');
-    assert.equal((await snapshot()).review.search_feedback_summary, 'Prefer physical sensing prototypes.');
-    assert.equal((await snapshot()).approvals, 0, 'Saving must not call a retired approval workflow');
+    assert.equal((await snapshot()).evaluationSaves, 1, 'One evaluation commit makes one persistence call');
+    assert.equal('search_feedback_summary' in (await snapshot()).review, false);
     await page.getByRole('button', { name: 'Use structured feedback for this search', exact: true }).click();
     await page.waitForFunction(() => window.opportunityFeedbackFixture.snapshot().sharing);
     await assertSummaryInfo('Included in search feedback');
@@ -97,7 +97,7 @@ try {
     assert(longEvaluation.length > 600);
     await summary.fill(longEvaluation); await summary.press('Enter'); await waitForReview('comment', longEvaluation);
     assert.equal(await summary.inputValue(), longEvaluation, 'The full evaluation must not be truncated');
-    assert.equal((await snapshot()).review.search_feedback_summary, Array.from(longEvaluation).slice(0,600).join(''));
+    assert.equal('search_feedback_summary' in (await snapshot()).review, false, 'The excerpt is derived only for display and packets');
     const excerpt = page.locator('.feedback-excerpt');
     await excerpt.locator('summary').click();
     assert.equal(await excerpt.locator('p').innerText(), Array.from(longEvaluation).slice(0,600).join(''));
@@ -170,7 +170,6 @@ try {
     await page.getByRole('slider', { name: 'Eigene Interessensbewertung (0–10)', exact: true }).waitFor();
     assert.equal(await page.getByRole('textbox', { name: 'Persönliche Einschätzung', exact: true }).count(), 1);
     await page.getByRole('button', { name: 'English / Deutsch', exact: true }).click();
-    assert.equal((await snapshot()).approvals, 0); assert.equal((await snapshot()).revocations, 0);
 
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, `${name} must not overflow horizontally`);
     assert.deepEqual(errors, [], `${name} browser errors`);
@@ -187,12 +186,18 @@ try {
   await legacyPage.goto(legacyUrl.href, { waitUntil: 'networkidle' });
   const preserved = legacyPage.getByRole('textbox', { name: 'Personal evaluation', exact: true });
   assert.equal(await preserved.inputValue(), `${'E'.repeat(5000)}\n\n${'F'.repeat(600)}`, 'Both maximum-length legacy texts must remain intact');
-  assert.equal(await preserved.getAttribute('maxlength'), '5602');
+  assert.equal(await preserved.getAttribute('maxlength'), null, 'Native UTF-16 limits must not reject valid Unicode evaluations');
   assert.equal(await legacyPage.getByRole('button', { name: /Approve for search feedback|Revoke sharing/ }).count(), 0);
   const legacyExcerpt = legacyPage.locator('.feedback-excerpt'); await legacyExcerpt.locator('summary').click();
   assert.equal(await legacyExcerpt.locator('p').innerText(), 'E'.repeat(600));
-  assert.match(await legacyPage.getByTestId('fixture-events').innerText(), /Evaluation saves: 0; Summary saves: 0; approvals: 0/);
-  results.push({ name: 'oversized legacy preservation', result: 'passed', characters: 5602 });
+  assert.match(await legacyPage.getByTestId('fixture-events').innerText(), /Evaluation saves: 0; structured changes: 0/);
+  await preserved.fill('🧪'.repeat(12000)); await preserved.press('Enter');
+  await legacyPage.waitForFunction(() => window.opportunityFeedbackFixture.snapshot().evaluationStatus === 'saved');
+  assert.equal((await legacyPage.evaluate(() => window.opportunityFeedbackFixture.snapshot())).review.comment, '🧪'.repeat(12000));
+  await preserved.fill('🧪'.repeat(12001)); await preserved.press('Enter');
+  await legacyPage.getByRole('button', { name: 'Retry save', exact: true }).waitFor();
+  assert.equal(await preserved.inputValue(), '🧪'.repeat(12001), 'An oversized failed draft remains editable');
+  results.push({ name: 'migrated evaluation and Unicode limit', result: 'passed', characters: 12000 });
   await legacyContext.close();
 } finally { await browser.close(); }
 console.log(JSON.stringify(results, null, 2));

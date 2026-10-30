@@ -7,21 +7,13 @@ import { deriveOpportunityFeedback, normalizeOpportunityInterestReasons, parseOp
 import { commitPendingTextareas } from '../composables/textareaCommit';
 import { useToastWatch } from '../composables/useToasts';
 import { opportunityFeedbackTextIsSafe } from '../composables/opportunityFeedbackPrivacy';
+import { MAX_OPPORTUNITY_EVALUATION_LENGTH } from '../composables/opportunityEvaluation';
 
 interface FeedbackPatch { interest_rating?: number | null; interest_reasons?: OpportunityInterestReason[]; feedback_excluded?: boolean }
-type SharingReview = OpportunityReview & {
-  search_feedback_summary?: string | null;
-  search_feedback_revision?: number;
-  search_feedback_summary_hash?: string;
-  search_feedback_source_hash?: string;
-  search_feedback_approved_at?: string | null;
-  search_feedback_approved_summary_hash?: string | null;
-  search_feedback_approved_source_hash?: string | null;
-};
 const props = withDefaults(defineProps<{
   ownerId: string;
   opportunity: Opportunity;
-  review?: SharingReview | null;
+  review?: OpportunityReview | null;
   application?: OpportunitySubmissionEvidence | null;
   structuredSharingEnabled?: boolean;
   searchAvailable?: boolean;
@@ -33,9 +25,6 @@ const props = withDefaults(defineProps<{
   evaluationInputId?: string;
   evaluationLabelledby?: string;
   saveFeedback(id: string, patch: FeedbackPatch): Promise<OpportunityReview | null>;
-  saveSummary(id: string, text: string): Promise<OpportunityReview | null>;
-  approveSummary(id: string, summaryHash: string, sourceHash: string, summaryRevision: number): Promise<OpportunityReview | null>;
-  revokeSummary(id: string): Promise<OpportunityReview | null>;
   setStructuredSharing(enabled: boolean): Promise<boolean>;
   flushPrivateComment: () => Promise<boolean>;
 }>(), { review: null, application: null, structuredSharingEnabled: false, searchAvailable: false, busy: false, lang: 'en' });
@@ -149,8 +138,9 @@ const summaryDraft = computed({
 });
 const summaryError = computed(() => props.evaluationError ?? '');
 const summaryLength = computed(() => Array.from(summaryDraft.value).length);
+const summaryInvalid = computed(() => Boolean(summaryError.value) || summaryLength.value > MAX_OPPORTUNITY_EVALUATION_LENGTH);
 const summaryExcerpt = computed(() => Array.from(summaryDraft.value).slice(0,600).join(''));
-const summaryEligible = computed(() => !currentReview.value?.feedback_excluded && opportunityFeedbackTextIsSafe(summaryDraft.value,12000) && opportunityFeedbackTextIsSafe(summaryExcerpt.value));
+const summaryEligible = computed(() => !currentReview.value?.feedback_excluded && opportunityFeedbackTextIsSafe(summaryDraft.value,MAX_OPPORTUNITY_EVALUATION_LENGTH) && opportunityFeedbackTextIsSafe(summaryExcerpt.value));
 const summaryIncluded = computed(() => props.structuredSharingEnabled && summaryEligible.value);
 const flushSummary = () => props.flushPrivateComment();
 async function flush(): Promise<boolean> {
@@ -170,8 +160,8 @@ defineExpose({ flush });
 <template>
   <section class="feedback-controls" :aria-label="text('Search feedback', 'Suchfeedback')">
     <div class="feedback-summary">
-      <div class="feedback-heading"><label :for="evaluationInputId || `${controlsId}-summary`">{{ text('Personal evaluation', 'Persönliche Einschätzung') }}</label><InfoHint :lang="lang" :label="text('Evaluation and search feedback', 'Einschätzung und Suchfeedback')" :text="text('Saved evaluation text is included in search feedback by default when structured feedback is enabled. The exclusion checkbox below applies to all feedback for this opportunity. Longer evaluations use a clearly labelled first-600-character excerpt; the full evaluation stays saved. Contact details, credentials and unsafe instructions are withheld.', 'Gespeicherte Einschätzungen werden bei aktiviertem strukturiertem Feedback standardmäßig einbezogen. Das Ausschlussfeld unten gilt für das gesamte Feedback dieser Stelle. Längere Einschätzungen verwenden einen gekennzeichneten Auszug der ersten 600 Zeichen; der vollständige Text bleibt gespeichert. Kontaktdaten, Zugangsdaten und unsichere Anweisungen werden zurückgehalten.')" /><span class="feedback-summary-count">{{ summaryLength }} {{ text('characters', 'Zeichen') }}</span></div>
-      <AutosaveTextarea :id="evaluationInputId || `${controlsId}-summary`" v-model="summaryDraft" :aria-labelledby="evaluationLabelledby" rows="3" :maxlength="Math.max(5000, summaryDraft.length)" :aria-invalid="summaryError ? true : undefined" @commit="flushSummary" />
+      <div class="feedback-heading"><label :for="evaluationInputId || `${controlsId}-summary`">{{ text('Personal evaluation', 'Persönliche Einschätzung') }}</label><InfoHint :lang="lang" :label="text('Evaluation and search feedback', 'Einschätzung und Suchfeedback')" :text="text('Saved evaluation text is included in search feedback by default when structured feedback is enabled. The exclusion checkbox below applies to all feedback for this opportunity. Longer evaluations use a clearly labelled first-600-character excerpt; the full evaluation stays saved. Contact details, credentials and unsafe instructions are withheld.', 'Gespeicherte Einschätzungen werden bei aktiviertem strukturiertem Feedback standardmäßig einbezogen. Das Ausschlussfeld unten gilt für das gesamte Feedback dieser Stelle. Längere Einschätzungen verwenden einen gekennzeichneten Auszug der ersten 600 Zeichen; der vollständige Text bleibt gespeichert. Kontaktdaten, Zugangsdaten und unsichere Anweisungen werden zurückgehalten.')" /><span class="feedback-summary-count">{{ summaryLength }} / {{ MAX_OPPORTUNITY_EVALUATION_LENGTH }} {{ text('characters', 'Zeichen') }}</span></div>
+      <AutosaveTextarea :id="evaluationInputId || `${controlsId}-summary`" v-model="summaryDraft" :aria-labelledby="evaluationLabelledby" rows="3" :aria-invalid="summaryInvalid || undefined" @commit="flushSummary" />
       <details v-if="summaryLength > 600 && summaryEligible" class="feedback-excerpt"><summary>{{ text('Search feedback excerpt — first 600 characters', 'Suchfeedback-Auszug — erste 600 Zeichen') }}</summary><p>{{ summaryExcerpt }}</p></details>
       <InfoHint :lang="lang" :label="text('Evaluation feedback inclusion', 'Einbeziehung der Einschätzung')" :text="currentReview?.feedback_excluded ? text('Excluded from search feedback', 'Vom Suchfeedback ausgeschlossen') : !summaryDraft.trim() ? text('No feedback text yet', 'Noch kein Feedbacktext') : !summaryEligible ? text('Text withheld by content safeguards', 'Text durch Inhaltsprüfung zurückgehalten') : summaryIncluded ? text('Included in search feedback', 'Im Suchfeedback enthalten') : text('Included when structured feedback is enabled', 'Bei aktiviertem strukturiertem Feedback enthalten')" />
       <button v-if="summaryError" class="btn" type="button" @click="flushSummary">{{ text('Retry save', 'Speichern erneut versuchen') }}</button>

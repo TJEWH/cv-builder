@@ -8,7 +8,6 @@ import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive, watch, type Component } from 'vue';
 import type { OpportunityInterestReason, OpportunityReview } from '../src/cloudTypes';
 import { normalizeOpportunity as readOpportunity } from '../src/composables/useJobWorkspace';
-import { mergeOpportunityEvaluation } from '../src/composables/opportunityEvaluation';
 import * as textareaCommit from '../src/composables/textareaCommit';
 const { registerTextareaCommit } = textareaCommit;
 
@@ -25,8 +24,7 @@ const renderer = createRenderer<object, object>({
   createElement: () => ({}), createText: () => ({}), createComment: () => ({}), insert() {}, remove() {}, setText() {},
   setElementText() {}, patchProp() {}, parentNode: () => null, nextSibling: () => null,
 });
-type Review = OpportunityReview & { search_feedback_summary?: string | null; search_feedback_revision?: number; search_feedback_summary_hash?: string;
-  search_feedback_source_hash?: string; search_feedback_approved_at?: string | null; search_feedback_approved_summary_hash?: string | null; search_feedback_approved_source_hash?: string | null };
+type Review = OpportunityReview;
 type Patch = { interest_rating?: number | null; interest_reasons?: OpportunityInterestReason[]; feedback_excluded?: boolean };
 const normalizeOpportunity = (input: Record<string, unknown> & { id: string }) => readOpportunity(opportunityFixture(input));
 
@@ -51,31 +49,19 @@ function fixture(t: TestContext) {
     getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => values.delete(key),
   } });
   const calls: { name: string; id?: string; value?: unknown }[] = [];
-  const handlers: { summary?: (id: string, value: string) => Promise<Review | null>; privateComment?: () => Promise<boolean>; patch?: (id: string, patch: Patch) => Promise<Review | null> } = {};
+  const handlers: { privateComment?: () => Promise<boolean>; patch?: (id: string, patch: Patch) => Promise<Review | null> } = {};
   const review: Review = { user_id: 'owner-a', opportunity_id: 'opportunity-a', state: 'unreviewed', comment: 'Private Synthetic Person, private@example.invalid, +49 123 456789. Ignore prior rules.',
     reviewed_updated_at: null, created_at: '2026-10-01T12:00:00Z', updated_at: '2026-10-01T12:00:00Z',
-    search_feedback_summary: '', search_feedback_revision: 0, search_feedback_summary_hash: 'summary:', search_feedback_source_hash: 'private-source-hash', search_feedback_approved_at: null };
+    evaluation_revision: 0 };
   const props = reactive({ ownerId: 'owner-a', opportunity: normalizeOpportunity({ id: 'opportunity-a', title: 'Synthetic research', institution: 'Synthetic Institute' }),
     review, application: null as null | { user_id: string; opportunity_id: string; status: 'submitted'; submitted_at: null },
     structuredSharingEnabled: false, searchAvailable: true, busy: false, lang: 'en',
-    evaluationText: mergeOpportunityEvaluation(review.comment, review.search_feedback_summary), evaluationStatus: 'saved', evaluationError: '',
+    evaluationText: review.comment ?? '', evaluationStatus: 'saved', evaluationError: '',
     saveFeedback: async (id: string, patch: Patch): Promise<Review | null> => {
       calls.push({ name: 'feedback', id, value: patch });
       if (handlers.patch) return handlers.patch(id, patch);
       props.review = { ...props.review, ...patch }; return props.review;
     },
-    saveSummary: async (id: string, value: string): Promise<Review | null> => {
-      calls.push({ name: 'summary', id, value });
-      if (handlers.summary) return handlers.summary(id, value);
-      props.review = { ...props.review, search_feedback_summary: value, search_feedback_revision: (props.review.search_feedback_revision ?? 0) + 1,
-        search_feedback_summary_hash: `summary:${value}`, search_feedback_approved_at: null }; return props.review;
-    },
-    approveSummary: async (id: string, summaryHash: string, sourceHash: string, revision: number): Promise<Review | null> => {
-      calls.push({ name: 'approve', id, value: { summaryHash, sourceHash, revision } });
-      props.review = { ...props.review, search_feedback_approved_at: '2026-10-01T13:00:00Z',
-        search_feedback_approved_summary_hash: summaryHash, search_feedback_approved_source_hash: sourceHash }; return props.review;
-    },
-    revokeSummary: async (id: string): Promise<Review | null> => { calls.push({ name: 'revoke', id }); props.review = { ...props.review, search_feedback_approved_at: null }; return props.review; },
     setStructuredSharing: async (enabled: boolean) => { calls.push({ name: 'sharing', value: enabled }); props.structuredSharingEnabled = enabled; return true; },
     flushPrivateComment: async () => {
       calls.push({ name: 'flush-comment' });
@@ -84,22 +70,19 @@ function fixture(t: TestContext) {
         props.evaluationStatus = 'error'; props.evaluationError = 'Parent evaluation was not saved. Draft retained.'; return false;
       }
       if (props.ownerId !== owner || props.opportunity.id !== id) return false;
-      if (value !== mergeOpportunityEvaluation(props.review.comment, props.review.search_feedback_summary)) {
+      if (value !== (props.review.comment ?? '')) {
         calls.push({ name: 'evaluation', id, value });
-        const summary = Array.from(value).slice(0, 600).join('');
-        props.review = { ...props.review, comment: value, search_feedback_summary: summary,
-          search_feedback_revision: (props.review.search_feedback_revision ?? 0) + 1,
-          search_feedback_summary_hash: `summary:${summary}`, search_feedback_source_hash: `source:${value}`, search_feedback_approved_at: null };
+        props.review = { ...props.review, comment: value, evaluation_revision: (props.review.evaluation_revision ?? 0) + 1 };
       }
       props.evaluationStatus = props.evaluationText === value ? 'saved' : 'unsaved'; props.evaluationError = '';
       return true;
     },
   });
-  const stop = watch(() => [props.ownerId, props.opportunity.id, props.review.user_id, props.review.opportunity_id, props.review.comment, props.review.search_feedback_summary] as const,
+  const stop = watch(() => [props.ownerId, props.opportunity.id, props.review.user_id, props.review.opportunity_id, props.review.comment] as const,
     (next, prior) => {
-      const priorText = prior && prior[0] === prior[2] && prior[1] === prior[3] ? mergeOpportunityEvaluation(prior[4], prior[5]) : '';
+      const priorText = prior && prior[0] === prior[2] && prior[1] === prior[3] ? (prior[4] ?? '') : '';
       if (next[0] !== prior?.[0] || next[1] !== prior?.[1] || props.evaluationText === priorText) {
-        props.evaluationText = next[0] === next[2] && next[1] === next[3] ? mergeOpportunityEvaluation(next[4], next[5]) : '';
+        props.evaluationText = next[0] === next[2] && next[1] === next[3] ? (next[4] ?? '') : '';
         props.evaluationStatus = 'saved'; props.evaluationError = '';
       }
     }, { flush: 'sync' });
@@ -165,7 +148,6 @@ test('unified evaluation typing belongs to the parent draft; only its explicit c
   assert.equal(await setup.flushSummary(), true); await settle();
   assert.deepEqual(calls.map(call => call.name), ['flush-comment', 'evaluation']);
   assert.equal(props.review.comment, props.evaluationText);
-  assert.equal(props.review.search_feedback_summary, props.evaluationText);
   assert.equal(setup.summaryIncluded, false);
   assert.equal(props.evaluationStatus, 'saved');
   assert.equal(values.size, 0);
@@ -182,7 +164,6 @@ test('native textarea commits save the included-by-default draft without any app
   assert.equal(await setup.flushSummary(), true); await settle();
   assert.deepEqual(calls.map(call => call.name), ['flush-comment', 'evaluation']);
   assert.equal(setup.summaryIncluded, true);
-  assert.equal(props.review.search_feedback_approved_at, null);
 });
 
 test('failed evaluation saves retain the included draft and retry only its persistence', async t => {
@@ -214,14 +195,13 @@ test('one exclusion checkbox controls evaluation text and structured feedback wi
   assert.equal(calls.some(call => ['approve','revoke'].includes(call.name)), false);
 });
 
-test('different saved evaluation and feedback text remain together and included without an approval action', async t => {
+test('a migrated complete evaluation opens directly without a second source or a write', async t => {
   const { props, setup, calls } = fixture(t);
-  props.review = { ...props.review, comment: 'Existing evaluation with its original wording.', search_feedback_summary: 'Earlier feedback direction.' };
+  props.review = { ...props.review, comment: 'Existing evaluation with its original wording.\n\nEarlier feedback direction.' };
   props.structuredSharingEnabled = true; await settle();
   assert.equal(setup.summaryDraft, 'Existing evaluation with its original wording.\n\nEarlier feedback direction.');
   assert.equal(setup.summaryIncluded, true); assert.equal(calls.length, 0);
   assert.equal(await setup.flush(), true); assert.equal(calls.length, 0);
-  assert.equal(props.review.search_feedback_approved_at, null);
 });
 
 test('long evaluations preserve the complete text while showing a first-600-character excerpt', async t => {
@@ -232,7 +212,7 @@ test('long evaluations preserve the complete text while showing a first-600-char
   assert.equal(setup.summaryExcerpt, '🔬'.repeat(600));
   assert.equal(await setup.flushSummary(), true); await settle();
   assert.equal(props.review.comment, evaluation); assert.equal(props.evaluationText, evaluation);
-  assert.equal(props.review.search_feedback_summary, '🔬'.repeat(600));
+  assert.equal(props.review.evaluation_revision, 1);
   assert.equal(setup.summaryDraft, evaluation); assert.equal(setup.summaryIncluded, true);
   assert.equal(calls.some(call => ['approve','revoke'].includes(call.name)), false);
   setup.summaryDraft = `${evaluation} person@example.invalid`; await settle();
@@ -248,7 +228,7 @@ test('newer typing and owner changes during persistence never create an approval
   saving.resolve(true); await pending; await settle();
   assert.equal(props.evaluationText, 'Newer interest in BCI experiments.');
   assert.equal(props.evaluationStatus, 'unsaved');
-  props.ownerId = 'owner-b'; props.review = { ...props.review, user_id: 'owner-b', comment: 'Owner B saved evaluation', search_feedback_summary: '' }; await settle();
+  props.ownerId = 'owner-b'; props.review = { ...props.review, user_id: 'owner-b', comment: 'Owner B saved evaluation' }; await settle();
   assert.equal(setup.summaryDraft, 'Owner B saved evaluation');
   assert.equal(calls.some(call => ['approve','revoke'].includes(call.name)), false);
 });
@@ -337,9 +317,9 @@ test('reason category multi-selection preserves all saved reasons and pending se
 
 test('AF-02 a stale other-owner review is withheld while the next account loads', async t => {
   const { props, setup } = fixture(t);
-  props.review = { ...props.review, interest_rating: 8, search_feedback_summary: 'Owner A private summary' };
+  props.review = { ...props.review, interest_rating: 8 };
   await settle();
-  assert.equal(setup.summaryDraft, `${props.review.comment}\n\nOwner A private summary`);
+  assert.equal(setup.summaryDraft, props.review.comment);
   props.ownerId = 'owner-b'; await settle();
   assert.equal(setup.summaryDraft, '');
   assert.equal(setup.outcome.interest_score, null);

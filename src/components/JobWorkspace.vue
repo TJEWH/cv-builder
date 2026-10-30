@@ -14,7 +14,6 @@ import { fitScoreTone as fitTone } from '../composables/opportunityContext';
 import { readLivingStandard } from '../composables/livingStandard';
 import { applicationStatusHistory, applicationStatusLabel, applicationStatusTone, applicationTrackingStarted, applicationWasSubmitted } from '../composables/applicationTracking';
 import { useApplicationNotesAutosave } from '../composables/useApplicationNotesAutosave';
-import { mergeOpportunityEvaluation, readLegacyOpportunityFeedbackDraft, clearLegacyOpportunityFeedbackDraft } from '../composables/opportunityEvaluation';
 import AutosaveTextarea from './AutosaveTextarea.vue';
 import OpportunityFeedbackControls from './OpportunityFeedbackControls.vue';
 import OpportunityDispositionControls from './OpportunityDispositionControls.vue';
@@ -46,7 +45,7 @@ const sidebarActive = computed(() => desktopSidebar.value && props.active);
 const emit = defineEmits<{ navigate: [tab: 'opportunities' | 'applications']; 'save-career-variant': [name: string, state: CvState]; 'edit-variant': [id: string] }>();
 const { opportunities, applications, reviews, loading, saving, savingReview, error, opportunityReviewError, opportunityCommentError, createApplication,
   updateApplication, setApplicationStage, setApplicationChecklistItem, resetApplicationHistory, removeApplication, setOpportunityReview, setOpportunityComment, markOpportunityReviewed,
-  saveOpportunityFeedback, saveOpportunityDisposition, approveOpportunityFeedbackSummary, revokeOpportunityFeedbackSummary, feedbackSharing, loadFeedbackSharing, setStructuredFeedbackSharing } = useJobWorkspace(props.client, () => props.userId);
+  saveOpportunityFeedback, saveOpportunityDisposition, feedbackSharing, loadFeedbackSharing, setStructuredFeedbackSharing } = useJobWorkspace(props.client, () => props.userId);
 const blockingSave = computed(() => saving.value && !savingReview.value);
 const startingApplication = shallowRef<{ opportunityId: string } | null>(null);
 watch(() => props.userId, () => { startingApplication.value = null; }, { flush: 'sync' });
@@ -210,36 +209,18 @@ const evaluationOpportunityId = computed(() => props.tab === 'applications'
 watch([evaluationOpportunityId, () => props.userId, () => props.active], ([id, _owner, active]) => {
   if (id && active && typeof loadFeedbackSharing === 'function') void loadFeedbackSharing();
 }, { immediate: true });
-const saveSearchSummary = (id: string, summary: string) => saveOpportunityFeedback(id, { search_feedback_summary: summary });
-const legacyFeedbackDrafts = new Map<string, string>();
 const { notes: opportunityComment, status: commentStatus, error: commentError, flush: flushComment } = useApplicationNotesAutosave({
-  // The saved read projection preserves both legacy fields without a mount-time write.
   application: () => evaluationOpportunityId.value ? { id: evaluationOpportunityId.value,
-    notes: mergeOpportunityEvaluation(reviewById.value.get(evaluationOpportunityId.value)?.comment, reviewById.value.get(evaluationOpportunityId.value)?.search_feedback_summary) } : null,
+    notes: reviewById.value.get(evaluationOpportunityId.value)?.comment } : null,
   save: async (id, comment) => {
     const owner = props.userId;
-    const legacyKey = `${owner}:${id}`, legacyDraft = legacyFeedbackDrafts.get(legacyKey);
     const saved = await setOpportunityComment(id, comment);
-    if (!saved || props.userId !== owner) return false;
-    // Older workspaces can still save evaluations before feedback is installed.
-    if (!Object.hasOwn(saved, 'search_feedback_revision')) return true;
-    // Keep the complete evaluation and its bounded feedback excerpt aligned.
-    if (!await saveSearchSummary(id, Array.from(comment).slice(0,600).join(''))) return false;
-    if (legacyDraft !== undefined) clearLegacyOpportunityFeedbackDraft(owner, id, legacyDraft);
-    legacyFeedbackDrafts.delete(legacyKey);
-    return true;
-  },
-  initialDraft: (saved, recovery) => {
-    const id = evaluationOpportunityId.value;
-    if (!id) return recovery ?? saved;
-    const legacy = readLegacyOpportunityFeedbackDraft(props.userId, id);
-    if (legacy !== undefined) legacyFeedbackDrafts.set(`${props.userId}:${id}`, legacy);
-    const priorFeedback = mergeOpportunityEvaluation(reviewById.value.get(id)?.search_feedback_summary, legacy);
-    return mergeOpportunityEvaluation(recovery ?? saved, priorFeedback);
+    return Boolean(saved && props.userId === owner);
   },
   owner: () => props.userId,
   storagePrefix: 'CV_OPPORTUNITY_COMMENT_DRAFT',
-  maxLength: 12408,
+  // Save validation enforces 12,000 codepoints; oversized failed drafts remain recoverable.
+  maxLength: Number.MAX_SAFE_INTEGER,
   errorMessage: () => opportunityCommentError.value || text('Could not save your evaluation. Please retry.', 'Deine Einschätzung konnte nicht gespeichert werden. Bitte erneut versuchen.'),
 });
 const commentToasts = useToasts();
@@ -729,10 +710,9 @@ useToastWatch(() => notice.value, () => {
             v-model:evaluation-text="opportunityComment" :evaluation-status="commentStatus" :evaluation-error="commentError" evaluation-input-id="opportunity-comment" evaluation-labelledby="opportunity-evaluation-heading"
             :application="applicationByOpportunity.get(selectedOpportunity.id)" :lang="lang" :busy="saving"
             :search-available="!!feedbackSharing?.search_id" :structured-sharing-enabled="!!feedbackSharing?.structured_feedback_enabled"
-            :save-feedback="saveOpportunityFeedback" :save-summary="saveSearchSummary" :approve-summary="approveOpportunityFeedbackSummary"
-            :revoke-summary="revokeOpportunityFeedbackSummary" :set-structured-sharing="setStructuredFeedbackSharing" :flush-private-comment="flushComment" />
+            :save-feedback="saveOpportunityFeedback" :set-structured-sharing="setStructuredFeedbackSharing" :flush-private-comment="flushComment" />
           <div v-else class="opportunity-comment">
-            <AutosaveTextarea id="opportunity-comment" v-model="opportunityComment" aria-labelledby="opportunity-evaluation-heading" rows="2" maxlength="5000" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @commit="flushComment" />
+            <AutosaveTextarea id="opportunity-comment" v-model="opportunityComment" aria-labelledby="opportunity-evaluation-heading" rows="2" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @commit="flushComment" />
           </div>
           <OpportunityDispositionControls v-if="tab === 'opportunities' && active" ref="opportunityDisposition" :owner-id="userId" :opportunity-id="selectedOpportunity.id" :review="reviewById.get(selectedOpportunity.id)" :save-disposition="saveOpportunityDisposition" :busy="saving" :lang="lang" />
         </details>
@@ -746,10 +726,9 @@ useToastWatch(() => notice.value, () => {
           <OpportunityFeedbackControls v-if="tab === 'applications' && active && opportunityById.get(editingApplication.opportunity_id)" ref="applicationFeedback" :owner-id="userId" :opportunity="opportunityById.get(editingApplication.opportunity_id)!" :review="reviewById.get(editingApplication.opportunity_id)"
             v-model:evaluation-text="opportunityComment" :evaluation-status="commentStatus" :evaluation-error="commentError" :evaluation-labelledby="`application-evaluation-${editingApplication.id}`"
             :application="editingApplication" :lang="lang" :busy="saving" :search-available="!!feedbackSharing?.search_id" :structured-sharing-enabled="!!feedbackSharing?.structured_feedback_enabled"
-            :save-feedback="saveOpportunityFeedback" :save-summary="saveSearchSummary" :approve-summary="approveOpportunityFeedbackSummary"
-            :revoke-summary="revokeOpportunityFeedbackSummary" :set-structured-sharing="setStructuredFeedbackSharing" :flush-private-comment="flushComment" />
+            :save-feedback="saveOpportunityFeedback" :set-structured-sharing="setStructuredFeedbackSharing" :flush-private-comment="flushComment" />
           <div v-else class="opportunity-comment">
-            <AutosaveTextarea v-model="opportunityComment" :aria-labelledby="`application-evaluation-${editingApplication.id}`" rows="3" maxlength="5000" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @commit="flushComment" />
+            <AutosaveTextarea v-model="opportunityComment" :aria-labelledby="`application-evaluation-${editingApplication.id}`" rows="3" :aria-invalid="commentError ? true : undefined" :placeholder="text('Add your assessment…', 'Deine Einschätzung…')" @commit="flushComment" />
           </div>
           <OpportunityDispositionControls v-if="tab === 'applications' && active" ref="applicationDisposition" :owner-id="userId" :opportunity-id="editingApplication.opportunity_id" :review="reviewById.get(editingApplication.opportunity_id)" :save-disposition="saveOpportunityDisposition" :busy="saving" :lang="lang" />
         </details>

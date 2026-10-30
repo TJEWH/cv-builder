@@ -4,7 +4,7 @@ import { OPPORTUNITY_INTEREST_REASON_CATEGORIES } from '../cloudTypes';
 import { opportunityFeedbackTimestamp } from './opportunityFeedback';
 import {
   ADAPTIVE_FEEDBACK_MAX_BYTES, ADAPTIVE_FEEDBACK_SELECTION_POLICY_VERSION, projectSafeAdaptiveFeedbackExample,
-  type AdaptiveFeedbackSnapshot, type AdaptiveFeedbackGroup, type ApprovedAdaptivePreference, type AdaptiveSummaryApproval,
+  type AdaptiveFeedbackSnapshot, type AdaptiveFeedbackGroup, type ApprovedAdaptivePreference,
 } from './adaptiveFeedbackSnapshots';
 import { opportunityFeedbackTextIsSafe, sanitizeOpportunityFeedbackUrl, validateAdaptiveSummaryInclusion, type AdaptiveSummaryInclusion } from './opportunityFeedbackPrivacy';
 import { createAdaptiveSearchPlan, type AdaptiveSearchPlan, type AdaptiveSearchPlanBasis, type LegacySearchQuery } from './adaptiveSearchPlans';
@@ -42,8 +42,7 @@ export interface AdaptiveStartupPrivacy {
   /** Server-maintained irreversible redaction flag for this pinned run. */
   privacy_scope_changed: boolean;
   excluded_opportunity_ids: readonly string[];
-  approved_summaries: readonly ({ opportunity_id: string } & AdaptiveSummaryApproval)[];
-  included_summaries?: readonly ({ opportunity_id: string } & AdaptiveSummaryInclusion)[];
+  included_summaries: readonly ({ opportunity_id: string } & AdaptiveSummaryInclusion)[];
   /** Current owner-authorized subset of the pinned source obligations, when supplied by the server. */
   authorized_source_ids?: readonly string[];
 }
@@ -162,22 +161,16 @@ function binding(value: AdaptiveStartupBinding): AdaptiveStartupBinding {
 function privacy(value: AdaptiveStartupPrivacy): AdaptiveStartupPrivacy {
   const raw = object(value);
   if (!Array.isArray(raw.excluded_opportunity_ids) || raw.excluded_opportunity_ids.length > 5000
-    || !Array.isArray(raw.approved_summaries) || raw.approved_summaries.length > 5000) fail('invalid_bundle');
+    || !Array.isArray(raw.included_summaries) || raw.included_summaries.length > 5000) fail('invalid_bundle');
   if (raw.authorized_source_ids !== undefined && (!Array.isArray(raw.authorized_source_ids) || raw.authorized_source_ids.length > 64)) fail('invalid_bundle');
-  if (raw.included_summaries !== undefined && (!Array.isArray(raw.included_summaries) || raw.included_summaries.length > 5000)) fail('invalid_bundle');
   return { structured_feedback_enabled: bool(raw.structured_feedback_enabled), adaptation_enabled: bool(raw.adaptation_enabled), adaptation_paused: bool(raw.adaptation_paused),
     successful_source_reuse_enabled: bool(raw.successful_source_reuse_enabled), consent_revision: integer(raw.consent_revision),
     privacy_scope_changed: bool(raw.privacy_scope_changed), excluded_opportunity_ids: raw.excluded_opportunity_ids.map(identity),
     ...(raw.authorized_source_ids === undefined ? {} : { authorized_source_ids: (raw.authorized_source_ids as unknown[]).map(identity) }),
-    ...(raw.included_summaries === undefined ? {} : { included_summaries: (raw.included_summaries as unknown[]).map(value => {
+    included_summaries: (raw.included_summaries as unknown[]).map(value => {
       const row = object(value), { opportunity_id, ...fields } = row, proof = validateAdaptiveSummaryInclusion(fields);
       if (!proof) fail('invalid_bundle');
       return { opportunity_id: identity(opportunity_id), ...proof };
-    }) }),
-    approved_summaries: raw.approved_summaries.map(value => {
-      const row = object(value);
-      return { opportunity_id: identity(row.opportunity_id), summary_hash: digest(row.summary_hash), source_hash: digest(row.source_hash),
-        summary_revision: integer(row.summary_revision), approved_at: timestamp(row.approved_at)! };
     }) };
 }
 function policy(value: unknown, owner: string, search: string): Readonly<AdaptiveSearchPolicy> {
@@ -329,8 +322,8 @@ function planning(value: unknown, owner: string, search: string): AdaptiveSearch
     blocked_core_queries: Object.freeze(blocked), refresh_required: bool(raw.refresh_required), basis: revisionBasis(raw.basis) });
 }
 function redactFeedback(packet: AdaptiveStartupFeedback, current: AdaptiveStartupPrivacy): { packet: AdaptiveStartupFeedback; changed: boolean } {
-  const blocked = new Set(current.excluded_opportunity_ids), proofs = new Map(current.approved_summaries.map(proof => [proof.opportunity_id, proof]));
-  const included = new Map((current.included_summaries ?? []).map(proof => [proof.opportunity_id, proof]));
+  const blocked = new Set(current.excluded_opportunity_ids);
+  const included = new Map(current.included_summaries.map(proof => [proof.opportunity_id, proof]));
   const adaptationActive = current.adaptation_enabled && !current.adaptation_paused && current.structured_feedback_enabled;
   const hadFeedback = packet.examples.length > 0 || packet.aggregates.groups.length > 0 || packet.aggregates.mean_interest !== null
     || packet.aggregates.score_sum !== 0 || packet.approved_preferences.length > 0 || countFields.some(field => packet.counts[field] > 0);
@@ -345,12 +338,9 @@ function redactFeedback(packet: AdaptiveStartupFeedback, current: AdaptiveStartu
       const { opportunity_id: _id, ...proof } = currentInclusion;
       if (same(example.summary_inclusion, proof)) return example;
     }
-    const proof = proofs.get(example.opportunity_id), saved = example.summary_approval;
-    if (proof && saved && same(saved, { summary_hash: proof.summary_hash, source_hash: proof.source_hash,
-      summary_revision: proof.summary_revision, approved_at: proof.approved_at })) return example;
     changed = true;
-    const { search_feedback_summary: withheldSummary, summary_approval: withheldProof, summary_inclusion: withheldInclusion, ...safe } = example;
-    void withheldSummary; void withheldProof; void withheldInclusion;
+    const { search_feedback_summary: withheldSummary, summary_inclusion: withheldInclusion, ...safe } = example;
+    void withheldSummary; void withheldInclusion;
     return safe;
   });
   // Whole-set aggregates cannot be safely subtracted using only 16 selected

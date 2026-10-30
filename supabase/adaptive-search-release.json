@@ -233,6 +233,12 @@
       "sha256": "1125927bef7e347da915926a1059c18fa41a1c8ce6cf27cbdeb58e96893976e7",
       "migration_only": true,
       "scheduler_operations": false
+    },
+    {
+      "path": "supabase/opportunity_evaluation.sql",
+      "sha256": "259ec0012863f7e4e6f5a957e73b909cb8737ed50622bfa155e2566d051ed9f4",
+      "migration_only": true,
+      "scheduler_operations": false
     }
   ],
   "installed_definition_prerequisites": {
@@ -292,7 +298,7 @@
     },
     {
       "path": "src/composables/adaptiveSearchStartup.ts",
-      "sha256": "3209cb86f705cd7076fddcfc491a9d49796bc7ac26eead59b69b2fe0415baf2a"
+      "sha256": "76e6930fb8ebfc2ac79a6d7b5e6f91b7dccfa068f1a2c3c3436bde3024c6ea8b"
     },
     {
       "path": "src/composables/opportunityResultSchema.ts",
@@ -308,11 +314,11 @@
     },
     {
       "path": "src/composables/opportunityFeedbackPrivacy.ts",
-      "sha256": "f64449435de12b2b7dcd2b247f5f5345cd221db98f4fbca805b16974975e9b68"
+      "sha256": "f06f187c62894cb197266afd8b59b7f5bcf6afcc1fab43461413c51426401813"
     },
     {
       "path": "src/composables/adaptiveFeedbackSnapshots.ts",
-      "sha256": "64afb5fe9bbf08ca9d308b7a1cb00c6d7c53a353b6479d86748a67a0e5bdb3b4"
+      "sha256": "62ad7ae9f72a980efb34a810c9cc09a404e5790b53edf734eee2faf078726841"
     },
     {
       "path": "src/composables/adaptiveSearchPlans.ts",
@@ -356,11 +362,11 @@
     },
     {
       "path": "src/components/JobWorkspace.vue",
-      "sha256": "137f8e8f982ecdc5aec5ecd907d5021b910fe0f16aabb45b57903763c911e9d8"
+      "sha256": "a8464b197c0ea2015a2040416a72acc5cf4955164eae65aacf410ed55c94a1af"
     },
     {
       "path": "src/components/OpportunityFeedbackControls.vue",
-      "sha256": "7403dc525b3bf3edb7996c66003504e3268068ea798c85e4867d72380fa7b6bc"
+      "sha256": "72c781654dbbaac11b41e7b8b4e619e9b1e2da5fdaf95730b16ebb13070186a8"
     },
     {
       "path": "src/components/OpportunityDispositionControls.vue",
@@ -372,7 +378,7 @@
     },
     {
       "path": "src/composables/opportunityEvaluation.ts",
-      "sha256": "c20c222e4201e0f63332420e38974e2e16c48fec5413b387fb9102a8d42aeb9c"
+      "sha256": "b57b00ab0da25d72abf5bf173fa46d05e314a09213fa9da215b56a9d6d2b9791"
     },
     {
       "path": "src/composables/useApplicationNotesAutosave.ts",

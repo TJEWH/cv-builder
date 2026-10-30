@@ -4,7 +4,6 @@ import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { createHash } from 'node:crypto';
 import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
 import { createRenderer, h, nextTick, reactive, ref } from 'vue';
@@ -14,6 +13,7 @@ import { normalizeOpportunity as readOpportunity } from '../src/composables/useJ
 import { useSaveStateToast, useToasts, useToastWatch } from '../src/composables/useToasts';
 import { commitPendingTextareas, registerTextareaCommit } from '../src/composables/textareaCommit';
 import { livingStandardFixture } from './fixtures/livingStandard';
+import { migrateOpportunityEvaluationDrafts } from '../src/composables/opportunityEvaluation';
 
 const normalizeOpportunity = (input: Record<string, unknown> & { id: string }) => readOpportunity(opportunityFixture(input));
 
@@ -37,7 +37,7 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   for (const [key, value] of Object.entries({
     window: { setInterval: () => 1, clearInterval() {}, matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }) },
     sessionStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
-    localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
+    localStorage: { get length() { return storage.size; }, key: (index: number) => [...storage.keys()][index] ?? null, getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
   })) {
     const previous = Object.getOwnPropertyDescriptor(globalThis, key);
     Object.defineProperty(globalThis, key, { configurable: true, value });
@@ -82,14 +82,9 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
     applications.value = applications.value.map(item => item.id === id ? saved : item);
     return saved;
   };
-  const feedbackMetadata = (current: OpportunityReview | undefined, saved: OpportunityReview): OpportunityReview => {
-    const changed = (current?.comment ?? null) !== (saved.comment ?? null)
-      || (current?.search_feedback_summary ?? null) !== (saved.search_feedback_summary ?? null);
-    return { ...saved, search_feedback_revision: (current?.search_feedback_revision ?? 0) + Number(changed),
-      search_feedback_summary_hash: createHash('sha256').update(saved.search_feedback_summary ?? '').digest('hex'),
-      search_feedback_source_hash: createHash('sha256').update(saved.comment ?? '').digest('hex'),
-      ...(changed ? { search_feedback_approved_at: null, search_feedback_approved_summary_hash: null, search_feedback_approved_source_hash: null } : {}) };
-  };
+  const feedbackMetadata = (current: OpportunityReview | undefined, saved: OpportunityReview): OpportunityReview => ({
+    ...saved, evaluation_revision: (current?.evaluation_revision ?? 0) + Number((current?.comment ?? null) !== (saved.comment ?? null)),
+  });
   const workspace = {
     opportunities, applications, reviews,
     loading: ref(false), saving, savingReview, error: ref(''), opportunityCommentError: ref(''), opportunityReviewError: ref(''), refresh() {},
@@ -127,8 +122,8 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
       if (handlers.comment) return handlers.comment(id, comment);
       if (failComment) { failComment = false; return null; }
       const current = reviews.value.find(item => item.opportunity_id === id);
-      if (Array.from(comment.trim()).length > 5000) return null;
-      const saved = feedbackMetadata(current, { user_id: props.userId, opportunity_id: id, state: 'unreviewed', reviewed_updated_at: null, created_at: '', updated_at: '', ...current, comment: comment.trim() || null });
+      if (Array.from(comment).length > 12000) return null;
+      const saved = feedbackMetadata(current, { user_id: props.userId, opportunity_id: id, state: 'unreviewed', reviewed_updated_at: null, created_at: '', updated_at: '', ...current, comment: comment || null });
       reviews.value = [...reviews.value.filter(item => item.opportunity_id !== id), saved];
       return saved;
     },
@@ -137,8 +132,7 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
       if (handlers.feedback) return handlers.feedback(id, patch);
       if (failFeedback) { failFeedback = false; return null; }
       const current = reviews.value.find(item => item.opportunity_id === id);
-      const saved = feedbackMetadata(current, { user_id: props.userId, opportunity_id: id, state: 'unreviewed', reviewed_updated_at: null, created_at: '', updated_at: '', ...current, ...patch,
-        ...('search_feedback_summary' in patch ? { search_feedback_summary: patch.search_feedback_summary || null } : {}) });
+      const saved = feedbackMetadata(current, { user_id: props.userId, opportunity_id: id, state: 'unreviewed', reviewed_updated_at: null, created_at: '', updated_at: '', ...current, ...patch });
       reviews.value = [...reviews.value.filter(item => item.opportunity_id !== id), saved];
       return saved;
     },
@@ -198,7 +192,7 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
     requestDetailRemoval(item: Application): Promise<void>; cancelRemoval(): void; confirmRemoval(item: Application): Promise<void>;
   } } }).$.setupState;
   const componentProps = (mounted as { $props: { active: boolean } }).$props;
-  return { setup, props, componentProps, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, applicationUpdates, commentUpdates, feedbackUpdates, evaluationWrites, stageUpdates, historyResets, reviewUpdates, saving, savingReview, handlers, failNextNotesSave: () => { failNotes = true; }, failNextCommentSave: () => { failComment = true; }, failNextFeedbackSave: () => { failFeedback = true; }, failNextHistoryReset: () => { failHistoryReset = true; }, created: () => created };
+  return { migrateRecovery: () => migrateOpportunityEvaluationDrafts(props.userId, reviews.value as unknown as Record<string, unknown>[]), setup, props, componentProps, opportunity, opportunities, application, applications, receipts, reviews, storage, removed, applicationUpdates, commentUpdates, feedbackUpdates, evaluationWrites, stageUpdates, historyResets, reviewUpdates, saving, savingReview, handlers, failNextNotesSave: () => { failNotes = true; }, failNextCommentSave: () => { failComment = true; }, failNextFeedbackSave: () => { failFeedback = true; }, failNextHistoryReset: () => { failHistoryReset = true; }, created: () => created };
 }
 
 function deferred<T>() {
@@ -589,7 +583,7 @@ test('late Apply completion cannot navigate after the account, tab, item, or lis
   });
 });
 
-test('evaluations still save on older workspaces without the feedback schema', async t => {
+test('evaluations remain available while feedback controls are unavailable', async t => {
   const f = mount(t);
   f.setup.openOpportunity(f.opportunity.id);
   f.handlers.comment = async (id, comment) => {
@@ -651,100 +645,71 @@ test('application evaluation remains available without its live opportunity and 
   assert.deepEqual(f.commentUpdates, [], 'changing accounts cannot send the previous owner’s draft');
 });
 
-test('unified evaluation opens both persisted texts without saving or duplicating contained feedback', async t => {
-  const f = mount(t);
-  f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'interested',
-    comment: 'Existing personal evaluation.', search_feedback_summary: 'Existing search feedback.',
-    reviewed_updated_at: null, created_at: '', updated_at: '' }];
+test('a migrated evaluation opens one persisted value without a write', async t => {
+  const f = mount(t), comment = 'Existing personal evaluation.\n\nExisting search feedback.';
+  f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'interested', comment,
+    evaluation_revision: 2, reviewed_updated_at: null, created_at: '', updated_at: '' }];
   f.setup.openOpportunity(f.opportunity.id);
-  assert.equal(f.setup.opportunityComment, 'Existing personal evaluation.\n\nExisting search feedback.');
-  assert.equal(f.setup.commentStatus, 'saved', 'both persisted sources already form a saved read projection');
-  await nextTick();
-  assert.deepEqual(f.commentUpdates, []); assert.deepEqual(f.feedbackUpdates, []);
-  assert.equal(await f.setup.flushComment(), true);
-  assert.deepEqual(f.evaluationWrites, [], 'an unchanged projection needs no migration write');
-  await f.setup.closeOpportunity();
-  f.reviews.value = [{ ...f.reviews.value[0], comment: 'Existing personal evaluation.\n\nExisting search feedback.' }];
-  f.setup.openOpportunity(f.opportunity.id);
-  assert.equal(f.setup.opportunityComment, 'Existing personal evaluation.\n\nExisting search feedback.');
-  assert.deepEqual(f.evaluationWrites, []);
+  assert.equal(f.setup.opportunityComment, comment); assert.equal(f.setup.commentStatus, 'saved');
+  await nextTick(); assert.deepEqual(f.commentUpdates, []); assert.deepEqual(f.feedbackUpdates, []);
+  assert.equal(await f.setup.flushComment(), true); assert.deepEqual(f.evaluationWrites, []);
+  await f.setup.closeOpportunity(); f.setup.openOpportunity(f.opportunity.id);
+  assert.equal(f.setup.opportunityComment, comment); assert.deepEqual(f.evaluationWrites, []);
 });
 
-test('unified evaluation commits the comment before the exact short feedback draft and preserves review context', async t => {
+test('one full evaluation commit preserves exact text and independent review context', async t => {
   const f = mount(t);
   f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'strong_interest',
-    comment: 'Existing evaluation.', search_feedback_summary: 'Separate legacy feedback.', interest_rating: 7.5,
-    search_feedback_approved_at: '2026-10-01T12:00:00Z', reviewed_updated_at: f.opportunity.updated_at, created_at: '', updated_at: '' }];
+    comment: 'Existing evaluation.\n\nMigrated feedback.', interest_rating: 7.5, evaluation_revision: 4,
+    reviewed_updated_at: f.opportunity.updated_at, created_at: '', updated_at: '' }];
   f.setup.openOpportunity(f.opportunity.id);
-  const edited = 'Prefer physical sensing experiments.';
-  f.setup.opportunityComment = edited;
-  await nextTick();
-  assert.deepEqual(f.evaluationWrites, []);
+  const edited = '  Prefer physical sensing experiments.\n ';
+  f.setup.opportunityComment = edited; await nextTick(); assert.deepEqual(f.evaluationWrites, []);
   assert.equal(await f.setup.flushComment(), true);
-  assert.deepEqual(f.evaluationWrites, ['comment', 'feedback']);
-  assert.deepEqual(f.feedbackUpdates, [{ id: f.opportunity.id, patch: { search_feedback_summary: edited } }]);
+  assert.deepEqual(f.evaluationWrites, ['comment']); assert.deepEqual(f.feedbackUpdates, []);
   const saved = f.reviews.value[0];
-  assert.equal(saved.comment, edited); assert.equal(saved.search_feedback_summary, edited);
+  assert.equal(saved.comment, edited); assert.equal(saved.evaluation_revision, 5);
   assert.equal(saved.state, 'strong_interest'); assert.equal(saved.interest_rating, 7.5);
   assert.equal(saved.reviewed_updated_at, f.opportunity.updated_at);
-  assert.equal(saved.search_feedback_approved_at, null, 'editing does not approve disclosure');
-  assert.equal(saved.search_feedback_summary_hash, saved.search_feedback_source_hash);
-  assert.equal(await f.setup.flushComment(), true);
-  assert.deepEqual(f.evaluationWrites, ['comment', 'feedback'], 'repeated commits deduplicate the saved value');
+  assert.equal('search_feedback_summary' in saved, false);
+  assert.equal(await f.setup.flushComment(), true); assert.deepEqual(f.evaluationWrites, ['comment']);
   await f.setup.closeOpportunity(); f.setup.openOpportunity(f.opportunity.id);
-  assert.equal(f.setup.opportunityComment, edited, 'removed legacy feedback must not reappear');
+  assert.equal(f.setup.opportunityComment, edited, 'removed text cannot reappear from a second field');
 });
 
-test('long unified evaluations remain intact with an exact Unicode feedback excerpt', async t => {
+test('a full 12000-codepoint Unicode evaluation persists without a stored excerpt', async t => {
   const f = mount(t);
-  f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'interested',
-    comment: 'Existing evaluation.', search_feedback_summary: 'Old summary to remove.',
-    reviewed_updated_at: null, created_at: '', updated_at: '' }];
+  f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'interested', comment: 'Existing evaluation.',
+    evaluation_revision: 1, reviewed_updated_at: null, created_at: '', updated_at: '' }];
   f.setup.openOpportunity(f.opportunity.id);
-  const edited = '🧪'.repeat(601);
-  f.setup.opportunityComment = edited;
-  assert.equal(await f.setup.flushComment(), true);
-  assert.equal(f.reviews.value[0].comment, edited);
-  assert.equal(f.reviews.value[0].search_feedback_summary, '🧪'.repeat(600));
-  assert.deepEqual(f.feedbackUpdates, [{ id: f.opportunity.id, patch: { search_feedback_summary: '🧪'.repeat(600) } }]);
+  const edited = '🧪'.repeat(12000); f.setup.opportunityComment = edited;
+  assert.equal(await f.setup.flushComment(), true); assert.equal(f.reviews.value[0].comment, edited);
+  assert.equal('search_feedback_summary' in f.reviews.value[0], false); assert.deepEqual(f.feedbackUpdates, []);
   await f.setup.closeOpportunity(); f.setup.openOpportunity(f.opportunity.id);
   assert.equal(f.setup.opportunityComment, edited);
 });
 
-test('combined maximum-length legacy evaluation and summary load without truncation or writes', async t => {
-  const f = mount(t), comment = '🧪'.repeat(5000), summary = '🦻'.repeat(600);
+test('migrated maximum-length old values load as one complete saved evaluation without writes', async t => {
+  const f = mount(t), comment = `${'🧪'.repeat(5000)}\n\n${'🦻'.repeat(600)}`;
   f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'interested', comment,
-    search_feedback_summary: summary, reviewed_updated_at: null, created_at: '', updated_at: '' }];
+    evaluation_revision: 2, reviewed_updated_at: null, created_at: '', updated_at: '' }];
   f.setup.openOpportunity(f.opportunity.id);
-  assert.equal(f.setup.opportunityComment, `${comment}\n\n${summary}`);
-  assert.equal(Array.from(f.setup.opportunityComment).length, 5602);
-  assert.equal(await f.setup.flushComment(), true);
-  await nextTick(); assert.deepEqual(f.evaluationWrites, []);
-  await f.setup.closeOpportunity();
-  assert.equal(f.reviews.value[0].comment, comment); assert.equal(f.reviews.value[0].search_feedback_summary, summary);
+  assert.equal(f.setup.opportunityComment, comment); assert.equal(Array.from(f.setup.opportunityComment).length, 5602);
+  assert.equal(await f.setup.flushComment(), true); await nextTick(); assert.deepEqual(f.evaluationWrites, []);
+  await f.setup.closeOpportunity(); assert.equal(f.reviews.value[0].comment, comment);
 });
 
-test('feedback alignment failure retains the edited evaluation and blocks navigation until exact retry', async t => {
+test('an atomic evaluation failure retains the draft and blocks navigation until retry', async t => {
   const f = mount(t);
   f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'interested', comment: 'Before.',
-    search_feedback_summary: 'Legacy feedback deleted by the user.', reviewed_updated_at: null, created_at: '', updated_at: '' }];
-  f.setup.openOpportunity(f.opportunity.id);
-  f.setup.opportunityComment = 'Only this new evaluation.';
-  f.failNextFeedbackSave();
-  assert.equal(await f.setup.openList('opportunities'), false);
-  assert.equal(f.setup.selectedOpportunity?.id, f.opportunity.id);
-  assert.equal(f.setup.commentStatus, 'error');
-  assert.equal(f.setup.opportunityComment, 'Only this new evaluation.');
-  assert.equal(f.reviews.value[0].comment, 'Only this new evaluation.', 'the first write may already have succeeded');
-  assert.equal(f.reviews.value[0].search_feedback_summary, 'Legacy feedback deleted by the user.');
-  assert.equal(await f.setup.openList('opportunities'), true);
-  assert.equal(f.setup.showingDetail, false);
-  assert.deepEqual(f.evaluationWrites, ['comment', 'feedback', 'comment', 'feedback']);
-  assert.deepEqual(f.feedbackUpdates.map(update => update.patch), [
-    { search_feedback_summary: 'Only this new evaluation.' }, { search_feedback_summary: 'Only this new evaluation.' },
-  ]);
-  f.setup.openOpportunity(f.opportunity.id);
-  assert.equal(f.setup.opportunityComment, 'Only this new evaluation.');
+    evaluation_revision: 1, reviewed_updated_at: null, created_at: '', updated_at: '' }];
+  f.setup.openOpportunity(f.opportunity.id); f.setup.opportunityComment = 'Only this new evaluation.'; f.failNextCommentSave();
+  assert.equal(await f.setup.openList('opportunities'), false); assert.equal(f.setup.selectedOpportunity?.id, f.opportunity.id);
+  assert.equal(f.setup.commentStatus, 'error'); assert.equal(f.setup.opportunityComment, 'Only this new evaluation.');
+  assert.equal(f.reviews.value[0].comment, 'Before.', 'a failed request cannot partially write a second field');
+  assert.equal(await f.setup.openList('opportunities'), true); assert.equal(f.setup.showingDetail, false);
+  assert.deepEqual(f.evaluationWrites, ['comment','comment']); assert.deepEqual(f.feedbackUpdates, []);
+  f.setup.openOpportunity(f.opportunity.id); assert.equal(f.setup.opportunityComment, 'Only this new evaluation.');
 });
 
 test('an owner change during comment persistence cannot write the old feedback into the new account', async t => {
@@ -762,32 +727,31 @@ test('an owner change during comment persistence cannot write the old feedback i
   assert.equal(f.setup.opportunityComment, '');
 });
 
-test('legacy local feedback and private recovery merge without resurrecting replaced server evaluation text', async t => {
+test('one-time local recovery preserves replacement edits through a failed atomic save', async t => {
   const f = mount(t), legacyKey = `CV_SEARCH_FEEDBACK_SUMMARY_DRAFT:account-one:${f.opportunity.id}`;
-  f.storage.set(`CV_OPPORTUNITY_COMMENT_DRAFT:account-one:${f.opportunity.id}`, JSON.stringify({ value: 'Recovered edited evaluation.' }));
+  const currentKey = `CV_OPPORTUNITY_COMMENT_DRAFT:account-one:${f.opportunity.id}`;
+  f.storage.set(currentKey, JSON.stringify({ value: 'Recovered edited evaluation.' }));
   f.storage.set(legacyKey, JSON.stringify({ value: 'Recovered feedback draft.' }));
   f.reviews.value = [{ user_id: f.props.userId, opportunity_id: f.opportunity.id, state: 'interested',
-    comment: 'Replaced server evaluation.', search_feedback_summary: 'Saved separate feedback.',
+    comment: 'Replaced server evaluation.\n\nSaved separate feedback.', evaluation_revision: 2,
     reviewed_updated_at: null, created_at: '', updated_at: '' }];
-  f.setup.openOpportunity(f.opportunity.id);
-  const merged = 'Recovered edited evaluation.\n\nSaved separate feedback.\n\nRecovered feedback draft.';
-  assert.equal(f.setup.opportunityComment, merged);
-  assert.equal(f.setup.commentStatus, 'unsaved');
-  await nextTick(); assert.deepEqual(f.evaluationWrites, []);
-  f.failNextFeedbackSave();
-  assert.equal(await f.setup.flushComment(), false);
-  assert.equal(f.setup.opportunityComment, merged);
-  assert.equal(JSON.parse(f.storage.get(legacyKey)!).value, 'Recovered feedback draft.');
-  assert.equal(await f.setup.flushComment(), true);
-  assert.equal(f.storage.has(legacyKey), false, 'clear only after both persistence steps succeed');
-  assert.equal(f.reviews.value[0].comment, merged); assert.equal(f.reviews.value[0].search_feedback_summary, merged);
-  assert.doesNotMatch(f.setup.opportunityComment, /Replaced server evaluation/u);
+  f.migrateRecovery(); f.setup.openOpportunity(f.opportunity.id);
+  const merged = 'Recovered edited evaluation.\n\nRecovered feedback draft.';
+  assert.equal(f.setup.opportunityComment, merged); assert.equal(f.setup.commentStatus, 'unsaved');
+  assert.equal(f.storage.has(legacyKey), false, 'the old key moves only after verifying the full current recovery');
+  assert.equal(JSON.parse(f.storage.get(currentKey)!).value, merged);
+  await nextTick(); assert.deepEqual(f.evaluationWrites, []); f.failNextCommentSave();
+  assert.equal(await f.setup.flushComment(), false); assert.equal(f.setup.opportunityComment, merged);
+  assert.equal(JSON.parse(f.storage.get(currentKey)!).value, merged);
+  assert.equal(await f.setup.flushComment(), true); assert.equal(f.storage.has(currentKey), false);
+  assert.equal(f.reviews.value[0].comment, merged);
+  assert.doesNotMatch(f.setup.opportunityComment, /Replaced server evaluation|Saved separate feedback/u);
 });
 
-test('a newer legacy recovery from another tab survives the unified save', async t => {
+test('a newer retired draft from another tab survives a current evaluation save', async t => {
   const f = mount(t), legacyKey = `CV_SEARCH_FEEDBACK_SUMMARY_DRAFT:account-one:${f.opportunity.id}`;
   f.storage.set(legacyKey, JSON.stringify({ value: 'Original recovered feedback.' }));
-  f.setup.openOpportunity(f.opportunity.id);
+  f.migrateRecovery(); f.setup.openOpportunity(f.opportunity.id);
   assert.equal(f.setup.opportunityComment, 'Original recovered feedback.');
   f.storage.set(legacyKey, JSON.stringify({ value: 'Newer draft from another tab.' }));
   assert.equal(await f.setup.flushComment(), true);

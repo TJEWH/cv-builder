@@ -110,7 +110,7 @@ if (fixtureFlow === 'manual-past') {
     interest_reasons: [], feedback_excluded: false, feedback_revision: 0, feedback_updated_at: null,
     manually_archived: false, technical_issue_category: null, technical_issue_note: null,
     comment: 'Screen each project on its own research tasks.', search_feedback_summary: 'Screen each project on its own research tasks.',
-    search_feedback_revision: 0, search_feedback_approved_at: null, reviewed_updated_at: opportunity.updated_at, created_at: now, updated_at: now }];
+    evaluation_revision: 0, reviewed_updated_at: opportunity.updated_at, created_at: now, updated_at: now }];
   database.applications = [{ id: '20000000-0000-4000-8000-000000000099', user_id: account, opportunity_id: opportunity.id,
     application_code: 'APP-MANUALPAST', cv_variant_id: null, contact_email: null, context_json: structuredClone(opportunity),
     context_captured_at: new Date().toISOString(), completed_checklist_keys: [], status: 'preparation', workflow_stage: 'preparation',
@@ -243,7 +243,7 @@ const client = {
         let review = database.opportunity_reviews.find((row) => row.opportunity_id === opportunity.id && row.user_id === account);
         if (!review) {
           review = { user_id: account, opportunity_id: opportunity.id, state: 'unreviewed', reviewed_updated_at: null, created_at: now, updated_at: now };
-          if (fixtureFlow === 'manual-past') Object.assign(review, { manually_archived: false, technical_issue_category: null, technical_issue_note: null, search_feedback_revision: 0 });
+          if (fixtureFlow === 'manual-past') Object.assign(review, { manually_archived: false, technical_issue_category: null, technical_issue_note: null, evaluation_revision: 0 });
           database.opportunity_reviews.push(review);
         }
         if (parameters.p_state) review.state = parameters.p_state;

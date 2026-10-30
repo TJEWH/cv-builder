@@ -14,6 +14,20 @@ The earlier [`opportunity_canonical_v5.sql`](opportunity_canonical_v5.sql) conve
 
 Apply [`application_removal_review.sql`](application_removal_review.sql) before rolling out the delete-only application action. Removal preserves the opportunity's review state, rating, reasons and evaluation; it remains owner-scoped and safe to retry.
 
+Then apply [`opportunity_evaluation.sql`](opportunity_evaluation.sql) before rolling out the single-field evaluation editor. It merges existing comment/summary text once without truncation, removes the second backing field and approval APIs, and keeps the complete evaluation in `comment` with a server-maintained `evaluation_revision`. Search excerpts are derived from that value under the existing consent and exclusion rules. The limit is 12,000 Unicode codepoints; pending browser drafts migrate once into the current recovery key.
+
+These upgrades were installed in **phd-workflow** on **2026-10-30**:
+
+| Upgrade | Installed migration |
+| --- | --- |
+| Preserve reviews on application removal | `20261030102407` (`application_removal_preserve_review`) |
+| Canonical description and schema 6 | `20261030112942` (`opportunity_description_v6`) |
+| One evaluation backing field | `20261030120800` (`opportunity_evaluation`) |
+
+Production verification found 199 valid schema-6 opportunities, no missing migrated reasons/features, and unchanged workflow state for all 31 applications. All 195 evaluations exactly match the expected lossless merge; review states, ratings, revisions and unrelated fields are unchanged. The deployed storage and intake schemas exactly match the current frontend, and authenticated owner readiness passes.
+
+The connector received the two larger original SQL files in postgres-only staging parts. Both original-source and executed-body SHA-256 checks passed before each atomic application; the staging table was removed on success. Do not replay these installed one-time migrations.
+
 ## Adaptive search release (AF-01–AF-11)
 
 The adaptive feedback system is prepared as additive, owner-scoped upgrades. It has **not been deployed or scheduled** by this implementation. Use the [release guide](../docs/adaptive-search-release.md) and [ordered SHA-256 manifest](adaptive-search-release.json) for prerequisites, verification, privacy cleanup and feature rollback.

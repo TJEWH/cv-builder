@@ -1,7 +1,7 @@
 import { opportunityFixture, opportunityAssessmentFixture } from './fixtures/opportunity';
 import assert from 'node:assert/strict';
-import test from 'node:test';
-import { effectScope, ref } from 'vue';
+import test, { type TestContext } from 'node:test';
+import { effectScope, ref, watch } from 'vue';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Application, OpportunityReview } from '../src/cloudTypes';
 import { createCloudCvSnapshot } from '../src/composables/cloudCvPrivacy';
@@ -68,8 +68,76 @@ function application(id = 'application-1', cvId: string | null = 'cv-1'): Applic
 }
 
 function review(opportunityId = 'opportunity-1', state: OpportunityReview['state'] = 'interested'): OpportunityReview {
-  return { user_id: 'account-a', opportunity_id: opportunityId, state, reviewed_updated_at: null, created_at: '2026-09-19T16:00:00.000Z', updated_at: '2026-09-19T16:00:00.000Z' };
+  return { user_id: 'account-a', opportunity_id: opportunityId, state, evaluation_revision: 0, reviewed_updated_at: null, created_at: '2026-09-19T16:00:00.000Z', updated_at: '2026-09-19T16:00:00.000Z' };
 }
+
+function localDrafts(t: TestContext) {
+  const values = new Map<string, string>();
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    get length() { return values.size; }, key: (index: number) => [...values.keys()][index] ?? null,
+    getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); },
+    removeItem: (key: string) => { values.delete(key); },
+  } });
+  t.after(() => previous ? Object.defineProperty(globalThis, 'localStorage', previous) : Reflect.deleteProperty(globalThis, 'localStorage'));
+  return values;
+}
+const oldEvaluationDraft = (owner: string, id = 'opportunity-1') => `CV_SEARCH_FEEDBACK_SUMMARY_DRAFT:${owner}:${id}`;
+const evaluationDraft = (owner: string, id = 'opportunity-1') => `CV_OPPORTUNITY_COMMENT_DRAFT:${owner}:${id}`;
+const recovery = (value: string) => JSON.stringify({ value });
+
+test('workspace loading migrates local recovery once before publishing saved evaluations or opening records', async t => {
+  const values = localDrafts(t);
+  values.set(oldEvaluationDraft('account-a'), recovery('Recovered feedback.'));
+  values.set(oldEvaluationDraft('account-a', 'opportunity-2'), recovery('Other recovered feedback.'));
+  values.set(evaluationDraft('account-a', 'opportunity-2'), recovery('Newer local evaluation.'));
+  values.set(oldEvaluationDraft('account-b'), recovery('Other account feedback.'));
+  const stored = [{ ...review(), comment: 'Saved complete evaluation.' },
+    { ...review('opportunity-2'), comment: 'Replaced server evaluation.' }];
+  const { client, queries } = fakeClient(query => ({ data: query.table === 'opportunities'
+    ? [{ id: 'opportunity-1' }, { id: 'opportunity-2' }] : query.table === 'opportunity_reviews'
+      ? query.filters.user_id === 'account-a' ? stored : [{ ...review(), user_id: 'account-b', comment: 'Other account saved evaluation.' }]
+      : [], error: null }));
+  const scope = effectScope(); t.after(() => scope.stop());
+  const account = ref('account-a');
+  const workspace = scope.run(() => useJobWorkspace(client, account))!;
+  const published: { saved: string | null | undefined; draft: string | undefined }[] = [];
+  scope.run(() => watch(workspace.opportunities, opportunities => {
+    if (opportunities.length) published.push({ saved: workspace.reviews.value[0]?.comment, draft: values.get(evaluationDraft(account.value)) });
+  }, { flush: 'sync' }));
+  await settleUntil(() => !workspace.loading.value);
+  assert.deepEqual(published[0], { saved: 'Saved complete evaluation.', draft: recovery('Saved complete evaluation.\n\nRecovered feedback.') });
+  assert.equal(values.get(evaluationDraft('account-a', 'opportunity-2')), recovery('Newer local evaluation.\n\nOther recovered feedback.'));
+  assert.equal(values.has(oldEvaluationDraft('account-a')), false);
+  assert.equal(values.get(oldEvaluationDraft('account-b')), recovery('Other account feedback.'));
+  const first = [...values];
+  assert.equal(await workspace.refresh(), true);
+  assert.deepEqual([...values], first, 'refresh does not duplicate already migrated recovery text');
+  account.value = 'account-b'; await settleUntil(() => !workspace.loading.value);
+  assert.equal(values.get(evaluationDraft('account-b')), recovery('Other account saved evaluation.\n\nOther account feedback.'));
+  assert.equal(values.get(evaluationDraft('account-a')), recovery('Saved complete evaluation.\n\nRecovered feedback.'));
+  assert.equal(queries.some(query => query.operation !== 'select'), false, 'recovery migration does not save or approve cloud data');
+});
+
+test('a stale account load cannot migrate or clear that account’s pending evaluation recovery', async t => {
+  const values = localDrafts(t);
+  values.set(oldEvaluationDraft('account-a'), recovery('Owner A unsaved feedback.'));
+  values.set(oldEvaluationDraft('account-b'), recovery('Owner B unsaved feedback.'));
+  const staleReviews = deferred<Result>();
+  const { client, queries } = fakeClient(query => query.table === 'opportunity_reviews' && query.filters.user_id === 'account-a'
+    ? staleReviews.promise : { data: query.table === 'opportunities' ? [{ id: 'opportunity-1' }] : query.table === 'opportunity_reviews'
+      ? [{ ...review(), user_id: 'account-b', comment: 'Owner B saved evaluation.' }] : [], error: null });
+  const scope = effectScope(); t.after(() => scope.stop());
+  const account = ref('account-a'), workspace = scope.run(() => useJobWorkspace(client, account))!;
+  await settleUntil(() => queries.some(query => query.table === 'opportunity_reviews' && query.filters.user_id === 'account-a'));
+  account.value = 'account-b'; await settleUntil(() => !workspace.loading.value);
+  staleReviews.resolve({ data: [{ ...review(), comment: 'Owner A saved evaluation.' }], error: null });
+  await workspace.refresh();
+  assert.equal(values.get(oldEvaluationDraft('account-a')), recovery('Owner A unsaved feedback.'));
+  assert.equal(values.has(evaluationDraft('account-a')), false);
+  assert.equal(values.get(evaluationDraft('account-b')), recovery('Owner B saved evaluation.\n\nOwner B unsaved feedback.'));
+  assert.equal(workspace.reviews.value[0].user_id, 'account-b');
+});
 
 test('opportunity reader preserves the current structured catalogue without a second raw representation', () => {
   const row = opportunityFixture({ id: 'job', title: 'Researcher', institution: 'Institute',
@@ -386,7 +454,7 @@ test('opportunity comments persist across reloads, interest choices and receipts
   let stored: OpportunityReview = review(source.id, 'unreviewed');
   const { client, queries } = fakeClient((query) => {
     if (query.table === 'save_opportunity_comment') {
-      stored = { ...stored, comment: query.payload?.p_comment as string | null };
+      stored = { ...stored, comment: query.payload?.p_comment as string | null, evaluation_revision: (stored.evaluation_revision ?? 0) + 1 };
       return { data: { ...stored }, error: null };
     }
     if (query.table === 'review_job_opportunity') {
@@ -401,7 +469,7 @@ test('opportunity comments persist across reloads, interest choices and receipts
   const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
   await settleUntil(() => !workspace.loading.value);
   const saved = await workspace.setOpportunityComment(source.id, '  Excellent research fit.\nDiscuss funding.  ');
-  assert.equal(saved?.comment, 'Excellent research fit.\nDiscuss funding.');
+  assert.equal(saved?.comment, '  Excellent research fit.\nDiscuss funding.  ');
   assert.equal(saved?.state, 'unreviewed', 'a comment does not choose an interest state');
   assert.equal(saved?.reviewed_updated_at, null, 'a comment does not acknowledge source changes');
   await workspace.markOpportunityReviewed(source);
@@ -411,16 +479,18 @@ test('opportunity comments persist across reloads, interest choices and receipts
   const nextScope = effectScope(); t.after(() => nextScope.stop());
   const reloaded = nextScope.run(() => useJobWorkspace(client, ref('account-a')))!;
   await settleUntil(() => !reloaded.loading.value);
-  assert.equal(reloaded.reviews.value[0].comment, 'Excellent research fit.\nDiscuss funding.');
+  assert.equal(reloaded.reviews.value[0].comment, '  Excellent research fit.\nDiscuss funding.  ');
   assert.equal(reloaded.reviews.value[0].state, 'strong_interest');
   assert.equal(reloaded.reviews.value[0].reviewed_updated_at, source.updated_at);
-  assert.equal((await reloaded.setOpportunityComment(source.id, ' \n\t '))?.comment, null);
+  assert.equal((await reloaded.setOpportunityComment(source.id, ' \n\t '))?.comment, ' \n\t ');
+  assert.equal((await reloaded.setOpportunityComment(source.id, ''))?.comment, null);
   assert.equal(await reloaded.refresh(), true);
   assert.equal(reloaded.reviews.value[0].comment, null);
   assert.equal(reloaded.reviews.value[0].state, 'strong_interest');
   assert.equal(reloaded.reviews.value[0].reviewed_updated_at, source.updated_at);
   assert.deepEqual(queries.filter(({ table }) => table === 'save_opportunity_comment').map(({ payload }) => payload), [
-    { p_opportunity_id: source.id, p_comment: 'Excellent research fit.\nDiscuss funding.' },
+    { p_opportunity_id: source.id, p_comment: '  Excellent research fit.\nDiscuss funding.  ' },
+    { p_opportunity_id: source.id, p_comment: ' \n\t ' },
     { p_opportunity_id: source.id, p_comment: null },
   ]);
   assert.ok(queries.filter(({ table }) => table === 'opportunities').every(({ operation }) => operation === 'select'));
@@ -434,8 +504,8 @@ test('invalid or failed comment saves preserve the saved comment and report a us
   const scope = effectScope(); t.after(() => scope.stop());
   const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
   await settleUntil(() => !workspace.loading.value);
-  assert.equal(await workspace.setOpportunityComment(original.opportunity_id, 'x'.repeat(5001)), null);
-  assert.match(workspace.opportunityCommentError.value, /5,000 characters/);
+  assert.equal(await workspace.setOpportunityComment(original.opportunity_id, '🧪'.repeat(12001)), null);
+  assert.match(workspace.opportunityCommentError.value, /12,000 characters/);
   assert.equal(workspace.error.value, '', 'comment errors do not trigger the generic workspace error toast');
   assert.equal(queries.filter(({ operation }) => operation === 'rpc').length, 0);
   assert.equal(await workspace.setOpportunityComment(original.opportunity_id, 'New comment'), null);
@@ -447,14 +517,18 @@ test('invalid or failed comment saves preserve the saved comment and report a us
     { ...original, user_id: 'account-b' },
     { ...original, opportunity_id: 'another-opportunity' },
     { ...original, comment: undefined },
+    { ...original, comment: 'New comment', evaluation_revision: undefined },
+    { ...original, comment: 'New comment', evaluation_revision: -1 },
+    { ...original, comment: 'New comment', evaluation_revision: 0.5 },
+    { ...original, comment: 'New comment ' },
   ]) {
     response = { data: invalid, error: null };
     assert.equal(await workspace.setOpportunityComment(original.opportunity_id, 'New comment'), null);
     assert.match(workspace.opportunityCommentError.value, /comment could not be saved/);
     assert.deepEqual(workspace.reviews.value, [original]);
   }
-  response = { data: { ...original, comment: 'x'.repeat(5000) }, error: null };
-  assert.ok(await workspace.setOpportunityComment(original.opportunity_id, 'x'.repeat(5000)));
+  response = { data: { ...original, comment: '🧪'.repeat(12000) }, error: null };
+  assert.ok(await workspace.setOpportunityComment(original.opportunity_id, '🧪'.repeat(12000)));
   assert.equal(workspace.opportunityCommentError.value, '');
   assert.equal(workspace.error.value, '');
 });
@@ -1267,37 +1341,32 @@ test('disposed workspaces discard queued writes and reject new writes', async ()
   assert.equal(queries.filter(query => query.operation !== 'select').length, 1);
 });
 
-test('AF-02 feedback patches serialize with private comments and approval is a separate exact action', async () => {
-  let stored = { ...review(), comment: 'Synthetic private person person@example.invalid', search_feedback_summary: null as string | null,
-    search_feedback_revision: 0, search_feedback_summary_hash: 'hash-summary', search_feedback_source_hash: 'hash-source',
-    search_feedback_approved_at: null as string | null, search_feedback_approved_summary_hash: null as string | null,
-    search_feedback_approved_source_hash: null as string | null };
+test('evaluation commits use one comment RPC and preserve independent interest, exclusion and consent', async () => {
+  let stored = { ...review(), comment: 'Synthetic private person person@example.invalid', evaluation_revision: 4,
+    interest_rating: 7.5, feedback_revision: 8, feedback_excluded: true };
   const { client, queries } = fakeClient(query => {
     if (query.operation !== 'rpc') return { data: query.table === 'opportunity_reviews' ? [stored] : [], error: null };
     if (query.table === 'save_opportunity_feedback') stored = { ...stored, ...query.payload?.p_patch as object,
-      search_feedback_revision: stored.search_feedback_revision + 1 };
-    if (query.table === 'approve_opportunity_feedback_summary') stored = { ...stored, search_feedback_approved_at: '2026-10-29T12:00:00Z',
-      search_feedback_approved_summary_hash: stored.search_feedback_summary_hash, search_feedback_approved_source_hash: stored.search_feedback_source_hash };
-    if (query.table === 'save_opportunity_comment') stored = { ...stored, comment: String(query.payload?.p_comment), search_feedback_approved_at: null };
+      feedback_revision: stored.feedback_revision + 1 };
+    if (query.table === 'save_opportunity_comment') stored = { ...stored, comment: String(query.payload?.p_comment),
+      evaluation_revision: stored.evaluation_revision + 1 };
     return { data: stored, error: null };
   });
   const scope = effectScope(); const workspace = scope.run(() => useJobWorkspace(client, ref('account-a')))!;
   await settleUntil(() => !workspace.loading.value);
   await workspace.saveOpportunityFeedback('opportunity-1', { interest_rating: 0 });
   assert.equal(workspace.reviews.value[0].interest_rating, 0);
-  assert.equal(workspace.reviews.value[0].comment, stored.comment);
-  assert.equal(workspace.reviews.value[0].search_feedback_approved_at, null);
-  await workspace.saveOpportunityFeedback('opportunity-1', { search_feedback_summary: 'Prefer hardware experiments.' });
-  assert.equal(workspace.reviews.value[0].search_feedback_approved_at, null, 'saving a draft cannot approve it');
-  await workspace.approveOpportunityFeedbackSummary('opportunity-1', 'hash-summary', 'hash-source', 2);
-  assert.ok(workspace.reviews.value[0].search_feedback_approved_at);
-  await workspace.setOpportunityComment('opportunity-1', 'Changed private evaluation');
-  assert.equal(workspace.reviews.value[0].search_feedback_approved_at, null);
-  assert.deepEqual(queries.filter(query => query.operation === 'rpc').map(query => query.table),
-    ['save_opportunity_feedback', 'save_opportunity_feedback', 'approve_opportunity_feedback_summary', 'save_opportunity_comment']);
-  assert.deepEqual(queries.find(query => query.table === 'approve_opportunity_feedback_summary')?.payload,
-    { p_opportunity_id: 'opportunity-1', p_summary_hash: 'hash-summary', p_source_hash: 'hash-source', p_summary_revision: 2 });
-  for (const query of queries.filter(query => query.table !== 'save_opportunity_comment')) assert.ok(!JSON.stringify(query.payload ?? {}).includes('person@example.invalid'));
+  assert.equal(workspace.reviews.value[0].evaluation_revision, 4);
+  assert.equal(await workspace.saveOpportunityFeedback('opportunity-1', { search_feedback_summary: 'Retired second source.' } as never), null);
+  await workspace.setOpportunityComment('opportunity-1', '  Changed complete evaluation.\n ');
+  const saved = workspace.reviews.value[0];
+  assert.equal(saved.comment, '  Changed complete evaluation.\n ');
+  assert.equal(saved.evaluation_revision, 5);
+  assert.equal(saved.interest_rating, 0); assert.equal(saved.feedback_revision, 9); assert.equal(saved.feedback_excluded, true);
+  assert.equal('approveOpportunityFeedbackSummary' in workspace, false); assert.equal('revokeOpportunityFeedbackSummary' in workspace, false);
+  assert.deepEqual(queries.filter(query => query.operation === 'rpc').map(query => query.table), ['save_opportunity_feedback','save_opportunity_comment']);
+  assert.deepEqual(queries.find(query => query.table === 'save_opportunity_comment')?.payload,
+    { p_opportunity_id:'opportunity-1',p_comment:'  Changed complete evaluation.\n ' });
   assert.equal(queries.some(query => query.table === 'set_opportunity_feedback_consent'), false);
   scope.stop();
 });
@@ -1312,7 +1381,7 @@ test('AF-02 invalid patches never reach storage; consent is explicit, scoped and
   });
   const scope = effectScope(); const account = ref('account-a'); const workspace = scope.run(() => useJobWorkspace(client, account))!;
   await settleUntil(() => !workspace.loading.value);
-  for (const patch of [{ interest_rating: '2' }, { interest_rating: NaN }, { comment: 'not an allowed patch' }, { feedback_excluded: 'yes' }]) {
+  for (const patch of [{ interest_rating: '2' }, { interest_rating: NaN }, { comment: 'not an allowed patch' }, { search_feedback_summary:'Retired second source.' }, { feedback_excluded: 'yes' }]) {
     assert.equal(await workspace.saveOpportunityFeedback('opportunity-1', patch as never), null);
   }
   assert.equal(queries.some(query => query.operation === 'rpc'), false);

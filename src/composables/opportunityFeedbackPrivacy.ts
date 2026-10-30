@@ -4,7 +4,7 @@ import {
   type OpportunityFeedbackOutcome, type OpportunitySubmissionEvidence,
 } from './opportunityFeedback';
 import { safeWebUrl } from './safeUrl';
-import { mergeOpportunityEvaluation } from './opportunityEvaluation';
+import { MAX_OPPORTUNITY_EVALUATION_LENGTH } from './opportunityEvaluation';
 
 export const MAX_SEARCH_FEEDBACK_SUMMARY_LENGTH = 600;
 export const OPPORTUNITY_FEEDBACK_ALLOWLIST_VERSION = 'opportunity-feedback-safe-v1';
@@ -79,32 +79,6 @@ export async function opportunityFeedbackTextHash(value: string | null | undefin
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-/** Approval metadata must come from the authenticated DB; matching hashes alone never grants approval. */
-export async function approvedOpportunitySearchSummary(review: OpportunityReview | null | undefined): Promise<string | null> {
-  if (!review || !review.search_feedback_approved_at || !Number.isFinite(Date.parse(review.search_feedback_approved_at))
-    || !opportunityFeedbackTextIsSafe(review.search_feedback_summary)) return null;
-  const summary = review.search_feedback_summary;
-  const source = review.comment;
-  const approvedAt = review.search_feedback_approved_at;
-  const revision = review.search_feedback_revision;
-  const expectedSummaryHash = review.search_feedback_summary_hash;
-  const expectedSourceHash = review.search_feedback_source_hash;
-  const approvedSummaryHash = review.search_feedback_approved_summary_hash;
-  const approvedSourceHash = review.search_feedback_approved_source_hash;
-  try {
-    const [summaryHash, sourceHash] = await Promise.all([
-      opportunityFeedbackTextHash(summary), opportunityFeedbackTextHash(source),
-    ]);
-    if (summaryHash !== expectedSummaryHash || summaryHash !== approvedSummaryHash
-      || sourceHash !== expectedSourceHash || sourceHash !== approvedSourceHash
-      || review.search_feedback_summary !== summary || review.comment !== source
-      || review.search_feedback_approved_at !== approvedAt || review.search_feedback_revision !== revision
-      || review.search_feedback_summary_hash !== expectedSummaryHash || review.search_feedback_source_hash !== expectedSourceHash
-      || review.search_feedback_approved_summary_hash !== approvedSummaryHash || review.search_feedback_approved_source_hash !== approvedSourceHash) return null;
-    return summary;
-  } catch { return null; } // Missing local hashing support must omit text, not pause scheduled work.
-}
-
 export interface AdaptiveSummaryInclusion {
   policy_version: 'included-unless-excluded-v1'; summary_hash: string; source_hash: string;
   summary_revision: number; truncated: boolean; source_length: number;
@@ -123,13 +97,13 @@ export function validateAdaptiveSummaryInclusion(value: unknown): AdaptiveSummar
 }
 /** The saved evaluation is included by default; exclusions and content safeguards still apply. */
 export async function includedOpportunitySearchSummary(review: OpportunityReview | null | undefined): Promise<{ text: string; proof: AdaptiveSummaryInclusion } | null> {
-  if (!review || review.feedback_excluded || !Number.isSafeInteger(review.search_feedback_revision) || review.search_feedback_revision! < 0) return null;
-  const source = mergeOpportunityEvaluation(review.comment, review.search_feedback_summary), revision = review.search_feedback_revision!;
-  if (!opportunityFeedbackTextIsSafe(source, 12000)) return null;
+  if (!review || review.feedback_excluded || !Number.isSafeInteger(review.evaluation_revision) || review.evaluation_revision! < 0) return null;
+  const source = review.comment, revision = review.evaluation_revision!;
+  if (!opportunityFeedbackTextIsSafe(source, MAX_OPPORTUNITY_EVALUATION_LENGTH)) return null;
   const points = Array.from(source), summary = points.slice(0, MAX_SEARCH_FEEDBACK_SUMMARY_LENGTH).join('');
   if (!opportunityFeedbackTextIsSafe(summary)) return null;
   const [summaryHash, sourceHash] = await Promise.all([opportunityFeedbackTextHash(summary), opportunityFeedbackTextHash(source)]);
-  if (review.feedback_excluded || revision !== review.search_feedback_revision || source !== mergeOpportunityEvaluation(review.comment, review.search_feedback_summary)) return null;
+  if (review.feedback_excluded || revision !== review.evaluation_revision || source !== review.comment) return null;
   return { text: summary, proof: { policy_version: 'included-unless-excluded-v1', summary_hash: summaryHash, source_hash: sourceHash,
     summary_revision: revision, truncated: points.length > MAX_SEARCH_FEEDBACK_SUMMARY_LENGTH, source_length: points.length } };
 }
@@ -173,7 +147,6 @@ export interface SafeOpportunityFeedbackExample {
   submission_at: string | null;
   reasons: OpportunityInterestReason[];
   search_feedback_summary?: string;
-  summary_approval?: { summary_hash: string; source_hash: string; summary_revision: number; approved_at: string };
   summary_inclusion?: AdaptiveSummaryInclusion;
   manually_archived?: boolean;
   technical_issue_category?: 'closed' | 'requirements' | 'application_problem' | 'other';
@@ -265,7 +238,7 @@ export async function projectOpportunityFeedback(input: OpportunityFeedbackProje
     example.search_feedback_summary = summary.text;
     example.summary_inclusion = summary.proof;
   }
-  else if (input.review?.search_feedback_summary || input.review?.comment) withhold('search_feedback_summary', 'invalid_value');
+  else if (input.review?.comment) withhold('search_feedback_summary', 'invalid_value');
   result.example = example;
   return result;
 }

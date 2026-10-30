@@ -27,9 +27,7 @@ function discrepancy(index: number, score: number, prediction: number): Adaptive
       predicted_at: earlier, source_kind: 'historical_snapshot', source_ref: `opportunity-search-receipt:${id(900)}:${id(index)}` } });
 }
 async function summaryExample(index: number, summary = 'Prefer physical sensing experiments.'): Promise<AdaptiveFeedbackExample> {
-  return example(index, { interest_score: null, interest_origin: 'none', feedback_updated_at: null,
-    search_feedback_summary: summary, summary_approval: { summary_hash: await opportunityFeedbackTextHash(summary),
-      source_hash: 'a'.repeat(64), summary_revision: 1, approved_at: now } });
+  return includedExample(index,summary);
 }
 async function includedExample(index: number, source = 'Prefer acoustic sensing prototypes.'): Promise<AdaptiveFeedbackExample> {
   const text = Array.from(source).slice(0, 600).join('');
@@ -43,8 +41,8 @@ test('default-included text is eligible without legacy approval and never invent
   const saved = await includedExample(1);
   const result = await compileAdaptiveFeedbackSnapshot(input([saved]));
   assert.equal(result.counts.eligible, 1); assert.equal(result.counts.scored, 0);
-  assert.equal(result.counts.approved_summaries, 1, 'the retained count includes both supported proof formats');
-  assert.equal(result.examples[0]!.summary_approval, undefined);
+  assert.equal(result.counts.approved_summaries, 1, 'the packet count includes current derived excerpts');
+  assert.equal('summary_approval' in result.examples[0]!, false);
   assert.deepEqual(result.examples[0]!.summary_inclusion, saved.summary_inclusion);
   assert.equal(result.examples[0]!.interest_score, null); assert.equal(result.aggregates.mean_interest, null);
 });
@@ -189,16 +187,18 @@ test('AF-03 fingerprints are deterministic semantic inputs independent of assign
   assert.notEqual(first.input_fingerprint, consent.input_fingerprint);
 });
 
-test('AF-03 exact approval proof and its real event timestamp participate in the semantic fingerprint', async () => {
+test('current inclusion revision participates in the semantic fingerprint and missing or stale proofs omit text', async () => {
   const summary = await summaryExample(1);
   const original = await compileAdaptiveFeedbackSnapshot(input([summary]));
-  const reapproved = await compileAdaptiveFeedbackSnapshot(input([{ ...summary, summary_approval: { ...summary.summary_approval!, approved_at: '2026-10-29T13:00:00Z' } }]));
-  assert.notEqual(original.input_fingerprint, reapproved.input_fingerprint, 'reapproval cannot reuse an old redacted snapshot');
-  const revoked = await compileAdaptiveFeedbackSnapshot(input([{ ...summary, summary_approval: undefined }]));
-  assert.equal(revoked.examples.length, 0);
-  assert.equal(revoked.counts.approved_summaries, 0);
-  const edited = await compileAdaptiveFeedbackSnapshot(input([{ ...summary, search_feedback_summary: 'Changed but unapproved summary.' }]));
+  const revised = await compileAdaptiveFeedbackSnapshot(input([{ ...summary, summary_inclusion: { ...summary.summary_inclusion!, summary_revision: 2 } }]));
+  assert.notEqual(original.input_fingerprint, revised.input_fingerprint);
+  const removed = await compileAdaptiveFeedbackSnapshot(input([{ ...summary, summary_inclusion: undefined }]));
+  assert.equal(removed.examples.length, 0); assert.equal(removed.counts.approved_summaries, 0);
+  const edited = await compileAdaptiveFeedbackSnapshot(input([{ ...summary, search_feedback_summary: 'Changed with stale proof.' }]));
   assert.equal(edited.examples.length, 0);
+  const retired = await compileAdaptiveFeedbackSnapshot(input([Object.assign({ ...summary,summary_inclusion:undefined },
+    { summary_approval:{summary_hash:await opportunityFeedbackTextHash(summary.search_feedback_summary!),source_hash:'a'.repeat(64),summary_revision:1,approved_at:now} })]));
+  assert.equal(retired.examples.length, 0, 'retired proof formats never authorize current text');
 });
 
 test('AF-03 only valid, timely owner-matched original predictions survive; current fit never establishes a baseline', async () => {
@@ -274,10 +274,10 @@ test('AF-03 asynchronous hashing captures scalar proof values and never aliases 
   const summary = await summaryExample(1);
   const before = structuredClone(summary);
   const pending = compileAdaptiveFeedbackSnapshot(input([summary]));
-  summary.summary_approval!.source_hash = 'person@example.invalid';
+  summary.summary_inclusion!.source_hash = 'person@example.invalid';
   summary.topics.push('Changed after compilation began');
   const result = await pending;
-  assert.equal(result.examples[0]!.summary_approval!.source_hash, before.summary_approval!.source_hash);
+  assert.equal(result.examples[0]!.summary_inclusion!.source_hash, before.summary_inclusion!.source_hash);
   assert.deepEqual(result.examples[0]!.topics, before.topics);
   result.examples[0]!.reasons.push({ category: 'other', polarity: 'negative' });
   assert.deepEqual(summary.reasons, []);

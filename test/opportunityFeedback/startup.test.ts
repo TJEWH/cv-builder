@@ -75,7 +75,7 @@ test('AF-07 the actual SQL bundle passes the same complete DTO projector used fo
       binding: { ...proof, project_ref: project, user_id: owner, search_id: search, enabled: true, authorized: true },
       privacy: { structured_feedback_enabled: false, adaptation_enabled: false, adaptation_paused: false,
         successful_source_reuse_enabled: false, consent_revision: 0, privacy_scope_changed: false,
-        excluded_opportunity_ids: [], approved_summaries: [], authorized_source_ids: [] } });
+        excluded_opportunity_ids: [], included_summaries: [], authorized_source_ids: [] } });
     assert.equal(projected.compatible, true, JSON.stringify(projected));
     for (const field of Object.keys(actual)) assert.deepEqual(projected[field as keyof typeof projected], actual[field], `Server and preview disagreed on ${field}`);
     assert.doesNotMatch(JSON.stringify(actual), /PRIVATE_SEARCH_NAME_CANARY/u);

@@ -58,7 +58,7 @@ export function buildAdaptiveSearchReleaseManifest() {
     bootstrap_provenance: bootstrap,
     existing_workspace_upgrade: ADAPTIVE_RELEASE_MIGRATIONS.map((name, index) => ({ order: index + 1, ...artifact(`supabase/${name}`),
       migration_only: true, scheduler_operations: false })),
-    current_contract_upgrades: ['opportunity_description.sql', 'application_removal_review.sql']
+    current_contract_upgrades: ['opportunity_description.sql', 'application_removal_review.sql', 'opportunity_evaluation.sql']
       .map(name => ({ ...artifact(`supabase/${name}`), migration_only: true, scheduler_operations: false })),
     installed_definition_prerequisites: { encoding: 'sha256-utf8-pg_get_functiondef-pg17-v1', tested_postgres_major: 17, functions: prerequisites },
     runner_artifacts: ['src/composables/adaptiveSearchProtocol.ts','src/composables/adaptiveSearchTask.ts',

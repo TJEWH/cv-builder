@@ -40,8 +40,10 @@ export interface OpportunityReview {
   user_id: string;
   opportunity_id: string;
   state: OpportunityReviewState;
-  /** Private context for the user's interest; older workspaces may omit this field. */
+  /** Complete owner evaluation; exported only as a safe derived excerpt after search consent. */
   comment?: string | null;
+  /** Server-maintained evaluation revision, independent of numeric interest. */
+  evaluation_revision?: number;
   /** AF-01 fields are optional while an installation is awaiting its additive migration. */
   interest_rating?: number | null;
   interest_reasons?: OpportunityInterestReason[];
@@ -54,14 +56,6 @@ export interface OpportunityReview {
   technical_issue_note?: string | null;
   /** Frozen for the explicit feedback revision, separate from the catalogue's AI fit. */
   prediction_baseline?: OpportunityPredictionBaseline | null;
-  /** Private summary draft. Only its exact explicit approval permits adaptive export. */
-  search_feedback_summary?: string | null;
-  search_feedback_revision?: number;
-  search_feedback_summary_hash?: string;
-  search_feedback_source_hash?: string;
-  search_feedback_approved_at?: string | null;
-  search_feedback_approved_summary_hash?: string | null;
-  search_feedback_approved_source_hash?: string | null;
   reviewed_updated_at: string | null;
   created_at: string;
   updated_at: string;
@@ -71,7 +65,6 @@ export interface OpportunityFeedbackPatch extends OpportunityDispositionPatch {
   interest_rating?: number | null;
   interest_reasons?: OpportunityInterestReason[];
   feedback_excluded?: boolean;
-  search_feedback_summary?: string | null;
 }
 
 export interface OpportunityFeedbackSettings {

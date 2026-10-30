@@ -12,6 +12,7 @@ import { normalizeApplication } from './applicationTracking';
 import { OPPORTUNITY_COLUMNS, readOpportunity } from './readOpportunity';
 import { parseOpportunityInterestRating, normalizeOpportunityInterestReasons } from './opportunityFeedback';
 import { normalizeOpportunityDispositionPatch, readOpportunityDisposition } from './opportunityDisposition';
+import { MAX_OPPORTUNITY_EVALUATION_LENGTH, migrateOpportunityEvaluationDrafts } from './opportunityEvaluation';
 
 const PAGE_SIZE = 500;
 const CV_SUMMARY_FIELDS = 'id,user_id,name,cv_version,revision,created_at';
@@ -134,10 +135,15 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
         rows('opportunity_reviews', '*', account, controller.signal),
       ]);
       if (!current(account, generation) || sequence !== loadSequence) return false;
-      opportunities.value = opportunityRows.map(normalizeOpportunity);
-      applications.value = (applicationRows as unknown as Application[]).map(normalizeApplication);
+      const nextOpportunities = opportunityRows.map(normalizeOpportunity);
+      const nextApplications = (applicationRows as unknown as Application[]).map(normalizeApplication);
+      const nextReviews = reviewRows.map(row => { readOpportunityDisposition(row); return row as unknown as OpportunityReview; });
+      migrateOpportunityEvaluationDrafts(account, reviewRows);
+      // Opening an editor must observe its saved evaluation and migrated recovery together.
+      reviews.value = nextReviews;
+      opportunities.value = nextOpportunities;
+      applications.value = nextApplications;
       cvVariants.value = cvRows as unknown as CloudCvVariant[];
-      reviews.value = reviewRows.map(row => { readOpportunityDisposition(row); return row as unknown as OpportunityReview; });
       return true;
     } catch (reason) {
       if (current(account, generation) && sequence === loadSequence) error.value = errorMessage(reason, 'Could not load the job workspace. Check your connection and retry.');
@@ -367,7 +373,7 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
 
   function saveOpportunityFeedback(opportunityId: string, patch: OpportunityFeedbackPatch): Promise<OpportunityReview | null> {
     try {
-      if (!isRecord(patch) || Object.keys(patch).some(key => !['interest_rating', 'interest_reasons', 'feedback_excluded', 'search_feedback_summary', 'manually_archived', 'technical_issue_category', 'technical_issue_note'].includes(key))) {
+      if (!isRecord(patch) || Object.keys(patch).some(key => !['interest_rating', 'interest_reasons', 'feedback_excluded', 'manually_archived', 'technical_issue_category', 'technical_issue_note'].includes(key))) {
         throw new Error('Select only supported feedback fields.');
       }
       const clean = { ...patch };
@@ -376,10 +382,6 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
       if ('interest_rating' in patch) clean.interest_rating = parseOpportunityInterestRating(patch.interest_rating);
       if ('interest_reasons' in patch) clean.interest_reasons = normalizeOpportunityInterestReasons(patch.interest_reasons);
       if ('feedback_excluded' in patch && typeof patch.feedback_excluded !== 'boolean') throw new Error('Invalid feedback exclusion.');
-      if ('search_feedback_summary' in patch && patch.search_feedback_summary !== null
-        && (typeof patch.search_feedback_summary !== 'string' || Array.from(patch.search_feedback_summary).length > 600)) {
-        throw new Error('Search feedback summaries must be at most 600 characters.');
-      }
       return feedbackReviewRpc('save_opportunity_feedback', opportunityId, { p_patch: clean });
     } catch (reason) {
       opportunityFeedbackError.value = errorMessage(reason, 'Invalid feedback.');
@@ -390,14 +392,6 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   function saveOpportunityDisposition(opportunityId: string, patch: OpportunityDispositionPatch): Promise<OpportunityReview | null> {
     try { return saveOpportunityFeedback(opportunityId, normalizeOpportunityDispositionPatch(patch)); }
     catch (reason) { opportunityFeedbackError.value = errorMessage(reason, 'Invalid opportunity disposition.'); return Promise.resolve(null); }
-  }
-
-  function approveOpportunityFeedbackSummary(opportunityId: string, summaryHash: string, sourceHash: string, summaryRevision: number) {
-    return feedbackReviewRpc('approve_opportunity_feedback_summary', opportunityId,
-      { p_summary_hash: summaryHash, p_source_hash: sourceHash, p_summary_revision: summaryRevision });
-  }
-  function revokeOpportunityFeedbackSummary(opportunityId: string) {
-    return feedbackReviewRpc('revoke_opportunity_feedback_summary', opportunityId, {});
   }
 
   function readFeedbackSettings(value: unknown, account: string): OpportunityFeedbackSettings {
@@ -451,15 +445,16 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   function setOpportunityComment(opportunityId: string, comment: string): Promise<OpportunityReview | null> {
     return runMutation(async (account, _generation, signal) => {
       if (!opportunityId) throw new Error('Select an opportunity before adding a comment.');
-      const normalizedComment = comment.trim() || null;
-      if (normalizedComment && Array.from(normalizedComment).length > 5000) throw new Error('Keep the comment to 5,000 characters or fewer.');
+      if (typeof comment !== 'string') throw new Error('Enter evaluation text.');
+      const normalizedComment = comment === '' ? null : comment;
+      if (Array.from(comment).length > MAX_OPPORTUNITY_EVALUATION_LENGTH) throw new Error('Keep the evaluation to 12,000 characters or fewer.');
       const { data, error: queryError } = await client!.rpc('save_opportunity_comment', {
         p_opportunity_id: opportunityId, p_comment: normalizedComment,
       }).abortSignal(signal);
       if (queryError) throw queryError;
       if (!data || data.user_id !== account || data.opportunity_id !== opportunityId
         || !OPPORTUNITY_REVIEW_STATES.includes(data.state)
-        || (data.comment !== null && typeof data.comment !== 'string')) {
+        || data.comment !== normalizedComment || !Number.isSafeInteger(data.evaluation_revision) || data.evaluation_revision < 0) {
         throw new Error('The comment could not be saved. Refresh and retry.');
       }
       return data as OpportunityReview;
@@ -526,6 +521,6 @@ export function useJobWorkspace(client: SupabaseClient | null, userId: MaybeRefO
   watch(() => toValue(userId), () => { reset(); void refresh(); }, { immediate: true, flush: 'sync' });
   onScopeDispose(() => { disposed = true; reset(); });
   return { opportunities, applications, cvVariants, reviews, loading, saving, savingReview, error, opportunityReviewError, opportunityCommentError,
-    opportunityFeedbackError, feedbackSharing, saveOpportunityFeedback, saveOpportunityDisposition, approveOpportunityFeedbackSummary, revokeOpportunityFeedbackSummary,
+    opportunityFeedbackError, feedbackSharing, saveOpportunityFeedback, saveOpportunityDisposition,
     loadFeedbackSharing, setStructuredFeedbackSharing, refresh, createApplication, updateApplication, setApplicationStage, resetApplicationHistory, setApplicationChecklistItem, removeApplication, refreshApplicationContext, setOpportunityReview, setOpportunityComment, markOpportunityReviewed, getApplicationContext };
 }

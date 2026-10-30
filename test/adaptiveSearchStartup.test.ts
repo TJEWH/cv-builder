@@ -29,8 +29,8 @@ function example(index: number): AdaptiveFeedbackExample {
 }
 async function fixture(withSummary = true): Promise<{ bundle: AdaptiveSearchStartupBundle; context: { binding: AdaptiveStartupBinding; expected_run_id: string; privacy: AdaptiveStartupPrivacy; isCurrent?: () => boolean } }> {
   const first = example(1), proof = { summary_hash: await opportunityFeedbackTextHash('Prefer physical robotics experiments.'),
-    source_hash: 'b'.repeat(64), summary_revision: 2, approved_at: now };
-  if (withSummary) { first.search_feedback_summary = 'Prefer physical robotics experiments.'; first.summary_approval = proof; }
+    source_hash: 'b'.repeat(64), summary_revision: 2, policy_version: 'included-unless-excluded-v1' as const, truncated: false, source_length: Array.from('Prefer physical robotics experiments.').length };
+  if (withSummary) { first.search_feedback_summary = 'Prefer physical robotics experiments.'; first.summary_inclusion = proof; }
   const packet = await compileAdaptiveFeedbackSnapshot({ user_id: owner, search_id: search, structured_feedback_enabled: true,
     consent_revision: 1, feedback_revision: 1, preference_revision: 0, approved_preferences: [], examples: [first, example(2), example(3)] });
   const basis = { base_revision: 2, feedback_revision: 1, preference_revision: 0, protocol_version: 'opportunity-search-v1-canonical-6' };
@@ -65,7 +65,7 @@ async function fixture(withSummary = true): Promise<{ bundle: AdaptiveSearchStar
     lease: { expires_at: '2026-10-29T14:00:00Z', status: 'active' }, capabilities: ADAPTIVE_STARTUP_CAPABILITIES, execution_contract: ADAPTIVE_STARTUP_EXECUTION_CONTRACT }),
     context: { binding, expected_run_id: run, privacy: { structured_feedback_enabled: true, adaptation_enabled: true, adaptation_paused: false,
       successful_source_reuse_enabled: true, consent_revision: 1, privacy_scope_changed: false, excluded_opportunity_ids: [],
-      approved_summaries: withSummary ? [{ opportunity_id: id(1), ...proof }] : [] } } };
+      included_summaries: withSummary ? [{ opportunity_id: id(1), ...proof }] : [] } } };
 }
 function success(value: Awaited<ReturnType<typeof projectAdaptiveSearchStartup>>): asserts value is AdaptiveSearchStartupBundle {
   assert.equal(value.compatible, true, JSON.stringify(value));
@@ -104,9 +104,9 @@ test('AF-07 fixed allowlists omit archived editors, raw snapshots, nested contac
 test('AF-07 preserved whole-set aggregates never recompute from the bounded example sample', async () => {
   const { bundle, context } = await fixture(false);
   const summary = 'Prefer physical robotics experiments.', proof = { summary_hash: await opportunityFeedbackTextHash(summary),
-    source_hash: 'b'.repeat(64), summary_revision: 2, approved_at: now };
-  const examples = Array.from({ length: 60 }, (_, index) => ({ ...example(index + 1), search_feedback_summary: summary, summary_approval: proof }));
-  context.privacy.approved_summaries = examples.map(row => ({ opportunity_id: row.opportunity_id, ...proof }));
+    source_hash: 'b'.repeat(64), summary_revision: 2, policy_version: 'included-unless-excluded-v1' as const, truncated: false, source_length: Array.from('Prefer physical robotics experiments.').length };
+  const examples = Array.from({ length: 60 }, (_, index) => ({ ...example(index + 1), search_feedback_summary: summary, summary_inclusion: proof }));
+  context.privacy.included_summaries = examples.map(row => ({ opportunity_id: row.opportunity_id, ...proof }));
   const packet = await compileAdaptiveFeedbackSnapshot({ user_id: owner, search_id: search, structured_feedback_enabled: true,
     consent_revision: 1, feedback_revision: 1, preference_revision: 0, examples, approved_preferences: [] });
   set(bundle, ['feedback'], packet);
@@ -127,15 +127,15 @@ test('AF-07 same-run retry preserves semantic pins and later data does not silen
   assert.deepEqual(retry.base, first.base); assert.deepEqual(retry.query_plan, first.query_plan); assert.deepEqual(retry.lease, first.lease);
 });
 
-test('AF-07 every retry rechecks summary approval and removes all derived query text while keeping exact core/manual text', async () => {
+test('AF-07 every retry rechecks current evaluation inclusion and removes all derived query text while keeping exact core/manual text', async () => {
   const { bundle, context } = await fixture(), originalCore = bundle.query_plan!.document.queries[0]!;
-  context.privacy.approved_summaries = [];
+  context.privacy.included_summaries = [];
   const revoked = await projectAdaptiveSearchStartup(bundle, context); success(revoked);
   assert.doesNotMatch(JSON.stringify(revoked), /Prefer physical robotics|ADAPTIVE_OLD_TEXT|EXPLORATION_OLD_TEXT/u);
   assert.deepEqual(revoked.query_plan!.document.queries, [originalCore]); assert.equal(revoked.query_plan!.plan_hash, bundle.query_plan!.plan_hash);
   assert.equal(revoked.refresh.privacy_scope_changed, true); assert.equal(revoked.refresh.adaptive_slice, true);
   assert.deepEqual(revoked.planning.priorities, []); assert.equal(revoked.planning.enabled, false, 'a privacy-redacted old run cannot restore its adaptive layer');
-  const retry = await projectAdaptiveSearchStartup(revoked, { ...context, privacy: { ...context.privacy, approved_summaries: [{ opportunity_id: id(1), ...bundle.feedback.examples[0]!.summary_approval! }] } });
+  const retry = await projectAdaptiveSearchStartup(revoked, { ...context, privacy: { ...context.privacy, included_summaries: [{ opportunity_id: id(1), ...bundle.feedback.examples[0]!.summary_inclusion! }] } });
   success(retry); assert.doesNotMatch(JSON.stringify(retry), /Prefer physical robotics|ADAPTIVE_OLD_TEXT|EXPLORATION_OLD_TEXT/u);
 });
 
@@ -166,15 +166,15 @@ test('AF-07 live pause/off/reuse decisions suppress automatic source reuse while
   assert.deepEqual(ownerDisabled, { adaptive_contract_version: 1, compatible: false, error: { code: 'scope_unavailable', retryable: false } }, 'a disabled protected core target fails scope instead of silently gaining execution permission');
 });
 
-test('AF-07 async disclosure checks handle mid-projection owner switch, callback generation change and approval revocation', async () => {
-  for (const mode of ['binding', 'callback', 'approval'] as const) {
+test('AF-07 async disclosure checks handle mid-projection owner switch, callback generation change and evaluation change', async () => {
+  for (const mode of ['binding', 'callback', 'evaluation'] as const) {
     const { bundle, context } = await fixture(); let current = true; context.isCurrent = () => current;
     const pending = projectAdaptiveSearchStartup(bundle, context);
     if (mode === 'binding') context.binding.user_id = id(999);
     else if (mode === 'callback') current = false;
-    else context.privacy.approved_summaries = [];
+    else context.privacy.included_summaries = [];
     const result = await pending;
-    if (mode === 'approval') { success(result); assert.doesNotMatch(JSON.stringify(result), /Prefer physical robotics|ADAPTIVE_OLD_TEXT/u); }
+    if (mode === 'evaluation') { success(result); assert.doesNotMatch(JSON.stringify(result), /Prefer physical robotics|ADAPTIVE_OLD_TEXT/u); }
     else assert.deepEqual(result, { adaptive_contract_version: 1, compatible: false, error: { code: 'authorization_revoked', retryable: false } });
     assert.doesNotMatch(JSON.stringify(result), /PRIVATE_CONTACT_CANARY/u);
   }
@@ -184,7 +184,7 @@ test('AF-07 unsafe URLs, incompatible schemas/helpers/releases and cross-owner i
   for (const [path, value] of [
     [['due_sources', 0, 'listing_url'], 'https://example.invalid/Jobs?email=private.person%40example.invalid'],
     [['query_plan', 'document', 'queries', 0, 'query'], 'site:example.invalid mailto:private.person@example.invalid'],
-    [['release', 'schema_version'], 7], [['release', 'protocol_hash'], 'd'.repeat(64)],
+    [['release', 'schema_version'], 5], [['release', 'schema_version'], 7], [['release', 'protocol_hash'], 'd'.repeat(64)],
     [['capabilities', 'allowed_helpers'], ['private.read_all_applications()']], [['result_schema', 'contacts'], canary],
     [['scope', 'user_id'], id(999)], [['feedback', 'examples', 0, 'user_id'], id(999)],
   ] as const) {
@@ -351,12 +351,12 @@ test('Search breadth startup carries canonical guidance, accepts pinned v1 histo
 test('default-included excerpts require current inclusion proofs and are removed by the shared exclusion', async () => {
   const { bundle, context } = await fixture();
   const included = await includedOpportunitySearchSummary({ user_id: owner, opportunity_id: id(1), state: 'interested',
-    comment: 'Experimental sensing. '.repeat(40), search_feedback_summary: null, search_feedback_revision: 3,
+    comment: 'Experimental sensing. '.repeat(40), evaluation_revision: 3,
     reviewed_updated_at: null, created_at: now, updated_at: now });
   assert(included); assert.equal(included.proof.truncated, true);
   const row = bundle.feedback.examples[0]!;
-  row.search_feedback_summary = included.text; row.summary_inclusion = included.proof; delete row.summary_approval;
-  context.privacy.approved_summaries = [];
+  row.search_feedback_summary = included.text; row.summary_inclusion = included.proof;
+  context.privacy.included_summaries = [];
   context.privacy.included_summaries = [{ opportunity_id: row.opportunity_id, ...included.proof }];
   bundle.source_retention = { requested: 7, retained: 5, omitted: 2 };
   const valid = await projectAdaptiveSearchStartup(bundle, context); success(valid);
