@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, useId } from 'vue';
 import type { PropType, VNode } from 'vue';
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
+import { faLink } from '@fortawesome/free-solid-svg-icons';
 import { buildOpportunityGroups, checklistKeys, fitScoreTone, requirementTableRows } from '../composables/opportunityContext';
 import type { OpportunityContextNode, OpportunityContextGroupId } from '../composables/opportunityContext';
 
@@ -35,6 +37,22 @@ function toggleScoreSummaries(event: MouseEvent) {
 }
 
 // Vue escapes every supplied text node, including requirement table cells.
+const SourceLinks = defineComponent({
+  name: 'OpportunitySourceLinks',
+  props: { node: { type: Object as PropType<OpportunityContextNode>, required: true } },
+  setup(sourceProps) {
+    return () => {
+      const sources = [...new Map((sourceProps.node.evidence ?? []).map(source => [source.href, source])).values()];
+      return sources.length ? h('span', { class: 'opportunity-context__source-links' }, sources.map(source => {
+        const label = `${sourceProps.node.label ? `${sourceProps.node.label}: ` : ''}${props.lang === 'de' ? 'Quelle öffnen' : 'Open source'} (${source.text})`;
+        return h('a', { key: source.href, class: 'opportunity-context__source-link', href: source.href,
+          target: '_blank', rel: 'noopener noreferrer', 'aria-label': label, title: `${label}\n${source.href}` },
+        [h(FontAwesomeIcon, { icon: faLink, 'aria-hidden': 'true' })]);
+      })) : null;
+    };
+  },
+});
+
 const ContextValue = defineComponent({
   name: 'OpportunityContextValue',
   props: { node: { type: Object as PropType<OpportunityContextNode>, required: true }, table: Boolean },
@@ -42,10 +60,7 @@ const ContextValue = defineComponent({
     const inputPrefix = useId();
     const checklistInputId = (node: OpportunityContextNode) => `${inputPrefix}-checklist-${encodeURIComponent(node.id)}`;
     function renderEvidence(node: OpportunityContextNode): VNode | null {
-      return node.evidence?.length ? h('details', { class: 'opportunity-context__evidence' }, [
-        h('summary', `${props.lang === 'de' ? 'Quellen' : 'Sources'} (${node.evidence.length})`),
-        h('ul', node.evidence.map(source => h('li', { key: source.href }, [h('a', { href: source.href, target: '_blank', rel: 'noopener noreferrer' }, source.text)]))),
-      ]) : null;
+      return node.evidence?.length ? h(SourceLinks, { node }) : null;
     }
     function renderValue(node: OpportunityContextNode, withCheckbox = true, labelFor?: string, includeLabel = false, scoreProse = false): VNode {
       if (props.checklist && withCheckbox && node.checklistKey) {
@@ -93,18 +108,20 @@ const ContextValue = defineComponent({
           class: ['opportunity-context__score', fitScoreTone(score) && `opportunity-context__score--${fitScoreTone(score)}`],
           ...(expandable ? { 'aria-label': [node.label, score !== undefined ? node.text : null].filter(Boolean).join(': '), onClick: toggleScoreSummaries } : {}),
         }, scoreContent);
-        return expandable
+        const scoreView = expandable
           ? h('details', { class: 'opportunity-context__score-details' }, [heading, ...explanation])
           : h('div', [heading]);
+        return node.evidence?.length ? h('div', [scoreView, renderEvidence(node)]) : scoreView;
       }
-      if (!children) return node.evidence?.length ? h('div', [value, renderEvidence(node)]) : value;
+      if (!children) return node.evidence?.length ? h('span', [value, renderEvidence(node)]) : value;
       if (node.kind === 'living-standard') return h('div', { class: 'opportunity-context__living-standard' }, [
         h('strong', { class: 'opportunity-context__living-standard-score' }, node.text),
+        renderEvidence(node),
         h('p', { class: 'opportunity-context__prose' }, [
           `${props.lang === 'de' ? 'Gehaltsbewertung' : 'Salary verdict'}: `,
           node.children?.find(child => child.id.endsWith('.salary_verdict'))?.text,
         ]),
-        h('details', [h('summary', props.lang === 'de' ? 'Bewertung, Annahmen und Quellen' : 'Breakdown, assumptions and sources'), children]),
+        h('details', [h('summary', props.lang === 'de' ? 'Bewertung und Annahmen' : 'Breakdown and assumptions'), children]),
       ]);
       return h('div', [node.text ? value : null, children, renderEvidence(node)]);
     }
@@ -121,9 +138,10 @@ const ContextValue = defineComponent({
         h('tbody', { role: 'rowgroup' }, rows.map(row => row.kind === 'prose'
           ? h('tr', { key: row.id, role: 'row' }, [h('td', { colspan: 3, role: 'cell' }, [h('strong', row.label ?? ''), renderValue({ ...row, label: null }, false)])])
           : h('tr', { key: row.id, role: 'row' }, [
-            h('td', { role: 'cell', headers: `${inputPrefix}-item` }, [renderValue({ ...row, text: undefined, children: undefined, evidence: undefined }, true, undefined, true),
+            h('td', { role: 'cell', headers: `${inputPrefix}-item` }, [
+              h('div', { class: 'opportunity-context__requirement-heading' }, [renderValue({ ...row, text: undefined, children: undefined, evidence: undefined }, true, undefined, true), renderEvidence(row)]),
               row.children?.length ? h('div', { class: 'opportunity-context__requirement-details' }, [renderValue({ id: `${row.id}.details`, label: null, children: row.children }, false)]) : null,
-              renderEvidence(row)]),
+            ]),
             h('td', { role: 'cell', headers: `${inputPrefix}-status`, class: 'opportunity-context__requirement-status', 'data-label': 'Status' }, requirementStatusLabel(row.requirementStatus)),
             h('td', { role: 'cell', headers: `${inputPrefix}-stage`, class: 'opportunity-context__requirement-stage', 'data-label': props.lang === 'de' ? 'Phase' : 'Stage' }, row.requirementStage || (props.lang === 'de' ? 'Nicht angegeben' : 'Not specified')),
           ]))),
@@ -163,8 +181,8 @@ const ContextValue = defineComponent({
       <div v-else class="opportunity-context__fields">
         <div v-for="item in group.items" :key="item.id" class="opportunity-context__field" :class="item.kind ? `opportunity-context__field--${item.kind}` : undefined">
           <dl>
-            <dt>{{ item.label }}</dt>
-            <dd class="opportunity-context__value"><ContextValue :node="item" /></dd>
+            <dt>{{ item.label }} <SourceLinks :node="item" /></dt>
+            <dd class="opportunity-context__value"><ContextValue :node="{ ...item, evidence: undefined }" /></dd>
           </dl>
         </div>
       </div>
@@ -198,10 +216,12 @@ const ContextValue = defineComponent({
 .opportunity-context :deep(.opportunity-context__requirements-table--canonical .opportunity-context__requirement-status),
 .opportunity-context :deep(.opportunity-context__requirements-table--canonical .opportunity-context__requirement-stage) { width: 20%; }
 .opportunity-context :deep(.opportunity-context__requirement-details) { margin-top: 6px; }
-.opportunity-context :deep(.opportunity-context__evidence) { margin-top: 6px; font-size: .9em; }
-.opportunity-context :deep(.opportunity-context__evidence > summary) { cursor: pointer; min-height: 28px; align-content: center; color: var(--ui-muted, #abc9bb); }
-.opportunity-context :deep(.opportunity-context__evidence > summary:focus-visible) { outline: 2px solid var(--ui-accent, #9be8c7); outline-offset: 2px; }
-.opportunity-context :deep(.opportunity-context__evidence ul) { margin: 4px 0; padding-left: 18px; }
+.opportunity-context :deep(.opportunity-context__source-links) { display: inline-flex; flex-wrap: wrap; gap: 2px; max-width: 100%; margin-inline-start: 4px; vertical-align: middle; }
+.opportunity-context :deep(.opportunity-context__source-link) { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; min-height: 28px; border-radius: 4px; font-size: 13px; line-height: 1; text-decoration: none; }
+.opportunity-context :deep(.opportunity-context__source-link:hover) { background: #15362e; color: #c1f7de; }
+.opportunity-context :deep(.opportunity-context__requirement-heading) { display: flex; align-items: flex-start; gap: 4px; }
+.opportunity-context :deep(.opportunity-context__requirement-heading > .opportunity-context__checklist-item) { flex: 1; min-width: 0; }
+.opportunity-context :deep(.opportunity-context__requirement-heading > .opportunity-context__source-links) { flex-shrink: 0; max-width: 40%; }
 .opportunity-context :deep(.opportunity-context__requirements-table tbody tr:last-child td) { border-bottom: 0; }
 .opportunity-context :deep(.opportunity-context__values) { display: grid; gap: 8px; }
 .opportunity-context :deep(.opportunity-context__requirement-status > span + div) { margin-top: 8px; }
@@ -245,7 +265,7 @@ const ContextValue = defineComponent({
   .opportunity-context :deep(.opportunity-context__requirements-table--canonical td) { display: block; min-width: 0; border: 0; }
   .opportunity-context :deep(.opportunity-context__requirements-table--canonical td:first-child) { grid-column: 1 / -1; padding: 0; }
   .opportunity-context :deep(.opportunity-context__requirements-table--canonical td[data-label]::before) { content: attr(data-label); display: block; color: #abc9bb; font-size: 12px; line-height: 1.5; margin-bottom: 2px; }
-  .opportunity-context :deep(.opportunity-context__evidence > summary) { min-height: 36px; }
+  .opportunity-context :deep(.opportunity-context__source-link) { min-width: 44px; min-height: 44px; font-size: 15px; }
   .opportunity-context :deep(.opportunity-context__checklist-item > input[type=checkbox]) { flex-basis: 20px; width: 20px; height: 20px; margin-top: 3px; }
   .opportunity-context :deep(.opportunity-context__checklist-label) { font-size: inherit; }
 }

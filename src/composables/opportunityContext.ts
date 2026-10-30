@@ -123,6 +123,7 @@ const FIT_FIELDS = new Set(['personal_fit', 'research_fit', 'research_career_pot
 const SUMMARY_FIELDS = new Set(['research_summary', 'project_summary', 'project_description']);
 const PRIMARY_LINK_FIELDS = ['official_url', 'application_url', 'source_url'];
 const SOURCE_METADATA_FIELDS = new Set(['kind', 'precision', 'type', 'supports', 'supported_fields', 'checked_at']);
+const SOURCE_REFERENCE_FIELDS = new Set(['sources', 'source_urls', 'evidence_urls', 'evidence_links', 'evidence']);
 const ENUM_KEYS = new Set(['role', 'status', 'stage', 'availability', 'verification_level', 'historical_match_status', 'period']);
 
 function keyName(value: string) { return value.replace(/([a-z\d])([A-Z])/g, '$1_$2').toLowerCase().replace(/[ -]+/g, '_'); }
@@ -326,15 +327,16 @@ function consolidateSourceLinks(items: OpportunityContextNode[], lang: string): 
     return label && !genericLabels.has(label) ? [...new Set([...parents, label])] : parents;
   }
   const sourceLabels = new Map<string, string[]>();
-  function register(node: OpportunityContextNode, labels: string[], details: OpportunityContextNode[]) {
+  function register(node: OpportunityContextNode, labels: string[], details: OpportunityContextNode[], evidence: OpportunityContextNode['evidence'] = []) {
     const href = node.href!; // Already validated by safeHref; never turn raw values into links here.
     const previous = sources.get(href);
     const allLabels = [...new Set([...(sourceLabels.get(href) || []), ...labels])];
     sourceLabels.set(href, allLabels);
     const children = mergeDetails(previous?.children || [], details);
+    const references = [...new Map([...(previous?.evidence ?? []), ...(node.evidence ?? []), ...(evidence ?? [])].map(reference => [reference.href, reference])).values()];
     sources.set(href, {
       id: previous?.id || `links.destination.${sources.size}`, label: allLabels.join(' · ') || phrase('Source', 'Quelle', lang),
-      href, text: previous?.text || node.text, ...(children.length ? { children } : {}),
+      href, text: previous?.text || node.text, ...(children.length ? { children } : {}), ...(references.length ? { evidence: references } : {}),
     });
   }
   function visit(node: OpportunityContextNode, parents: string[] = []): OpportunityContextNode | null {
@@ -343,11 +345,11 @@ function consolidateSourceLinks(items: OpportunityContextNode[], lang: string): 
     if (node.kind === 'person') return node;
     const labels = labelsFor(node, parents);
     if (node.href) { register(node, labels, node.children || []); return null; }
-    if (!node.children) return node;
+    if (!node.children?.length) return node;
     const directLinks = node.children.filter((child) => child.href);
     if (directLinks.length) {
       const details = node.children.filter((child) => !hasLink(child));
-      directLinks.forEach((child) => register(child, labelsFor(child, labels), details));
+      directLinks.forEach((child) => register(child, labelsFor(child, labels), details, node.evidence));
       const remainder = node.children.filter((child) => !child.href && hasLink(child))
         .map((child) => visit(child, labels)).filter((child): child is OpportunityContextNode => child !== null);
       return remainder.length ? { ...node, children: remainder } : null;
@@ -357,6 +359,35 @@ function consolidateSourceLinks(items: OpportunityContextNode[], lang: string): 
   }
   const unlinked = items.map((node) => visit(node)).filter((node): node is OpportunityContextNode => node !== null);
   return [...sources.values(), ...unlinked];
+}
+
+/** Flatten references in already-built historical views; keep their saved content identities. */
+function flattenLegacySourceReferences(groups: OpportunityContextGroup[], lang: string): { text: string; href: string }[] {
+  type Reference = { text: string; href: string };
+  const globalReferences = new Map<string, Reference>();
+  const field = (node: OpportunityContextNode) => keyName(node.id.split('.').at(-1)!);
+  const genericLabels = new Set([...SOURCE_REFERENCE_FIELDS, 'url', 'href', 'notes'].map(key => opportunityFieldLabel(key, lang)));
+  function collect(node: OpportunityContextNode, references: Map<string, Reference>, parents: string[] = []): OpportunityContextNode[] {
+    if (SOURCE_METADATA_FIELDS.has(field(node))) return [];
+    const labels = node.label && !genericLabels.has(node.label) ? [...parents, node.label] : parents;
+    const href = safeWebUrl(node.href);
+    if (href) {
+      const url = new URL(href);
+      references.set(href, { text: labels.join(' · ') || `${url.hostname}${url.pathname === '/' ? '' : url.pathname}`, href });
+    }
+    if (node.children) return node.children.flatMap(child => collect(child, references, labels));
+    if (href || !node.text) return [];
+    return [{ ...node, label: labels.join(' · ') || null }];
+  }
+  function project(node: OpportunityContextNode): OpportunityContextNode {
+    const references = new Map((node.evidence ?? []).map(entry => [entry.href, entry]));
+    const children = node.children?.flatMap(child => SOURCE_REFERENCE_FIELDS.has(field(child))
+      ? collect(child, references) : [project(child)]);
+    return { ...node, ...(children ? { children } : {}), ...(references.size ? { evidence: [...references.values()] } : {}) };
+  }
+  for (const group of groups) group.items = group.items.flatMap(node => SOURCE_REFERENCE_FIELDS.has(field(node))
+    ? collect(node, globalReferences) : [project(node)]);
+  return [...globalReferences.values()];
 }
 
 /** Canonical catalogue rows have a deliberate view; old frozen snapshots retain their original reader until migration. */
@@ -427,6 +458,7 @@ function buildLegacyOpportunityGroups(context: Record<string, unknown>, lang: st
     else byGroup.get('advisor')!.items.push({ id: `root.${key}`, label: opportunityFieldLabel(key, lang), text: phrase(en, de, lang), missing: true });
   }
   Object.entries(context).forEach(([key, value]) => add(key, value, 'root'));
+  const sourceReferences = flattenLegacySourceReferences(groups, lang);
   const salary = byGroup.get('salary')!;
   if (salary.items.length || livingStandard !== undefined || context.city) salary.items.unshift(livingStandardNode(livingStandard, lang));
   const links = byGroup.get('links')!;
@@ -435,17 +467,18 @@ function buildLegacyOpportunityGroups(context: Record<string, unknown>, lang: st
   const primaryLink = primaryHref ? links.items.find((node) => node.href === primaryHref) : undefined;
   const overview = byGroup.get('overview')!;
   if (primaryLink) {
-    const isSourceMetadata = (node: OpportunityContextNode) => SOURCE_METADATA_FIELDS.has(keyName(node.id.split('.').at(-1)!));
-    const sourceMetadata = primaryLink.children?.filter(isSourceMetadata) || [];
-    overview.items.push({ ...primaryLink, kind: 'main-link', children: primaryLink.children?.filter((node) => !isSourceMetadata(node)) });
-    if (sourceMetadata.length) {
-      byGroup.get('metadata')!.items.push({
-        id: `${primaryLink.id}.metadata`, label: phrase('Source metadata', 'Quellenmetadaten', lang),
-        text: primaryLink.text, children: sourceMetadata,
-      });
-    }
+    overview.items.push({ ...primaryLink, kind: 'main-link' });
     links.items = links.items.filter((node) => node !== primaryLink);
   }
+  const displayedLinks = new Set<string>();
+  function rememberLinks(node: OpportunityContextNode) {
+    if (node.href) displayedLinks.add(node.href);
+    node.evidence?.forEach(reference => displayedLinks.add(reference.href));
+    node.children?.forEach(rememberLinks);
+  }
+  groups.forEach(group => group.items.forEach(rememberLinks));
+  const unassigned = sourceReferences.filter(reference => !displayedLinks.has(reference.href));
+  if (unassigned.length) links.items.push({ id: 'root.sources', label: opportunityFieldLabel('sources', lang), evidence: unassigned });
   // Stable reading order, independent of the database column order or JSON wrappers.
   const priority = (node: OpportunityContextNode) => node.kind === 'summary' ? 0 : node.kind === 'main-link' ? 1
     : node.kind === 'fit' ? 2 + [...FIT_FIELDS].indexOf(keyName(node.id.split('.').at(-1)!)) / 10 : 3;

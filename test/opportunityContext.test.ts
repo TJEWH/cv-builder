@@ -144,6 +144,71 @@ test('canonical missing supervision stays empty and unsafe evidence cannot becom
   assert.equal(flatten(groups.flatMap(group => group.items)).some(node => node.evidence?.length), false);
 });
 
+test('canonical source references attach to explicit facts once without source metadata rows', () => {
+  const context = { metadata_schema_version: 6, research_summary: 'Build acoustic prototypes.',
+    salary: { details: 'Funded doctoral contract.', source_urls: ['https://EXAMPLE.org/funding', 'https://example.org/funding'] },
+    data: { funding: [{ label: 'Funding', text: 'Four funded years.', source_urls: ['https://example.org/contract'] },
+      { label: 'Funding', text: 'Four funded years.', source_urls: ['https://example.org/graduate-school'] }] },
+    sources: [{ url: 'https://example.org/research', supports: ['research_summary'], checked_at: '2026-10-28', notes: [{ label: 'Source', text: 'Technical observation metadata' }] },
+      { url: 'https://example.org/funding', supports: ['/salary'] },
+      { url: 'https://example.org/research', supports: ['/research_summary'] },
+      { url: 'https://example.org/contract', supports: ['/data/funding/0'] }],
+  };
+  const before = structuredClone(context);
+  for (const lang of ['en', 'de']) {
+    const nodes = flatten(buildOpportunityGroups(context, lang).flatMap(group => group.items));
+    assert.deepEqual(nodes.find(node => node.id === 'root.research_summary')!.evidence, [{ text: 'example.org/research', href: 'https://example.org/research' }]);
+    assert.deepEqual(nodes.find(node => node.id === 'root.salary')!.evidence, [{ text: 'example.org/funding', href: 'https://example.org/funding' }]);
+    assert.deepEqual(nodes.find(node => node.id === 'root.funding.0')!.evidence?.map(entry => entry.href), ['https://example.org/contract', 'https://example.org/graduate-school']);
+    assert.equal(nodes.some(node => node.id === 'root.sources' || node.id.includes('.checked') || node.text === 'Technical observation metadata'), false);
+    const markdown = opportunityContextMarkdown(context, lang);
+    for (const url of ['research', 'funding', 'contract', 'graduate-school']) assert.equal(markdown.split(`https://example.org/${url}`).length - 1, 1, url);
+  }
+  assert.deepEqual(context, before);
+});
+
+test('canonical ambiguous and unassigned sources stay in one flat reference row while substantive links remain', () => {
+  const context = { metadata_schema_version: 6, official_url: 'https://example.org/job', application_url: 'https://example.org/apply',
+    source_url: 'https://example.org/listing', vacancy_id: 'VACANCY-27',
+    contacts: [{ entity_id: 'contact', name: 'Dr. Example', email: 'person@example.org', roles: ['Contact'] }],
+    requirements: [{ entity_id: 'degree', text: 'Relevant degree', status: 'required', stage: 'recruitment' },
+      { entity_id: 'language', text: 'English proficiency', status: 'required', stage: 'recruitment' }],
+    sources: [{ url: 'https://example.org/admission', supports: ['requirements'] },
+      { url: 'https://example.org/unassigned', supports: ['unknown_field'], checked_at: '2026-10-28' },
+      { url: 'javascript:alert(1)', supports: ['research_summary'] },
+      { url: 'https://user:secret@example.org/private', supports: [] }],
+  };
+  const before = structuredClone(context);
+  const groups = buildOpportunityGroups(context, 'en'), nodes = flatten(groups.flatMap(group => group.items));
+  const fallback = nodes.filter(node => node.id === 'root.sources');
+  assert.equal(fallback.length, 1);
+  assert.equal(fallback[0]!.children, undefined);
+  assert.deepEqual(fallback[0]!.evidence?.map(entry => entry.href), ['https://example.org/admission', 'https://example.org/unassigned', 'https://example.org/listing']);
+  assert.ok(nodes.some(node => node.kind === 'main-link' && node.href === context.official_url));
+  assert.ok(nodes.some(node => node.href === context.application_url));
+  assert.ok(nodes.some(node => node.href === 'mailto:person@example.org'));
+  assert.ok(nodes.some(node => node.text === context.vacancy_id));
+  const { metadata_schema_version: _version, ...snapshot } = context;
+  assert.deepEqual(checklistKeys(nodes), checklistKeys(buildOpportunityGroups(snapshot, 'en').flatMap(group => group.items)));
+  const markdown = opportunityContextMarkdown(context, 'en');
+  for (const url of ['job', 'apply', 'listing', 'admission', 'unassigned']) assert.equal(markdown.split(`https://example.org/${url}`).length - 1, 1, url);
+  assert.equal(markdown.includes('javascript:') || markdown.includes('user:secret'), false);
+  assert.deepEqual(context, before);
+});
+
+test('canonical collection evidence attaches to one known entry without guessing across entries', () => {
+  const context = { metadata_schema_version: 6,
+    requirements: [{ entity_id: 'degree', text: 'Relevant degree', status: 'required', stage: 'recruitment', source_urls: ['https://example.org/degree'] },
+      { entity_id: 'language', text: 'English proficiency', status: 'required', stage: 'recruitment' }],
+    sources: [{ url: 'https://example.org/degree', supports: ['/requirements/@degree'] },
+      { url: 'https://example.org/english', supports: ['/requirements/1'] }],
+  };
+  const nodes = flatten(buildOpportunityGroups(context, 'en').flatMap(group => group.items));
+  assert.deepEqual(nodes.find(node => node.id === 'root.requirements.0')!.evidence?.map(entry => entry.href), ['https://example.org/degree']);
+  assert.deepEqual(nodes.find(node => node.id === 'root.requirements.1')!.evidence?.map(entry => entry.href), ['https://example.org/english']);
+  assert.equal(nodes.some(node => node.id === 'root.sources'), false);
+});
+
 test('safe web, email and DOI links work while dangerous or injected links remain plain text', () => {
   const groups = buildOpportunityGroups({ contacts: [
     { email: 'alice@example.org' }, { email: 'alice@example.org?bcc=other@example.org' },
@@ -152,10 +217,10 @@ test('safe web, email and DOI links work while dangerous or injected links remai
   supervisor_top_papers: [{ title: 'Paper', doi: '10.1234/example-paper' }],
   data: { broken_url: 'java\nscript:alert(1)' } }, 'en');
   const nodes = flatten(groups.flatMap(({ items }) => items));
-  assert.deepEqual(nodes.flatMap(({ href }) => href ? [href] : []).sort(), [
+  assert.deepEqual(nodes.flatMap(node => [...(node.href ? [node.href] : []), ...(node.evidence ?? []).map(reference => reference.href)]).sort(), [
     'https://doi.org/10.1234/example-paper', 'https://example.org/?q=test', 'mailto:alice@example.org',
   ].sort());
-  assert.ok(nodes.some(({ label }) => label === '<img src=x onerror=alert(1)>'), 'UI must receive text nodes for Vue escaping');
+  assert.ok(nodes.some(node => node.evidence?.some(reference => reference.text === '<img src=x onerror=alert(1)>')), 'UI must receive source labels as text for Vue escaping');
 });
 
 test('duplicate research wrappers do not repeat fields, while extra details and false/zero remain visible', () => {
@@ -263,7 +328,7 @@ test('item/category records and document statuses produce item rows with their o
   assert.equal(requirementTableRows(unspecified.items[0])[0].requirementStatus, undefined, 'generic document fields do not imply a required status');
 });
 
-test('repeated source URLs merge evidence without losing distinct links, contact details or metadata', () => {
+test('repeated historical source URLs become flat references while substantive source and contact facts remain', () => {
   const context = {
     official_url: 'https://example.org/job', application_url: 'https://example.org/job',
     sources: [
@@ -281,18 +346,17 @@ test('repeated source URLs merge evidence without losing distinct links, contact
   const links = groups.find(({ id }) => id === 'links')!;
   const overview = groups.find(({ id }) => id === 'overview')!;
   const nodes = flatten([...overview.items, ...links.items]);
-  assert.deepEqual(nodes.flatMap((node) => node.href ? [node.href] : []).sort(), [
+  assert.deepEqual(nodes.flatMap(node => [...(node.href ? [node.href] : []), ...(node.evidence ?? []).map(reference => reference.href)]).sort(), [
     'https://example.org/job', 'https://example.org/job?language=de', 'mailto:science@example.org',
   ]);
-  const source = overview.items.find((node) => node.href === 'https://example.org/job')!;
-  const sourceText = flatten(source.children || []).map((node) => node.text);
+  const sourceText = nodes.map(node => node.text);
   for (const value of ['Official source', 'No', '0']) assert.ok(sourceText.includes(value), value);
-  const metadataText = flatten(groups.find(({ id }) => id === 'metadata')!.items).map((node) => node.text);
   for (const value of ['Salary', 'Requirements', 'Duration', '20 Sept 2026']) {
-    assert.ok(metadataText.includes(value), value);
     assert.equal(sourceText.includes(value), false, value);
   }
-  assert.equal(metadataText.filter((text) => text === 'Salary').length, 1);
+  const references = nodes.filter(node => node.id === 'root.sources');
+  assert.equal(references.length, 1);
+  assert.equal(references[0]!.children, undefined);
   assert.ok(nodes.some((node) => node.text === 'Archived source without URL'));
   const email = links.items.find((node) => node.href === 'mailto:science@example.org')!;
   assert.ok(email.label?.includes('Dr. Example'));
@@ -300,10 +364,11 @@ test('repeated source URLs merge evidence without losing distinct links, contact
   assert.deepEqual(context, original, 'rendering must not mutate stored research');
   const markdown = opportunityContextMarkdown(context, 'en');
   assert.equal(markdown.split('](<https://example.org/job>)').length - 1, 1);
-  assert.ok(markdown.includes('Duration'));
+  assert.ok(markdown.includes('https://example.org/job?language=de'));
+  assert.ok(markdown.includes('Official source') && markdown.includes('0') && markdown.includes('No'));
 });
 
-test('primary source type, supports, supported fields and checked date move to metadata in both languages', () => {
+test('historical primary source metadata does not create nested trees and source notes stay visible in both languages', () => {
   const context = {
     research_summary: 'Research into safe collaboration', official_url: 'https://example.org/job',
     sources: [{ url: 'https://example.org/job', type: 'Official vacancy', supports: ['Project'], supported_fields: ['Deadline', 'Requirements'], checked_at: '2026-09-20', notes: 'Keep this note' }],
@@ -313,21 +378,44 @@ test('primary source type, supports, supported fields and checked date move to m
   for (const lang of ['en', 'de']) {
     const groups = buildOpportunityGroups(context, lang);
     const overview = groups.find(({ id }) => id === 'overview')!;
-    const metadata = groups.find(({ id }) => id === 'metadata')!;
     const source = overview.items.find(({ kind }) => kind === 'main-link')!;
-    const relocated = metadata.items.find(({ text }) => text === source.text)!;
     assert.equal(source.href, context.official_url);
-    assert.ok(flatten(source.children || []).some(({ text }) => text === 'Keep this note'));
-    assert.deepEqual(relocated.children?.map(({ label }) => label), lang === 'de' ? ['Typ', 'Belegt', 'Supported fields', 'Geprüft'] : ['Type', 'Supports', 'Supported fields', 'Checked']);
-    const metadataValues = flatten(relocated.children || []).map(({ text }) => text);
+    const nodes = flatten(groups.flatMap(group => group.items));
+    assert.ok(nodes.some(({ text }) => text === 'Keep this note'));
+    assert.equal(nodes.some(node => node.id.endsWith('.metadata') || node.id.endsWith('.checked_at') || node.id.endsWith('.supports')), false);
     for (const value of ['Official vacancy', 'Project', 'Funding', 'Deadline', 'Requirements']) {
-      assert.equal(metadataValues.filter(text => text === value).length, 1);
-      assert.equal(flatten(overview.items).some(({ text }) => text === value), false);
+      assert.equal(nodes.some(({ text }) => text === value), false);
     }
-    assert.equal(flatten(groups.flatMap(({ items }) => items)).filter(({ href }) => href === context.official_url).length, 1);
+    assert.equal(nodes.filter(({ href }) => href === context.official_url).length, 1);
     const markdown = opportunityContextMarkdown(context, lang);
-    const metadataHeading = lang === 'de' ? '## Metadaten' : '## Metadata';
-    assert.ok(markdown.indexOf('Official vacancy') > markdown.indexOf(metadataHeading));
+    assert.ok(markdown.includes('Keep this note'));
+    assert.equal(markdown.split('](<https://example.org/job>)').length - 1, 1);
+  }
+  assert.deepEqual(context, original);
+});
+
+test('frozen snapshot source wrappers become evidence without changing checklist identities or input', () => {
+  const requirement = { requirement: 'Relevant MSc', source_urls: ['https://example.org/admission'] };
+  const context = { metadata_schema_version: 3, salary: { details: 'Doctoral contract', source_urls: ['https://example.org/pay', 'https://example.org/pay'] },
+    supervisor_research_focus: { 'Dr. Example': { summary: 'Acoustic research', evidence: ['https://example.org/lab'] } },
+    requirements: [requirement], sources: [{ url: 'https://example.org/unassigned', checked_at: '2026-10-28' }],
+    contacts: [{ name: 'Dr. Example', email: 'person@example.org', source_urls: ['https://example.org/team'] }],
+  };
+  const original = structuredClone(context);
+  for (const lang of ['en', 'de']) {
+    const groups = buildOpportunityGroups(context, lang), nodes = flatten(groups.flatMap(group => group.items));
+    assert.deepEqual(nodes.find(node => node.id === 'root.salary')!.evidence?.map(reference => reference.href), ['https://example.org/pay']);
+    assert.deepEqual(nodes.find(node => node.label === 'Dr. Example' && node.id.startsWith('root.supervisor_research_focus'))!.evidence?.map(reference => reference.href), ['https://example.org/lab']);
+    const checklist = groups.find(group => group.id === 'requirements')!.items.flatMap(requirementTableRows);
+    assert.deepEqual(checklist[0]!.evidence?.map(reference => reference.href), ['https://example.org/admission']);
+    assert.equal(checklist[0]!.checklistKey, `requirements:requirements:${JSON.stringify(requirement)}`);
+    assert.deepEqual(nodes.find(node => node.href === 'mailto:person@example.org')!.evidence?.map(reference => reference.href), ['https://example.org/team']);
+    assert.equal(nodes.some(node => node.id.endsWith('.source_urls') || node.id.endsWith('.checked_at')), false);
+    const fallback = nodes.find(node => node.id === 'root.sources')!;
+    assert.equal(fallback.children, undefined);
+    assert.deepEqual(fallback.evidence?.map(reference => reference.href), ['https://example.org/unassigned']);
+    const markdown = opportunityContextMarkdown(context, lang);
+    for (const path of ['pay', 'lab', 'admission', 'unassigned', 'team']) assert.equal(markdown.split(`https://example.org/${path}`).length - 1, 1, path);
   }
   assert.deepEqual(context, original);
 });

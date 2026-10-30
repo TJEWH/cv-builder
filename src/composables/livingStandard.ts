@@ -80,6 +80,7 @@ export function livingStandardNode(value: unknown, lang: string): OpportunityCon
   const provisional = assessment.confidence !== 'high' ? de ? ' · vorläufig' : ' · provisional' : '';
   return { id, label, kind: 'living-standard', score,
     text: (score === undefined ? incomplete : `${format(score)} · ${livingStandardVerdict(score, lang)}`) + provisional,
+    evidence: assessment.sources.map(source => ({ text: source.title, href: source.url })),
     children: [
       entry('summary', de ? 'Einschätzung' : 'Assessment', assessment.summary),
       entry('salary_verdict', de ? 'Gehaltsbewertung' : 'Salary verdict', affordability === null
@@ -99,8 +100,5 @@ export function livingStandardNode(value: unknown, lang: string): OpportunityCon
         : 'Weighted average of comparison judgments, not a measured city ranking; higher is better. Missing factors do not count as zero. Climate reflects everyday comfort, not personal taste.'),
       entry('checked', de ? 'Stand & Sicherheit' : 'Date & confidence', `${assessment.assessed_at} · ${de
         ? { low: 'gering', medium: 'mittel', high: 'hoch' }[assessment.confidence] : assessment.confidence}`),
-      { id: `${id}.sources`, label: de ? 'Quellen' : 'Sources', children: assessment.sources.map((source, index) => ({
-        id: `${id}.sources.${index}`, label: null, text: source.title, href: source.url,
-      })) },
     ] };
 }

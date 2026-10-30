@@ -15,7 +15,7 @@ const code = ts.transpileModule(compiled.content, { compilerOptions: { module: t
 const exports: { default?: Component } = {};
 new Function('require', 'exports', code)(createRequire(filename), exports);
 
-test('living-standard verdicts are visible, with evidence in a native disclosure and no checklist actions', t => {
+test('living-standard verdicts and source icons are visible while assumptions use one disclosure', t => {
   const view = mountContext(undefined, { checklist: true, context: { salary: { amount: 3204 }, data: { living_standard: livingStandardFixture } } });
   t.after(view.unmount);
   const content = (node: HostNode): string => [node.text || '', ...node.children.map(content)].join('');
@@ -23,7 +23,7 @@ test('living-standard verdicts are visible, with evidence in a native disclosure
   assert.equal(scores.length, 2);
   for (const score of scores) {
     assert.match(content(score.children[0]), /7\.2 \/ 10\.0 · Good · provisional/);
-    assert.match(content(score.children[1]), /Salary verdict: 7\.5 \/ 10\.0 · Good/);
+    assert.match(content(score.children.find(node => node.tag === 'p')!), /Salary verdict: 7\.5 \/ 10\.0 · Good/);
     const detail = score.children.find(node => node.tag === 'details')!;
     assert.equal(detail.children[0].tag, 'summary');
     assert.match(content(detail), /Baseline: /);
@@ -32,6 +32,11 @@ test('living-standard verdicts are visible, with evidence in a native disclosure
   assert.equal(view.nodes.filter(node => node.tag === 'input').length, 0);
   const source = view.nodes.find(node => node.tag === 'a' && node.props.href === livingStandardFixture.sources[0].url)!;
   assert.equal(source.props.rel, 'noopener noreferrer');
+  assert.equal(source.props.class, 'opportunity-context__source-link');
+  assert.match(String(source.props['aria-label']), /Open source/);
+  for (let parent = source.parent; parent; parent = parent.parent) {
+    if (parent.tag === 'details') assert.ok(String(parent.props.class).includes('opportunity-context__group'), 'source is outside the assessment breakdown');
+  }
 });
 
 type HostNode = { tag?: string; text?: string; props: Record<string, unknown>; parent?: HostNode; children: HostNode[] };
@@ -212,9 +217,12 @@ test('canonical opportunity renders each person once, all checklist statuses, an
     const inputs = view.nodes.filter(node => node.tag === 'input');
     assert.equal(inputs.length, 32, 'Only the 8 requirements and 8 documents become tasks in each of two views');
     assert.ok(!inputs.some(node => String(node.props['aria-label']).includes('Portal submission')));
-    const names = view.nodes.filter(node => node.tag === 'dt' && node.text === 'Dr. Alex Example');
+    const names = view.nodes.filter(node => node.tag === 'dt' && text(node).trim() === 'Dr. Alex Example');
     assert.equal(names.length, 2, 'The contact is not repeated for their email and source URL');
     assert.equal(view.nodes.filter(node => node.tag === 'a' && node.props.href === 'mailto:alex@example.invalid').length, 2);
+    const sourceIcons = view.nodes.filter(node => node.tag === 'a' && node.props.class === 'opportunity-context__source-link');
+    assert.ok(sourceIcons.length > 0);
+    assert.ok(sourceIcons.every(node => String(node.props['aria-label']).includes(lang === 'de' ? 'Quelle öffnen' : 'Open source')));
     const rendered = JSON.stringify(view.nodes.map(node => ({ text: node.text, props: node.props })));
     for (const hidden of ['INTERNAL-', fixture.id, 'Entity ID', 'Source ID', 'Researcher ID', 'Record format version']) assert.ok(!rendered.includes(hidden), hidden);
     assert.ok(rendered.includes('PUBLIC-VACANCY-2027'));
@@ -237,7 +245,14 @@ test('canonical requirement status and stage have their own cells while limits a
   assert.equal(content(row.children[2]).trim(), 'Recruitment');
   assert.match(content(row.children[0]), /400 words maximum/);
   assert.doesNotMatch(content(row.children[1]), /source|400|Recruitment/);
-  assert.ok(view.nodes.some(node => node.tag === 'details' && node.props.class === 'opportunity-context__evidence'));
+  assert.ok(!view.nodes.some(node => node.tag === 'details' && node.props.class === 'opportunity-context__evidence'));
+  const iconSources = view.nodes.filter(node => node.tag === 'a' && node.props.class === 'opportunity-context__source-link');
+  assert.ok(iconSources.length > 0);
+  for (const source of iconSources) {
+    assert.match(String(source.props['aria-label']), /Open source/);
+    assert.ok(source.children.some(child => child.tag === 'svg'), 'source links use the shared icon library');
+    for (let parent = source.parent; parent; parent = parent.parent) assert.notEqual(parent.tag, 'label', 'opening a source cannot toggle a checklist input');
+  }
   const sources = view.nodes.filter(node => node.tag === 'a' && node.props.href === fixture.official_url);
   assert.ok(sources.length > 0);
   assert.ok(sources.every(node => node.props.rel === 'noopener noreferrer'));
