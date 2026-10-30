@@ -434,8 +434,7 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
         </div>
       </Teleport>
 
-      <p v-if="isEmptyDocument" class="backup-manager__hint app-hint">{{ t('versionEmptyHint') }}</p>
-      <h3>{{ t('versionSaveAs') }}<InfoHint :lang="lang" :label="t('versionSaveAs')" :text="t('versionSaveAsHint')" /></h3>
+      <h3>{{ t('versionSaveAs') }}<InfoHint :lang="lang" :label="t('versionSaveAs')" :text="[isEmptyDocument ? t('versionEmptyHint') : '', t('versionSaveAsHint')].filter(Boolean).join(' ')" /></h3>
       <form class="backup-manager__save-as" @submit.prevent="saveAs">
         <input v-model="newName" :placeholder="t('versionNewName')" :aria-label="t('versionNewName')" />
         <button type="submit" class="btn btn--success" :disabled="!newName.trim()">{{ t('versionSaveAs') }}</button>
@@ -456,10 +455,9 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
           <button type="button" class="btn" :disabled="isImporting" @click="chooseJsonFile('content')">{{ t('versionImportContent') }}</button>
         </div>
         <div class="hint-label-row"><label class="backup-manager__privacy-option">
-          <input v-model="bypassPrivacyProxy" type="checkbox" :disabled="isImporting" :aria-describedby="bypassPrivacyProxy ? 'content-json-privacy-help' : 'content-json-privacy-help content-json-privacy-edits'" />
+          <input v-model="bypassPrivacyProxy" type="checkbox" :disabled="isImporting" aria-describedby="content-json-privacy-help" />
           <span>{{ t('versionBypassPrivacy') }}</span>
-        </label><InfoHint v-if="!bypassPrivacyProxy" id="content-json-privacy-edits" :lang="lang" :label="t('versionBypassPrivacy')" :text="t('versionPrivacyEditsHelp')" /></div>
-        <p id="content-json-privacy-help" class="backup-manager__hint app-hint">{{ t(bypassPrivacyProxy ? 'versionBypassPrivacyHelp' : 'versionRespectPrivacyHelp') }}</p>
+        </label><InfoHint id="content-json-privacy-help" :lang="lang" :label="t('versionBypassPrivacy')" :text="[t(bypassPrivacyProxy ? 'versionBypassPrivacyHelp' : 'versionRespectPrivacyHelp'), bypassPrivacyProxy ? '' : t('versionPrivacyEditsHelp')].filter(Boolean).join(' ')" /></div>
       </div>
       <div class="backup-manager__json-group">
         <h3>{{ t('versionConfigJson') }}<InfoHint :lang="lang" :label="t('versionConfigJson')" :text="t('versionConfigJsonHelp')" /></h3>
@@ -489,7 +487,6 @@ watch(() => props.selectedId, () => { bypassPrivacyProxy.value = false; });
 .backup-manager__save-as input { flex: 1 1 220px; width: auto; }
 .backup-manager__file-input { display: none; }
 .backup-manager__json-group { display: grid; gap: 8px;}
-.backup-manager__hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .backup-manager__privacy-option { display: flex; align-items: center; gap: 8px; color: #d1fae5; font-size: 13px; cursor: pointer; }
 .backup-manager__privacy-option input { width: 16px; height: 16px; margin: 0; accent-color: #27f3a2; }
 .backup-manager .btn:disabled { border-color: #3b5350; background: #182e2b; color: #8ba39d; opacity: .55; cursor: not-allowed; filter: none; }

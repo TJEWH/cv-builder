@@ -28,6 +28,7 @@ import { useSupabaseAuth } from './composables/useSupabaseAuth';
 import LetterTemplates from './components/LetterTemplates.vue';
 import LocalAttachments from './components/LocalAttachments.vue';
 import AppToaster from './components/AppToaster.vue';
+import InfoHint from './components/InfoHint.vue';
 import { useToasts, useToastWatch } from './composables/useToasts';
 import { provideDesktopSidebar } from './composables/desktopSidebar';
 import DesktopSidebar from './components/DesktopSidebar.vue';
@@ -759,7 +760,7 @@ function selectBuilderGroup(group: string) {
         <button v-if="isMobile && studioHasPreview" class="btn cv-studio-open-preview" type="button" :aria-label="t('openPreview')" :title="t('openPreview')" :disabled="isEmptyDocument" @click="openFullPreview"><font-awesome-icon :icon="['fas', 'eye']" aria-hidden="true" /></button>
       </div>
       </DesktopSidebarPortal>
-      <section v-if="isCloudTab && !cloudUser" class="workspace-sign-in"><h1>{{ activeWorkspace === 'opportunities' ? (lang === 'de' ? 'Stellenangebote entdecken' : 'Discover opportunities') : (lang === 'de' ? 'Bewerbungen vorbereiten' : 'Prepare applications') }}</h1><p class="app-hint">{{ lang === 'de' ? 'Melde dich bei Supabase an, um auf deinen Bewerbungsbereich zuzugreifen. Das CV-Studio ist auch ohne Anmeldung verfügbar.' : 'Sign in to Supabase to access your application workspace. CV Studio remains available without an account.' }}</p></section>
+      <section v-if="isCloudTab && !cloudUser" class="workspace-sign-in"><h1>{{ activeWorkspace === 'opportunities' ? (lang === 'de' ? 'Stellenangebote entdecken' : 'Discover opportunities') : (lang === 'de' ? 'Bewerbungen vorbereiten' : 'Prepare applications') }}<InfoHint :lang="lang" :label="lang === 'de' ? 'Anmeldung' : 'Sign in'" :text="lang === 'de' ? 'Melde dich bei Supabase an, um auf deinen Bewerbungsbereich zuzugreifen. Das CV-Studio ist auch ohne Anmeldung verfügbar.' : 'Sign in to Supabase to access your application workspace. CV Studio remains available without an account.'" /></h1></section>
 
       <JobWorkspace
         ref="jobWorkspace"

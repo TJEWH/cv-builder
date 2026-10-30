@@ -6,6 +6,7 @@ import { faArrowLeft, faChevronLeft, faChevronRight, faDownload, faSpinner } fro
 import InlineDocumentPreview from '../../src/components/InlineDocumentPreview.vue';
 import FullDocumentPreview from '../../src/components/FullDocumentPreview.vue';
 import PreviewDialog from '../../src/components/PreviewDialog.vue';
+import AppToaster from '../../src/components/AppToaster.vue';
 import { dict } from '../../src/i18n/dict';
 import type { PreviewPage } from '../../src/pdfTypes';
 import '../../src/assets/cv.css';
@@ -21,6 +22,7 @@ const app = createApp({ setup() {
     }, 300);
   };
   return () => h('main', { style: 'max-width:800px;margin:auto;padding:24px;color:#dce6e2;font-family:system-ui' }, [
+    h(AppToaster, { lang: 'de' }),
     h('h1', 'Synthetische Vorschauprüfung'),
     h('div', { style: 'display:flex;flex-wrap:wrap;gap:8px' }, [
       h('button', { class: 'btn', onClick: () => { error.value = dict.previewFailed.de; pages.value = []; } }, 'Fehler simulieren'),

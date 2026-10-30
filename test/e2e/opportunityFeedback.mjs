@@ -42,7 +42,17 @@ try {
     const events = page.getByTestId('fixture-events');
     const summary = page.getByRole('textbox', { name: 'Personal evaluation', exact: true });
     const rating = page.getByRole('slider', { name: 'Interest override (0–10)', exact: true });
-    const summaryStatus = page.locator('.feedback-summary-actions [role="status"]');
+    const summaryInfo = page.getByRole('button', { name: 'Information: Evaluation feedback inclusion', exact: true });
+    const assertSummaryInfo = async expected => {
+      await summaryInfo.scrollIntoViewIfNeeded();
+      await summaryInfo.click();
+      const tooltip = page.locator(`[id="${await summaryInfo.getAttribute('aria-describedby')}"]`);
+      await tooltip.waitFor({ state: 'visible' });
+      await page.waitForFunction(value => [...document.querySelectorAll('[role="tooltip"]:not([hidden])')].some(node => node.textContent === value), expected);
+      assert.equal(await tooltip.textContent(), expected);
+      await page.keyboard.press('Escape');
+      await tooltip.waitFor({ state: 'hidden' });
+    };
     const snapshot = () => page.evaluate(() => window.opportunityFeedbackFixture.snapshot());
     const waitForReview = (field, value) => page.waitForFunction(({ field, value }) => {
       const snapshot = window.opportunityFeedbackFixture.snapshot();
@@ -54,7 +64,7 @@ try {
     assert.match(await events.innerText(), /sharing: false/);
     assert.equal((await snapshot()).review.interest_rating, null, 'Opening must not manufacture a rating');
     assert.equal(await page.getByRole('button', { name: /Approve for search feedback|Revoke sharing/ }).count(), 0);
-    assert.equal(await summaryStatus.innerText(), 'Included when structured feedback is enabled');
+    await assertSummaryInfo('Included when structured feedback is enabled');
     await disclosureSummary.click();
     assert.equal(await rating.isVisible(), false); assert.equal(await summary.isVisible(), false);
     await disclosureSummary.click();
@@ -72,17 +82,17 @@ try {
     assert.equal((await snapshot()).approvals, 0, 'Saving must not call a retired approval workflow');
     await page.getByRole('button', { name: 'Use structured feedback for this search', exact: true }).click();
     await page.waitForFunction(() => window.opportunityFeedbackFixture.snapshot().sharing);
-    await page.waitForFunction(() => document.querySelector('.feedback-summary-actions [role="status"]')?.textContent === 'Included in search feedback');
+    await assertSummaryInfo('Included in search feedback');
     const excluded = page.getByRole('checkbox', { name: 'Exclude this opportunity from search feedback', exact: true });
     await excluded.check(); await waitForReview('feedback_excluded', true);
-    assert.equal(await summaryStatus.innerText(), 'Excluded from search feedback');
+    await assertSummaryInfo('Excluded from search feedback');
     await page.waitForFunction(() => document.querySelector('.feedback-score')?.textContent?.startsWith('No adaptive score'));
     await excluded.uncheck(); await waitForReview('feedback_excluded', false);
-    assert.equal(await summaryStatus.innerText(), 'Included in search feedback');
+    await assertSummaryInfo('Included in search feedback');
 
     await summary.fill('Synthetic private contact: private@example.invalid.'); await summary.press('Enter');
     await waitForReview('comment', 'Synthetic private contact: private@example.invalid.');
-    assert.equal(await summaryStatus.innerText(), 'Text withheld by content safeguards');
+    await assertSummaryInfo('Text withheld by content safeguards');
     const longEvaluation = 'Acoustic prototypes and careful technical evaluation. '.repeat(18);
     assert(longEvaluation.length > 600);
     await summary.fill(longEvaluation); await summary.press('Enter'); await waitForReview('comment', longEvaluation);
@@ -92,9 +102,9 @@ try {
     await excerpt.locator('summary').click();
     assert.equal(await excerpt.locator('p').innerText(), Array.from(longEvaluation).slice(0,600).join(''));
     assert.equal(Array.from(await excerpt.locator('p').innerText()).length, 600);
-    assert.equal(await summaryStatus.innerText(), 'Included in search feedback');
+    await assertSummaryInfo('Included in search feedback');
     await summary.fill(`${'Safe acoustic work. '.repeat(35)}Contact: private@example.invalid.`); await summary.press('Enter');
-    await page.waitForFunction(() => document.querySelector('.feedback-summary-actions [role="status"]')?.textContent === 'Text withheld by content safeguards');
+    await assertSummaryInfo('Text withheld by content safeguards');
     assert.equal(await page.locator('.feedback-excerpt').count(), 0, 'Unsafe details beyond the excerpt must withhold it too');
 
     await page.evaluate(() => window.opportunityFeedbackFixture.failNextEvaluationSave());
@@ -153,7 +163,7 @@ try {
     assert.equal(await page.locator('.opportunity-disposition textarea').count(), 1);
     await page.getByRole('button', { name: 'Disable structured feedback', exact: true }).click();
     await page.waitForFunction(() => !window.opportunityFeedbackFixture.snapshot().sharing);
-    assert.equal(await summaryStatus.innerText(), 'Included when structured feedback is enabled');
+    await assertSummaryInfo('Included when structured feedback is enabled');
     await page.getByRole('button', { name: 'Use structured feedback for this search', exact: true }).click();
     await page.waitForFunction(() => window.opportunityFeedbackFixture.snapshot().sharing);
     await page.getByRole('button', { name: 'English / Deutsch', exact: true }).click();

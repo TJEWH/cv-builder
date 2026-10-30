@@ -208,11 +208,9 @@ onBeforeUnmount(() => {
     <div class="pdf-canvas-page__links">
       <a v-for="link in links" :key="link.id" :href="link.href" :style="link.style" :aria-label="link.label" :title="link.label" :target="link.page === undefined ? '_blank' : undefined" rel="noopener noreferrer" @click="activateLink($event, link)" />
     </div>
-    <div v-if="failed" class="pdf-canvas-page__status" role="alert">
-      <span class="app-hint">{{ failureMessage }}</span>
+    <div v-if="failed" class="pdf-canvas-page__status">
       <button type="button" class="btn" @click="schedule(true)">{{ lang === 'de' ? 'Erneut versuchen' : 'Try again' }}</button>
     </div>
-    <div v-else-if="loading" class="pdf-canvas-page__status" role="status">{{ t('previewLoading') }}</div>
   </div>
 </template>
 

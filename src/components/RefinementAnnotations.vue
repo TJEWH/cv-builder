@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, reactive, useId, watch } from 'vue
 import AutosaveTextarea from './AutosaveTextarea.vue';
 import type { AnnotationStatus } from '../refinementTypes';
 import { QUESTION_GROUPS, questionPresentation, type AnnotationView, type QuestionGroup } from '../composables/refinementAnnotations';
+import InfoHint from './InfoHint.vue';
 import { useToasts } from '../composables/useToasts';
 import { commitPendingTextareas } from '../composables/textareaCommit';
 
@@ -27,6 +28,7 @@ function reset(item: Item) {
 }
 watch(() => props.items, items => { for (const item of items) if (!drafts[key(item)] || !dirty(item) && !drafts[key(item)]!.saving && !drafts[key(item)]!.failed) reset(item); }, { immediate: true });
 const conflictToasts = new Map<string, number>();
+const saveToasts = new Map<string, number>();
 watch(() => props.items.filter(item => !drafts[key(item)]?.saving && drafts[key(item)]?.reviewId !== item.reviewId).map(key), (conflicts, previous) => {
   for (const id of previous) if (!conflicts.includes(id)) {
     dismiss(conflictToasts.get(id) || 0);
@@ -52,7 +54,7 @@ watch(() => props.disabled || props.busy, blocked => {
 onBeforeUnmount(() => {
   disposed = true;
   for (const commit of queue.splice(0)) commit.resolve(false);
-  for (const id of conflictToasts.values()) dismiss(id);
+  for (const id of [...conflictToasts.values(), ...saveToasts.values()]) dismiss(id);
 });
 function save(item: Item): Promise<boolean> {
   if (disposed) return Promise.resolve(false);
@@ -122,6 +124,11 @@ async function drain() {
     failed();
   } finally {
     d.saving = false;
+    if (!saved && !disposed) saveToasts.set(commit.key, notify({
+      key: `annotation-save-${commit.key}`, message: failureMessage(item), tone: 'error',
+      action: { label: text('Retry save', 'Erneut speichern'), run: () => save(item) },
+    }));
+    else if (saved) { dismiss(saveToasts.get(commit.key) || 0); saveToasts.delete(commit.key); }
     commit.resolve(saved);
     activeCommit = null;
     // The parent's busy flag is propagated before starting the next snapshot.
@@ -163,16 +170,14 @@ const groups = computed(() => QUESTION_GROUPS.map(group => ({
       <article v-for="item in group.items" :key="key(item)" class="annotation-row" :data-annotation-id="item.annotation.id" :data-proposal-id="item.proposalId" :aria-label="item.target" :aria-busy="drafts[key(item)]!.saving">
         <p class="annotation-text">{{ questionPresentation(item.annotation.text).text }}</p>
         <template v-if="item.annotation.document === 'letter' && item.annotation.location">
-          <p v-if="item.referenceChanged" class="app-hint">{{ text('Referenced text has changed', 'Referenzierter Text wurde geändert') }}</p>
-          <details class="disclosure-row"><summary>{{ text('Original text reference', 'Ursprünglicher Textbezug') }}</summary><blockquote>{{ item.annotation.location.quote }}</blockquote></details>
+          <details class="disclosure-row"><summary>{{ text('Original text reference', 'Ursprünglicher Textbezug') }}<InfoHint v-if="item.referenceChanged" :lang="lang" :label="text('Original text reference', 'Ursprünglicher Textbezug')" :text="text('Referenced text has changed', 'Referenzierter Text wurde geändert')" /></summary><blockquote>{{ item.annotation.location.quote }}</blockquote></details>
         </template>
         <label>{{ text('Your response (optional)', 'Deine Antwort (optional)') }}<AutosaveTextarea v-model="drafts[key(item)]!.response" @commit="commitAnswer(item)" rows="3" maxlength="12000" :disabled="controlsDisabled" /></label>
         <fieldset class="status-choices" :disabled="controlsDisabled" :aria-label="text('Question status', 'Fragenstatus')">
           <label><input type="radio" :name="`${statusGroupId}-${key(item)}`" value="resolved" :checked="drafts[key(item)]!.status === 'resolved'" @change="selectStatus(item, 'resolved')" />{{ text('Resolved', 'Erledigt') }}</label>
           <label><input type="radio" :name="`${statusGroupId}-${key(item)}`" value="ignored" :checked="drafts[key(item)]!.status === 'ignored'" @change="selectStatus(item, 'ignored')" />{{ text('Ignored', 'Ignoriert') }}</label>
         </fieldset>
-        <p v-if="drafts[key(item)]!.reviewId !== item.reviewId" class="app-hint">{{ text('Load the saved annotation before continuing.', 'Vor dem Fortfahren die gespeicherte Anmerkung laden.') }} <button type="button" :disabled="disabled || busy" @click="reset(item)">{{ text('Load saved annotation', 'Gespeicherte Anmerkung laden') }}</button></p>
-        <p v-if="drafts[key(item)]!.failed" class="save-error" role="alert">{{ failureMessage(item) }}</p>
+        <button v-if="drafts[key(item)]!.reviewId !== item.reviewId" type="button" :disabled="disabled || busy" @click="reset(item)">{{ text('Load saved annotation', 'Gespeicherte Anmerkung laden') }}</button>
         <button v-if="drafts[key(item)]!.failed" type="button" :disabled="disabled || busy || drafts[key(item)]!.saving || drafts[key(item)]!.reviewId !== item.reviewId" @click="save(item)">{{ text('Retry save', 'Erneut speichern') }}</button>
       </article>
       <p v-for="comment in group.comments" :key="comment.id" class="legacy-question">{{ questionPresentation(comment.explanation).text }}</p>
@@ -188,7 +193,6 @@ const groups = computed(() => QUESTION_GROUPS.map(group => ({
 .annotation-row + .annotation-row, .legacy-question { margin-top: 24px; }
 .annotation-text { margin: 0 0 12px; }
 .annotation-text, .legacy-question, blockquote { white-space: pre-wrap; overflow-wrap: anywhere; }
-.save-error { color: #fecaca; font-size: .85rem; }
 blockquote { margin: .6rem 0; border-left: 3px solid #28534e; padding-left: .7rem; }
 label { display: flex; flex-direction: column; gap: .3rem; margin: .65rem 0; font-size: .85rem; }
 textarea, button { font: inherit; border: 1px solid #28534e; border-radius: 7px; padding: .6rem; background: #0b1b25; color: #d1fae5; max-width: 100%; }

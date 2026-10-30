@@ -28,7 +28,7 @@ type Review = OpportunityReview & { search_feedback_summary?: string | null; sea
   search_feedback_source_hash?: string; search_feedback_approved_at?: string | null; search_feedback_approved_summary_hash?: string | null; search_feedback_approved_source_hash?: string | null };
 type Patch = { interest_rating?: number | null; interest_reasons?: OpportunityInterestReason[]; feedback_excluded?: boolean };
 interface Setup {
-  ratingDraft: string; summaryDraft: string; summaryStatus: string; summaryIncluded: boolean; summaryEligible: boolean; summaryExcerpt: string; summaryError: string;
+  ratingDraft: string; summaryDraft: string; summaryIncluded: boolean; summaryEligible: boolean; summaryExcerpt: string; summaryError: string;
   summaryLength: number; flushSummary(): Promise<boolean>;
   actionError: string; reasonCategories: OpportunityInterestReason['category'][]; reasonPolarity: OpportunityInterestReason['polarity']; reasonTarget: string;
   ratingSliderValue: number; ratingValueText: string; ratingPending: boolean; draftRating(event: Event): void;
@@ -154,7 +154,7 @@ test('unified evaluation typing belongs to the parent draft; only its explicit c
   setup.summaryDraft = 'Prefer experimental signal processing.';
   await settle();
   assert.equal(calls.length, 0);
-  assert.equal(setup.summaryStatus, 'unsaved');
+  assert.equal(props.evaluationStatus, 'unsaved');
   assert.equal(props.evaluationText, 'Prefer experimental signal processing.');
   assert.equal(values.size, 0, 'the child must not create a competing summary recovery store');
   assert.equal(await setup.flush(), true); await settle();
@@ -164,7 +164,7 @@ test('unified evaluation typing belongs to the parent draft; only its explicit c
   assert.equal(props.review.comment, props.evaluationText);
   assert.equal(props.review.search_feedback_summary, props.evaluationText);
   assert.equal(setup.summaryIncluded, false);
-  assert.equal(setup.summaryStatus, 'saved');
+  assert.equal(props.evaluationStatus, 'saved');
   assert.equal(values.size, 0);
 });
 

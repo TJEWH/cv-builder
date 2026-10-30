@@ -10,7 +10,7 @@ import { createRenderer, h, nextTick, reactive, ref } from 'vue';
 import type { Component } from 'vue';
 import type { Application, ApplicationStage, Opportunity, OpportunityFeedbackPatch, OpportunityReview, OpportunityReviewState } from '../src/cloudTypes';
 import { normalizeOpportunity } from '../src/composables/useJobWorkspace';
-import { useToasts, useToastWatch } from '../src/composables/useToasts';
+import { useSaveStateToast, useToasts, useToastWatch } from '../src/composables/useToasts';
 import { commitPendingTextareas, registerTextareaCommit } from '../src/composables/textareaCommit';
 import { livingStandardFixture } from './fixtures/livingStandard';
 
@@ -158,7 +158,7 @@ function mount(t: TestContext, options: { restoredOpportunityId?: string; active
   new Function('require', 'exports', code)((path: string) => path.endsWith('.vue') ? { default: {} }
     : path === '../composables/useJobWorkspace' ? { useJobWorkspace: () => workspace }
     : path === '../composables/textareaCommit' ? { commitPendingTextareas }
-    : path === '../composables/useToasts' ? { useToasts, useToastWatch } : requireFromComponent(path), exports);
+    : path === '../composables/useToasts' ? { useSaveStateToast, useToasts, useToastWatch } : requireFromComponent(path), exports);
   const component = { ...exports.default, render: () => null };
   const props = reactive({ client: null, userId: 'account-one', tab: 'opportunities' as 'opportunities' | 'applications', lang: 'en', configurations: [], selectedId: '', readVersion: () => null, ...(options.active === undefined ? {} : { active: options.active }) });
   let mounted: unknown;

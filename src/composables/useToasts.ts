@@ -4,6 +4,8 @@ export type ToastTone = 'info' | 'success' | 'warning' | 'error';
 export interface ToastOptions {
   tone?: ToastTone;
   key?: string;
+  /** Background progress must not replace another operation's result or recovery action. */
+  passive?: boolean;
   action?: { label: string; run: () => unknown | Promise<unknown> };
 }
 export interface Toast extends ToastOptions {
@@ -36,6 +38,7 @@ function notify(input: ToastOptions & { message: string }): number {
   const message = input.message.trim();
   if (!message) return 0;
   const tone = input.tone || 'info';
+  if (input.passive && toasts.value.some(toast => !toast.passive && (!input.key || toast.key !== input.key))) return 0;
   const existing = toasts.value.find(toast => input.key ? toast.key === input.key : !toast.key && toast.message === message && toast.tone === tone);
   const id = existing?.id || ++sequence;
   const duration = TOAST_DURATION_MS;
@@ -71,18 +74,68 @@ function clear() { for (const toast of toasts.value) dismiss(toast.id); }
 export function useToasts() { return { toasts: readonly(toasts), notify, dismiss, pause, resume, clear }; }
 
 /** Announce each operation result once, including repeated attempts with the same result. */
-export function useToastWatch(source: () => string | null | undefined, options: ToastOptions | (() => ToastOptions) = {}) {
+export function useToastWatch(source: () => string | null | undefined, options: ToastOptions | (() => ToastOptions) = {}, scheduling: { flush?: 'pre' | 'post' | 'sync' } = {}) {
   const key = `notice-${++sequence}`;
   let id = 0;
   const stop = watch(source, message => {
     if (!message?.trim()) { if (id) dismiss(id); return; }
     const settings = typeof options === 'function' ? options() : options;
     id = notify({ ...settings, key: settings.key || key, message });
-  }, { immediate: true, flush: 'sync' });
+  }, { immediate: true, flush: scheduling.flush ?? 'sync' });
   if (getCurrentScope()) onScopeDispose(() => {
     stop();
     // A retry cannot safely call a component after its document/account has closed.
     if (toasts.value.find(toast => toast.id === id)?.action) dismiss(id);
   });
   return stop;
+}
+
+type SaveState = 'unsaved' | 'saving' | 'saved' | 'error';
+interface SaveStateToastOptions {
+  scope: () => string | null;
+  active?: () => boolean;
+  messages: { saving: () => string; saved: () => string; error: () => string };
+  retry?: { label: () => string; run: () => unknown | Promise<unknown> };
+}
+
+/** Report committed saves without announcing typing or an already-saved record on open. */
+export function useSaveStateToast(source: () => SaveState, options: SaveStateToastOptions) {
+  const key = `save-${++sequence}`;
+  let id = 0;
+  let revision = 0;
+  let disposed = false;
+  let announced: SaveState | null = null;
+  function clearPending() {
+    revision++;
+    if (id && announced !== 'saved') dismiss(id);
+    id = 0;
+    announced = null;
+  }
+  const stop = watch(
+    () => [options.scope(), options.active?.() ?? true, source(), options.messages.error()] as const,
+    ([scope, active, status, error], previous) => {
+      const changedScope = scope !== previous?.[0] || active !== previous?.[1];
+      if (changedScope) clearPending();
+      if (!scope || !active) return;
+      if (status === 'unsaved') { clearPending(); return; }
+      if (status === 'saved' && (changedScope || previous?.[2] !== 'saving')) { clearPending(); return; }
+      if (!changedScope && status === previous?.[2] && (status !== 'error' || error === previous[3])) return;
+      announced = status;
+      const attempt = ++revision;
+      id = notify({
+        key,
+        message: status === 'error' ? error : options.messages[status](),
+        tone: status === 'error' ? 'error' : status === 'saving' ? 'info' : 'success',
+        passive: status === 'saving',
+        ...(status === 'error' && options.retry ? { action: { label: options.retry.label(), run: () => {
+          if (disposed || attempt !== revision || options.scope() !== scope || !(options.active?.() ?? true) || source() !== 'error') return true;
+          return options.retry!.run();
+        } } } : {}),
+      });
+    },
+    { immediate: true, flush: 'sync' },
+  );
+  const dispose = () => { disposed = true; stop(); clearPending(); };
+  if (getCurrentScope()) onScopeDispose(dispose);
+  return dispose;
 }

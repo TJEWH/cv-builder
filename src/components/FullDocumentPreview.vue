@@ -66,8 +66,8 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
-        <div class="document-full-preview__content" :class="{ 'document-full-preview__content--with-header': !!$slots.header || !!error }">
-          <div v-if="$slots.header || error" class="document-full-preview__header"><slot name="header" /><p v-if="error" role="alert">{{ error }}</p></div>
+        <div class="document-full-preview__content" :class="{ 'document-full-preview__content--with-header': !!$slots.header }">
+          <div v-if="$slots.header" class="document-full-preview__header"><slot name="header" /></div>
           <div class="document-full-preview__viewport">
             <PdfPreview v-if="showPdf" :key="mode" :pages="pages" :page="page" :is-updating="isUpdating" :error="previewError" :lang="lang" gesture-navigation :pinch-zoom="mobile || touchInput" @retry="emit('retry')" @update:page="emit('update:page', $event)" />
             <div v-else class="document-full-preview__html"><slot name="html" /></div>

@@ -8,6 +8,7 @@ const props = defineProps<{ lang: 'de' | 'en'; bottomBar?: boolean }>();
 const { user, ready, busy, error, configuration, signIn, signOut, clearError } = useSupabaseAuth();
 const { notify } = useToasts();
 const panel = ref<HTMLDetailsElement | null>(null);
+const panelOpen = ref(false);
 const email = ref('');
 const password = ref('');
 const id = useId();
@@ -38,11 +39,13 @@ const copy = computed(() => props.lang === 'de' ? {
 });
 
 function close() {
+  panelOpen.value = false;
   if (panel.value) panel.value.open = false;
   password.value = '';
 }
 
 function onToggle() {
+  panelOpen.value = !!panel.value?.open;
   if (!panel.value?.open) password.value = '';
 }
 
@@ -65,6 +68,8 @@ async function logout() {
 }
 
 useToastWatch(() => error.value ? copy.value[error.value] : '', { key: 'supabase-auth-error', tone: 'error' });
+useToastWatch(() => panelOpen.value && configuration.status !== 'ready' ? copy.value[configuration.status] : '', { tone: 'warning' });
+useToastWatch(() => panelOpen.value && !ready.value ? copy.value.checking : '', { passive: true });
 watch(user, (value) => { if (value) { email.value = ''; password.value = ''; } });
 onBeforeUnmount(() => { password.value = ''; });
 </script>
@@ -77,24 +82,21 @@ onBeforeUnmount(() => { password.value = ''; });
     </summary>
     <section class="supabase-auth__panel" :aria-labelledby="`${id}-title`">
       <div class="supabase-auth__heading">
-        <h2 :id="`${id}-title`">{{ user ? copy.account : copy.title }}<InfoHint :lang="lang" :label="user ? copy.account : copy.title" :text="`${copy.help} ${copy.session}`" /></h2>
+        <h2 :id="`${id}-title`">{{ user ? copy.account : copy.title }}<InfoHint :lang="lang" :label="user ? copy.account : copy.title" :text="`${configuration.status !== 'ready' ? copy[configuration.status] : copy.help} ${copy.session} ${copy.privacy}`" /></h2>
         <button type="button" class="supabase-auth__close" :aria-label="copy.close" @click="close">×</button>
       </div>
-      <p v-if="configuration.status !== 'ready'" class="app-hint">{{ copy[configuration.status] }}</p>
-      <template v-else>
+      <template v-if="configuration.status === 'ready'">
         <template v-if="user">
           <p class="supabase-auth__email">{{ user.email }}</p>
           <button type="button" class="btn" :disabled="busy" @click="logout">{{ busy ? copy.working : copy.logout }}</button>
         </template>
-        <p v-else-if="!ready" role="status">{{ copy.checking }}</p>
-        <form v-else class="supabase-auth__form" @submit.prevent="submit">
+        <form v-else class="supabase-auth__form" :aria-busy="busy || !ready" @submit.prevent="ready && submit()">
           <label :for="`${id}-email`">{{ copy.email }}</label>
-          <input :id="`${id}-email`" v-model="email" type="email" name="email" autocomplete="username" autocapitalize="none" spellcheck="false" required :disabled="busy" @input="clearError" />
+          <input :id="`${id}-email`" v-model="email" type="email" name="email" autocomplete="username" autocapitalize="none" spellcheck="false" required :disabled="busy || !ready" @input="clearError" />
           <label :for="`${id}-password`">{{ copy.password }}</label>
-          <input :id="`${id}-password`" v-model="password" type="password" name="password" autocomplete="current-password" required :disabled="busy" @input="clearError" />
-          <button type="submit" class="btn btn--success" :disabled="busy || !email.trim() || !password">{{ busy ? copy.working : copy.login }}</button>
+          <input :id="`${id}-password`" v-model="password" type="password" name="password" autocomplete="current-password" required :disabled="busy || !ready" @input="clearError" />
+          <button type="submit" class="btn btn--success" :disabled="busy || !ready || !email.trim() || !password">{{ busy ? copy.working : copy.login }}</button>
         </form>
-        <p class="app-hint supabase-auth__hint">{{ copy.privacy }}</p>
       </template>
     </section>
   </details>
@@ -116,7 +118,6 @@ onBeforeUnmount(() => { password.value = ''; });
 .supabase-auth__form input { width: 100%; min-width: 0; }
 .supabase-auth__form .btn { margin-top: 5px; }
 .supabase-auth__email { overflow-wrap: anywhere; }
-.supabase-auth__panel .supabase-auth__hint { color: #91aaa5; font-size: 11px; }
 .supabase-auth .btn:disabled { opacity: .55; cursor: not-allowed; }
 @media (min-width: 761px) and (max-height: 600px) {
   .supabase-auth:not(.supabase-auth--bottom) .supabase-auth__label { display: none; }

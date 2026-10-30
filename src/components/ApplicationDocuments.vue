@@ -202,6 +202,8 @@ async function importBackup(event: Event) {
 }
 onBeforeUnmount(() => { disposed = true; generation++; clearPreview(); window.removeEventListener('focus', refreshIfActive); window.removeEventListener('cv-local-documents-updated', attachmentFilesChanged); });
 useToastWatch(() => notice.value, { tone: 'success' });
+useToastWatch(() => props.active && loading.value ? text('Loading local documents…', 'Lokale Dokumente werden geladen…') : '', { passive: true });
+useToastWatch(() => props.active && previewBusy.value ? text('Updating PDF preview…', 'PDF-Vorschau wird aktualisiert…') : '', { key: 'pdf-preview-progress', passive: true });
 useToastWatch(() => error.value, () => ({
   tone: 'error',
   action: loadFailed.value
@@ -216,19 +218,17 @@ useToastWatch(() => previewError.value, () => ({
 <template>
   <section :class="['application-documents', 'documents-mode-' + mode]" :aria-label="text('Documents and export', 'Dokumente und Export')">
       <div class="documents-controls">
-    <p v-if="loading" role="status">{{ text('Loading local documents…', 'Lokale Dokumente werden geladen…') }}</p>
         <template v-if="!loading && !loadFailed">
         <slot v-if="mode !== 'review'" />
         <section v-show="mode !== 'tracking'" class="document-section">
           <ol class="package-items">
             <li v-for="(item, index) in manifest.items" :key="item.id" :class="{ excluded: !item.included, missing: problems.some((problem) => problem.id === item.id) }">
-              <div class="package-item-main"><input :id="`package-${item.id}`" type="checkbox" :checked="item.included" :disabled="busy" @change="toggleItem(item.id, ($event.target as HTMLInputElement).checked)" /><label :for="`package-${item.id}`">{{ itemLabel(item) }}</label></div>
+              <div class="package-item-main"><input :id="`package-${item.id}`" type="checkbox" :checked="item.included" :disabled="busy" @change="toggleItem(item.id, ($event.target as HTMLInputElement).checked)" /><label :for="`package-${item.id}`">{{ itemLabel(item) }}</label><InfoHint v-if="(mode === 'review' || item.kind === 'attachment') && problems.find((problem) => problem.id === item.id)" :lang="lang" :label="itemLabel(item)" :text="problems.find((problem) => problem.id === item.id)?.message || ''" /><InfoHint v-else-if="item.kind === 'attachment' && !itemDescription(item.documentId)" :lang="lang" :label="itemLabel(item)" :text="text('Description missing. Edit this attachment in CV Studio to add one.', 'Beschreibung fehlt. Diesen Anhang im CV-Studio bearbeiten und eine Beschreibung ergänzen.')" /></div>
               <div class="item-actions"><button type="button" :disabled="busy || index === 0" :aria-label="text(`Move ${itemLabel(item)} up`, `${itemLabel(item)} nach oben`)" @click="moveItem(index, -1)"><FontAwesomeIcon :icon="faArrowUp" aria-hidden="true" /></button><button type="button" :disabled="busy || index === manifest.items.length - 1" :aria-label="text(`Move ${itemLabel(item)} down`, `${itemLabel(item)} nach unten`)" @click="moveItem(index, 1)"><FontAwesomeIcon :icon="faArrowDown" aria-hidden="true" /></button><button v-if="item.kind === 'attachment'" type="button" :disabled="busy" :aria-label="text(`Remove ${item.label} from package`, `${item.label} aus Zusammenstellung entfernen`)" @click="removeItem(item.id)"><FontAwesomeIcon :icon="faXmark" aria-hidden="true" /></button></div>
-              <p v-if="item.kind === 'attachment'" class="attachment-description" :class="{ 'app-hint': !itemDescription(item.documentId) }">{{ itemDescription(item.documentId) || text('Description missing. Edit this attachment in CV Studio to add one.', 'Beschreibung fehlt. Diesen Anhang im CV-Studio bearbeiten und eine Beschreibung ergänzen.') }}</p>
-              <small v-if="(mode === 'review' || item.kind === 'attachment') && problems.find((problem) => problem.id === item.id)" class="app-hint item-problem">{{ problems.find((problem) => problem.id === item.id)?.message }}</small>
+              <p v-if="item.kind === 'attachment' && itemDescription(item.documentId)" class="attachment-description">{{ itemDescription(item.documentId) }}</p>
             </li>
           </ol>
-          <p v-if="!includedCount" class="app-hint muted">{{ text('Include at least one document to create a package.', 'Mindestens ein Dokument für die Zusammenstellung auswählen.') }}</p>
+          <InfoHint v-if="!includedCount" :lang="lang" :label="text('PDF package', 'PDF-Zusammenstellung')" :text="text('Include at least one document to create a package.', 'Mindestens ein Dokument für die Zusammenstellung auswählen.')" />
           <div v-if="libraryOptions.length" class="library-picker"><select v-model="selectedLibraryId" :disabled="busy" :aria-label="text('Choose an existing document', 'Vorhandenes Dokument auswählen')" @change="attachLibraryDocument"><option value="">{{ text('From local attachment library…', 'Aus lokaler Anhangsbibliothek…') }}</option><option v-for="document in libraryOptions" :key="document.id" :value="document.id" :disabled="!availableIds.has(document.id) || !document.description?.trim()">{{ document.name }}{{ !availableIds.has(document.id) ? text(' — file missing on this device', ' — Datei fehlt auf diesem Gerät') : !document.description?.trim() ? text(' — description needed in CV Studio', ' — Beschreibung im CV-Studio ergänzen') : '' }}</option></select></div>
           <p v-if="!library.length" class="app-hint muted">{{ text('Add a named attachment with a description in CV Studio, then select it here.', 'Einen benannten Anhang mit Beschreibung im CV-Studio hinzufügen und dann hier auswählen.') }}</p>
           <DesktopSidebarPortal v-if="mode === 'review'" area="major" :active="active">
@@ -238,16 +238,14 @@ useToastWatch(() => previewError.value, () => ({
           </DesktopSidebarPortal>
         </section>
         <details v-if="mode === 'tracking'" class="document-section">
-          <summary>{{ text('Local backup', 'Lokales Backup') }}<InfoHint :lang="lang" :label="text('Local backup', 'Lokales Backup')" :text="text('Manage reusable files, names and descriptions in CV Studio → Local attachments. This backup includes local attachments, package order, and archived PDFs.', 'Wiederverwendbare Dateien, Namen und Beschreibungen unter CV-Studio → Lokale Anhänge verwalten. Dieses Backup enthält lokale Anhänge, die Reihenfolge und archivierte PDFs.')" /></summary>
-          <p class="app-hint muted">{{ text('Clearing browser data removes local files; keep a backup.', 'Beim Löschen der Browserdaten gehen lokale Dateien verloren; ein Backup aufbewahren.') }}</p>
+          <summary>{{ text('Local backup', 'Lokales Backup') }}<InfoHint :lang="lang" :label="text('Local backup', 'Lokales Backup')" :text="text('Manage reusable files, names and descriptions in CV Studio → Local attachments. This backup includes local attachments, package order, and archived PDFs. Clearing browser data removes local files; keep a backup. Back up your editable CVs separately in CV Studio.', 'Wiederverwendbare Dateien, Namen und Beschreibungen unter CV-Studio → Lokale Anhänge verwalten. Dieses Backup enthält lokale Anhänge, die Reihenfolge und archivierte PDFs. Beim Löschen der Browserdaten gehen lokale Dateien verloren; ein Backup aufbewahren. Bearbeitbare Lebensläufe separat im CV-Studio sichern.')" /></summary>
           <div class="backup-actions"><button type="button" :disabled="busy" @click="exportBackup">{{ text('Back up files & packages', 'Dateien & Zusammenstellungen sichern') }}</button><label class="file-button secondary" :class="{ disabled: busy }">{{ text('Restore backup', 'Backup wiederherstellen') }}<input type="file" accept="application/json,.json" :disabled="busy" @change="importBackup" /></label></div>
-          <p class="app-hint muted">{{ text('Back up your editable CVs separately in CV Studio.', 'Bearbeitbare Lebensläufe separat im CV-Studio sichern.') }}</p>
         </details>
         </template>
       </div>
       <section v-show="mode === 'review'" class="package-preview document-section" :aria-label="text('Complete PDF preview', 'Vorschau des gesamten PDFs')">
         <InlineDocumentPreview v-if="composition && !previewError" class="package-inline-pdf" v-model:page="previewPage" :pages="previewPages" :is-updating="previewBusy || previewLoading" :lang="lang" :title="text('Complete application PDF', 'Vollständige Bewerbungsunterlagen als PDF')" hide-actions show-on-mobile />
-        <div v-else class="preview-empty" role="status"><FontAwesomeIcon class="preview-empty-icon" :icon="faFilePdf" aria-hidden="true" /><p :class="{ 'app-hint': !previewBusy }">{{ previewBusy ? text('Updating PDF preview…', 'PDF-Vorschau wird aktualisiert…') : previewFailed || previewError ? text('The PDF preview could not be created.', 'Die PDF-Vorschau konnte nicht erstellt werden.') : text('The complete PDF appears automatically once the selected documents are ready.', 'Das gesamte PDF erscheint automatisch, sobald die ausgewählten Unterlagen bereit sind.') }}</p><button v-if="previewFailed || previewError" type="button" :disabled="!canBuild" @click="previewError ? retryPreview() : buildPreview()">{{ text('Retry preview', 'Vorschau erneut versuchen') }}</button></div>
+        <div v-else class="preview-empty" :aria-busy="previewBusy || previewLoading"><FontAwesomeIcon class="preview-empty-icon" :icon="faFilePdf" aria-hidden="true" /><InfoHint :lang="lang" :label="text('Complete PDF preview', 'Vorschau des gesamten PDFs')" :text="text('The complete PDF appears automatically once the selected documents are ready.', 'Das gesamte PDF erscheint automatisch, sobald die ausgewählten Unterlagen bereit sind.')" /><button v-if="previewFailed || previewError" type="button" :disabled="!canBuild" @click="previewError ? retryPreview() : buildPreview()">{{ text('Retry preview', 'Vorschau erneut versuchen') }}</button></div>
         <div class="package-preview-actions">
           <details v-if="composition" class="page-map-summary"><summary>{{ text('Document order', 'Dokumentreihenfolge') }}</summary><ul class="page-map"><li v-for="document in composition.documents" :key="document.itemId">{{ document.label }} <span>{{ text('p.', 'S.') }} {{ document.firstPage }}<template v-if="document.pageCount > 1">–{{ document.firstPage + document.pageCount - 1 }}</template></span></li></ul></details>
           <DesktopSidebarPortal area="minor" :active="active && mode === 'review'">
@@ -296,7 +294,6 @@ input[type="checkbox"] { accent-color:#67c8a6; width:16px; height:16px; flex-shr
 .item-actions { display:flex; gap:4px; flex-wrap:wrap; }
 .item-actions button { display:inline-flex; align-items:center; justify-content:center; padding:4px 8px; min-width:36px; min-height:36px; }
 .item-actions svg { width:1em; height:1em; }
-.item-problem { flex-basis:100%; color:#f2c6a7; line-height:1.45; }
 .attachment-description { flex-basis:100%; color:#a6c1b9; white-space:pre-wrap; overflow-wrap:anywhere; font-size:.82rem; line-height:1.5; }
 .package-actions,.backup-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:18px; }
 .package-actions--sidebar { margin-top:0; }
@@ -313,7 +310,6 @@ input[type="checkbox"] { accent-color:#67c8a6; width:16px; height:16px; flex-shr
 .page-map li { display:flex; justify-content:space-between; gap:15px; font-size:.82rem; padding:5px 0; } .page-map span { flex-shrink:0; color:#a6c1b9; }
 .preview-empty { flex:none; height:65vh; min-height:360px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; max-width:300px; margin:auto; }
 .preview-empty-icon { font-size:46px; color:var(--ui-muted); margin-bottom:16px; }
-.preview-empty p { color:#a6c1b9; font-size:.9rem; line-height:1.6; }
 @media(max-width:1180px) { .application-documents { grid-template-columns:minmax(0,1fr); grid-template-rows:auto auto; } }
 @media(max-width:760px){
   .package-action-label{display:none}

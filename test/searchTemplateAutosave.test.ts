@@ -79,7 +79,7 @@ async function fixture(t: TestContext, options: { linked?: boolean; readGate?: R
   const exports: { default?: Component } = {};
   new Function('require', 'exports', code)((path: string) => {
     if (path.endsWith('.vue')) return { default: {} };
-    if (path.endsWith('/useToasts')) return { useToastWatch: () => {} };
+    if (path.endsWith('/useToasts')) return { useToastWatch: () => {}, useSaveStateToast: () => {} };
     if (path.endsWith('/textareaCommit')) return textareaCommit;
     if (path.endsWith('/searchTemplateRecovery')) return { clearSearchDraft, recoverSearchDraft, retainSearchDraft };
     if (path.endsWith('/searchPrompts')) return {

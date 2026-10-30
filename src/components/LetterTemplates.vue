@@ -46,6 +46,15 @@ const text = (en: string, de: string) => props.lang === 'de' ? de : en;
 const { notify } = useToasts();
 useToastWatch(() => message.value, { tone: 'success' });
 useToastWatch(() => error.value, { tone: 'error' });
+useToastWatch(() => validationError.value, { tone: 'error' });
+useToastWatch(() => isImporting.value ? text('Reading the template file…', 'Vorlagendatei wird gelesen…') : '', { passive: true });
+useToastWatch(() => form.value?.useMetaSearchInterests && sharedInterestsState.value === 'loading'
+  ? text('Loading shared research interests…', 'Gemeinsame Forschungsinteressen werden geladen…')
+  : form.value?.useMetaSearchInterests && sharedInterestsState.value === 'error'
+    ? text('Shared research interests could not be loaded.', 'Gemeinsame Forschungsinteressen konnten nicht geladen werden.') : '',
+() => sharedInterestsState.value === 'error'
+  ? { tone: 'error', action: { label: text('Retry', 'Erneut versuchen'), run: reloadSharedResearchInterests } }
+  : { passive: true });
 const announceSaved = debounce(() => {
   notify({ message: text('All changes saved locally', 'Alle Änderungen lokal gespeichert'), tone: 'success', key: 'letter-template-autosave' });
 }, 1500);
@@ -144,6 +153,7 @@ function setDefault() {
 }
 function save(): boolean {
   if (!form.value || !dirty) return true;
+  validationError.value = '';
   if (!form.value.name.trim() || !form.value.structure.trim() || !form.value.tone.trim()) {
     validationError.value = text('Enter a template name, structure and tone to save your changes.', 'Zum Speichern Vorlagenname, Struktur und Tonalität eingeben.');
     saveStatus.value = 'error';
@@ -219,7 +229,7 @@ async function importLibrary(event: Event) {
 <template>
   <section class="letter-templates">
     <div class="template-heading">
-      <h2>{{ text('Letter templates', 'Briefvorlagen') }}<InfoHint :lang="lang" :label="text('Letter templates', 'Briefvorlagen')" :text="text('Reusable structure, research interests and drafting guidance. Letters use the assigned CV’s fonts, colors and selected contact fields, with their own page margins and text size.', 'Wiederverwendbare Struktur, Forschungsinteressen und Entwurfshinweise. Briefe übernehmen Schriftarten, Farben und ausgewählte Kontaktdaten des zugewiesenen Lebenslaufs. Seitenränder und Textgröße werden separat eingestellt.')" /></h2>
+      <h2>{{ text('Letter templates', 'Briefvorlagen') }}<InfoHint :lang="lang" :label="text('Letter templates', 'Briefvorlagen')" :text="text('Reusable structure, research interests and drafting guidance. Letters use the assigned CV’s fonts, colors and selected contact fields, with their own page margins and text size. Templates stay on this device until included in an explicitly published refinement request.', 'Wiederverwendbare Struktur, Forschungsinteressen und Entwurfshinweise. Briefe übernehmen Schriftarten, Farben und ausgewählte Kontaktdaten des zugewiesenen Lebenslaufs. Seitenränder und Textgröße werden separat eingestellt. Vorlagen bleiben auf diesem Gerät, bis sie Teil einer ausdrücklich veröffentlichten Überarbeitungsanfrage sind.')" /></h2>
     </div>
     <div class="template-layout" :class="{ 'template-layout--sidebar': sidebarControlsVisible }">
       <DesktopSidebarPortal area="major" :active="sidebarActive">
@@ -244,14 +254,12 @@ async function importLibrary(event: Event) {
           <div class="template-library-actions">
             <button type="button" :aria-describedby="`${controlsId}-files-help`" @click="download"><FontAwesomeIcon :icon="faDownload" aria-hidden="true" /><span>{{ text('Export all templates', 'Alle Vorlagen exportieren') }}</span></button>
             <button type="button" :disabled="isImporting" :aria-describedby="`${controlsId}-files-help`" @click="importInput?.click()"><FontAwesomeIcon :icon="faUpload" aria-hidden="true" /><span>{{ isImporting ? text('Importing…', 'Importieren…') : text('Import templates', 'Vorlagen importieren') }}</span></button>
-            <p v-if="isImporting" class="template-control-help" role="status">{{ text('Reading the template file…', 'Vorlagendatei wird gelesen…') }}</p>
           </div>
         </details>
         <input ref="importInput" hidden type="file" accept=".json,application/json" :disabled="isImporting" @change="importLibrary" />
       </aside>
       </DesktopSidebarPortal>
       <form v-if="form" class="template-form" @submit.prevent="flushSave" @focusout="flushSave" @invalid.capture="revealInvalidSection">
-        <p v-if="validationError" class="app-hint" role="alert">{{ validationError }}</p>
         <label>{{ text('Template name', 'Vorlagenname') }}<input v-model="form.name" required maxlength="120" /></label>
         <details class="template-section" open>
           <summary><FontAwesomeIcon :icon="faAlignLeft" aria-hidden="true" /><span>{{ text('Main text', 'Haupttext') }}</span><FontAwesomeIcon class="template-chevron" :icon="faChevronDown" aria-hidden="true" /></summary>
@@ -269,7 +277,7 @@ async function importLibrary(event: Event) {
           <summary><FontAwesomeIcon :icon="faFeatherPointed" aria-hidden="true" /><span>{{ text('Tone', 'Tonalität') }}</span><FontAwesomeIcon class="template-chevron" :icon="faChevronDown" aria-hidden="true" /></summary>
           <div class="template-section-fields">
             <div class="template-field"><div class="hint-label-row"><label :for="`${controlsId}-tone`">{{ text('Tone and writing guidance', 'Tonalität und Schreibhinweise') }}</label><InfoHint :id="`${controlsId}-tone-help`" :lang="lang" :label="text('Tone and writing guidance', 'Tonalität und Schreibhinweise')" :text="text('Instructions for ChatGPT on the letter’s tone, wording and level of formality.', 'Anweisungen für ChatGPT zu Ton, Wortwahl und Formalität des Briefs.')" /></div><AutosaveTextarea @commit="flushSave" :id="`${controlsId}-tone`" v-model.lazy="form.tone" :aria-describedby="`${controlsId}-tone-help`" rows="4" maxlength="1000" required /></div>
-            <div class="template-field"><div class="hint-label-row"><label :for="`${controlsId}-example`">{{ text('Example letter (optional)', 'Beispielbrief (optional)') }}</label><InfoHint :id="`${controlsId}-example-help`" :lang="lang" :label="text('Example letter (optional)', 'Beispielbrief (optional)')" :text="text('Use an earlier letter to guide wording, style and structure. Its claims are not evidence about the applicant. Remove or generalize confidential details before sharing.', 'Ein früherer Brief kann Wortwahl, Stil und Struktur vorgeben. Seine Aussagen sind keine Nachweise über die bewerbende Person. Entfernen oder verallgemeinern Sie vertrauliche Details vor dem Teilen.')" /></div><AutosaveTextarea @commit="flushSave" :id="`${controlsId}-example`" v-model.lazy="form.exampleText" :aria-describedby="`${controlsId}-example-help`" rows="8" maxlength="20000" /><p class="app-hint">{{ text('Remove or generalize confidential details before sharing.', 'Entfernen oder verallgemeinern Sie vertrauliche Details vor dem Teilen.') }}</p></div>
+            <div class="template-field"><div class="hint-label-row"><label :for="`${controlsId}-example`">{{ text('Example letter (optional)', 'Beispielbrief (optional)') }}</label><InfoHint :id="`${controlsId}-example-help`" :lang="lang" :label="text('Example letter (optional)', 'Beispielbrief (optional)')" :text="text('Use an earlier letter to guide wording, style and structure. Its claims are not evidence about the applicant. Remove or generalize confidential details before sharing.', 'Ein früherer Brief kann Wortwahl, Stil und Struktur vorgeben. Seine Aussagen sind keine Nachweise über die bewerbende Person. Entfernen oder verallgemeinern Sie vertrauliche Details vor dem Teilen.')" /></div><AutosaveTextarea @commit="flushSave" :id="`${controlsId}-example`" v-model.lazy="form.exampleText" :aria-describedby="`${controlsId}-example-help`" rows="8" maxlength="20000" /></div>
           </div>
         </details>
         <details class="template-section">
@@ -289,7 +297,6 @@ async function importLibrary(event: Event) {
             <LetterFormattingControls :formatting="form.formatting" :lang="lang || 'en'" template-mode @change="updateFormatting" />
           </div>
         </details>
-        <p class="template-hint app-hint">{{ text('Templates stay on this device until included in an explicitly published refinement request.', 'Vorlagen bleiben auf diesem Gerät, bis sie Teil einer ausdrücklich veröffentlichten Überarbeitungsanfrage sind.') }}</p>
       </form>
     </div>
   </section>
@@ -340,7 +347,6 @@ button:disabled{opacity:.55;cursor:default}
 .letter-templates :is(input,select,textarea),.template-library-controls :is(input,select){font:400 14px/1.5 var(--font-ui);min-width:0;width:100%;box-sizing:border-box}
 textarea{resize:vertical}
 .template-form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.template-hint{font-size:12px}
 @media(max-width:760px){.letter-templates{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}.template-layout{display:flex;flex:0 0 auto;flex-direction:column;overflow:visible;gap:24px}.template-heading{flex-direction:column;gap:10px;margin-bottom:14px}.template-form-row{grid-template-columns:1fr}.template-form{overflow:visible;max-width:none}}
 @media(max-width:760px){.letter-templates :is(input,select,textarea),.template-library-controls :is(input,select){font-size:16px}.letter-templates button,.template-library-controls button{min-height:44px}}
 .template-form .template-checkbox { display:flex; align-items:center; justify-content:flex-start; gap:8px; min-height:44px; font-weight:400; }

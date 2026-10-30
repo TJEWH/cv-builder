@@ -181,7 +181,7 @@ function toggleSection(key: string) {
       <section class="design-favorites">
       <DesktopSidebarPortal area="major" :active="sidebarActive">
       <div class="design-favorites__header" :class="{ 'design-favorites__header--sidebar': desktopSidebar && sidebarActive }">
-        <span><font-awesome-icon :icon="['fas', 'heart']" aria-hidden="true" /> {{ t('designFavorites') }}</span>
+        <span><font-awesome-icon :icon="['fas', 'heart']" aria-hidden="true" /> {{ t('designFavorites') }}<InfoHint :lang="lang" :label="t('designFavorites')" :text="t('designChooseControlsToKeepYourMostUsedDesignSettingsHere')" /></span>
         <button class="mini design-favorites__toggle" type="button" :class="{ 'is-active': favoritesMode }" :aria-pressed="favoritesMode" @click="favoritesMode = !favoritesMode">
           <font-awesome-icon :icon="['fas', favoritesMode ? 'check' : 'sliders']" aria-hidden="true" />
           {{ favoritesMode ? t('designDone') : t('designCustomize') }}
@@ -202,7 +202,6 @@ function toggleSection(key: string) {
           <DesignControlFields :model-value="design" :entries="row.entries" :lang="lang" />
         </section>
       </div>
-      <p v-else class="design-favorites__empty app-hint">{{ t('designChooseControlsToKeepYourMostUsedDesignSettingsHere') }}</p>
       </section>
 
       <div class="editor-panel__body">
@@ -216,11 +215,10 @@ function toggleSection(key: string) {
           <DesignControlFields :model-value="design" :entries="section.entries" :lang="lang" />
           <template v-if="section.key === 'typography'">
           <div class="font-import subsection-row" @click.stop>
-            <div><div class="hint-label-row"><label :for="`${fontNameId}-source`">{{ t('fontSource') }}</label><InfoHint :lang="lang" :label="t('fontSource')" :text="t('webfontHelp')" /></div><select :id="`${fontNameId}-source`" v-model="fontSource" :disabled="isImportingFont"><option value="bunny">Bunny Fonts</option><option value="google">Google Fonts</option></select></div>
+            <div><div class="hint-label-row"><label :for="`${fontNameId}-source`">{{ t('fontSource') }}</label><InfoHint :lang="lang" :label="t('fontSource')" :text="[t('webfontHelp'), fontSource === 'google' ? t('googleFontErrorHelp') : ''].filter(Boolean).join(' ')" /></div><select :id="`${fontNameId}-source`" v-model="fontSource" :disabled="isImportingFont"><option value="bunny">Bunny Fonts</option><option value="google">Google Fonts</option></select></div>
             <div><div class="hint-label-row"><label :for="fontNameId">{{ t('customFontName') }}</label><InfoHint :lang="lang" :label="t('customFontName')" :text="t('customFontHelp')" /></div><input :id="fontNameId" v-model="fontName" :disabled="isImportingFont" maxlength="100" placeholder="Open Sans" @keydown.enter.prevent="importFont"></div>
             <button class="mini font-import-button" type="button" :disabled="isImportingFont" @click="importFont">{{ t(isImportingFont ? 'importingFont' : 'importFont') }}</button>
           </div>
-          <p v-if="fontImportError?.code === 'network' && fontImportError.source === 'google'" class="note app-hint">{{ t('googleFontErrorHelp') }}</p>
           </template>
         </div>
       </section>
@@ -245,7 +243,6 @@ function toggleSection(key: string) {
 .design-favorites__rows { display: grid; gap: 12px; }
 .design-favorites__row { display: grid; gap: 7px; padding-top: 10px; border-top: 1px solid #134e4a; }
 .design-favorites__row h4 { margin: 0; color: var(--ui-muted); font-size: 9pt; font-weight: 600; }
-.design-favorites__empty { margin: 0; color: var(--muted); font-size: 12px; }
 .editor-subsection h4 { margin: 0; color: var(--ui-text); font-size: 10pt; font-weight: 600; }
 /* The full header row toggles the section; help belongs to individual fields. */
 .editor-subsection { padding: 0; }

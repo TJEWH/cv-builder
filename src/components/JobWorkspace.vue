@@ -26,7 +26,7 @@ import ApplicationIdentifier from './ApplicationIdentifier.vue';
 import ApplicationDeadlineCalendar from './ApplicationDeadlineCalendar.vue';
 import WorkspaceDetailHeader from './WorkspaceDetailHeader.vue';
 import { removeApplicationCv } from '../composables/applicationCv';
-import { useToasts, useToastWatch } from '../composables/useToasts';
+import { useToasts, useToastWatch, useSaveStateToast } from '../composables/useToasts';
 import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
 import { useDesktopSidebar } from '../composables/desktopSidebar';
 import { createJobSwipe } from '../composables/jobSwipe';
@@ -196,6 +196,16 @@ const { notes, status: notesStatus, error: notesError, flush: flushNotes } = use
   owner: () => props.userId,
   errorMessage: () => error.value || text('Could not save notes. Please retry.', 'Notizen konnten nicht gespeichert werden. Bitte erneut versuchen.'),
 });
+useSaveStateToast(() => notesStatus.value, {
+  scope: () => editingApplication.value ? `${props.userId}:${editingApplication.value.id}` : null,
+  active: () => Boolean(props.active && props.tab === 'applications'),
+  messages: {
+    saving: () => text('Saving notes…', 'Notizen werden gespeichert…'),
+    saved: () => text('Notes saved.', 'Notizen gespeichert.'),
+    error: () => notesError.value,
+  },
+  retry: { label: () => text('Retry', 'Erneut versuchen'), run: flushNotes },
+});
 const selectedOpportunity = computed(() => opportunityById.value.get(selectedOpportunityId.value || ''));
 // Both editors share one draft and recovery key for the underlying opportunity.
 const evaluationOpportunityId = computed(() => props.tab === 'applications'
@@ -260,6 +270,7 @@ watch([() => props.userId, evaluationOpportunityId, () => props.tab, () => props
         ? text('Saving evaluation…', 'Einschätzung wird gespeichert…')
         : text('Evaluation saved.', 'Einschätzung gespeichert.'),
       tone: status === 'error' ? 'error' : status === 'saving' ? 'info' : 'success',
+      passive: status === 'saving',
       action: status === 'error' ? { label: text('Retry', 'Erneut versuchen'), run: () => {
         if (props.userId !== owner || evaluationOpportunityId.value !== id || props.tab !== tab || !props.active) return true;
         return flushComment();
@@ -608,6 +619,8 @@ async function showRemovedOpportunity(id: string) {
   }
 }
 useToastWatch(() => error.value, { tone: 'error' });
+useToastWatch(() => historyResetError.value, { tone: 'error' });
+useToastWatch(() => props.active && loading.value ? text('Loading workspace…', 'Arbeitsbereich wird geladen…') : '', { passive: true });
 useToastWatch(() => formError.value !== error.value ? formError.value : '', { tone: 'error' });
 useToastWatch(() => notice.value, () => {
   const id = removedOpportunityId.value;
@@ -617,7 +630,7 @@ useToastWatch(() => notice.value, () => {
 </script>
 
 <template>
-  <section :id="`builder-group-${tab}`" ref="workspaceElement" class="jobs-workspace" :aria-label="tab === 'opportunities' ? text('Opportunities', 'Stellenangebote') : text('Applications', 'Bewerbungen')"
+  <section :id="`builder-group-${tab}`" ref="workspaceElement" class="jobs-workspace" :aria-busy="loading || blockingSave" :aria-label="tab === 'opportunities' ? text('Opportunities', 'Stellenangebote') : text('Applications', 'Bewerbungen')"
     @touchstart.passive="swipe.onTouchStart" @touchmove="swipe.onTouchMove" @touchend.passive="swipe.onTouchEnd" @touchcancel.passive="swipe.cancel" @click.capture="swipe.onClickCapture">
     <DesktopSidebarPortal area="subtabs" :active="props.active && tab === 'opportunities' && (!showingDetail || showingSearchTemplates)">
       <div v-if="tab === 'opportunities' && (!showingDetail || showingSearchTemplates)" class="opportunity-navigation">
@@ -673,7 +686,7 @@ useToastWatch(() => notice.value, () => {
             <td class="jobs-cell-state" :data-label="text('Your review', 'Deine Bewertung')" @click.stop><select class="jobs-review-select" :aria-label="`${text('Review state for', 'Bewertung für')} ${item.title}`" :aria-invalid="pendingReviewSelections.get(item.id)?.status === 'error' || undefined" :value="reviewSelection(item.id)" @change="changeReview(item, $event)"><option v-for="state in OPPORTUNITY_REVIEW_STATES" :key="state" :value="state">{{ statusLabel(state) }}</option></select><button v-if="pendingReviewSelections.get(item.id)?.status === 'error'" class="btn" type="button" @click="saveReviewSelection(item, reviewSelection(item.id))">{{ text('Retry interest save', 'Interesse erneut speichern') }}</button></td>
             <td v-if="reviewById.get(item.id)?.comment?.trim()" class="jobs-cell-wide jobs-card-evaluation" :data-label="text('Personal Evaluation', 'Persönliche Einschätzung')"><p>{{ reviewById.get(item.id)?.comment }}</p></td>
           </tr>
-        </template></template></tbody><tbody v-if="!filteredOpportunities.length"><tr><td colspan="5" class="jobs-empty"><p :class="{ 'app-hint': !loading }">{{ loading ? text('Loading opportunities…', 'Stellenangebote werden geladen…') : text('No matching opportunities. Adjust the deadline, application, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewerbungs-, Bewertungs- oder Suchfilter.') }}</p></td></tr></tbody>
+        </template></template></tbody><tbody v-if="!loading && !filteredOpportunities.length"><tr><td colspan="5" class="jobs-empty"><p>{{ text('No matching opportunities. Adjust the deadline, application, review or search filters.', 'Keine passenden Stellen. Ändere die Frist-, Bewerbungs-, Bewertungs- oder Suchfilter.') }}</p></td></tr></tbody>
       </table>
       <table v-else class="jobs-applications-table">
         <colgroup><col style="width: 48%" /><col style="width: 18%" /><col style="width: 22%" /><col style="width: 12%" /></colgroup>
@@ -690,7 +703,7 @@ useToastWatch(() => notice.value, () => {
             <td v-if="reviewById.get(item.opportunity_id)?.comment?.trim()" class="jobs-cell-wide jobs-card-evaluation" :data-label="text('Personal Evaluation', 'Persönliche Einschätzung')"><p>{{ reviewById.get(item.opportunity_id)?.comment }}</p></td>
           </tr>
 
-        </template></tbody></template><tbody v-if="!filteredApplications.length"><tr><td colspan="4" class="jobs-empty"><p :class="{ 'app-hint': !loading }">{{ loading ? text('Loading applications…', 'Bewerbungen werden geladen…') : applications.length ? text('No matching applications. Adjust the deadline, status or search filters.', 'Keine passenden Bewerbungen. Ändere die Frist-, Status- oder Suchfilter.') : text('No applications yet. Create one from an opportunity.', 'Noch keine Bewerbungen. Lege eine aus einem Stellenangebot an.') }}</p><button class="btn" type="button" @click="emit('navigate', 'opportunities')">{{ text('Browse opportunities', 'Stellenangebote ansehen') }}</button></td></tr></tbody>
+        </template></tbody></template><tbody v-if="!loading && !filteredApplications.length"><tr><td colspan="4" class="jobs-empty"><p>{{ applications.length ? text('No matching applications. Adjust the deadline, status or search filters.', 'Keine passenden Bewerbungen. Ändere die Frist-, Status- oder Suchfilter.') : text('No applications yet. Create one from an opportunity.', 'Noch keine Bewerbungen. Lege eine aus einem Stellenangebot an.') }}</p><button class="btn" type="button" @click="emit('navigate', 'opportunities')">{{ text('Browse opportunities', 'Stellenangebote ansehen') }}</button></td></tr></tbody>
       </table>
     </div>
     <section v-if="selectedOpportunity" v-show="tab === 'opportunities'" ref="opportunityDetail" class="opportunity-detail" :class="{ 'opportunity-detail--sidebar': sidebarActive }" :aria-label="selectedOpportunity.title" tabindex="-1">
@@ -712,10 +725,7 @@ useToastWatch(() => notice.value, () => {
         </template>
       </WorkspaceDetailHeader>
       <div class="opportunity-detail__body">
-        <div v-if="pendingReviewSelections.get(selectedOpportunity.id)?.status === 'error'" class="jobs-form-footer jobs-interest-error" role="status">
-          <span class="jobs-autosave-error">{{ text('Interest not saved. Your choice is kept.', 'Interesse nicht gespeichert. Deine Auswahl bleibt erhalten.') }}</span>
-          <button class="btn" type="button" @click="saveReviewSelection(selectedOpportunity, reviewSelection(selectedOpportunity.id))">{{ text('Retry', 'Erneut versuchen') }}</button>
-        </div>
+        <button v-if="pendingReviewSelections.get(selectedOpportunity.id)?.status === 'error'" class="btn" type="button" @click="saveReviewSelection(selectedOpportunity, reviewSelection(selectedOpportunity.id))">{{ text('Retry interest save', 'Interesse erneut speichern') }}</button>
         <details :key="selectedOpportunity.id" class="opportunity-evaluation personal-evaluation disclosure-row" open>
           <summary id="opportunity-evaluation-heading">{{ text('Personal Evaluation', 'Persönliche Einschätzung') }}</summary>
           <OpportunityFeedbackControls v-if="tab === 'opportunities' && active" ref="opportunityFeedback" :owner-id="userId" :opportunity="selectedOpportunity" :review="reviewById.get(selectedOpportunity.id)"
@@ -756,7 +766,6 @@ useToastWatch(() => notice.value, () => {
       <template #tracking>
         <section class="application-status-history" :aria-label="text('Status history', 'Statusverlauf')">
           <div class="application-status-history__header"><h3>{{ text('Status history', 'Statusverlauf') }}<InfoHint v-if="statusHistory.some(entry => !entry.changedAt)" :lang="lang" :label="text('Status history', 'Statusverlauf')" :text="text('Earlier status changes and their times were not recorded.', 'Frühere Statusänderungen und ihre Zeitpunkte wurden nicht erfasst.')" /></h3><button class="btn" type="button" :disabled="saving || resettingHistory || statusHistory.length < 2" @click="resetTrackingHistory(editingApplication)">{{ resettingHistory ? text('Resetting…', 'Wird zurückgesetzt…') : text('Reset history', 'Verlauf zurücksetzen') }}</button></div>
-          <p v-if="historyResetError" class="jobs-autosave-error" role="alert">{{ historyResetError }}</p>
           <ol><li v-for="(entry, index) in statusHistory" :key="index" :class="`application-status--${applicationStatusTone(entry.status)}`" :aria-current="index === statusHistory.length - 1 ? 'step' : undefined">
             <strong>{{ statusLabel(entry.status) }}</strong><span v-if="index === statusHistory.length - 1" class="jobs-badge">{{ text('Current', 'Aktuell') }}</span>
             <time v-if="entry.changedAt" :datetime="entry.changedAt">{{ timestampLabel(entry.changedAt) }}</time><span v-else class="jobs-subline">{{ text('Time not recorded', 'Zeitpunkt nicht erfasst') }}</span>
@@ -765,8 +774,8 @@ useToastWatch(() => notice.value, () => {
             <div class="application-inline-form">
               <div class="application-fields">
                 <label class="application-notes">{{ text('Notes', 'Notizen') }}<AutosaveTextarea v-model="notes" rows="3" maxlength="20000" @commit="flushNotes" /></label>
+                <button v-if="notesError" class="btn" type="button" @click="flushNotes">{{ text('Retry save', 'Speichern erneut versuchen') }}</button>
               </div>
-              <div class="jobs-form-footer jobs-autosave" aria-live="polite"><template v-if="notesError"><span class="jobs-autosave-error">{{ notesError }}</span><button class="btn" type="button" @click="flushNotes">{{ text('Retry', 'Erneut versuchen') }}</button></template><span v-else>{{ notesStatus === 'saving' ? text('Saving…', 'Speichert…') : notesStatus === 'unsaved' ? text('Unsaved changes', 'Ungespeicherte Änderungen') : text('All changes saved', 'Alle Änderungen gespeichert') }}</span></div>
             </div>
 
       </template>
@@ -883,10 +892,6 @@ tr.is-expanded { background: var(--ui-active); }
 .application-inline-form { display: grid; gap: 14px; padding: 0; background: transparent; border: 0; border-radius: 0; }
 .application-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .application-notes { grid-column: 1 / -1; }
-.jobs-form-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 12px; min-width: 0; overflow-wrap: anywhere; }
-.jobs-interest-error { justify-content: flex-start; margin-block: 12px; }
-.jobs-autosave { color: var(--ui-muted); font-size: 12px; }
-.jobs-autosave-error { color: #fecaca; }
 .jobs-upload-preview summary { color: #a0e7ca; cursor: pointer; }
 .jobs-upload-preview pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #041016; font: 11px/1.5 monospace; }
 @media (max-width: 1000px) {

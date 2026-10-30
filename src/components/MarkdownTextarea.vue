@@ -3,6 +3,7 @@ import { computed, inject, useId } from 'vue';
 import { normalizeMarkdownText } from '../composables/markdownText.ts';
 import { CV_TEXTAREA_COMMIT } from '../composables/cvTextareaCommit';
 import AutosaveTextarea from './AutosaveTextarea.vue';
+import InfoHint from './InfoHint.vue';
 
 defineOptions({ inheritAttrs: false });
 
@@ -11,6 +12,7 @@ const props = defineProps({
   placeholder: { type: String, default: '' },
   ariaLabel: { type: String, default: '' },
   help: { type: String, default: '' },
+  lang: { type: String, default: 'en' },
   rows: { type: Number, default: 3 },
 });
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
@@ -22,14 +24,9 @@ const value = computed({
   set: (nextValue) => emit('update:modelValue', nextValue),
 });
 
-const emptyPlaceholder = computed(() => [props.placeholder, props.help].filter(Boolean).join('\n'));
 </script>
 
 <template>
-  <AutosaveTextarea v-bind="$attrs" v-model.lazy="value" class="p-textarea p-component p-textarea-fluid" :placeholder="emptyPlaceholder" :aria-label="ariaLabel || undefined" :aria-describedby="help ? helpId : ($attrs['aria-describedby'] as string | undefined)" auto-resize :rows="rows" @commit="commit" />
-  <span v-if="help" :id="helpId" class="markdown-help">{{ help }}</span>
+  <AutosaveTextarea v-bind="$attrs" v-model.lazy="value" class="p-textarea p-component p-textarea-fluid" :placeholder="placeholder" :aria-label="ariaLabel || undefined" :aria-describedby="[help ? helpId : '', $attrs['aria-describedby']].filter(Boolean).join(' ') || undefined" auto-resize :rows="rows" @commit="commit" />
+  <InfoHint v-if="help" :id="helpId" :lang="lang" :label="ariaLabel || (lang === 'de' ? 'Textformatierung' : 'Text formatting')" :text="help" />
 </template>
-
-<style scoped>
-.markdown-help { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-</style>

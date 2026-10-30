@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { compileScript, parse } from '@vue/compiler-sfc';
 import ts from 'typescript';
-import { createRenderer, h, nextTick, reactive, type Component } from 'vue';
+import { createRenderer, defineComponent, h, nextTick, reactive, type Component } from 'vue';
 import type { PrivacyEditorContext } from '../src/composables/privacyEditorContext';
 
 const filename = new URL('../src/components/PrivacyField.vue', import.meta.url);
@@ -12,7 +12,9 @@ const requireComponent = createRequire(filename);
 const script = compileScript(parse(readFileSync(filename, 'utf8')).descriptor, { id: 'PrivacyFieldTest', inlineTemplate: true });
 const code = ts.transpileModule(script.content, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const componentExports: { default?: Component } = {};
-new Function('require', 'exports', code)(requireComponent, componentExports);
+// InfoHint's browser interactions are covered separately; inspect PrivacyField's help contract here.
+const InfoHint = defineComponent({ props: ['id', 'text', 'label', 'lang'], setup: props => () => h('info-hint', { ...props }) });
+new Function('require', 'exports', code)((path: string) => path === './InfoHint.vue' ? { default: InfoHint } : requireComponent(path), componentExports);
 const PrivacyField = componentExports.default!;
 const { PRIVACY_EDITOR } = requireComponent('../composables/privacyEditorContext');
 
@@ -59,7 +61,10 @@ test('automatic masks disable the scoped control and expose an explanation witho
   assert.equal(field.props.role, 'group');
   assert.equal(field.props.tabindex, 0, 'a disabled control retains a keyboard-accessible explanation');
   const help = find(root, child => child.props.id === field.props['aria-describedby'])[0];
-  assert.ok(help?.text?.includes('always automatically masked'));
+  assert.equal(help.tag, 'info-hint');
+  assert.match(String(help.props.text), /always automatically masked/);
+  assert.equal(help.props.label, 'Automatic masking');
+  assert.equal(help.props.lang, 'en');
   assert.equal(find(root, child => child.tag === 'button').length, 0);
   status.automaticMask = undefined; await nextTick();
   assert.equal(find(root, child => child.tag === 'input')[0].props.disabled, false);
@@ -109,8 +114,9 @@ test('a retained manual edit remains distinguishable and reversible while its au
   assert.match(String(fields()[0].props.class), /privacy-field--edited/);
   assert.match(String(fields()[0].props.class), /privacy-field--masked/);
   assert.equal(find(root, child => child.tag === 'input')[0].props.disabled, true);
-  assert.match(String(fields()[0].props.title), /saved privacy edit is retained/);
-  const button = find(root, child => child.tag === 'button')[0];
+  const help = find(root, child => child.tag === 'info-hint')[0];
+  assert.match(String(help.props.text), /saved privacy edit is retained/);
+  const button = find(root, child => child.tag === 'button' && child.props['aria-label'] === 'Revert privacy edit')[0];
   assert.equal(button.props.disabled, undefined, 'revert stays available when direct editing is disabled');
   (button.props.onClick as (event: unknown) => void)({ stopPropagation() {}, preventDefault() {} });
   assert.equal(resets, 1);

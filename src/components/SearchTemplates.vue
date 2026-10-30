@@ -13,7 +13,7 @@ import { commitPendingTextareas } from '../composables/textareaCommit';
 import { copyPreparedText } from '../composables/preparedClipboard';
 import { clearSearchDraft, recoverSearchDraft, retainSearchDraft } from '../composables/searchTemplateRecovery';
 import { useDesktopSidebar } from '../composables/desktopSidebar';
-import { useToastWatch } from '../composables/useToasts';
+import { useToastWatch, useSaveStateToast } from '../composables/useToasts';
 import AutosaveTextarea from './AutosaveTextarea.vue';
 import DesktopSidebarPortal from './DesktopSidebarPortal.vue';
 import InfoHint from './InfoHint.vue';
@@ -47,8 +47,20 @@ const runnerError = ref('');
 const adaptiveDashboard = ref<InstanceType<typeof AdaptiveSearchDashboard> | null>(null);
 let requestedSetupId: string | null = null;
 let copiedSetup: { key: string; id: string } | null = null;
-useToastWatch(() => error.value, { tone: 'error' });
-useToastWatch(() => notice.value, { tone: 'success' });
+useSaveStateToast(() => status.value, {
+  scope: () => `${props.userId}:meta-search`,
+  active: () => props.sidebarActive,
+  messages: {
+    saving: () => text('Saving meta search…', 'Metasuche wird gespeichert…'),
+    saved: () => text('Meta search saved.', 'Metasuche gespeichert.'),
+    error: () => error.value,
+  },
+  retry: { label: () => text('Retry', 'Erneut versuchen'), run: () => loadError.value || !form.value ? retryLoad() : retrySave() },
+});
+useToastWatch(() => props.sidebarActive ? runnerError.value : '', { tone: 'error' });
+useToastWatch(() => props.sidebarActive && status.value !== 'error' ? error.value : '', { tone: 'error' });
+useToastWatch(() => props.sidebarActive && loadingCloud.value ? text('Loading meta search…', 'Metasuche wird geladen…') : '', { passive: true });
+useToastWatch(() => props.sidebarActive ? notice.value : '', { tone: 'success' });
 let editingOwner = props.userId;
 let baseline: SearchTemplate | null = null;
 let binding: SearchTemplateCloudBinding | undefined;
@@ -283,11 +295,11 @@ async function copy() {
 onBeforeUnmount(() => { if (form.value && status.value !== 'saved') retainSearchDraft(editingOwner, form.value, baseline); disposed = true; ownerGeneration++; });
 </script>
 <template>
-  <section class="search-templates">
+  <section class="search-templates" :aria-busy="loadingCloud || status === 'saving'">
     <header class="search-heading">
       <h2>{{ text('Meta research', 'Metasuche') }}<InfoHint :lang="lang" :label="text('Meta research', 'Metasuche')" :text="text('One daily search with a shared profile. Reuse its research interests in motivation letters.', 'Eine tägliche Suche mit einem gemeinsamen Profil. Seine Forschungsinteressen auch für Motivationsschreiben verwenden.')" /></h2>
     </header>
-    <div v-if="error && !form" class="search-load-error" role="alert"><p>{{ error }}</p><button type="button" @click="retryLoad">{{ text('Retry loading search', 'Suche erneut laden') }}</button></div>
+    <button v-if="error && !form" type="button" @click="retryLoad">{{ text('Retry loading search', 'Suche erneut laden') }}</button>
     <div class="search-layout" :class="{ 'search-layout--sidebar': desktopSidebar && sidebarActive }">
       <DesktopSidebarPortal area="major" :active="sidebarActive">
         <aside class="search-library" :aria-label="text('Meta research actions', 'Metasuchaktionen')">
@@ -300,8 +312,7 @@ onBeforeUnmount(() => { if (form.value && status.value !== 'saved') retainSearch
       </DesktopSidebarPortal>
       <div v-if="form" class="search-editor">
       <form class="search-form" @submit.prevent="flushSave" @focusout="flushSave" @input.capture="onDraftInput">
-        <div v-if="status !== 'saved' || loadingCloud" class="search-save-state" aria-live="polite"><span>{{ loadingCloud ? text('Loading meta search…', 'Metasuche wird geladen…') : status === 'error' ? text('Could not save changes', 'Änderungen konnten nicht gespeichert werden') : status === 'unsaved' ? text('Unsaved changes', 'Ungespeicherte Änderungen') : text('Saving…', 'Speichert…') }}</span><button v-if="status === 'error'" type="button" @click="retrySave">{{ text('Retry save', 'Speichern wiederholen') }}</button></div>
-        <p v-if="error" class="search-error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
+        <button v-if="status === 'error'" type="button" @click="retrySave">{{ text('Retry save', 'Speichern erneut versuchen') }}</button>
         <details class="search-section" open>
           <summary><FontAwesomeIcon :icon="faAlignLeft" aria-hidden="true" /><span>{{ text('Shared search profile', 'Gemeinsames Suchprofil') }}</span><InfoHint :lang="lang" :label="text('Shared search profile', 'Gemeinsames Suchprofil')" :text="text('Write entries in English, separated by semicolons. Research directions are alternatives: a position can match one direction or a useful combination. The system prompt applies verification, deduplication, scoring and the 72-hour deadline rule.', 'Einträge auf Englisch schreiben und mit Semikolons trennen. Forschungsrichtungen sind Alternativen: Eine Stelle kann zu einer Richtung oder einer sinnvollen Kombination passen. Der Systemprompt ergänzt Verifikation, Deduplizierung, Bewertungen und die 72-Stunden-Fristregel.')" /><FontAwesomeIcon :icon="faChevronDown" class="search-chevron" aria-hidden="true" /></summary>
           <div class="search-fields">
@@ -326,10 +337,9 @@ onBeforeUnmount(() => { if (form.value && status.value !== 'saved') retainSearch
           <div class="search-fields"><div class="search-schedule"><label>{{ text('Daily time', 'Tägliche Uhrzeit') }}<input v-model="form.dailyTime" type="time" required @change="flushSave" /></label><label>{{ text('Time zone', 'Zeitzone') }}<input v-model="form.timezone" placeholder="Europe/Tirane" required @change="flushSave" /></label></div></div>
           <div class="search-fields search-runner-setup" :aria-label="text('Technical task setup', 'Technische Aufgaben-Einrichtung')">
             <div class="hint-label-row"><strong>{{ text('Technical runner', 'Technischer Suchablauf') }}</strong><InfoHint :lang="lang" :label="text('Technical runner', 'Technischer Suchablauf')" :text="text('Prepare the adaptive contract once, then copy the replacement instruction. Current criteria and feedback load on every run; ordinary edits need no task replacement. Schedule or technical changes require an explicit task update. A saved binding records a task-tool receipt, not proof of unattended execution.', 'Den adaptiven Ablauf einmal vorbereiten und danach die Ersetzungsanweisung kopieren. Aktuelle Kriterien und Rückmeldungen werden bei jedem Lauf geladen; normale Änderungen benötigen keinen Aufgabenersatz. Zeitplan- oder technische Änderungen erfordern eine ausdrückliche Aktualisierung. Eine gespeicherte Bindung belegt eine Werkzeugbestätigung, keinen unbeaufsichtigten Erfolg.')" /></div>
-            <p>{{ runner?.mode === 'adaptive' ? text('Adaptive runner installed. Search edits take effect on the next run.', 'Adaptiver Ablauf eingerichtet. Suchänderungen gelten ab dem nächsten Lauf.') : runner?.migration_requested ? text('Adaptive update prepared; task-tool confirmation is pending.', 'Adaptive Aktualisierung vorbereitet; Aufgabenbestätigung steht aus.') : text('Existing runner preserved. Adaptive setup requires an explicit update.', 'Bisheriger Ablauf bleibt erhalten. Die adaptive Einrichtung erfordert eine ausdrückliche Aktualisierung.') }}</p>
+            <InfoHint :lang="lang" :label="text('Runner setup', 'Suchablauf-Einrichtung')" :text="runner?.mode === 'adaptive' ? text('Adaptive runner installed. Search edits take effect on the next run.', 'Adaptiver Ablauf eingerichtet. Suchänderungen gelten ab dem nächsten Lauf.') : runner?.migration_requested ? text('Adaptive update prepared; task-tool confirmation is pending.', 'Adaptive Aktualisierung vorbereitet; Aufgabenbestätigung steht aus.') : text('Existing runner preserved. Adaptive setup requires an explicit update.', 'Bisheriger Ablauf bleibt erhalten. Die adaptive Einrichtung erfordert eine ausdrückliche Aktualisierung.')" />
             <p v-if="runner?.binding">{{ text('Bound task', 'Verknüpfte Aufgabe') }}: <code>{{ runner.binding.task_id }}</code></p>
-            <p v-if="runner && !runner.ready">{{ text('Adaptive setup unavailable', 'Adaptive Einrichtung nicht verfügbar') }}: {{ runner.readiness_code }}</p>
-            <p v-if="runnerError" class="search-error" role="alert">{{ runnerError }}</p>
+            <InfoHint v-if="runner && !runner.ready" :lang="lang" :label="text('Adaptive setup unavailable', 'Adaptive Einrichtung nicht verfügbar')" :text="runner.readiness_code" />
             <button type="button" :disabled="preparingRunner || copying || loadingCloud || !client" @click="prepareRunner">{{ preparingRunner ? text('Preparing…', 'Vorbereiten…') : text('Prepare adaptive task update', 'Adaptive Aufgabenaktualisierung vorbereiten') }}</button>
           </div>
         </details>
@@ -341,7 +351,7 @@ onBeforeUnmount(() => { if (form.value && status.value !== 'saved') retainSearch
       </form>
       <AdaptiveSearchDashboard v-if="client && form.cloud?.id && connectedProjectId" ref="adaptiveDashboard" :owner-id="userId" :search-id="form.cloud.id" :project-ref="connectedProjectId" :client="client" :lang="lang" @runner-changed="refreshRunnerState" />
       </div>
-      <p v-else>{{ text('Your saved search could not be opened. Recover its backup before importing another file.', 'Deine gespeicherte Suche konnte nicht geöffnet werden. Stelle ihre Sicherung wieder her, bevor du eine weitere Datei importierst.') }}</p>
+      <InfoHint v-else :lang="lang" :label="text('Search recovery', 'Suchwiederherstellung')" :text="text('Your saved search could not be opened. Recover its backup before importing another file.', 'Deine gespeicherte Suche konnte nicht geöffnet werden. Stelle ihre Sicherung wieder her, bevor du eine weitere Datei importierst.')" />
     </div>
   </section>
 </template>
@@ -377,9 +387,6 @@ onBeforeUnmount(() => { if (form.value && status.value !== 'saved') retainSearch
 .search-section[open] > summary > .search-chevron { transform: rotate(180deg); }
 .search-fields { display: grid; gap: 12px; padding: 4px 16px 22px; min-width: 0; }
 .search-fields > label:not(:first-child) { margin-top: 6px; }
-.search-save-state { display: flex; align-items: center; gap: 10px; min-height: 20px; color: var(--ui-muted); font-size: 12px; }
-.search-load-error { display: grid; justify-items: start; gap: 10px; padding-bottom: 16px; }
-.search-templates .search-error { color: var(--ui-danger-text, var(--ui-text)); }
 .search-schedule { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: end; }
 .search-library .search-primary { color: var(--ui-accent); border-color: var(--ui-accent-border); }
 .search-library .search-copy-actions p { font-size: 12px; }

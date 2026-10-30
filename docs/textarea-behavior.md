@@ -8,7 +8,7 @@ Use this strategy for all textareas, including CV Studio, opportunity evaluation
 - Await `flush()` before switching records, opening another workspace, swiping to another item, or performing an action that leaves the editor. If saving fails or newer uncommitted text remains, retain the editor and draft.
 - Save a snapshot captured at the commit event. Serialize requests and deduplicate repeated commits of the same pending value. Typing during a request remains unsaved until the next commit.
 - Local recovery may update while typing. Keep recovery isolated by account and record; clear only the version that was successfully saved. Browser shutdown cannot guarantee a network request finishes, so retain recovery until success.
-- Distinguish unsaved, saving, saved, and error states. Do not announce saving or success for every character. Retain failed drafts and provide retry.
+- Track unsaved, saving, saved, and error states internally. Use the shared toast system for committed-save progress, success, and errors; do not render inline or hidden save-state text. Do not notify while typing or announce an already-saved record on open. Retain failed drafts and provide retry. Put general editing guidance in an `InfoHint` beside the field label.
 
 Use `src/components/AutosaveTextarea.vue` for the input behavior. It forwards native attributes such as `id`, `rows`, `maxlength`, and accessible labels to its textarea, and supports `auto-resize`. If changing the bound model already triggers persistence, use `v-model.lazy` so only a commit publishes its internal draft:
 

@@ -4,6 +4,7 @@ import type { OpportunityDispositionPatch, OpportunityReview, OpportunityTechnic
 import { OPPORTUNITY_TECHNICAL_ISSUES } from '../cloudTypes';
 import { normalizeOpportunityDispositionPatch } from '../composables/opportunityDisposition';
 import { useApplicationNotesAutosave } from '../composables/useApplicationNotesAutosave';
+import { useSaveStateToast } from '../composables/useToasts';
 import { commitPendingTextareas } from '../composables/textareaCommit';
 import AutosaveTextarea from './AutosaveTextarea.vue';
 import InfoHint from './InfoHint.vue';
@@ -86,6 +87,15 @@ const categoryLabel = (category: OpportunityTechnicalIssue) => ({
   application_problem: text('Application or portal problem', 'Bewerbungs- oder Portalproblem'), other: text('Other technical problem', 'Anderes technisches Problem'),
 })[category];
 async function retry() { if (noteError.value) return flushNote(); return failedPatch ? persist(failedPatch) : true; }
+useSaveStateToast(() => actionError.value || noteError.value ? 'error' : pendingCount.value > 0 || noteStatus.value === 'saving' ? 'saving' : noteStatus.value, {
+  scope: () => scope.value,
+  messages: {
+    saving: () => text('Saving opportunity status…', 'Stellenstatus wird gespeichert…'),
+    saved: () => text('Opportunity status saved.', 'Stellenstatus gespeichert.'),
+    error: () => noteError.value || actionError.value,
+  },
+  retry: { label: () => text('Retry save', 'Speichern erneut versuchen'), run: retry },
+});
 async function flush(): Promise<boolean> {
   commitPendingTextareas();
   const ownerGeneration = generation;
@@ -103,9 +113,9 @@ defineExpose({ flush });
       <label :for="`${controlId}-category`">{{ text('Technical issue (optional)', 'Technisches Problem (optional)') }}<select :id="`${controlId}-category`" :value="categoryDraft" :disabled="disabled" @change="changeCategory"><option value="">{{ text('No technical issue specified', 'Kein technisches Problem angegeben') }}</option><option v-for="category in OPPORTUNITY_TECHNICAL_ISSUES" :key="category" :value="category">{{ categoryLabel(category) }}</option></select></label>
       <label :for="`${controlId}-note`">{{ text('Technical details (optional)', 'Technische Details (optional)') }}</label>
       <AutosaveTextarea :id="`${controlId}-note`" v-model="notes" rows="2" maxlength="2000" :aria-invalid="noteError ? true : undefined" @commit="flushNote" />
-      <div class="disposition-note-meta"><span class="disposition-status" role="status">{{ noteStatus === 'saving' ? text('Saving technical note…', 'Technische Notiz wird gespeichert…') : noteStatus === 'unsaved' ? text('Unsaved technical note', 'Ungespeicherte technische Notiz') : '' }}</span><span>{{ noteLength }} / 1000</span></div>
+      <div class="disposition-note-meta"><span>{{ noteLength }} / 1000</span></div>
     </div>
-    <div v-if="actionError || noteError" class="disposition-error" role="alert"><span>{{ actionError || noteError }}</span><button class="btn" type="button" :disabled="disabled" @click="retry">{{ text('Retry save', 'Speichern erneut versuchen') }}</button></div>
+    <button v-if="actionError || noteError" class="btn" type="button" :disabled="disabled" @click="retry">{{ text('Retry save', 'Speichern erneut versuchen') }}</button>
   </section>
 </template>
 
@@ -118,9 +128,7 @@ defineExpose({ flush });
 .disposition-details label { display: grid; gap: 6px; font-weight: 600; font-size: 12px; }
 .disposition-details select, .disposition-details :deep(textarea) { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--ui-border); border-radius: 7px; color: var(--ui-text); background: var(--ui-control); font: 400 14px/1.5 var(--font-ui); }
 .disposition-details :deep(textarea) { resize: vertical; }
-.disposition-status { color: var(--ui-muted); font-size: 12px; }
-.disposition-note-meta { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; color: var(--ui-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.disposition-error { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--ui-danger-text, var(--ui-text)); }
+.disposition-note-meta { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; color: var(--ui-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .opportunity-disposition :is(input,select,button):focus-visible, .disposition-details :deep(textarea:focus-visible) { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 @media (max-width: 760px) { .disposition-check, .opportunity-disposition button, .disposition-details select { min-height: 44px; } .disposition-details select, .disposition-details :deep(textarea) { font-size: 16px; } }
 </style>
