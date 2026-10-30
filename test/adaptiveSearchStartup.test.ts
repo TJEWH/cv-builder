@@ -33,7 +33,7 @@ async function fixture(withSummary = true): Promise<{ bundle: AdaptiveSearchStar
   if (withSummary) { first.search_feedback_summary = 'Prefer physical robotics experiments.'; first.summary_approval = proof; }
   const packet = await compileAdaptiveFeedbackSnapshot({ user_id: owner, search_id: search, structured_feedback_enabled: true,
     consent_revision: 1, feedback_revision: 1, preference_revision: 0, approved_preferences: [], examples: [first, example(2), example(3)] });
-  const basis = { base_revision: 2, feedback_revision: 1, preference_revision: 0, protocol_version: 'opportunity-search-v1-canonical-5' };
+  const basis = { base_revision: 2, feedback_revision: 1, preference_revision: 0, protocol_version: 'opportunity-search-v1-canonical-6' };
   const plan = await createAdaptiveSearchPlan(basis, [
     { query_id: id(100), query: 'Funded Robotics PhD', role: 'core', manual: true, sources: ['https://example.invalid/Jobs?Topic=BCI'], source_registry_id: id(800) },
     { query_id: id(101), query: 'ADAPTIVE_OLD_TEXT physical robotics opportunities', role: 'adaptive' },
@@ -56,7 +56,7 @@ async function fixture(withSummary = true): Promise<{ bundle: AdaptiveSearchStar
     release_revision: 1, protocol_version: basis.protocol_version, protocol_hash: 'a'.repeat(64), enabled: true, authorized: true };
   return { bundle: structuredClone({ adaptive_contract_version: 1, bootstrap_version: 1, compatible: true,
     scope: { project_ref: binding.project_ref, user_id: owner, search_id: search, run_id: run, authorization_epoch: binding.authorization_epoch, authorization_revision: 1 },
-    release: { schema_version: 5, protocol_version: binding.protocol_version, protocol_hash: binding.protocol_hash, release_revision: 1 },
+    release: { schema_version: 6, protocol_version: binding.protocol_version, protocol_hash: binding.protocol_hash, release_revision: 1 },
     protocol_text: ADAPTIVE_STARTUP_PROTOCOL_TEXT, result_schema: canonicalResultSchema, base: { revision: 2, criteria }, feedback: packet,
     preferences: { revision: 0, approved_rules: [], approved_preferences: [] }, query_plan: { id: id(300), revision: 1, plan_hash: 'c'.repeat(64),
       planning_policy: DEFAULT_ADAPTIVE_SEARCH_POLICY, document: { schema_version: 2, queries: plan.queries }, basis }, legacy_core_queries: null,
@@ -184,7 +184,7 @@ test('AF-07 unsafe URLs, incompatible schemas/helpers/releases and cross-owner i
   for (const [path, value] of [
     [['due_sources', 0, 'listing_url'], 'https://example.invalid/Jobs?email=private.person%40example.invalid'],
     [['query_plan', 'document', 'queries', 0, 'query'], 'site:example.invalid mailto:private.person@example.invalid'],
-    [['release', 'schema_version'], 6], [['release', 'protocol_hash'], 'd'.repeat(64)],
+    [['release', 'schema_version'], 7], [['release', 'protocol_hash'], 'd'.repeat(64)],
     [['capabilities', 'allowed_helpers'], ['private.read_all_applications()']], [['result_schema', 'contacts'], canary],
     [['scope', 'user_id'], id(999)], [['feedback', 'examples', 0, 'user_id'], id(999)],
   ] as const) {

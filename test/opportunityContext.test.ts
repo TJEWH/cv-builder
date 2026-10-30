@@ -204,17 +204,15 @@ test('unexpected cyclic values and unsupported values cannot break context rende
 test('duration and research assessments move to their respective groups, including nested data', () => {
   const groups = buildOpportunityGroups({ duration_months: 48, duration_details: 'Renewable contract',
     personal_fit: { gaps: ['Training needed'] }, research_career_potential: 'Academic route', rd_career_potential: 'Industry route',
-    particularly_suitable: false, particularly_suitable_reason: 'Requires more experience',
     data: { start_date: '2027-01-01', lab_context: 'Robotics group', hardware_software_balance: 'Mostly software' } }, 'en');
   const texts = (id: string) => flatten(groups.find((group) => group.id === id)?.items || []).map((node) => node.text);
   assert.ok(texts('salary').includes('48'));
   assert.ok(texts('salary').includes('Renewable contract'));
   assert.ok(texts('salary').includes('1 Jan 2027'));
   assert.ok(texts('overview').includes('Training needed'));
-  assert.equal(texts('overview').includes('Mostly software'), false);
+  assert.equal(texts('overview').includes('Mostly software'), true);
   assert.ok(texts('overview').includes('Academic route'));
   assert.ok(texts('overview').includes('Industry route'));
-  assert.deepEqual(texts('suitability'), ['No', 'Requires more experience', 'Mostly software']);
   assert.ok(texts('advisor').includes('Robotics group'));
   assert.equal(texts('metadata').includes('48'), false);
 });

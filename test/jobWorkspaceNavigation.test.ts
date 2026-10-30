@@ -1390,7 +1390,7 @@ test('personal fit sorts current numeric assessments high to low within groups, 
   const { setup, opportunities } = mount(t);
   setup.now = new Date('2026-10-06T12:00:00Z');
   const make = (id: string, score: number | null, extra: Record<string, unknown> = {}) => normalizeOpportunity({
-    id, title: id, deadline: null, particularly_suitable: false,
+    id, title: id, deadline: null,
     created_at: '2026-10-01T12:00:00Z', updated_at: '2026-10-01T12:00:00Z',
     personal_fit: opportunityAssessmentFixture(score), ...extra,
   });
@@ -1441,7 +1441,7 @@ test('salary sorting uses validated affordability scores, keeps zero above unkno
 test('strong-fit scores use the requested color boundaries without fabricating unknown values', async (t) => {
   const { setup, opportunities, props } = mount(t);
   for (const [score, tone] of [[10, 'red'], [9.6, 'red'], [9.5, 'yellow'], [9.1, 'yellow'], [9, undefined], [8.8, undefined], [0, undefined], [null, undefined]] as const) {
-    const item = normalizeOpportunity({ id: 'strong-fit', title: 'Strong fit role', particularly_suitable: true, personal_fit: opportunityAssessmentFixture(score) });
+    const item = normalizeOpportunity({ id: 'strong-fit', title: 'Strong fit role', personal_fit: opportunityAssessmentFixture(score) });
     opportunities.value = [item];
     const parsed = setup.fitScoreById.get(item.id);
     assert.equal(setup.fitTone(parsed), tone, String(score));
@@ -1451,19 +1451,18 @@ test('strong-fit scores use the requested color boundaries without fabricating u
   assert.equal(setup.fitLabel(9.6), '9,6');
 });
 
-test('personal-fit badges use the canonical assessment regardless of the suitability flag', (t) => {
+test('personal-fit badges use only the canonical assessment', (t) => {
   const { setup, opportunities } = mount(t);
-  for (const particularly_suitable of [true, false, null]) {
-    for (const [score, visible] of [[9.01, true], [9.1, true], [9.5, true], [9.6, true], [10, true],
-      [9, false], [8.8, false], [0, false], [null, false]] as const) {
-      const item = normalizeOpportunity({ id: 'fit-badge', particularly_suitable, personal_fit: opportunityAssessmentFixture(score) });
-      opportunities.value = [item];
-      assert.equal(setup.showPersonalFitBadge(item), visible, `${particularly_suitable}: ${score}`);
-    }
+  for (const [score, visible] of [[9.01, true], [9.1, true], [9.5, true], [9.6, true], [10, true],
+    [9, false], [8.8, false], [0, false], [null, false]] as const) {
+    const item = normalizeOpportunity({ id: 'fit-badge', personal_fit: opportunityAssessmentFixture(score) });
+    opportunities.value = [item];
+    assert.equal(setup.showPersonalFitBadge(item), visible, String(score));
   }
-  const unknown = normalizeOpportunity({ id: 'unknown', particularly_suitable: true });
+  const unknown = normalizeOpportunity({ id: 'unknown' });
   opportunities.value = [unknown];
-  assert.equal(setup.showPersonalFitBadge(unknown), false, 'the flag cannot invent a numeric score');
+  assert.equal(setup.showPersonalFitBadge(unknown), false, 'unknown assessments cannot invent a numeric score');
+  assert.throws(() => normalizeOpportunity({ id: 'retired-flag', particularly_suitable: true }), /invalid canonical record/);
 });
 
 test('only unseen additions and updates from the last 24 hours form a separate group', async (t) => {

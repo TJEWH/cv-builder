@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import storageSchema from '../supabase/opportunity_schema_v5.json';
+import storageSchema from '../supabase/opportunity_schema_v6.json';
 import { createOpportunityResultSchema } from '../src/composables/opportunityResultSchema';
 
-test('canonical v5 intake requires fresh source evidence but lets the server generate stable entity identities', () => {
+test('canonical v6 intake requires fresh source evidence but lets the server generate stable entity identities', () => {
   const input = createOpportunityResultSchema();
-  assert.equal(input['x-canonical-version'], 5);
+  assert.equal(input['x-canonical-version'], 6);
   assert.equal(input.properties.last_checked_at!.type, 'string');
   assert.equal(input.properties.sources!.minItems, 1);
   assert.deepEqual(input.$defs.person!.required, []);
@@ -16,9 +16,13 @@ test('canonical v5 intake requires fresh source evidence but lets the server gen
   assert.deepEqual(input.$defs.source!.required, ['url', 'kind', 'checked_at', 'precision', 'supports']);
   assert.deepEqual(input.required, ['opportunity_key', 'title', 'last_checked_at', 'sources']);
   assert.equal(input.additionalProperties, false);
+  for (const key of ['particularly_suitable', 'particularly_suitable_reason', 'special_features']) {
+    assert.equal(Object.hasOwn(input.properties, key), false);
+  }
+  assert.match(input.properties.research_summary!.description as string, /Unique selling points/);
 });
 
-test('canonical v5 intake exposes only the closed, bounded expected-value correction contract', () => {
+test('canonical v6 intake exposes only the closed, bounded expected-value correction contract', () => {
   const control = createOpportunityResultSchema().properties.merge_control!;
   assert.deepEqual(control, { type: 'object', additionalProperties: false, properties: {
     corrections: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['path', 'expected', 'reason'],

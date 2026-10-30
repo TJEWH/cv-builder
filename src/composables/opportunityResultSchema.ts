@@ -1,4 +1,4 @@
-import storageSchema from '../../supabase/opportunity_schema_v5.json';
+import storageSchema from '../../supabase/opportunity_schema_v6.json';
 
 export interface OpportunityResultSchema {
   [keyword: string]: unknown;
@@ -7,7 +7,7 @@ export interface OpportunityResultSchema {
 }
 
 /**
- * Static canonical v5 intake schema, matching the reviewed
+ * Static canonical v6 intake schema, matching the reviewed
  * private.opportunity_search_result_schema() derivation. Storage requires
  * server-generated entity/source identities; incoming research does not.
  * No database discovery or external schema fetch is performed.

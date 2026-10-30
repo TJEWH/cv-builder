@@ -8,7 +8,9 @@ The user authorized deletion of the unused **Test** project (`vhkfrseocgiqxshrbe
 
 ## Opportunity merge protocol
 
-[`opportunity_canonical_v5.sql`](opportunity_canonical_v5.sql) was installed in **phd-workflow** on **2026-10-28** as migration `20261028221555`, after v4 (`20261028210636`) and its audit index (`20261028210937`). The owner authorized a one-time conversion of all 186 opportunity payloads and confirmed their existing ratings use 0–10. Original rows are privately archived; all rating numbers, IDs/timestamps, 186 reviews and 29 applications were preserved. Future intake and storage enforce [one closed canonical schema](opportunity_schema_v5.json); legacy conversion and generic JSON union helpers have been removed. The active protocol is `opportunity-search-v1-canonical-5`. See [the contract, installed-function verification and isolated rollback tests](../docs/opportunity-merge.md).
+The current catalogue uses [canonical schema 6](opportunity_schema_v6.json) and protocol `opportunity-search-v1-canonical-6`. Apply [`opportunity_description.sql`](opportunity_description.sql) once after the canonical v5 and adaptive-search upgrades. It removes redundant suitability fields and moves useful existing reasons/features into “Unique selling points” at the end of `research_summary`, including frozen application descriptions. It preserves IDs, timestamps, reviews and application workflow state, and privately archives before/after representations. See [the contract and isolated upgrade tests](../docs/opportunity-merge.md).
+
+The earlier [`opportunity_canonical_v5.sql`](opportunity_canonical_v5.sql) conversion remains an installation prerequisite and historical test fixture. Do not replay historical conversions over the current catalogue.
 
 ## Adaptive search release (AF-01–AF-11)
 

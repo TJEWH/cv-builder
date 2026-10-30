@@ -50,6 +50,7 @@ test('AF-07 concurrent logical starts serialize one active run and exact retries
 });
 
 test('AF-07 the actual SQL bundle passes the same complete DTO projector used for preview', async () => {
+  sql(file('../../supabase/opportunity_description.sql'));
   assert.equal(sql("select to_regprocedure('private.begin_adaptive_opportunity_search(uuid,uuid)') is not null;"), 't', 'Install startup prerequisites before creating fixtures');
   const owner = randomUUID(), search = randomUUID(), run = randomUUID(), project = 'abcdefghijklmnopqrst';
   sql(`insert into auth.users(id) values('${owner}');

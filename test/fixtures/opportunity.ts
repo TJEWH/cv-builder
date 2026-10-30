@@ -16,10 +16,10 @@ export function opportunityFixture(overrides: Record<string, unknown> & { id: st
     position_type: null, availability: null, deadline: null, deadline_time_local: null, deadline_timezone: null,
     deadline_original_text: null, start_date: null, official_url: null, source_url: null, application_url: null,
     verification_level: 'historical_context', source_context: null, duration_details: null, research_summary: null,
-    particularly_suitable_reason: null, topics: [], special_features: [], open_questions: [], contacts: [], supervisors: [],
+    topics: [], open_questions: [], contacts: [], supervisors: [],
     supervisor_research_focus: {}, supervisor_top_papers: [], supervisor_reputation: {}, salary: {},
     personal_fit: unrated(), research_career_potential: unrated(), rd_career_potential: unrated(), hardware_software_balance: {},
-    particularly_suitable: null, requirements: [], required_documents: [], data: {}, last_checked_at: null, sources: [], created_at: null, updated_at: null,
+    requirements: [], required_documents: [], data: {}, last_checked_at: null, sources: [], created_at: null, updated_at: null,
     ...fields,
   });
 }

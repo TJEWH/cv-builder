@@ -9,7 +9,7 @@ import {
 
 const id = (index: number) => `74000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`;
 const basis = (patch: Partial<AdaptiveSearchPlanBasis> = {}): AdaptiveSearchPlanBasis => ({ base_revision: 2, feedback_revision: 3,
-  preference_revision: 1, protocol_version: 'opportunity-search-v1-canonical-5', ...patch });
+  preference_revision: 1, protocol_version: 'opportunity-search-v1-canonical-6', ...patch });
 const query = (index: number, patch: Partial<AdaptiveSearchQueryInput> = {}): AdaptiveSearchQueryInput => ({ query_id: id(index),
   query: `site:example.invalid funded BCI research ${index}`, role: 'adaptive', ...patch });
 

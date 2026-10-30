@@ -1,7 +1,7 @@
-// Generated from supabase/opportunity_schema_v5.json by scripts/generateOpportunityTypes.mjs.
+// Generated from supabase/opportunity_schema_v6.json by scripts/generateOpportunityTypes.mjs.
 // Edit the schema and regenerate; catalogue consumers use these structured values directly.
 
-export const OPPORTUNITY_SCHEMA_VERSION = 5 as const;
+export const OPPORTUNITY_SCHEMA_VERSION = 6 as const;
 
 export type OpportunityFact = {
   "label": string;
@@ -215,7 +215,6 @@ export type Opportunity = {
   "deadline_original_text": string | null;
   "research_summary": string | null;
   "duration_details": string | null;
-  "particularly_suitable_reason": string | null;
   "source_context": string | null;
   "opportunity_key": string;
   "title": string;
@@ -228,7 +227,6 @@ export type Opportunity = {
   "deadline_time_local": string | null;
   "deadline_timezone": string | null;
   "topics": Array<string>;
-  "special_features": Array<string>;
   "open_questions": Array<string>;
   "supervisors": Array<OpportunityPerson>;
   "contacts": Array<OpportunityPerson>;
@@ -242,7 +240,6 @@ export type Opportunity = {
   "personal_fit": OpportunityAssessment;
   "rd_career_potential": OpportunityAssessment;
   "research_career_potential": OpportunityAssessment;
-  "particularly_suitable": boolean | null;
   "data": OpportunityData;
   "last_checked_at": string | null;
   "sources": Array<OpportunitySource>;

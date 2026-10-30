@@ -1,6 +1,8 @@
-# Opportunity schema and merge contract 5
+# Opportunity schema and merge contract 6
 
-The current contract is defined by [the canonical JSON Schema](../supabase/opportunity_schema_v5.json) and [the transactional v5 migration](../supabase/opportunity_canonical_v5.sql). Bootstrap/search signatures remain contract 1. Installed in **phd-workflow** on **2026-10-28** as migration `20261028221555` (`opportunity_canonical_payload_v5`). The active protocol is `opportunity-search-v1-canonical-5`; `metadata_schema_version` is 5 for every current catalogue record. This is a one-time conversion followed by canonical-only intake, not ongoing compatibility parsing.
+The current code contract is defined by [the canonical JSON Schema](../supabase/opportunity_schema_v6.json) and [the description migration](../supabase/opportunity_description.sql). Apply the migration after the v5 conversion and installed adaptive-search upgrades, before rolling out this frontend. Bootstrap/search signatures remain contract 1. The upgraded protocol is `opportunity-search-v1-canonical-6`; every migrated catalogue record has `metadata_schema_version: 6`. Intake and storage accept only that closed schema.
+
+The description ends with a “Unique selling points” section containing distinguishing job features and specific fit rationale. Separate suitability flags, suitability-reason fields and special-features lists have been removed. The one-time migration appends existing useful text without duplicate bullets, remaps evidence to `research_summary`, and updates frozen application descriptions without refreshing their research or changing application state. A private before/after archive supports administrator inspection; normal readers and writers do not convert retired fields.
 
 ## One-time conversion
 
@@ -29,13 +31,12 @@ All nested object shapes are closed in JSON Schema. The server assigns stable en
 | Fields | Representation and merge policy |
 | --- | --- |
 | `opportunity_key` | Immutable canonical key; matching alternate keys can become identity aliases. |
-| `title`, `institution`, `unit`, `city`, `country`, `position_type`, `availability`, `verification_level`, `source_context`, `duration_details`, `research_summary`, `particularly_suitable_reason` | Evidence-aware scalars. Missing/empty partial values retain current information. |
+| `title`, `institution`, `unit`, `city`, `country`, `position_type`, `availability`, `verification_level`, `source_context`, `duration_details`, `research_summary` | Evidence-aware scalars. Missing/empty partial values retain current information. |
 | `vacancy_id` | Institution-scoped string. Conflicting nonempty IDs stop automatic matching; correction requires exact expected value and adequate evidence. |
 | `official_url`, `source_url`, `application_url` | Scalar URLs; `data.url_roles` distinguishes vacancy, listing, application and context pages. URL identity retains case-sensitive paths and removes tracking parameters. |
 | `deadline`, `deadline_time_local`, `deadline_timezone`, `deadline_original_text` | Coherent date/local-time/established-zone/original-wording tuple. Rejected tuple changes reject the proposed tuple together. Date-only values do not acquire an assumed official time. |
 | `start_date` | ISO date or null; never invent a day for a start window. |
-| `particularly_suitable` | Nullable boolean; false is meaningful. |
-| `topics`, `special_features`, `open_questions`, named methods/roles/conditions/formats and similar lists | Deterministic normalized string sets. URL lists use URL-aware identity and preserve case-sensitive paths. Unspecified members survive. |
+| `topics`, `open_questions`, named methods/roles/conditions/formats and similar lists | Deterministic normalized string sets. URL lists use URL-aware identity and preserve case-sensitive paths. Unspecified members survive. |
 | `contacts`, `supervisors` | Arrays of people with `entity_id`, name/email/ORCID, `roles`, typed verification, source URLs and structured notes. Match stable ID/ORCID/email, then unambiguous compatible name. Contradictory identities do not collapse. |
 | `requirements`, `required_documents` | Arrays of `{entity_id,text,status,stage,conditions,...}`. Match ID or normalized text within its application stage. Required, optional, conditional, preferred, recommended, desired, advantageous and unspecified are distinct. |
 | `supervisor_top_papers` | Flat publication array with stable IDs, DOI/URL/title/year identity, supervisor associations, selection basis, relevance and sources. |
@@ -84,6 +85,8 @@ The v5 suite converts an authored synthetic legacy catalogue containing duplicat
 
 ## Guarded rollback
 
+The v5 rollback below applies only to an unchanged v5 installation. After the v6 description migration, use a separately reviewed forward correction; do not replay v5 rollback over the current schema.
+
 Migration rollback is administrator-only and preview-first:
 
 ```sql
@@ -96,7 +99,7 @@ Run-specific rollback remains `private.rollback_opportunity_search_merge(run_uui
 
 ## Installation history
 
-V4 was installed on 2026-10-28 as `20261028210636` (`opportunity_search_merge_v4`) plus audit FK index `20261028210937`. All 34 installed function bodies matched reviewed source and all 186 opportunity rows remained unchanged (complete-record SHA-256 `45707d4f315ef7253c159114d6e371167ab2b62bd92e017c56a381d97e924fe8`). That checksum is the v5 conversion input, not the expected checksum after normalization. The v4 migration and isolated regression fixtures remain necessary to rehearse the v5 upgrade and rollback; installation checks now target the active canonical v5 contract.
+V4 was installed on 2026-10-28 as `20261028210636` (`opportunity_search_merge_v4`) plus audit FK index `20261028210937`. All 34 installed function bodies matched reviewed source and all 186 opportunity rows remained unchanged (complete-record SHA-256 `45707d4f315ef7253c159114d6e371167ab2b62bd92e017c56a381d97e924fe8`). That checksum is the v5 conversion input, not the expected checksum after normalization. The v4 migration and isolated regression fixtures remain necessary to rehearse the v5 upgrade and rollback; installation checks now target the active canonical v6 contract.
 
 ## Canonical data consumers
 
@@ -107,3 +110,8 @@ Canonical people remain single entries with nested contact/evidence links. Every
 The follow-up verification checked production using aggregate queries only: 186 valid opportunities, 791 requirement entries, 710 document entries and no duplicate contact identities. All 29 existing application snapshots also have no duplicate contacts and remain frozen in their original format. New applications capture canonical data; existing snapshots change only through an explicit context refresh, never an implicit template/letter action.
 
 The 137 targeted consumer tests cover canonical display strings, component rendering in English/German, complete requirement/document transfer into letter refinement, nested-ID suppression, public references, checklist semantics and unchanged snapshots. Desktop and a real 390px iframe browsing context were checked through the browser fixture; `test/browser/job-workspace.html?flow=canonical-data` and `test/browser/canonical-opportunity-mobile.html` reproduce that inspection with synthetic records. Typecheck/build pass. These frontend changes are local repository changes; the production database was only read during this follow-up.
+
+
+## Description contract verification
+
+`test/opportunityCanonical/description.test.ts` rehearses the v5-to-v6 upgrade with synthetic records, verifies full rollback on failure, preserves all review/application state, checks the exact schema and evidence mappings, and exercises v6 writes, verification and idempotent retries. The current evaluation integration suite also applies v6 over the complete adaptive-search installation, checking startup/readiness and all installed protocol guards.

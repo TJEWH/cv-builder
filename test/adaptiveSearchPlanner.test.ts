@@ -14,7 +14,7 @@ import {
 const id = (index: number) => `78000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`;
 const owner = id(900), search = id(901);
 const basis = (patch: Partial<AdaptiveSearchPlanBasis> = {}): AdaptiveSearchPlanBasis => ({ base_revision: 2, feedback_revision: 1,
-  preference_revision: 0, protocol_version: 'opportunity-search-v1-canonical-5', ...patch });
+  preference_revision: 0, protocol_version: 'opportunity-search-v1-canonical-6', ...patch });
 const criteria = (patch: Partial<SearchCriteria> = {}): SearchCriteria => ({
   opportunityTypes: 'Funded PhD positions', topicsAndMethods: 'Acoustics; Robotics; BCI; avoid routine administration',
   locationsAndLanguages: 'Prioritize Scandinavia; English or German', fundingAndConditions: 'Funded; beginning around 2027',

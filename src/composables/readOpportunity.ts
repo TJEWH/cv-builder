@@ -1,4 +1,4 @@
-import schema from '../../supabase/opportunity_schema_v5.json';
+import schema from '../../supabase/opportunity_schema_v6.json';
 import type { Opportunity } from '../opportunityTypes';
 
 type Schema = boolean | { $ref?: string; type?: string | string[]; properties?: Record<string, Schema>; required?: string[];

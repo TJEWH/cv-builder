@@ -19,7 +19,7 @@ export interface OpportunityContextNode {
   evidence?: { text: string; href: string }[];
 }
 
-export type OpportunityContextGroupId = 'overview' | 'links' | 'suitability' | 'advisor' | 'salary' | 'requirements' | 'documents' | 'metadata';
+export type OpportunityContextGroupId = 'overview' | 'links' | 'advisor' | 'salary' | 'requirements' | 'documents' | 'metadata';
 export interface OpportunityContextGroup {
   id: OpportunityContextGroupId;
   label: string;
@@ -33,15 +33,13 @@ const GROUPS: [OpportunityContextGroupId, string, string][] = [
   ['salary', 'Salary & funding', 'Gehalt & Finanzierung'],
   ['advisor', 'Advisor & lab context', 'Betreuung & Forschungsgruppe'],
   ['links', 'Links & contacts', 'Links & Kontakte'],
-  ['suitability', 'Particularly suitable', 'Besonders passend'],
   ['metadata', 'Metadata', 'Metadaten'],
 ];
 
 const FIELD_GROUPS: Record<OpportunityContextGroupId, string[]> = {
   links: ['official_url', 'application_url', 'source_url', 'sources', 'links', 'contacts', 'contact', 'contact_email', 'email', 'website'],
   overview: ['research_summary', 'project_summary', 'project_description', 'personal_fit', 'research_fit',
-    'research_career_potential', 'rd_career_potential', 'hardware_software_profile', 'cv_track'],
-  suitability: ['particularly_suitable', 'particularly_suitable_reason', 'special_features', 'hardware_software_balance'],
+    'research_career_potential', 'rd_career_potential', 'hardware_software_profile', 'hardware_software_balance', 'cv_track'],
   advisor: ['supervisor_research_focus', 'supervisor_top_papers', 'supervisors', 'supervisor', 'supervisor_reputation',
     'research_context', 'research_focus',
     'lab', 'lab_context', 'lab_research', 'research_group', 'unit'],
@@ -66,8 +64,7 @@ const LABELS: Record<string, [string, string]> = {
   hardware_software_balance: ['Hardware / software balance', 'Hardware- / Software-Anteil'],
   hardware_software_profile: ['Hardware / software profile', 'Hardware- / Software-Profil'],
   research_fit: ['Research fit', 'Forschungspassung'],
-  personal_fit: ['Personal fit', 'Persönliche Passung'], particularly_suitable: ['Particularly suitable', 'Besonders passend'],
-  particularly_suitable_reason: ['Suitability rationale', 'Begründung der Passung'], special_features: ['Distinctive features', 'Besonderheiten'],
+  personal_fit: ['Personal fit', 'Persönliche Passung'],
   research_context: ['Research context', 'Forschungskontext'], research_track: ['Research track', 'Forschungsschwerpunkt'],
   cv_track: ['CV track', 'CV-Schwerpunkt'], research_summary: ['Research summary', 'Forschungsüberblick'],
   project_description: ['Project description', 'Projektbeschreibung'], project_summary: ['Project summary', 'Projektüberblick'],

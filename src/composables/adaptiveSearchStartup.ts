@@ -66,7 +66,7 @@ export interface AdaptiveStartupQueryPlan {
 export interface AdaptiveSearchStartupBundle {
   adaptive_contract_version: 1; bootstrap_version: 1; compatible: true;
   scope: { project_ref: string; user_id: string; search_id: string; run_id: string; authorization_epoch: string; authorization_revision: number };
-  release: { schema_version: 5; protocol_version: string; protocol_hash: string; release_revision: number };
+  release: { schema_version: 6; protocol_version: string; protocol_hash: string; release_revision: number };
   protocol_text: string; result_schema: typeof canonicalResultSchema;
   base: { revision: number; criteria: Readonly<Partial<SearchCriteria>> };
   feedback: AdaptiveStartupFeedback;
@@ -145,7 +145,7 @@ function criteria(value: unknown): Readonly<Partial<SearchCriteria>> {
 }
 function revisionBasis(value: unknown): Readonly<AdaptiveSearchPlanBasis> {
   const raw = object(value);
-  if (raw.protocol_version !== 'opportunity-search-v1-canonical-5') fail('incompatible_release');
+  if (raw.protocol_version !== 'opportunity-search-v1-canonical-6') fail('incompatible_release');
   return Object.freeze({ base_revision: integer(raw.base_revision, 1), feedback_revision: integer(raw.feedback_revision),
     preference_revision: integer(raw.preference_revision), protocol_version: raw.protocol_version });
 }
@@ -154,7 +154,7 @@ function binding(value: AdaptiveStartupBinding): AdaptiveStartupBinding {
   if (raw.enabled !== true) fail('runner_disabled');
   if (raw.authorized !== true) fail('authorization_revoked');
   if (typeof raw.project_ref !== 'string' || !/^[a-z0-9][a-z0-9_-]{2,62}$/u.test(raw.project_ref)) fail('scope_unavailable');
-  if (raw.protocol_version !== 'opportunity-search-v1-canonical-5') fail('incompatible_release');
+  if (raw.protocol_version !== 'opportunity-search-v1-canonical-6') fail('incompatible_release');
   return { project_ref: raw.project_ref, user_id: identity(raw.user_id), search_id: identity(raw.search_id), enabled: true, authorized: true,
     authorization_epoch: identity(raw.authorization_epoch), authorization_revision: integer(raw.authorization_revision, 1),
     release_revision: integer(raw.release_revision, 1), protocol_version: raw.protocol_version, protocol_hash: digest(raw.protocol_hash) };
@@ -183,14 +183,14 @@ function privacy(value: AdaptiveStartupPrivacy): AdaptiveStartupPrivacy {
 function policy(value: unknown, owner: string, search: string): Readonly<AdaptiveSearchPolicy> {
   const raw = object(value);
   return buildAdaptiveSearchPlanningContext({ user_id: owner, search_id: search, base_criteria: {}, basis: { base_revision: 1,
-    feedback_revision: 0, preference_revision: 0, protocol_version: 'opportunity-search-v1-canonical-5' }, approved_rules: [], feedback: null,
+    feedback_revision: 0, preference_revision: 0, protocol_version: 'opportunity-search-v1-canonical-6' }, approved_rules: [], feedback: null,
     core_queries: [], due_sources: [], adaptation_enabled: false, adaptation_paused: false, structured_feedback_enabled: false,
     policy: raw as unknown as AdaptiveSearchPolicy }).policy;
 }
 function preferences(value: unknown, owner: string, search: string): AdaptiveSearchStartupBundle['preferences'] {
   const raw = object(value), rules = validateApprovedAdaptiveRules(raw.approved_rules);
   const context = buildAdaptiveSearchPlanningContext({ user_id: owner, search_id: search, base_criteria: {}, basis: { base_revision: 1,
-    feedback_revision: 0, preference_revision: 0, protocol_version: 'opportunity-search-v1-canonical-5' }, approved_rules: rules, feedback: null,
+    feedback_revision: 0, preference_revision: 0, protocol_version: 'opportunity-search-v1-canonical-6' }, approved_rules: rules, feedback: null,
     core_queries: [], due_sources: [], adaptation_enabled: false, adaptation_paused: false, structured_feedback_enabled: false });
   if (!same(raw.approved_preferences, context.approved_preferences)) fail('invalid_bundle');
   return Object.freeze({ revision: integer(raw.revision), approved_rules: rules, approved_preferences: context.approved_preferences });
@@ -388,7 +388,7 @@ export async function projectAdaptiveSearchStartup(value: unknown, context: {
     const expectedExecution = batchContract ? ADAPTIVE_BATCH_EXECUTION_CONTRACT : ADAPTIVE_STARTUP_EXECUTION_CONTRACT;
     const expectedProtocol = batchContract ? ADAPTIVE_BATCH_PROTOCOL_TEXT : ADAPTIVE_STARTUP_PROTOCOL_TEXT;
     if (raw.adaptive_contract_version !== 1 || raw.bootstrap_version !== 1 || raw.compatible !== true
-      || release.schema_version !== 5 || release.protocol_version !== authorized.protocol_version || release.protocol_hash !== authorized.protocol_hash
+      || release.schema_version !== 6 || release.protocol_version !== authorized.protocol_version || release.protocol_hash !== authorized.protocol_hash
       || release.release_revision !== authorized.release_revision || !same(raw.result_schema, canonicalResultSchema)
       || raw.protocol_text !== expectedProtocol || !same(raw.capabilities, expectedCapabilities)
       || !same(raw.execution_contract, expectedExecution)) fail('incompatible_release');
@@ -456,7 +456,7 @@ export async function projectAdaptiveSearchStartup(value: unknown, context: {
         ...(suppressAdaptive ? { adaptive: 0, exploration: 0 } : {}) }), blocked_core_queries: Object.freeze(blocked), refresh_required: changed || sourceQuerySuppressed || planner.refresh_required });
     const bundle: AdaptiveSearchStartupBundle = {
       adaptive_contract_version: 1, bootstrap_version: 1, compatible: true, scope: capturedScope,
-      release: Object.freeze({ schema_version: 5, protocol_version: authorized.protocol_version, protocol_hash: authorized.protocol_hash, release_revision: authorized.release_revision }),
+      release: Object.freeze({ schema_version: 6, protocol_version: authorized.protocol_version, protocol_hash: authorized.protocol_hash, release_revision: authorized.release_revision }),
       protocol_text: expectedProtocol, result_schema: structuredClone(canonicalResultSchema), base, feedback: redacted.packet, preferences: prefs,
       query_plan: pinnedPlan ? Object.freeze({ ...pinnedPlan, document: Object.freeze({ schema_version: 2, queries: Object.freeze(retainedQueries!) }) }) : null,
       legacy_core_queries: legacy, due_sources: Object.freeze(dueAllowed), source_context: Object.freeze(sourceMetadata.filter(source => requiredSourceIds.has(source.registry_id) && sourceAllowed(source.registry_id))), planning: safePlanning,
